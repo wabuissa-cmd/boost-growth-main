@@ -1,0 +1,37 @@
+{
+  "summary": "Boost Growth Portal v4 (Feb 2026): Backend 17/17 pytest tests PASS (100%). All new features verified: 25 clients with multi-service locations (Saleh #009 has 3 locs, Salman #038 has 2 HS+SS), 25 intake (12 pre + 13 post) with new fields service/district/time_pref/diagnosis/language/priority (Reema Idrees HS/Iraqi verified), 5 resources with visibility filter (admin=5, therapist=3 — excludes Client Files/HR Files), 5 directory contacts seeded (Genan as Direct Manager, Ms. Walaa, Ms. Maha, Ms. Fahdah), PUT /api/directory/{id} edit works, Resources CRUD (create/update/delete) works, Intake priority=true creation verified, Intake 403 for therapist, 17 therapists seeded (Ms. Asma + Ms. Jenan added). Frontend Playwright run could NOT complete admin UI verification because the two-step login (click 'Admin / Supervisor' card -> fill email/password) was not reachable via the tried selectors — the text/button overlay intercepted clicks. Admin-side UI from v3 was already verified as functional.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Admin login via Playwright", "issue": "Two-step login (clickable 'Admin / Supervisor' card then email/password form) could not be auto-driven — automation clicked text div but email/password inputs never appeared. Not verified: Schedule 'Sheet'/'Per Therapist'/'By Day' view toggle, Clients multi-service pills, Intake tabs/tiles, Resources grouped sections, Directory Edit modal. Needs main agent self-test or a data-testid on the admin role-chooser button.", "affected_selectors": ["button:has-text('Admin / Supervisor')", "[data-testid='admin-role-btn']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Update /app/memory/test_credentials.md: now 17 therapists (not 13). Add Ms. Najla, Ms. Walaa, Ms. Asma, Ms. Jenan. Client count now 25 (not 20). Intake seed 25 items (12 pre + 13 post).",
+    "Add data-testid='admin-login-card' on the 'Admin / Supervisor' button and data-testid='therapist-login-card' on the therapist option of /login so automation can drive the two-step flow.",
+    "Main agent should self-verify admin UI for Feb 2026 features: (1) /schedule defaults to 'Sheet' view with view-toggle buttons visible, (2) /clients shows multi-service HS/SS pills for files 009/038, (3) /intake shows Pre/Post tabs + TOTAL/HS/SS/PRIORITY tiles + Service/District/Time/Diagnosis columns, (4) /resources shows 3 grouped sections (THERAPIST RESOURCES / SHARED WITH EVERYONE / ADMIN ONLY) for admin, (5) /directory shows 5 cards with Edit button that opens modal, (6) / (Home) shows weekly sessions KPI."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 1198 lines — exceeds 700-line guideline; consider splitting into routers/models/seed modules.",
+    "CORS still uses allow_origins=['*'] with allow_credentials=True — browsers will ignore credentials. For prod, switch to explicit origin list from env.",
+    "No brute-force lockout on /api/auth/login or /api/auth/therapist-login (auth playbook recommends 5-fail lockout).",
+    "JWT cookie uses SameSite=None without SameSite=Lax fallback — works but tightly bound to HTTPS cross-site.",
+    "Intake seed bypasses Pydantic defaults: items without priority/service/etc do not have those keys persisted in MongoDB. Frontend code must handle missing-key gracefully (use ?? / optional chaining).",
+    "Re-seed of clients relies on client_seed_version=6 bump — works but any admin-added client is dropped when version bumps. Consider merging instead of delete_many.",
+    "@app.on_event('startup') is deprecated in FastAPI — switch to lifespan context manager."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (17/17 pytest)", "frontend": "Not verified this iteration due to login selector issue; v3 admin UI verification remains valid"},
+  "test_credentials": "Admin: admin@boost-growthsa.com / BoostAdmin@2026 ; 17 therapists PIN=0000 (Ms. Maha, Fahda, Razan, Manal, Hajer, Rahaf, Shatha, Alhanouf, Waad, Bodoor, Fatimah, Shrooq, Abeer, Najla, Walaa, Asma, Jenan)",
+  "seed_data_creation": "Backend auto-seeds: 1 admin + 17 therapists (PIN=0000) + 25 clients (client_seed_version=6, full multi-service locations) + 25 intake (12 pre + 13 post with service/district/time_pref/diagnosis/language/priority) + 5 directory contacts + 5 resources with visibility. Verified via pytest.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend fully green (17/17). Frontend admin-side NOT re-verified this run because Playwright could not click the 'Admin / Supervisor' role card to reveal email/password. Suggest: (a) add data-testid to login role cards, (b) then run Playwright to verify /schedule view toggle, /clients pills, /intake tiles/tabs, /resources grouping, /directory Edit modal, /home weekly KPI. Backend test file at /app/backend/tests/backend_test.py covers the v4 Feb-2026 changes (25 clients multi-loc, 25 intake new fields, 5 resources visibility, directory edit, resources CRUD, intake priority, therapist 403 on intake).",
+  "rca of the issue": "N/A — no backend bugs. Frontend UI login blockade in Playwright is a test-automation gap (missing data-testid on role cards), not an application bug."
+}

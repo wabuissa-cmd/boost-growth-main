@@ -1,0 +1,2491 @@
+from dotenv import load_dotenv
+from pathlib import Path
+ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / '.env')
+
+import os
+import re
+import uuid
+import logging
+from datetime import datetime, timezone, timedelta
+from typing import List, Optional
+
+import bcrypt
+import jwt
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Form
+from fastapi.responses import FileResponse
+from starlette.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel, EmailStr
+
+mongo_url = os.environ['MONGO_URL']
+client = AsyncIOMotorClient(mongo_url)
+db = client[os.environ['DB_NAME']]
+
+UPLOAD_DIR = ROOT_DIR / 'uploads'
+UPLOAD_DIR.mkdir(exist_ok=True)
+
+app = FastAPI(title="Boost Growth Portal API")
+api = APIRouter(prefix="/api")
+
+JWT_ALGORITHM = "HS256"
+JWT_SECRET = os.environ["JWT_SECRET"]
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+def hash_password(p: str) -> str:
+    return bcrypt.hashpw(p.encode(), bcrypt.gensalt()).decode()
+
+def verify_password(p: str, h: str) -> bool:
+    return bcrypt.checkpw(p.encode(), h.encode())
+
+def create_token(data: dict, hours: int = 24) -> str:
+    payload = {**data, "exp": datetime.now(timezone.utc) + timedelta(hours=hours)}
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def decode_token(token: str) -> dict:
+    return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+
+async def get_current_user(request: Request) -> dict:
+    token = request.cookies.get("access_token")
+    if not token:
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:]
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = decode_token(token)
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    if payload.get("role") == "admin":
+        user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
+    else:
+        user = await db.therapists.find_one({"id": payload["sub"]}, {"_id": 0, "pin_hash": 0, "password_hash": 0})
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    user["role"] = payload.get("role", user.get("role", "therapist"))
+    return user
+
+async def admin_only(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+def set_auth_cookie(response: Response, token: str):
+    response.set_cookie(key="access_token", value=token, httponly=True,
+                        secure=True, samesite="none", max_age=86400, path="/")
+
+# ------------------- Models -------------------
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str
+
+class TherapistPinLogin(BaseModel):
+    therapist_id: str
+    pin: str
+
+class TherapistEmailLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class ChangePasswordIn(BaseModel):
+    old_password: str
+    new_password: str
+
+class TherapistIn(BaseModel):
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    color: Optional[str] = "#7A8A6A"
+    pin: str
+
+class TherapistUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    color: Optional[str] = None
+    pin: Optional[str] = None
+
+class ScheduleCellIn(BaseModel):
+    therapist_id: str
+    day: int
+    time_slot: str
+    service_code: Optional[str] = "SS"
+    child_name: Optional[str] = None
+    note: Optional[str] = None
+    custom_time: Optional[str] = None
+    state: Optional[str] = "normal"
+    color: Optional[str] = None
+    duration: Optional[int] = 1  # number of time-slot rows the cell spans (1=single)
+    week_start: str
+
+class LocationIn(BaseModel):
+    service: str
+    address: str
+
+class ClientIn(BaseModel):
+    name: str
+    file_no: Optional[str] = None
+    age: Optional[str] = None
+    parent_name: Optional[str] = None
+    parent_phone: Optional[str] = None
+    package_hours: Optional[float] = 24
+    billing_mode: Optional[str] = "hours"   # "hours" (count by hours used) or "weeks" (4-week school cycle)
+    cycle_weeks: Optional[int] = 4           # for billing_mode="weeks"
+    cycle_start_date: Optional[str] = None   # ISO yyyy-mm-dd; first day of current billing cycle
+    package_end_date: Optional[str] = None   # ISO yyyy-mm-dd; package expiry / end-of-cycle date (manual)
+    payment_status: Optional[str] = "pending"  # "complete" or "pending"
+    package_reset_at: Optional[str] = None    # ISO timestamp; sessions before this are excluded from current cycle (manual reset)
+    notes: Optional[str] = None
+    main_therapist_id: Optional[str] = None
+    co_therapist_ids: Optional[List[str]] = []
+    supervisor: Optional[str] = None
+    locations: Optional[List[LocationIn]] = []
+    color: Optional[str] = None
+    drive_url: Optional[str] = None
+    # Optional client status & service type & attachment URLs (Change 4)
+    status: Optional[str] = "Active"                  # Active / Inactive
+    service_type: Optional[str] = None                # HS / SS / HS+SS / AVC
+    address: Optional[str] = None                     # general address (also via locations)
+    intake_file_url: Optional[str] = None
+    attendance_sheet_url: Optional[str] = None
+    progress_reports_url: Optional[str] = None
+    case_summary_url: Optional[str] = None
+
+class InvoiceIn(BaseModel):
+    invoice_number: str  # manual entry, e.g. "INV 4042"
+    notes: Optional[str] = None
+    amount: Optional[float] = None
+    period_from: Optional[str] = None  # ISO date (cycle start)
+    period_to: Optional[str] = None    # ISO date (package end date)
+    package_size: Optional[float] = None         # number of sessions or hours
+    payment_status: Optional[str] = "pending"    # "complete" | "pending"
+    start_date: Optional[str] = None             # ISO date - invoice cycle start (for filtering sessions)
+    service_type: Optional[str] = None           # "Home Session" | "School Support"
+    is_closed: Optional[bool] = False            # whether the invoice is closed
+    close_date: Optional[str] = None             # ISO date when closed
+
+class SessionIn(BaseModel):
+    client_id: str
+    session_date: str  # ISO date
+    start_time: Optional[str] = None  # "14:00"
+    end_time: Optional[str] = None
+    hours: float = 0
+    status: str = "Completed"  # Completed, No Service, Cancelled, No Show
+    therapist_ids: List[str] = []
+    note: Optional[str] = None
+    location: Optional[str] = None  # which location used (HS / SS)
+
+class RequestIn(BaseModel):
+    title: str
+    description: Optional[str] = ""
+    request_type: str = "general"
+    priority: str = "normal"
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    reward_type: Optional[str] = None
+    extra_notes: Optional[str] = None
+
+class RequestStatusUpdate(BaseModel):
+    status: str
+    admin_note: Optional[str] = None
+
+class DirectoryContactIn(BaseModel):
+    name: str
+    role: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+
+class IntakeIn(BaseModel):
+    child_name: str
+    parent_name: Optional[str] = None
+    phone: Optional[str] = None
+    intake_type: str = "pre"
+    notes: Optional[str] = None
+    status: Optional[str] = "new"
+    intake_date: Optional[str] = None
+    age: Optional[str] = None
+    service: Optional[str] = None          # HS / SS / HS / SS
+    district: Optional[str] = None          # Dis column
+    time_pref: Optional[str] = None         # Morning / Evening / Any
+    diagnosis: Optional[str] = None
+    language: Optional[str] = None          # Post-intake only
+    priority: Optional[bool] = False
+
+class ResourceIn(BaseModel):
+    title: str
+    description: Optional[str] = None
+    url: str
+    category: Optional[str] = "drive"       # drive / file / link
+    visibility: str = "all"                 # all / admin / therapist
+    icon: Optional[str] = "Folders"
+    bg: Optional[str] = "#E5EBE1"
+    color: Optional[str] = "#3D4F35"
+    sort_order: Optional[int] = 100
+
+class DirectoryContactUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+
+class LeaveIn(BaseModel):
+    therapist_id: str
+    start_date: str               # ISO yyyy-mm-dd
+    end_date: str
+    days: float = 1
+    leave_type: Optional[str] = "Annual"   # Annual / Unpaid / Sickleave / Exam / Emergency
+    status: Optional[str] = "pending"      # pending / approved / done / rejected / cancelled
+    notes: Optional[str] = None
+    admin_note: Optional[str] = None
+
+class LeaveStatusUpdate(BaseModel):
+    status: str
+    admin_note: Optional[str] = None
+
+class CancelNotifyIn(BaseModel):
+    cell_id: str
+    state: str                     # cancel_therapist / cancel_child
+    message: str
+    send_email: Optional[bool] = False
+    extra_email: Optional[str] = None     # override or extra recipient
+
+# ------------------- Auth -------------------
+@api.post("/auth/login")
+async def admin_login(payload: LoginIn, response: Response):
+    email = payload.email.lower()
+    user = await db.users.find_one({"email": email})
+    if not user or not verify_password(payload.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    token = create_token({"sub": user["id"], "role": "admin", "email": email})
+    set_auth_cookie(response, token)
+    return {"id": user["id"], "email": email, "name": user.get("name"), "role": "admin", "token": token}
+
+@api.get("/auth/therapists-list")
+async def therapists_list_public():
+    return await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).sort("name", 1).to_list(500)
+
+@api.post("/auth/therapist-login")
+async def therapist_login(payload: TherapistPinLogin, response: Response):
+    t = await db.therapists.find_one({"id": payload.therapist_id})
+    if not t or not verify_password(payload.pin, t["pin_hash"]):
+        raise HTTPException(status_code=401, detail="Incorrect PIN")
+    token = create_token({"sub": t["id"], "role": "therapist", "name": t["name"]})
+    set_auth_cookie(response, token)
+    return {"id": t["id"], "name": t["name"], "color": t.get("color"), "role": "therapist", "token": token,
+            "must_change_password": bool(t.get("must_change_password"))}
+
+@api.post("/auth/therapist-email-login")
+async def therapist_email_login(payload: TherapistEmailLogin, response: Response):
+    """Login a therapist using their email + password (new flow). PIN flow remains available."""
+    email = payload.email.lower().strip()
+    t = await db.therapists.find_one({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}})
+    if not t or not t.get("password_hash") or not verify_password(payload.password, t["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    token = create_token({"sub": t["id"], "role": "therapist", "name": t["name"]})
+    set_auth_cookie(response, token)
+    return {"id": t["id"], "name": t["name"], "color": t.get("color"), "email": t.get("email"),
+            "role": "therapist", "token": token,
+            "must_change_password": bool(t.get("must_change_password"))}
+
+@api.post("/auth/change-password")
+async def change_password(payload: ChangePasswordIn, user=Depends(get_current_user)):
+    """Change password for the currently logged-in user (admin or therapist)."""
+    if not payload.new_password or len(payload.new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+    if user.get("role") == "admin":
+        u = await db.users.find_one({"id": user["id"]})
+        if not u or not verify_password(payload.old_password, u["password_hash"]):
+            raise HTTPException(status_code=401, detail="Current password is incorrect")
+        await db.users.update_one({"id": user["id"]},
+                                  {"$set": {"password_hash": hash_password(payload.new_password),
+                                            "must_change_password": False}})
+    else:
+        t = await db.therapists.find_one({"id": user["id"]})
+        if not t:
+            raise HTTPException(status_code=404, detail="Therapist not found")
+        # Allow change with either current password OR current PIN (for first-time migration from PIN)
+        ok = False
+        if t.get("password_hash") and verify_password(payload.old_password, t["password_hash"]):
+            ok = True
+        elif t.get("pin_hash") and verify_password(payload.old_password, t["pin_hash"]):
+            ok = True
+        if not ok:
+            raise HTTPException(status_code=401, detail="Current password is incorrect")
+        await db.therapists.update_one({"id": user["id"]},
+                                       {"$set": {"password_hash": hash_password(payload.new_password),
+                                                 "must_change_password": False}})
+    return {"ok": True}
+
+@api.post("/therapists/{tid}/reset-password")
+async def reset_therapist_password(tid: str, _=Depends(admin_only)):
+    """Admin generates a temporary 8-character password for a therapist.
+    Therapist must change it on next login."""
+    import secrets
+    t = await db.therapists.find_one({"id": tid})
+    if not t:
+        raise HTTPException(status_code=404, detail="Therapist not found")
+    temp = secrets.token_urlsafe(6)[:8]
+    await db.therapists.update_one({"id": tid}, {"$set": {
+        "password_hash": hash_password(temp),
+        "must_change_password": True,
+    }})
+    return {"ok": True, "therapist_id": tid, "email": t.get("email"), "temp_password": temp}
+
+@api.get("/auth/me")
+async def me(user: dict = Depends(get_current_user)):
+    return user
+
+@api.post("/auth/logout")
+async def logout(response: Response):
+    response.delete_cookie("access_token", path="/")
+    return {"ok": True}
+
+# ------------------- Therapists -------------------
+@api.get("/therapists")
+async def list_therapists(user=Depends(get_current_user)):
+    return await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).sort("name", 1).to_list(500)
+
+@api.post("/therapists")
+async def create_therapist(payload: TherapistIn, _=Depends(admin_only)):
+    tid = str(uuid.uuid4())
+    doc = {"id": tid, "name": payload.name, "email": payload.email, "phone": payload.phone,
+           "color": payload.color or "#7A8A6A", "pin_hash": hash_password(payload.pin),
+           "created_at": now_iso()}
+    await db.therapists.insert_one(doc)
+    return {k: v for k, v in doc.items() if k not in ("_id", "pin_hash")}
+
+@api.put("/therapists/{tid}")
+async def update_therapist(tid: str, payload: TherapistUpdate, _=Depends(admin_only)):
+    update = {k: v for k, v in payload.model_dump().items() if v is not None and k != "pin"}
+    if payload.pin:
+        update["pin_hash"] = hash_password(payload.pin)
+    if not update:
+        raise HTTPException(status_code=400, detail="No fields")
+    await db.therapists.update_one({"id": tid}, {"$set": update})
+    return await db.therapists.find_one({"id": tid}, {"_id": 0, "pin_hash": 0, "password_hash": 0})
+
+@api.delete("/therapists/{tid}")
+async def delete_therapist(tid: str, _=Depends(admin_only)):
+    await db.therapists.delete_one({"id": tid})
+    return {"ok": True}
+
+# ------------------- Full Database Backup (admin only) -------------------
+BACKUP_COLLECTIONS = [
+    "users", "therapists", "clients", "sessions", "invoices",
+    "leaves", "requests", "progress_reports", "schedule_cells",
+    "intake_pre", "intake_post", "notifications", "attendance_sheets",
+    "email_settings", "email_queue",
+]
+
+def _json_safe(obj):
+    """Recursively convert BSON / non-JSON-native types to plain JSON values."""
+    from bson import ObjectId
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items() if k != "_id"}
+    if isinstance(obj, list):
+        return [_json_safe(x) for x in obj]
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, ObjectId):
+        return str(obj)
+    return obj
+
+@api.get("/admin/full-backup")
+async def full_backup(_=Depends(admin_only)):
+    """Return a JSON dump of every collection in the DB. Admin-only.
+    Sensitive fields like pin_hash / password_hash are stripped before export."""
+    import json
+    from fastapi.responses import Response
+    SENSITIVE = {"pin_hash", "password_hash"}
+    dump = {
+        "exported_at": now_iso(),
+        "db_name": os.environ.get("DB_NAME"),
+        "collections": {},
+    }
+    for cname in BACKUP_COLLECTIONS:
+        try:
+            docs = await db[cname].find({}, {"_id": 0}).to_list(10000)
+        except Exception:
+            docs = []
+        clean = []
+        for d in docs:
+            d2 = _json_safe(d)
+            for k in list(d2.keys()):
+                if k in SENSITIVE:
+                    d2[k] = "[REDACTED]"
+            clean.append(d2)
+        dump["collections"][cname] = clean
+    dump["totals"] = {k: len(v) for k, v in dump["collections"].items()}
+    body = json.dumps(dump, ensure_ascii=False, indent=2)
+    stamp = now_iso().replace(":", "-")[:19]
+    fname = f"boost-growth-backup-{stamp}.json"
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={fname}"},
+    )
+
+class LeaveBalanceIn(BaseModel):
+    leave_balance: float
+
+@api.put("/therapists/{tid}/leave-balance")
+async def set_leave_balance(tid: str, payload: LeaveBalanceIn, _=Depends(admin_only)):
+    await db.therapists.update_one({"id": tid}, {"$set": {"leave_balance": float(payload.leave_balance)}})
+    return await db.therapists.find_one({"id": tid}, {"_id": 0, "pin_hash": 0, "password_hash": 0})
+
+# ------------------- Master Data Seed (idempotent) -------------------
+# Source of truth for therapists & clients. Idempotent: matches by name-token
+# (therapists) and file_no (clients), updates missing fields, never deletes.
+
+MASTER_THERAPISTS = [
+    # (key,        first_name_token,  display_email,                    role,        leave_balance, join_date)
+    ("msMaha",     "Maha",     "msalthunayan@boostgrowthsa.com",  "therapist", None, None),
+    ("msFahda",    "Fahda",    "falghadeeb@boostgrowthsa.com",    "therapist", 19,   None),
+    ("msRazan",    "Razan",    "ralshatri@boostgrowthsa.com",     "therapist", 21,   None),
+    ("msManal",    "Manal",    "maldosery@boostgrowthsa.com",     "therapist", 7,    None),
+    ("msAsma",     "Asma",     "asma@boostgrowthsa.com",          "therapist", None, None),
+    ("msHajer",    "Hajer",    "halfulaij@boostgrowthsa.com",     "therapist", 11,   None),
+    ("msRahaf",    "Rahaf",    "raljuhani@boostgrowthsa.com",     "therapist", 7,    None),
+    ("msShatha",   "Shatha",   "salhammamy@boostgrowthsa.com",    "therapist", 21,   "2025-04-06"),
+    ("msAlhanouf", "Alhanouf", "aalroman@boostgrowthsa.com",      "therapist", 0,    "2025-07-14"),
+    ("msWaad",     "Waad",     "walhamed@boostgrowthsa.com",      "therapist", 0,    "2025-08-24"),
+    ("msBodoor",   "Bodoor",   "baalkhlifah@boostgrowthsa.com",   "therapist", 28,   "2025-10-21"),
+    ("msFatimah",  "Fatimah",  "falkhater@boostgrowthsa.com",     "therapist", 26,   "2025-11-09"),
+    ("msShrooq",   "Shrooq",   "salamri@boostgrowthsa.com",       "therapist", 18,   "2026-02-08"),
+    ("msAbeer",    "Abeer",    "aalshreef@boostgrowthsa.com",     "therapist", None, None),
+    ("msNaja",     "Naja",     "naja@boostgrowthsa.com",          "therapist", None, None),
+]
+
+MASTER_CLIENTS = [
+    # (file_no, name,                 main_key,  co_keys,                   pkg, supervisor_key, service, address)
+    ("009", "Saleh Ahusainy",        "msWaad",     ["msManal", "msFahda"],     24, "msFahda", "SS/HS", "Alnakeel"),
+    ("011", "Fahad Alyahya",         "msAlhanouf", ["msFahda"],                24, "msFahda", "HS/SS", "Alyasmin"),
+    ("018", "Layan AlSaud",          "msJenan",    [],                         24, "msJenan", "ABA",   "Alaqiq"),
+    ("023", "Yahya Alqahtani",       "msHajer",    ["msManal"],                24, "msFahda", "HS",    "Alaarid"),
+    ("024", "Abdulaziz Alrasheed",   "msShatha",   ["msManal", "msHajer"],     40, "msFahda", "HS",    "Alnada Bldg 26"),
+    ("027", "Mohammed Alaqel",       "msRahaf",    ["msFahda"],                24, "msFahda", "HS",    "AlMalqa"),
+    ("030", "Husam Alturaigy",       "msManal",    ["msShatha"],               24, "msFahda", "SS/HS", "Whales daycare"),
+    ("034", "Aljouhrah Alduailij",   "msFahda",    [],                         24, "msFahda", "SS",    "Alnakheel Talat"),
+    ("035", "Saad Alghamdi",         "msShatha",   ["msHajer", "msFatimah"],   40, "msMaha",  "HS/SS", "Al Aqiq"),
+    ("037", "Suzan Alsultan",        "msAsma",     [],                         24, "msMaha",  "SS",    "King Fahad Villa"),
+    ("038", "Salman Alrasheed",      "msManal",    ["msFahda"],                24, "msMaha",  "SS/HS", "Stars of Knowledge"),
+    ("040", "Abdulaziz AlAbdulwahab","msFatimah",  ["msFahda", "msHajer"],     40, "msMaha",  "HS",    "Alraed"),
+    ("041", "Ameerah Alshehri",      "msFahda",    ["msFatimah"],              24, "msMaha",  "HS",    "Roshen"),
+    ("042", "Sultan Aldamer",        "msShrooq",   ["msRahaf", "msManal"],     40, "msMaha",  "SS/HS", "Bright Mind"),
+    ("047", "Alwaleed Alotaibi",     "msHajer",    ["msAlhanouf"],             20, "msMaha",  "HS/SS", "Alqairawan"),
+    ("052", "Sulaiman Alkhurashi",   "msRahaf",    ["msMaha"],                 24, "msMaha",  "HS",    "Alsulaimanyah"),
+    ("054", "Omar Alkhurashi",       "msManal",    ["msMaha"],                 16, "msMaha",  "HS",    "Alsulaimanyah"),
+    ("060", "Mohammed Albedayea",    "msBodoor",   ["msShatha"],               40, "msMaha",  "HS/SS", "Alyasmin"),
+    ("061", "Ibrahim Alnasir",       "msRahaf",    ["msFahda"],                24, "msFahda", "HS/SS", "Alyasmin"),
+    ("062", "Lulu Almutair",         "msRazan",    ["msFahda"],                24, "msFahda", "HS/SS", "Almuroj"),
+    ("063", "Amani Ghaith",          "msMaha",     [],                         24, "msMaha",  "HS",    "Alnakheel"),
+    ("065", "Aser Alharbi",          "msNaja",     ["msMaha"],                 24, "msMaha",  "HS",    "Al Izdihar"),
+    ("068", "Abdulrahman Alshawi",   "msRazan",    ["msFahda"],                24, "msFahda", "HS/SS", "AR Rayan"),
+    ("070", "Abdulelah Almuhana",    "msAbeer",    ["msMaha"],                 40, "msMaha",  "SS",    "Manarat Riyadh"),
+    ("072", "Khalid Bin Shuael",     "msShatha",   ["msFahda"],                24, "msFahda", "HS",    "AlMursalat"),
+    ("079", "Fahad Suliman",         "msNaja",     ["msFahda"],                40, "msFahda", "HS",    "Al-Sahafa"),
+]
+
+async def _resolve_therapist_id(key_to_id: dict, key: str) -> Optional[str]:
+    return key_to_id.get(key)
+
+@api.post("/admin/seed-master-data")
+async def seed_master_data(_=Depends(admin_only)):
+    """Idempotently seed/update therapists and clients with the canonical master list.
+    - Therapists: match by first-name token (case-insensitive) inside existing DB name.
+      If found -> update (key, role, leave_balance, join_date) WITHOUT touching name/email.
+      If not found -> create new therapist with display_email and default PIN 0000.
+    - Clients: match by file_no. If found -> patch missing/new fields. If not found -> create.
+    - Never deletes any record. Sessions/invoices remain intact.
+    """
+    results = {"therapists": {"updated": [], "created": [], "skipped": []},
+               "clients": {"updated": [], "created": [], "skipped": []}}
+
+    # 1) Therapists
+    existing_ts = await db.therapists.find({}, {"_id": 0}).to_list(500)
+    key_to_id: dict = {}
+    for (key, first, email, role, leave_balance, join_date) in MASTER_THERAPISTS:
+        match = next((t for t in existing_ts if first.lower() in (t.get("name") or "").lower()), None)
+        update = {"key": key, "role": role}
+        if leave_balance is not None:
+            update["leave_balance"] = leave_balance
+        if join_date is not None:
+            update["join_date"] = join_date
+        if match:
+            await db.therapists.update_one({"id": match["id"]}, {"$set": update})
+            key_to_id[key] = match["id"]
+            results["therapists"]["updated"].append({"key": key, "id": match["id"], "name": match.get("name")})
+        else:
+            tid = str(uuid.uuid4())
+            doc = {"id": tid, "name": f"Ms. {first}", "email": email,
+                   "color": "#7A8A6A", "pin_hash": hash_password("0000"),
+                   "must_change_password": True,
+                   "created_at": now_iso(), **update}
+            await db.therapists.insert_one(doc)
+            key_to_id[key] = tid
+            results["therapists"]["created"].append({"key": key, "id": tid, "name": doc["name"]})
+
+    # Build supplementary key->id map by also probing first-name tokens
+    # (catches therapists already in DB but not in MASTER_THERAPISTS like msJenan, msWalaa)
+    for t in await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1}).to_list(500):
+        if t.get("key") and t["key"] not in key_to_id:
+            key_to_id[t["key"]] = t["id"]
+    # Also probe by first-name match for any keys still missing (e.g. msJenan)
+    for client_row in MASTER_CLIENTS:
+        for k in [client_row[2]] + list(client_row[3]) + [client_row[5]]:
+            if k and k not in key_to_id:
+                token = k[2:] if k.startswith("ms") else k
+                hit = await db.therapists.find_one({"name": {"$regex": token, "$options": "i"}}, {"_id": 0, "id": 1})
+                if hit:
+                    key_to_id[k] = hit["id"]
+                    await db.therapists.update_one({"id": hit["id"]}, {"$set": {"key": k}})
+
+    # 2) Clients
+    for (file_no, name, main_k, co_ks, pkg, sup_k, service, address) in MASTER_CLIENTS:
+        match = await db.clients.find_one({"file_no": file_no})
+        main_id = key_to_id.get(main_k)
+        co_ids = [key_to_id[k] for k in co_ks if k in key_to_id]
+        sup_id = key_to_id.get(sup_k)
+        sup_name = None
+        if sup_id:
+            sup_doc = next((t for t in existing_ts if t.get("id") == sup_id), None)
+            if not sup_doc:
+                sup_doc = await db.clients.database.therapists.find_one({"id": sup_id}, {"_id": 0, "name": 1})
+            sup_name = sup_doc.get("name") if sup_doc else sup_k
+        update = {
+            "name": name,
+            "package_hours": pkg,
+            "service_type": service,
+            "address": address,
+        }
+        if main_id:
+            update["main_therapist_id"] = main_id
+        if co_ids:
+            update["co_therapist_ids"] = co_ids
+        if sup_name:
+            update["supervisor"] = sup_name
+        if match:
+            await db.clients.update_one({"file_no": file_no}, {"$set": update})
+            results["clients"]["updated"].append({"file_no": file_no, "name": name})
+        else:
+            cid = str(uuid.uuid4())
+            doc = {"id": cid, "file_no": file_no, "color": "#7A8A6A",
+                   "billing_mode": "hours", "payment_status": "pending",
+                   "created_at": now_iso(), **update}
+            await db.clients.insert_one(doc)
+            results["clients"]["created"].append({"file_no": file_no, "name": name, "id": cid})
+
+    return results
+
+# ------------------- Schedule -------------------
+@api.get("/schedule")
+async def list_schedule(week_start: Optional[str] = None, user=Depends(get_current_user)):
+    q: dict = {}
+    if week_start:
+        q["week_start"] = week_start
+    cells = await db.schedule_cells.find(q, {"_id": 0}).to_list(5000)
+    return cells  # everyone sees full schedule (master view) per user request
+
+async def _notify(user_id: str, ntype: str, title: str, message: str):
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()), "user_id": user_id, "type": ntype,
+        "title": title, "message": message, "read": False, "created_at": now_iso(),
+    })
+
+async def _notify_admins(ntype: str, title: str, message: str):
+    """Send notification to all admin users."""
+    admins = await db.users.find({"role": "admin"}, {"_id": 0, "id": 1}).to_list(50)
+    for a in admins:
+        await _notify(a["id"], ntype, title, message)
+
+@api.post("/schedule")
+async def create_schedule_cell(payload: ScheduleCellIn, _=Depends(admin_only)):
+    cid = str(uuid.uuid4())
+    doc = {"id": cid, **payload.model_dump(), "created_at": now_iso()}
+    await db.schedule_cells.insert_one(doc)
+    doc.pop("_id", None)
+    if doc.get("therapist_id"):
+        await _notify(doc["therapist_id"], "schedule", "New session added",
+                      f"{doc.get('service_code')} | {doc.get('child_name') or ''} at {doc.get('time_slot')}")
+    return doc
+
+@api.put("/schedule/{cid}")
+async def update_schedule_cell(cid: str, payload: ScheduleCellIn, _=Depends(admin_only)):
+    update = payload.model_dump()
+    await db.schedule_cells.update_one({"id": cid}, {"$set": update})
+    cell = await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
+    if cell and cell.get("therapist_id"):
+        title = "Schedule update"
+        if cell.get("state") == "cancel_therapist":
+            title = "Session marked as Therapist Cancellation"
+            await _notify_admins("cancel_alert", "Therapist cancellation",
+                                 f"{cell.get('child_name') or '—'} session on day {cell.get('day')} at {cell.get('time_slot')} marked Therapist Cancel")
+        elif cell.get("state") == "cancel_child":
+            title = "Session marked as Client Cancellation"
+            await _notify_admins("cancel_alert", "Client cancellation",
+                                 f"{cell.get('child_name') or '—'} session on day {cell.get('day')} at {cell.get('time_slot')} marked Client Cancel")
+        await _notify(cell["therapist_id"], "schedule", title,
+                      f"{cell.get('service_code')} | {cell.get('child_name') or ''} at {cell.get('time_slot')}")
+    return cell
+
+@api.post("/schedule/{cid}/duplicate")
+async def duplicate_cell(cid: str, _=Depends(admin_only)):
+    cell = await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
+    if not cell:
+        raise HTTPException(status_code=404, detail="Not found")
+    new_cell = {**cell, "id": str(uuid.uuid4()), "created_at": now_iso()}
+    await db.schedule_cells.insert_one(new_cell)
+    new_cell.pop("_id", None)
+    return new_cell
+
+@api.delete("/schedule/{cid}")
+async def delete_schedule_cell(cid: str, _=Depends(admin_only)):
+    await db.schedule_cells.delete_one({"id": cid})
+    return {"ok": True}
+
+@api.post("/schedule/{cid}/notify")
+async def notify_schedule(cid: str, body: dict, _=Depends(admin_only)):
+    cell = await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
+    if not cell or not cell.get("therapist_id"):
+        raise HTTPException(status_code=400, detail="No therapist assigned")
+    msg = body.get("message") or f"Notice about session: {cell.get('child_name') or ''}"
+    await _notify(cell["therapist_id"], "schedule_alert", "Notice from Admin", msg)
+    return {"ok": True}
+
+# ------------------- Clients & Sessions -------------------
+@api.get("/clients")
+async def list_clients(user=Depends(get_current_user)):
+    if user.get("role") == "admin":
+        return await db.clients.find({}, {"_id": 0}).sort("file_no", 1).to_list(500)
+    # therapist: see only assigned (main or co)
+    items = await db.clients.find({}, {"_id": 0}).sort("file_no", 1).to_list(500)
+    uid = user["id"]
+    return [c for c in items if c.get("main_therapist_id") == uid or uid in (c.get("co_therapist_ids") or [])]
+
+@api.post("/clients")
+async def create_client(payload: ClientIn, _=Depends(admin_only)):
+    cid = str(uuid.uuid4())
+    data = payload.model_dump()
+    data["locations"] = [l for l in (data.get("locations") or [])]
+    doc = {"id": cid, **data, "created_at": now_iso()}
+    await db.clients.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.put("/clients/{cid}")
+async def update_client(cid: str, payload: ClientIn, _=Depends(admin_only)):
+    data = payload.model_dump()
+    data["locations"] = [l for l in (data.get("locations") or [])]
+    await db.clients.update_one({"id": cid}, {"$set": data})
+    return await db.clients.find_one({"id": cid}, {"_id": 0})
+
+@api.delete("/clients/{cid}")
+async def delete_client(cid: str, _=Depends(admin_only)):
+    await db.clients.delete_one({"id": cid})
+    await db.sessions.delete_many({"client_id": cid})
+    await db.invoices.delete_many({"client_id": cid})
+    await db.progress_reports.delete_many({"client_id": cid})
+    return {"ok": True}
+
+# ------------------- Progress Reports (per client) -------------------
+PROGRESS_STATUSES = {"uploaded", "reviewed", "resolved"}
+
+class ProgressReportIn(BaseModel):
+    title: str
+    url: Optional[str] = None
+    status: Optional[str] = "uploaded"   # uploaded | reviewed | resolved
+    notes: Optional[str] = None
+    report_date: Optional[str] = None    # ISO date when the report was made
+
+class ProgressStatusIn(BaseModel):
+    status: str
+
+@api.get("/clients/{cid}/progress-reports")
+async def list_progress_reports(cid: str, user=Depends(get_current_user)):
+    # Therapists may only view reports for clients they are assigned to.
+    if user.get("role") != "admin":
+        client = await db.clients.find_one({"id": cid}, {"_id": 0, "main_therapist_id": 1, "co_therapist_ids": 1})
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+        uid = user["id"]
+        if client.get("main_therapist_id") != uid and uid not in (client.get("co_therapist_ids") or []):
+            raise HTTPException(status_code=403, detail="Forbidden")
+    return await db.progress_reports.find({"client_id": cid}, {"_id": 0}).sort("created_at", -1).to_list(200)
+
+@api.post("/clients/{cid}/progress-reports")
+async def create_progress_report(cid: str, payload: ProgressReportIn, user=Depends(admin_only)):
+    rid = str(uuid.uuid4())
+    status = (payload.status or "uploaded").lower()
+    if status not in PROGRESS_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Status must be one of {sorted(PROGRESS_STATUSES)}")
+    doc = {
+        "id": rid, "client_id": cid,
+        "title": payload.title.strip(),
+        "url": (payload.url or "").strip() or None,
+        "status": status,
+        "notes": payload.notes,
+        "report_date": payload.report_date,
+        "created_by": user["id"],
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.progress_reports.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.put("/progress-reports/{rid}")
+async def update_progress_report(rid: str, payload: ProgressReportIn, _=Depends(admin_only)):
+    status = (payload.status or "uploaded").lower()
+    if status not in PROGRESS_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Status must be one of {sorted(PROGRESS_STATUSES)}")
+    update = {
+        "title": payload.title.strip(),
+        "url": (payload.url or "").strip() or None,
+        "status": status,
+        "notes": payload.notes,
+        "report_date": payload.report_date,
+        "updated_at": now_iso(),
+    }
+    await db.progress_reports.update_one({"id": rid}, {"$set": update})
+    return await db.progress_reports.find_one({"id": rid}, {"_id": 0})
+
+@api.put("/progress-reports/{rid}/status")
+async def set_progress_report_status(rid: str, payload: ProgressStatusIn, _=Depends(admin_only)):
+    status = (payload.status or "").lower()
+    if status not in PROGRESS_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Status must be one of {sorted(PROGRESS_STATUSES)}")
+    await db.progress_reports.update_one({"id": rid}, {"$set": {"status": status, "updated_at": now_iso()}})
+    return await db.progress_reports.find_one({"id": rid}, {"_id": 0})
+
+@api.delete("/progress-reports/{rid}")
+async def delete_progress_report(rid: str, _=Depends(admin_only)):
+    await db.progress_reports.delete_one({"id": rid})
+    return {"ok": True}
+
+# ------------------- Invoices (per client; manual numbers) -------------------
+@api.get("/clients/{cid}/invoices")
+async def list_invoices(cid: str, user=Depends(get_current_user)):
+    items = await db.invoices.find({"client_id": cid}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return items
+
+@api.post("/clients/{cid}/invoices")
+async def create_invoice(cid: str, payload: InvoiceIn, user=Depends(admin_only)):
+    inv_id = str(uuid.uuid4())
+    doc = {
+        "id": inv_id,
+        "client_id": cid,
+        "invoice_number": payload.invoice_number.strip(),
+        "notes": payload.notes,
+        "amount": payload.amount,
+        "period_from": payload.period_from,
+        "period_to": payload.period_to,
+        "package_size": payload.package_size,
+        "payment_status": payload.payment_status or "pending",
+        "start_date": payload.start_date or now_iso()[:10],
+        "service_type": payload.service_type,
+        "is_closed": bool(payload.is_closed) if payload.is_closed is not None else False,
+        "close_date": payload.close_date,
+        "created_by": user["id"],
+        "created_at": now_iso(),
+    }
+    await db.invoices.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.put("/invoices/{iid}")
+async def update_invoice(iid: str, payload: InvoiceIn, _=Depends(admin_only)):
+    update = {
+        "invoice_number": payload.invoice_number.strip(),
+        "notes": payload.notes,
+        "amount": payload.amount,
+        "period_from": payload.period_from,
+        "period_to": payload.period_to,
+        "package_size": payload.package_size,
+        "payment_status": payload.payment_status,
+        "start_date": payload.start_date,
+        "service_type": payload.service_type,
+        "is_closed": bool(payload.is_closed) if payload.is_closed is not None else False,
+        "close_date": payload.close_date,
+    }
+    # Don't overwrite stored values with None unless explicitly cleared
+    update = {k: v for k, v in update.items() if v is not None or k in ("notes", "amount", "period_from", "period_to", "package_size", "service_type", "close_date")}
+    await db.invoices.update_one({"id": iid}, {"$set": update})
+    return await db.invoices.find_one({"id": iid}, {"_id": 0})
+
+@api.delete("/invoices/{iid}")
+async def delete_invoice(iid: str, _=Depends(admin_only)):
+    await db.invoices.delete_one({"id": iid})
+    return {"ok": True}
+
+@api.post("/clients/{cid}/invoices/sync-from-excel")
+async def sync_invoices_from_excel(cid: str, file: UploadFile = File(...), user=Depends(admin_only)):
+    """Detect invoice sheets dynamically by inspecting an uploaded client workbook (.xlsx).
+    Imports BOTH invoices (by sheet name) and the session rows inside each sheet.
+    Idempotent: matches invoices by invoice_number, sessions by (client_id, session_date, start_time).
+    """
+    import openpyxl, io
+    client = await db.clients.find_one({"id": cid}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    try:
+        content = await file.read()
+        wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not read Excel file: {e}")
+    return await _ingest_workbook_for_client(cid, client, wb, user["id"], origin="excel-sync")
+
+
+class SyncFromDriveIn(BaseModel):
+    drive_url: str
+
+
+@api.post("/clients/{cid}/invoices/sync-from-drive")
+async def sync_invoices_from_drive(cid: str, payload: SyncFromDriveIn, user=Depends(admin_only)):
+    """Fetch a Google Sheets document by URL and import all invoices + sessions.
+
+    The sheet MUST be shared as 'Anyone with the link can view'. We hit the
+    public xlsx export endpoint (no OAuth needed): 
+        https://docs.google.com/spreadsheets/d/{ID}/export?format=xlsx
+    """
+    import re as _re
+    import io
+    import urllib.request
+    import openpyxl
+    client = await db.clients.find_one({"id": cid}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    url = (payload.drive_url or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="drive_url is required")
+    m = _re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", url) or _re.search(r"[?&]id=([a-zA-Z0-9-_]+)", url)
+    if not m:
+        raise HTTPException(status_code=400, detail="Could not extract Google Sheets ID from URL. Make sure it is a /spreadsheets/d/<id>/... link.")
+    sheet_id = m.group(1)
+    export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
+    try:
+        req = urllib.request.Request(export_url, headers={"User-Agent": "Mozilla/5.0 BoostGrowthSync/1.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            content = resp.read()
+        wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not fetch sheet from Drive (make sure 'Anyone with the link' has view access): {e}")
+    # Persist the source URL on the client for next time.
+    await db.clients.update_one({"id": cid}, {"$set": {"attendance_sheet_url": url}})
+    return await _ingest_workbook_for_client(cid, client, wb, user["id"], origin="drive-sync")
+
+
+# ---------- Workbook parser shared by both sync endpoints ----------
+import re as _re_top  # for module load
+
+_INV_SHEET_RE = _re_top.compile(r"^(copy of\s+)?inv[\s\-_]*\d+", _re_top.IGNORECASE)
+_HEADER_TOKENS = {"day", "days", "date", "status", "time", "hrs", "hours", "# of hrs", "therapist", "note", "notes"}
+
+
+def _parse_invoice_header(ws) -> dict:
+    """Read the first ~3 rows of a sheet to extract invoice number, status,
+    package size and service type. Robust to slight variations."""
+    info = {"invoice_number": (ws.title or "").strip(), "is_closed": False,
+            "close_date": None, "package_size": None, "service_type": None}
+    rows = []
+    for r in ws.iter_rows(min_row=1, max_row=4, values_only=True):
+        rows.append([str(c).strip() if c is not None else "" for c in r])
+    flat = " | ".join(" ".join(r) for r in rows).lower()
+    # Status
+    if "closed" in flat:
+        info["is_closed"] = True
+        # try to grab a date next to "closed"
+        m = _re_top.search(r"closed[^0-9]*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", flat)
+        if m:
+            try:
+                info["close_date"] = _normalize_date(m.group(1))
+            except Exception:
+                pass
+    # Service type
+    if "school support" in flat or "school" in flat:
+        info["service_type"] = "School Support"
+    elif "home session" in flat or "home" in flat:
+        info["service_type"] = "Home Session"
+    # Package size — look for "Paid SESH" or "# Paid"
+    m = _re_top.search(r"paid\s+sesh[^0-9]*([\d.]+)", flat)
+    if m:
+        try:
+            info["package_size"] = float(m.group(1))
+        except Exception:
+            pass
+    return info
+
+
+def _normalize_date(s: str) -> Optional[str]:
+    s = (s or "").strip()
+    if not s:
+        return None
+    # Try ISO first
+    try:
+        d = datetime.fromisoformat(s[:10])
+        return d.strftime("%Y-%m-%d")
+    except Exception:
+        pass
+    # Try D/M/YYYY or D-M-YYYY (Boost Growth format)
+    for sep in ("/", "-"):
+        if sep in s:
+            parts = s.split(sep)
+            if len(parts) == 3:
+                try:
+                    d, mo, y = int(parts[0]), int(parts[1]), int(parts[2])
+                    if y < 100:
+                        y += 2000
+                    return datetime(y, mo, d).strftime("%Y-%m-%d")
+                except Exception:
+                    continue
+    return None
+
+
+def _parse_time_range(s: str) -> tuple:
+    """Return (start_HH:MM, end_HH:MM, hours_diff) or ('','',0)."""
+    s = (s or "").strip()
+    if not s:
+        return "", "", 0.0
+    m = _re_top.search(r"(\d{1,2})(?::(\d{2}))?\s*[-–]\s*(\d{1,2})(?::(\d{2}))?", s)
+    if not m:
+        return "", "", 0.0
+    h1, m1, h2, m2 = m.group(1), m.group(2) or "00", m.group(3), m.group(4) or "00"
+    start = f"{int(h1):02d}:{int(m1):02d}"
+    end = f"{int(h2):02d}:{int(m2):02d}"
+    diff = ((int(h2) * 60 + int(m2)) - (int(h1) * 60 + int(m1))) / 60.0
+    if diff < 0:
+        diff += 24
+    return start, end, round(diff, 2)
+
+
+async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, origin: str = "import") -> dict:
+    """Iterate invoice tabs in the workbook, create invoices + sessions idempotently."""
+    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(200)
+    # name token (Manal / Hajer / etc.) -> id
+    name_to_id = {}
+    for t in therapists:
+        name = (t.get("name") or "").replace("Ms.", "").replace("ms.", "").strip()
+        if not name:
+            continue
+        first = name.split()[0].lower()
+        name_to_id[first] = t["id"]
+
+    def _resolve_therapist_ids(cell: str) -> list:
+        s = (cell or "").lower()
+        # Split by hyphen, slash, or comma
+        parts = [p.strip() for p in _re_top.split(r"[-/,]", s) if p.strip()]
+        out = []
+        for p in parts:
+            tok = p.split()[0]
+            if tok in name_to_id and name_to_id[tok] not in out:
+                out.append(name_to_id[tok])
+        return out
+
+    matched_sheets = [s for s in wb.sheetnames if _INV_SHEET_RE.match(s.strip())]
+    existing_inv = {i["invoice_number"]: i for i in await db.invoices.find(
+        {"client_id": cid}, {"_id": 0}
+    ).to_list(500)}
+    pkg_default = client.get("package_hours") or 24
+    existing_sessions = await db.sessions.find(
+        {"client_id": cid}, {"_id": 0, "session_date": 1, "start_time": 1}
+    ).to_list(5000)
+    existing_key = {(s.get("session_date"), s.get("start_time") or "") for s in existing_sessions}
+
+    invoices_added, invoices_updated, sessions_added, sessions_skipped = [], [], 0, 0
+
+    for name in matched_sheets:
+        ws = wb[name]
+        clean = name.strip()
+        header_info = _parse_invoice_header(ws)
+        # Upsert invoice
+        inv_pkg = header_info.get("package_size") or pkg_default
+        if clean in existing_inv:
+            # Update mutable header fields only (don't touch payment_status)
+            update = {k: v for k, v in {
+                "is_closed": header_info["is_closed"],
+                "close_date": header_info["close_date"],
+                "service_type": header_info["service_type"],
+                "package_size": inv_pkg,
+            }.items() if v is not None}
+            if update:
+                await db.invoices.update_one({"id": existing_inv[clean]["id"]}, {"$set": update})
+            invoices_updated.append(clean)
+            inv_doc = {**existing_inv[clean], **update}
+        else:
+            inv_doc = {
+                "id": str(uuid.uuid4()), "client_id": cid,
+                "invoice_number": clean, "notes": None, "amount": None,
+                "period_from": None, "period_to": header_info.get("close_date"),
+                "package_size": inv_pkg,
+                "payment_status": "complete" if header_info["is_closed"] else "pending",
+                "start_date": now_iso()[:10],
+                "service_type": header_info["service_type"],
+                "is_closed": header_info["is_closed"],
+                "close_date": header_info["close_date"],
+                "source": origin, "source_sheet": clean,
+                "created_by": user_id, "created_at": now_iso(),
+            }
+            await db.invoices.insert_one(inv_doc)
+            invoices_added.append(clean)
+
+        # Find header row containing the session columns
+        header_row_idx = None
+        col_map = {}
+        for r_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=12, values_only=True), start=1):
+            cells = [str(c).strip().lower() if c is not None else "" for c in row]
+            joined = " ".join(cells)
+            if "date" in cells and ("status" in cells or "# of hrs" in joined or "hrs" in joined):
+                header_row_idx = r_idx
+                for ci, h in enumerate(cells):
+                    if h in ("day", "days"):
+                        col_map["day"] = ci
+                    elif h == "date":
+                        col_map["date"] = ci
+                    elif h == "status":
+                        col_map["status"] = ci
+                    elif h == "time":
+                        col_map["time"] = ci
+                    elif h in ("# of hrs", "hrs", "hours"):
+                        col_map["hours"] = ci
+                    elif h == "therapist":
+                        col_map["therapist"] = ci
+                    elif h in ("note", "notes"):
+                        col_map["note"] = ci
+                break
+        if header_row_idx is None or "date" not in col_map:
+            continue
+
+        # Earliest session_date for this invoice -> use as start_date
+        earliest = None
+        # Iterate session rows after the header
+        for row in ws.iter_rows(min_row=header_row_idx + 1, values_only=True):
+            if row is None or all((c is None or (isinstance(c, str) and not c.strip())) for c in row):
+                continue
+            raw_date = row[col_map["date"]] if col_map["date"] < len(row) else None
+            # Stop when we hit a totals/footer row
+            joined = " ".join(str(c).lower() for c in row if c is not None)
+            if "total" in joined and "session" in joined:
+                break
+            date_iso = None
+            if isinstance(raw_date, datetime):
+                date_iso = raw_date.strftime("%Y-%m-%d")
+            elif raw_date:
+                date_iso = _normalize_date(str(raw_date))
+            if not date_iso:
+                continue
+            status_val = (str(row[col_map["status"]]).strip() if "status" in col_map and col_map["status"] < len(row) and row[col_map["status"]] else "").strip()
+            # Normalize statuses
+            status_l = status_val.lower()
+            if status_l in ("completed", "complete", "delivered"):
+                status_norm = "Completed"
+            elif "no service" in status_l or status_l == "ns":
+                status_norm = "No Service"
+            elif "cancel" in status_l:
+                status_norm = "Cancelled"
+            elif "no show" in status_l or "no-show" in status_l:
+                status_norm = "No Show"
+            else:
+                status_norm = status_val.title() if status_val else "Completed"
+            time_str = str(row[col_map["time"]]).strip() if "time" in col_map and col_map["time"] < len(row) and row[col_map["time"]] else ""
+            start_t, end_t, calc_h = _parse_time_range(time_str)
+            hours_val = row[col_map["hours"]] if "hours" in col_map and col_map["hours"] < len(row) else None
+            try:
+                hours_f = float(hours_val) if hours_val not in (None, "", "—") else calc_h
+            except Exception:
+                hours_f = calc_h
+            ther_cell = str(row[col_map["therapist"]]).strip() if "therapist" in col_map and col_map["therapist"] < len(row) and row[col_map["therapist"]] else ""
+            ther_ids = _resolve_therapist_ids(ther_cell)
+            note_val = str(row[col_map["note"]]).strip() if "note" in col_map and col_map["note"] < len(row) and row[col_map["note"]] else ""
+
+            key = (date_iso, start_t)
+            if key in existing_key:
+                sessions_skipped += 1
+                continue
+            sess_doc = {
+                "id": str(uuid.uuid4()),
+                "client_id": cid,
+                "session_date": date_iso,
+                "start_time": start_t or None,
+                "end_time": end_t or None,
+                "hours": hours_f or 0.0,
+                "status": status_norm,
+                "therapist_ids": ther_ids,
+                "note": note_val or None,
+                "source": origin,
+                "source_invoice": clean,
+                "created_at": now_iso(),
+            }
+            await db.sessions.insert_one(sess_doc)
+            existing_key.add(key)
+            sessions_added += 1
+            if earliest is None or date_iso < earliest:
+                earliest = date_iso
+
+        # Stamp invoice start_date with earliest imported session date
+        if earliest:
+            await db.invoices.update_one({"id": inv_doc["id"]}, {"$set": {"start_date": earliest}})
+
+    return {
+        "matched_sheets": matched_sheets,
+        "invoices_added": invoices_added,
+        "invoices_updated": invoices_updated,
+        "sessions_added": sessions_added,
+        "sessions_skipped_existing": sessions_skipped,
+    }
+
+# ------------------- Package reset (manual; admin only) -------------------
+@api.post("/clients/{cid}/reset-package")
+async def reset_package(cid: str, user=Depends(admin_only)):
+    """Reset used-hours counter to 0 by stamping `package_reset_at`.
+    Existing sessions are kept; the frontend filters out sessions before this timestamp
+    when computing used hours for the current cycle. Safe and reversible.
+    """
+    client = await db.clients.find_one({"id": cid}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    ts = now_iso()
+    await db.clients.update_one({"id": cid}, {"$set": {
+        "package_reset_at": ts,
+        "cycle_start_date": ts[:10],
+    }})
+    return {"ok": True, "package_reset_at": ts}
+
+# ------------------- Sessions (Attendance log) -------------------
+@api.get("/sessions")
+async def list_sessions(client_id: Optional[str] = None, user=Depends(get_current_user)):
+    q = {}
+    if client_id:
+        q["client_id"] = client_id
+    items = await db.sessions.find(q, {"_id": 0}).sort("session_date", -1).to_list(2000)
+    if user.get("role") == "therapist":
+        uid = user["id"]
+        items = [s for s in items if uid in (s.get("therapist_ids") or [])]
+    return items
+
+@api.post("/sessions")
+async def create_session(payload: SessionIn, user=Depends(get_current_user)):
+    sid = str(uuid.uuid4())
+    therapist_ids = payload.therapist_ids or []
+    if user.get("role") == "therapist" and user["id"] not in therapist_ids:
+        therapist_ids.append(user["id"])
+    doc = {"id": sid, **payload.model_dump(), "therapist_ids": therapist_ids,
+           "created_by": user["id"], "created_by_role": user["role"],
+           "created_at": now_iso()}
+    await db.sessions.insert_one(doc)
+    doc.pop("_id", None)
+    # Admin alerts
+    client = await db.clients.find_one({"id": payload.client_id}, {"_id": 0})
+    cname = client.get("name") if client else "—"
+    if user.get("role") == "therapist":
+        await _notify_admins("session_log", f"New session logged ({payload.status})",
+                             f"{user.get('name')} logged {payload.status} for {cname} ({payload.hours}h)")
+    if payload.status in ("Cancelled", "No Show"):
+        await _notify_admins("cancel_alert", f"Session {payload.status}: {cname}",
+                             f"On {payload.session_date} ({user.get('name')})")
+    # Low-hours alert
+    if client:
+        used = await db.sessions.aggregate([
+            {"$match": {"client_id": payload.client_id, "status": "Completed"}},
+            {"$group": {"_id": None, "total": {"$sum": "$hours"}}}
+        ]).to_list(1)
+        used_h = used[0]["total"] if used else 0
+        rem = (client.get("package_hours") or 24) - used_h
+        if 0 < rem <= 4:
+            await _notify_admins("low_hours", f"⚠️ {cname} has only {rem}h left",
+                                 f"Pkg {client.get('package_hours')}h, used {used_h}h. Consider package renewal.")
+        elif rem <= 0:
+            await _notify_admins("low_hours", f"🔴 {cname} package exhausted",
+                                 f"Used {used_h}h of {client.get('package_hours')}h.")
+    return doc
+
+@api.put("/sessions/{sid}")
+async def update_session(sid: str, payload: SessionIn, user=Depends(get_current_user)):
+    sess = await db.sessions.find_one({"id": sid})
+    if not sess:
+        raise HTTPException(status_code=404, detail="Not found")
+    if user.get("role") != "admin" and user["id"] not in (sess.get("therapist_ids") or []):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    await db.sessions.update_one({"id": sid}, {"$set": payload.model_dump()})
+    return await db.sessions.find_one({"id": sid}, {"_id": 0})
+
+@api.delete("/sessions/{sid}")
+async def delete_session(sid: str, user=Depends(get_current_user)):
+    sess = await db.sessions.find_one({"id": sid})
+    if not sess:
+        return {"ok": True}
+    if user.get("role") != "admin" and user["id"] not in (sess.get("therapist_ids") or []):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    await db.sessions.delete_one({"id": sid})
+    return {"ok": True}
+
+# ------------------- Attendance Sheets (file upload, kept for backward compat) -------------------
+@api.get("/clients/{cid}/sheets")
+async def list_sheets(cid: str, user=Depends(get_current_user)):
+    return await db.attendance_sheets.find({"client_id": cid}, {"_id": 0}).sort("page_number", 1).to_list(500)
+
+@api.post("/clients/{cid}/sheets")
+async def upload_sheet(cid: str,
+                      title: str = Form(...),
+                      session_date: str = Form(...),
+                      therapist_id: Optional[str] = Form(None),
+                      notes: Optional[str] = Form(None),
+                      file: Optional[UploadFile] = File(None),
+                      _=Depends(admin_only)):
+    sid = str(uuid.uuid4())
+    file_path = None
+    file_name = None
+    if file:
+        ext = Path(file.filename).suffix
+        file_name = file.filename
+        save_path = UPLOAD_DIR / f"{sid}{ext}"
+        save_path.write_bytes(await file.read())
+        file_path = f"{sid}{ext}"
+    last = await db.attendance_sheets.find_one({"client_id": cid}, sort=[("page_number", -1)])
+    page_number = (last.get("page_number", 0) + 1) if last else 1
+    doc = {"id": sid, "client_id": cid, "title": title, "session_date": session_date,
+           "therapist_id": therapist_id, "notes": notes, "page_number": page_number,
+           "file_name": file_name, "file_path": file_path, "created_at": now_iso()}
+    await db.attendance_sheets.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.delete("/sheets/{sid}")
+async def delete_sheet(sid: str, _=Depends(admin_only)):
+    sheet = await db.attendance_sheets.find_one({"id": sid})
+    if sheet and sheet.get("file_path"):
+        fp = UPLOAD_DIR / sheet["file_path"]
+        if fp.exists():
+            fp.unlink()
+    await db.attendance_sheets.delete_one({"id": sid})
+    return {"ok": True}
+
+@api.get("/sheets/{sid}/download")
+async def download_sheet(sid: str, user=Depends(get_current_user)):
+    sheet = await db.attendance_sheets.find_one({"id": sid}, {"_id": 0})
+    if not sheet or not sheet.get("file_path"):
+        raise HTTPException(status_code=404, detail="No file")
+    fp = UPLOAD_DIR / sheet["file_path"]
+    return FileResponse(str(fp), filename=sheet.get("file_name") or sheet["file_path"])
+
+# ------------------- Requests -------------------
+@api.get("/requests")
+async def list_requests(user=Depends(get_current_user)):
+    q = {} if user.get("role") == "admin" else {"therapist_id": user["id"]}
+    return await db.requests.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+@api.post("/requests")
+async def create_request(payload: RequestIn, user=Depends(get_current_user)):
+    if user.get("role") != "therapist":
+        raise HTTPException(status_code=403, detail="Therapist only")
+    rid = str(uuid.uuid4())
+    doc = {"id": rid, "therapist_id": user["id"], "therapist_name": user.get("name"),
+           **payload.model_dump(), "status": "pending", "admin_note": None,
+           "created_at": now_iso(), "updated_at": now_iso(),
+           "timeline": [{"event": "submitted", "at": now_iso(), "by": user.get("name")}]}
+    await db.requests.insert_one(doc)
+    doc.pop("_id", None)
+    # Notify admins of new request
+    await _notify_admins("request_new", f"New {payload.request_type} request",
+                         f"{user.get('name')}: {payload.title} (priority: {payload.priority})")
+    return doc
+
+@api.put("/requests/{rid}/status")
+async def update_request_status(rid: str, payload: RequestStatusUpdate, admin=Depends(admin_only)):
+    req = await db.requests.find_one({"id": rid})
+    if not req:
+        raise HTTPException(status_code=404, detail="Not found")
+    timeline = req.get("timeline", [])
+    timeline.append({"event": payload.status, "at": now_iso(), "by": admin.get("name") or "Admin",
+                     "note": payload.admin_note})
+    await db.requests.update_one({"id": rid}, {"$set": {
+        "status": payload.status, "admin_note": payload.admin_note,
+        "updated_at": now_iso(), "timeline": timeline,
+    }})
+    status_map = {"pending": "Pending", "in_progress": "In Progress",
+                  "approved": "Approved", "rejected": "Rejected", "done": "Completed"}
+    await _notify(req["therapist_id"], "request", "Request update",
+                  f"Your request '{req['title']}' is now: {status_map.get(payload.status, payload.status)}")
+    return await db.requests.find_one({"id": rid}, {"_id": 0})
+
+@api.delete("/requests/{rid}")
+async def delete_request(rid: str, user=Depends(get_current_user)):
+    req = await db.requests.find_one({"id": rid})
+    if not req:
+        return {"ok": True}
+    if user.get("role") != "admin" and req.get("therapist_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    await db.requests.delete_one({"id": rid})
+    return {"ok": True}
+
+# ------------------- Notifications -------------------
+@api.get("/notifications")
+async def list_notifications(user=Depends(get_current_user)):
+    return await db.notifications.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
+
+@api.post("/notifications/{nid}/read")
+async def mark_read(nid: str, user=Depends(get_current_user)):
+    await db.notifications.update_one({"id": nid, "user_id": user["id"]}, {"$set": {"read": True}})
+    return {"ok": True}
+
+@api.post("/notifications/read-all")
+async def mark_all_read(user=Depends(get_current_user)):
+    await db.notifications.update_many({"user_id": user["id"]}, {"$set": {"read": True}})
+    return {"ok": True}
+
+# ------------------- Directory -------------------
+@api.get("/directory")
+async def list_directory(user=Depends(get_current_user)):
+    return await db.directory.find({}, {"_id": 0}).to_list(500)
+
+@api.post("/directory")
+async def create_contact(payload: DirectoryContactIn, _=Depends(admin_only)):
+    cid = str(uuid.uuid4())
+    doc = {"id": cid, **payload.model_dump(), "created_at": now_iso()}
+    await db.directory.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.put("/directory/{cid}")
+async def update_contact(cid: str, payload: DirectoryContactUpdate, _=Depends(admin_only)):
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not update:
+        raise HTTPException(status_code=400, detail="No fields")
+    await db.directory.update_one({"id": cid}, {"$set": update})
+    return await db.directory.find_one({"id": cid}, {"_id": 0})
+
+@api.delete("/directory/{cid}")
+async def delete_contact(cid: str, _=Depends(admin_only)):
+    await db.directory.delete_one({"id": cid})
+    return {"ok": True}
+
+# ------------------- Resources -------------------
+@api.get("/resources")
+async def list_resources(user=Depends(get_current_user)):
+    items = await db.resources.find({}, {"_id": 0}).sort("sort_order", 1).to_list(500)
+    if user.get("role") == "admin":
+        return items
+    # Therapists see only "therapist" and "all" visibility
+    return [r for r in items if r.get("visibility") in ("therapist", "all")]
+
+@api.post("/resources")
+async def create_resource(payload: ResourceIn, _=Depends(admin_only)):
+    rid = str(uuid.uuid4())
+    doc = {"id": rid, **payload.model_dump(), "created_at": now_iso()}
+    await db.resources.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.put("/resources/{rid}")
+async def update_resource(rid: str, payload: ResourceIn, _=Depends(admin_only)):
+    await db.resources.update_one({"id": rid}, {"$set": payload.model_dump()})
+    return await db.resources.find_one({"id": rid}, {"_id": 0})
+
+@api.get("/clients/{cid}/billing-progress")
+async def client_billing_progress(cid: str, user=Depends(get_current_user)):
+    """Returns billing progress: hours-based or weeks-based.
+    weeks-based: counts distinct weeks (Sun-Thu) where at least 1 Completed session exists,
+                 since cycle_start_date; cycle ends when weeks_completed >= cycle_weeks.
+    """
+    client = await db.clients.find_one({"id": cid}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Not found")
+    sessions = await db.sessions.find({"client_id": cid}, {"_id": 0}).to_list(2000)
+    completed = [s for s in sessions if s.get("status") == "Completed"]
+    mode = client.get("billing_mode") or "hours"
+    if mode == "hours":
+        used_h = sum(float(s.get("hours") or 0) for s in completed)
+        pkg = float(client.get("package_hours") or 24)
+        return {
+            "mode": "hours", "used": round(used_h, 1), "package": pkg,
+            "remaining": max(0.0, round(pkg - used_h, 1)),
+            "percent": min(100, round((used_h / pkg) * 100)) if pkg else 0,
+        }
+    # weeks-based
+    cycle_weeks = int(client.get("cycle_weeks") or 4)
+    start_iso = client.get("cycle_start_date")
+    if not start_iso:
+        # fallback to earliest completed session
+        if completed:
+            start_iso = min(s.get("session_date") or "9999" for s in completed)
+        else:
+            start_iso = datetime.now(timezone.utc).date().isoformat()
+    try:
+        start_d = datetime.fromisoformat(start_iso).date()
+    except Exception:
+        start_d = datetime.now(timezone.utc).date()
+    # Snap to Sunday on/before
+    while start_d.weekday() != 6:
+        start_d = start_d - timedelta(days=1)
+    # Determine completed weeks: each week where >=1 Completed session falls in [start+7k, start+7k+5)
+    weeks_done = 0
+    week_breakdown = []
+    for k in range(cycle_weeks):
+        week_start = start_d + timedelta(days=7 * k)
+        week_end = week_start + timedelta(days=5)  # Sun-Fri exclusive
+        in_week = [s for s in completed if s.get("session_date") and week_start.isoformat() <= s.get("session_date") < week_end.isoformat()]
+        has = len(in_week) > 0
+        if has: weeks_done += 1
+        week_breakdown.append({
+            "week_number": k + 1,
+            "week_start": week_start.isoformat(),
+            "sessions": len(in_week),
+            "completed": has,
+        })
+    return {
+        "mode": "weeks",
+        "weeks_completed": weeks_done,
+        "cycle_weeks": cycle_weeks,
+        "cycle_start_date": start_d.isoformat(),
+        "next_cycle_start": (start_d + timedelta(days=7 * cycle_weeks)).isoformat(),
+        "remaining_weeks": max(0, cycle_weeks - weeks_done),
+        "percent": round((weeks_done / cycle_weeks) * 100) if cycle_weeks else 0,
+        "weeks": week_breakdown,
+    }
+
+@api.get("/clients/{cid}/sessions/export")
+async def export_sessions_excel(cid: str, user=Depends(get_current_user)):
+    """Export client's attendance sheet as Excel.
+    If the client has invoices, each invoice becomes its own sheet/tab named with
+    the invoice number (e.g. INV0451). Sessions in each tab are scoped to that
+    invoice's window (>= invoice.start_date and < next invoice.start_date when
+    sorted ascending). Otherwise, a single 'Attendance' sheet is produced.
+    """
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from io import BytesIO
+
+    client = await db.clients.find_one({"id": cid}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if user.get("role") == "therapist" and user["id"] not in (client.get("co_therapist_ids") or []) + ([client.get("main_therapist_id")] if client.get("main_therapist_id") else []):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    sessions = await db.sessions.find({"client_id": cid}, {"_id": 0}).sort("session_date", 1).to_list(2000)
+    therapists = {t["id"]: t for t in await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(100)}
+    invoices = await db.invoices.find({"client_id": cid}, {"_id": 0}).sort("start_date", 1).to_list(200)
+
+    head_fill = PatternFill("solid", fgColor="7A8A6A")
+    head_font = Font(bold=True, color="FFFFFF", size=11)
+    sub_fill = PatternFill("solid", fgColor="EFE8D2")
+    border = Border(left=Side(style="thin", color="B5B0A0"), right=Side(style="thin", color="B5B0A0"),
+                    top=Side(style="thin", color="B5B0A0"), bottom=Side(style="thin", color="B5B0A0"))
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    STATUS_FILLS = {"Completed": "D9EAD3", "Cancelled": "FCE0E8", "No Show": "FFF4C4", "No Service": "ECECEC"}
+
+    def safe_sheet_name(name: str) -> str:
+        # Excel limits: 31 chars, no []:*?/\\
+        bad = '[]:*?/\\'
+        for b in bad:
+            name = name.replace(b, "-")
+        return name[:31] or "Sheet"
+
+    def write_invoice_sheet(ws, inv: Optional[dict], inv_sessions: list):
+        """Write the Boost Growth-style header + session rows on `ws` for the given invoice."""
+        pkg = float((inv or {}).get("package_size") or client.get("package_hours") or 24)
+        used = sum(float(s.get("hours") or 0) for s in inv_sessions if s.get("status") == "Completed")
+        rem = max(0.0, pkg - used)
+        no_show = sum(1 for s in inv_sessions if s.get("status") == "No Show")
+        no_service = sum(1 for s in inv_sessions if s.get("status") == "No Service")
+        completed = sum(1 for s in inv_sessions if s.get("status") == "Completed")
+        # Title
+        ws.merge_cells("A1:G1")
+        inv_label = (inv or {}).get("invoice_number") or "Attendance"
+        status_label = "Closed" if (inv or {}).get("is_closed") else "Open"
+        ws["A1"] = f"{inv_label} | {status_label}"
+        ws["A1"].font = Font(bold=True, size=14, color="2C3625")
+        ws["A1"].alignment = center
+        ws.row_dimensions[1].height = 26
+        # Patient info row 2
+        ws["A2"] = "Patient's Name:"; ws["B2"] = client.get("name") or "—"
+        ws["C2"] = "File NO.:"; ws["D2"] = client.get("file_no") or "—"
+        ws["E2"] = "# Paid SESH.:"; ws["F2"] = f"{pkg}h"
+        if (inv or {}).get("service_type"):
+            ws["G2"] = (inv or {}).get("service_type")
+        for c in "ABCDEFG":
+            ws[f"{c}2"].fill = sub_fill
+            ws[f"{c}2"].font = Font(bold=True, color="2C3625")
+            ws[f"{c}2"].alignment = center
+        # Column headers row 4 — matches Drive format
+        headers = ["Days", "Date", "Status", "Time", "# of Hrs", "Therapist", "Note"]
+        for i, h in enumerate(headers, 1):
+            cell = ws.cell(row=4, column=i, value=h)
+            cell.fill = head_fill; cell.font = head_font; cell.alignment = center; cell.border = border
+        ws.row_dimensions[4].height = 22
+        row = 5
+        for s in inv_sessions:
+            sd = s.get("session_date") or ""
+            try:
+                dt = datetime.fromisoformat(sd)
+                day_label = DAY_NAMES[dt.weekday()]
+                date_label = f"{dt.day}/{dt.month}/{dt.year}"
+            except Exception:
+                day_label = "—"; date_label = sd
+            therapist_names = " - ".join(
+                ((therapists.get(tid) or {}).get("name", "?") or "?").replace("Ms. ", "")
+                for tid in (s.get("therapist_ids") or [])
+            )
+            time_str = ""
+            if s.get("start_time") and s.get("end_time"):
+                time_str = f"{s['start_time']}-{s['end_time']}"
+            ws.cell(row=row, column=1, value=day_label).alignment = center
+            ws.cell(row=row, column=2, value=date_label).alignment = center
+            st_cell = ws.cell(row=row, column=3, value=s.get("status") or "—")
+            st_cell.alignment = center
+            if s.get("status") in STATUS_FILLS:
+                st_cell.fill = PatternFill("solid", fgColor=STATUS_FILLS[s["status"]])
+            ws.cell(row=row, column=4, value=time_str).alignment = center
+            ws.cell(row=row, column=5, value=float(s.get("hours") or 0)).alignment = center
+            ws.cell(row=row, column=6, value=therapist_names).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            ws.cell(row=row, column=7, value=s.get("note") or "").alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            for col in range(1, 8):
+                ws.cell(row=row, column=col).border = border
+            row += 1
+        # Footer
+        foot = row + 1
+        ws.cell(row=foot, column=1, value="Total delivered Sessions:").font = Font(bold=True, color="2C3625")
+        ws.cell(row=foot, column=2, value=completed)
+        ws.cell(row=foot+1, column=1, value="Total NO Service (counted):").font = Font(bold=True, color="2C3625")
+        ws.cell(row=foot+1, column=2, value=no_service)
+        ws.cell(row=foot+2, column=1, value="Total No-Show:").font = Font(bold=True, color="2C3625")
+        ws.cell(row=foot+2, column=2, value=no_show)
+        ws.cell(row=foot+3, column=1, value="Total Counted Sessions:").font = Font(bold=True, color="2C3625")
+        ws.cell(row=foot+3, column=2, value=completed + no_show)
+        ws.cell(row=foot+4, column=1, value="Hours Remaining:").font = Font(bold=True, color="2C3625")
+        ws.cell(row=foot+4, column=2, value=round(rem, 2))
+        ws.cell(row=foot+5, column=1, value="Payment Status:").font = Font(bold=True, color="2C3625")
+        ws.cell(row=foot+5, column=2, value="Paid" if (inv or {}).get("payment_status") == "complete" else "Payment Pending")
+        # Column widths
+        widths = [8, 12, 14, 14, 10, 24, 32]
+        for i, w in enumerate(widths, 1):
+            ws.column_dimensions[chr(64 + i)].width = w
+
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+
+    if invoices:
+        # Build windows: each invoice covers [start_date, next_start) ; last invoice covers until end of time.
+        sorted_inv = sorted(invoices, key=lambda i: (i.get("start_date") or "0000-00-00"))
+        for idx, inv in enumerate(sorted_inv):
+            start = inv.get("start_date") or "0000-00-00"
+            end = sorted_inv[idx + 1]["start_date"] if (idx + 1 < len(sorted_inv) and sorted_inv[idx + 1].get("start_date")) else None
+            inv_sessions = [s for s in sessions if (s.get("session_date") or "") >= start and (end is None or (s.get("session_date") or "") < end)]
+            ws = wb.create_sheet(safe_sheet_name(inv.get("invoice_number") or f"INV-{idx+1}"))
+            write_invoice_sheet(ws, inv, inv_sessions)
+    else:
+        ws = wb.create_sheet("Attendance")
+        write_invoice_sheet(ws, None, sessions)
+
+    out = BytesIO()
+    wb.save(out)
+    out.seek(0)
+    from fastapi.responses import Response
+    fname = f"attendance_{client.get('file_no') or 'client'}_{client.get('name','').replace(' ','_')}.xlsx"
+    return Response(content=out.getvalue(),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+# ------------------- Email Settings (admin) -------------------
+class EmailSettingsIn(BaseModel):
+    resend_api_key: Optional[str] = None
+    from_email: Optional[str] = None
+
+@api.post("/admin/email-test-send")
+async def email_test_send(payload: dict, _=Depends(admin_only)):
+    """Test send to a target email. Returns clear error if Resend rejects."""
+    to = (payload.get("to") or "").strip()
+    if not to:
+        raise HTTPException(status_code=400, detail="Recipient email required")
+    result = await _send_email_stub(to,
+        "Boost Growth — Test Email",
+        "This is a test email from your Boost Growth Portal.\n\nIf you received this, email notifications are working correctly.\n\n— Boost Growth Portal")
+    return result
+
+@api.get("/admin/email-settings")
+async def get_email_settings(_=Depends(admin_only)):
+    doc = await db.settings.find_one({"key": "email"}, {"_id": 0}) or {}
+    has_key = bool(doc.get("resend_api_key") or os.environ.get("RESEND_API_KEY"))
+    return {
+        "configured": has_key,
+        "from_email": doc.get("from_email") or os.environ.get("EMAIL_FROM") or "Boost Growth <noreply@boostgrowthsa.com>",
+        "key_preview": (doc.get("resend_api_key") or "")[:8] + "..." if doc.get("resend_api_key") else None,
+    }
+
+@api.post("/admin/email-settings")
+async def save_email_settings(payload: EmailSettingsIn, _=Depends(admin_only)):
+    update = {}
+    if payload.resend_api_key and payload.resend_api_key.strip():
+        # Validate: Resend keys start with 're_' and are at least 30 chars
+        key = payload.resend_api_key.strip()
+        if not key.startswith("re_") or len(key) < 30:
+            raise HTTPException(status_code=400,
+                detail=f"Invalid Resend API key. Keys start with 're_' and are 30+ chars. You provided {len(key)} chars.")
+        update["resend_api_key"] = key
+    if payload.from_email and payload.from_email.strip():
+        update["from_email"] = payload.from_email.strip()
+    if not update:
+        raise HTTPException(status_code=400, detail="No fields")
+    update["updated_at"] = now_iso()
+    await db.settings.update_one({"key": "email"}, {"$set": update, "$setOnInsert": {"key": "email"}}, upsert=True)
+    if "resend_api_key" in update:
+        os.environ["RESEND_API_KEY"] = update["resend_api_key"]
+    if "from_email" in update:
+        os.environ["EMAIL_FROM"] = update["from_email"]
+    return {"ok": True, "configured": True}
+
+@api.get("/admin/email-queue")
+async def list_email_queue(_=Depends(admin_only)):
+    return await db.email_queue.find({}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
+
+@api.delete("/resources/{rid}")
+async def delete_resource(rid: str, _=Depends(admin_only)):
+    await db.resources.delete_one({"id": rid})
+    return {"ok": True}
+
+# ------------------- Leaves / Vacations -------------------
+DEFAULT_ANNUAL_BALANCE = 30  # baseline annual leave per year
+
+@api.get("/leaves")
+async def list_leaves(year: Optional[int] = None, user=Depends(get_current_user)):
+    q: dict = {}
+    if year:
+        q["start_date"] = {"$gte": f"{year}-01-01", "$lte": f"{year}-12-31"}
+    if user.get("role") != "admin":
+        q["therapist_id"] = user["id"]
+    items = await db.leaves.find(q, {"_id": 0}).sort("start_date", -1).to_list(2000)
+    # Enrich with therapist name + email for admin
+    if user.get("role") == "admin":
+        therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1, "color": 1}).to_list(100)
+        t_by_id = {t["id"]: t for t in therapists}
+        for it in items:
+            t = t_by_id.get(it.get("therapist_id"))
+            if t:
+                it["therapist_name"] = t.get("name")
+                it["therapist_color"] = t.get("color")
+                it["therapist_email"] = t.get("email")
+    return items
+
+@api.get("/leaves/balance")
+async def leaves_balance(year: Optional[int] = None, user=Depends(get_current_user)):
+    """Return per-therapist annual balance: {therapist_id, name, allocated, used (Annual+approved/done), remaining, breakdown}.
+    For therapist role: only their own.
+    """
+    yr = year or datetime.now(timezone.utc).year
+    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "color": 1, "email": 1, "annual_balance": 1, "leave_balance": 1}).to_list(100)
+    if user.get("role") != "admin":
+        therapists = [t for t in therapists if t["id"] == user["id"]]
+    leaves = await db.leaves.find({"start_date": {"$gte": f"{yr}-01-01", "$lte": f"{yr}-12-31"}}, {"_id": 0}).to_list(2000)
+    out = []
+    for t in therapists:
+        own = [l for l in leaves if l.get("therapist_id") == t["id"]]
+        used_annual = sum(float(l.get("days") or 0) for l in own if l.get("leave_type") == "Annual" and l.get("status") in ("approved", "done"))
+        used_unpaid = sum(float(l.get("days") or 0) for l in own if l.get("leave_type") == "Unpaid" and l.get("status") in ("approved", "done"))
+        used_sick = sum(float(l.get("days") or 0) for l in own if l.get("leave_type") == "Sickleave" and l.get("status") in ("approved", "done"))
+        pending = sum(float(l.get("days") or 0) for l in own if l.get("status") == "pending")
+        allocated = float(t.get("leave_balance") if t.get("leave_balance") is not None else (t.get("annual_balance") or DEFAULT_ANNUAL_BALANCE))
+        remaining = max(0.0, allocated - used_annual)
+        out.append({
+            "therapist_id": t["id"], "name": t["name"], "color": t.get("color"), "email": t.get("email"),
+            "year": yr, "allocated": allocated,
+            "used_annual": round(used_annual, 1),
+            "used_unpaid": round(used_unpaid, 1),
+            "used_sick": round(used_sick, 1),
+            "pending": round(pending, 1),
+            "remaining": round(remaining, 1),
+            "leaves_count": len(own),
+        })
+    return out
+
+@api.post("/leaves")
+async def create_leave(payload: LeaveIn, user=Depends(get_current_user)):
+    if user.get("role") != "admin" and payload.therapist_id != user["id"]:
+        raise HTTPException(status_code=403, detail="Therapist can only create own leaves")
+    lid = str(uuid.uuid4())
+    doc = {"id": lid, **payload.model_dump(), "created_by": user["id"], "created_at": now_iso()}
+    if user.get("role") != "admin":
+        doc["status"] = "pending"  # therapist requests start as pending
+    await db.leaves.insert_one(doc)
+    doc.pop("_id", None)
+    # Notify admins if therapist submitted
+    if user.get("role") != "admin":
+        await _notify_admins("leave_request", "New leave request",
+                             f"{user.get('name')}: {payload.leave_type} {payload.days}d ({payload.start_date} → {payload.end_date})")
+    return doc
+
+@api.put("/leaves/{lid}")
+async def update_leave(lid: str, payload: LeaveIn, user=Depends(get_current_user)):
+    leave = await db.leaves.find_one({"id": lid})
+    if not leave:
+        raise HTTPException(status_code=404, detail="Not found")
+    if user.get("role") != "admin" and leave.get("therapist_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    update = payload.model_dump()
+    await db.leaves.update_one({"id": lid}, {"$set": update})
+    return await db.leaves.find_one({"id": lid}, {"_id": 0})
+
+@api.put("/leaves/{lid}/status")
+async def update_leave_status(lid: str, payload: LeaveStatusUpdate, admin=Depends(admin_only)):
+    leave = await db.leaves.find_one({"id": lid})
+    if not leave:
+        raise HTTPException(status_code=404, detail="Not found")
+    await db.leaves.update_one({"id": lid}, {"$set": {
+        "status": payload.status, "admin_note": payload.admin_note,
+        "decided_by": admin.get("name") or "Admin", "decided_at": now_iso(),
+    }})
+    # Notify therapist
+    if leave.get("therapist_id"):
+        msg_map = {"approved": "Approved", "rejected": "Rejected", "done": "Completed", "cancelled": "Cancelled", "pending": "Pending"}
+        await _notify(leave["therapist_id"], "leave",
+                      f"Leave {msg_map.get(payload.status, payload.status)}",
+                      f"Your {leave.get('leave_type')} leave from {leave.get('start_date')} to {leave.get('end_date')} ({leave.get('days')}d) is now {msg_map.get(payload.status, payload.status)}.")
+    return await db.leaves.find_one({"id": lid}, {"_id": 0})
+
+@api.delete("/leaves/{lid}")
+async def delete_leave(lid: str, user=Depends(get_current_user)):
+    leave = await db.leaves.find_one({"id": lid})
+    if not leave:
+        return {"ok": True}
+    if user.get("role") != "admin" and leave.get("therapist_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    await db.leaves.delete_one({"id": lid})
+    return {"ok": True}
+
+# ------------------- Cancel-Notify (in-app + queued email) -------------------
+async def _send_email_stub(to: str, subject: str, body: str) -> dict:
+    """Email send stub. Will integrate with Resend once API key is configured.
+    Currently logs and stores in db.email_queue for later delivery.
+    """
+    api_key = os.environ.get("RESEND_API_KEY")
+    queue_doc = {
+        "id": str(uuid.uuid4()),
+        "to": to, "subject": subject, "body": body,
+        "status": "queued", "provider": "resend",
+        "created_at": now_iso(),
+    }
+    if api_key:
+        try:
+            import httpx
+            async with httpx.AsyncClient() as cli:
+                r = await cli.post("https://api.resend.com/emails",
+                                   headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                                   json={"from": os.environ.get("EMAIL_FROM", "Boost Growth <noreply@boostgrowthsa.com>"),
+                                         "to": [to], "subject": subject, "html": f"<p>{body.replace(chr(10),'<br/>')}</p>"})
+                if r.status_code in (200, 202):
+                    queue_doc["status"] = "sent"
+                    queue_doc["provider_id"] = r.json().get("id")
+                else:
+                    queue_doc["status"] = "failed"
+                    queue_doc["error"] = r.text[:300]
+        except Exception as e:
+            queue_doc["status"] = "failed"
+            queue_doc["error"] = str(e)[:300]
+    else:
+        queue_doc["status"] = "queued_no_key"
+    await db.email_queue.insert_one(queue_doc)
+    queue_doc.pop("_id", None)
+    return queue_doc
+
+@api.post("/schedule/cancel-notify")
+async def schedule_cancel_notify(payload: CancelNotifyIn, _=Depends(admin_only)):
+    """Mark cell as cancelled + send in-app notification + queue email if requested."""
+    cell = await db.schedule_cells.find_one({"id": payload.cell_id}, {"_id": 0})
+    if not cell:
+        raise HTTPException(status_code=404, detail="Schedule cell not found")
+    # Update state
+    await db.schedule_cells.update_one({"id": payload.cell_id}, {"$set": {"state": payload.state}})
+    # In-app notification
+    if cell.get("therapist_id"):
+        title = "Session marked as Therapist Cancellation" if payload.state == "cancel_therapist" else "Session marked as Client Cancellation"
+        await _notify(cell["therapist_id"], "schedule_cancel", title, payload.message)
+        # Email
+        email_result = None
+        if payload.send_email:
+            therapist = await db.therapists.find_one({"id": cell["therapist_id"]}, {"_id": 0})
+            recipient = payload.extra_email or (therapist.get("email") if therapist else None)
+            if recipient:
+                subj = f"[Boost Growth] {title}"
+                body_lines = [
+                    f"Hello {therapist.get('name') if therapist else ''},",
+                    "",
+                    payload.message,
+                    "",
+                    f"Cell: {cell.get('service_code')} | {cell.get('child_name') or '—'}",
+                    f"Day: {cell.get('day')} | Time: {cell.get('time_slot')}",
+                    "",
+                    "— Boost Growth Portal",
+                ]
+                email_result = await _send_email_stub(recipient, subj, "\n".join(body_lines))
+        return {"ok": True, "in_app": True, "email": email_result}
+    return {"ok": True, "in_app": False}
+
+# ------------------- Intake (admin only) -------------------
+@api.get("/intake")
+async def list_intake(_=Depends(admin_only)):
+    return await db.intake.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+@api.post("/intake")
+async def create_intake(payload: IntakeIn, _=Depends(admin_only)):
+    iid = str(uuid.uuid4())
+    doc = {"id": iid, **payload.model_dump(), "created_at": now_iso()}
+    await db.intake.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.put("/intake/{iid}")
+async def update_intake(iid: str, payload: IntakeIn, _=Depends(admin_only)):
+    await db.intake.update_one({"id": iid}, {"$set": payload.model_dump()})
+    return await db.intake.find_one({"id": iid}, {"_id": 0})
+
+@api.delete("/intake/{iid}")
+async def delete_intake(iid: str, _=Depends(admin_only)):
+    await db.intake.delete_one({"id": iid})
+    return {"ok": True}
+
+# ------------------- Reports -------------------
+@api.get("/reports/dashboard")
+async def reports_dashboard(_=Depends(admin_only)):
+    sessions = await db.sessions.find({}, {"_id": 0}).to_list(5000)
+    clients = await db.clients.find({}, {"_id": 0}).to_list(500)
+    therapists = await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).to_list(50)
+    requests = await db.requests.find({}, {"_id": 0}).to_list(500)
+    cells = await db.schedule_cells.find({}, {"_id": 0}).to_list(5000)
+
+    # Sessions per therapist
+    per_t: dict = {}
+    for t in therapists:
+        per_t[t["id"]] = {"name": t["name"], "color": t.get("color"),
+                           "completed": 0, "cancelled": 0, "no_show": 0, "no_service": 0,
+                           "hours": 0.0}
+    for s in sessions:
+        for tid in s.get("therapist_ids") or []:
+            if tid in per_t:
+                if s["status"] == "Completed":
+                    per_t[tid]["completed"] += 1
+                    per_t[tid]["hours"] += float(s.get("hours") or 0)
+                elif s["status"] == "Cancelled":
+                    per_t[tid]["cancelled"] += 1
+                elif s["status"] == "No Show":
+                    per_t[tid]["no_show"] += 1
+                else:
+                    per_t[tid]["no_service"] += 1
+
+    # Per-client used hours + status
+    per_c = []
+    for c in clients:
+        used = sum(float(s.get("hours") or 0) for s in sessions if s.get("client_id") == c["id"] and s.get("status") == "Completed")
+        pkg = c.get("package_hours") or 24
+        rem = max(0, pkg - used)
+        if rem <= 0 or rem <= 2 or rem / pkg <= 0.2:
+            status = "urgent"
+        elif rem / pkg <= 0.35 or rem <= 4:
+            status = "warning"
+        else:
+            status = "ok"
+        per_c.append({"id": c["id"], "name": c["name"], "file_no": c.get("file_no"),
+                      "color": c.get("color"), "pkg": pkg, "used": round(used, 1),
+                      "rem": round(rem, 1), "status": status})
+
+    # Cancellation breakdown from schedule cells (this week)
+    sched_cancel_t = sum(1 for c in cells if c.get("state") == "cancel_therapist")
+    sched_cancel_c = sum(1 for c in cells if c.get("state") == "cancel_child")
+
+    return {
+        "totals": {
+            "therapists": len(therapists),
+            "clients": len(clients),
+            "sessions": len(sessions),
+            "completed_sessions": sum(1 for s in sessions if s.get("status") == "Completed"),
+            "total_hours": round(sum(float(s.get("hours") or 0) for s in sessions if s.get("status") == "Completed"), 1),
+            "open_requests": sum(1 for r in requests if r.get("status") == "pending"),
+            "urgent_clients": sum(1 for c in per_c if c["status"] == "urgent"),
+            "warning_clients": sum(1 for c in per_c if c["status"] == "warning"),
+            "schedule_cells": len(cells),
+            "schedule_cancel_therapist": sched_cancel_t,
+            "schedule_cancel_child": sched_cancel_c,
+        },
+        "per_therapist": list(per_t.values()),
+        "per_client": sorted(per_c, key=lambda x: {"urgent":0,"warning":1,"ok":2}[x["status"]]),
+    }
+
+# ------------------- Imports -------------------
+def _read_table(file: UploadFile) -> List[dict]:
+    """Read xlsx/csv into list of dicts with normalized lower-case keys."""
+    import pandas as pd
+    content = file.file.read()
+    import io
+    if file.filename.lower().endswith(".csv"):
+        df = pd.read_csv(io.BytesIO(content))
+    else:
+        df = pd.read_excel(io.BytesIO(content), engine="openpyxl")
+    df.columns = [str(c).strip().lower() for c in df.columns]
+    df = df.where(df.notna(), None)
+    return df.to_dict("records")
+
+@api.post("/import/clients")
+async def import_clients(file: UploadFile = File(...), _=Depends(admin_only)):
+    rows = _read_table(file)
+    created, skipped = 0, 0
+    therapists = await db.therapists.find({}, {"_id": 0}).to_list(100)
+    t_by_name = {t["name"].lower(): t["id"] for t in therapists}
+    for r in rows:
+        name = r.get("name") or r.get("child_name") or r.get("full_name")
+        if not name:
+            skipped += 1; continue
+        file_no = str(r.get("file_no") or r.get("id") or r.get("file") or "").strip() or None
+        # match therapist name to id
+        main_name = (r.get("main_therapist") or r.get("main") or "").strip().lower() if r.get("main_therapist") or r.get("main") else None
+        main_id = t_by_name.get(main_name) if main_name else None
+        await db.clients.insert_one({
+            "id": str(uuid.uuid4()), "name": str(name).strip(),
+            "file_no": file_no, "package_hours": float(r.get("package_hours") or r.get("pkg") or 24),
+            "supervisor": r.get("supervisor"), "main_therapist_id": main_id,
+            "co_therapist_ids": [], "color": r.get("color") or "#A2C4C9",
+            "locations": [], "parent_name": r.get("parent_name") or r.get("parent"),
+            "parent_phone": str(r.get("parent_phone") or r.get("phone") or "") or None,
+            "age": str(r.get("age") or "") or None, "notes": r.get("notes"),
+            "created_at": now_iso(),
+        })
+        created += 1
+    return {"created": created, "skipped": skipped}
+
+@api.post("/import/intake")
+async def import_intake(file: UploadFile = File(...), _=Depends(admin_only)):
+    rows = _read_table(file)
+    created, skipped = 0, 0
+    for r in rows:
+        name = r.get("child_name") or r.get("name")
+        if not name:
+            skipped += 1; continue
+        intake_type = (r.get("intake_type") or r.get("type") or "pre").lower()
+        if intake_type not in ("pre", "post"):
+            intake_type = "pre"
+        await db.intake.insert_one({
+            "id": str(uuid.uuid4()), "child_name": str(name).strip(),
+            "parent_name": r.get("parent_name") or r.get("parent"),
+            "phone": str(r.get("phone") or "") or None,
+            "intake_type": intake_type, "status": (r.get("status") or "new").lower(),
+            "notes": r.get("notes"), "intake_date": str(r.get("intake_date") or "") or None,
+            "age": str(r.get("age") or "") or None, "created_at": now_iso(),
+        })
+        created += 1
+    return {"created": created, "skipped": skipped}
+
+# ------------------- Historical Schedule Loader -------------------
+HISTORICAL_SCHEDULES = None  # lazy-loaded from JSON file
+
+def _load_historical():
+    global HISTORICAL_SCHEDULES
+    if HISTORICAL_SCHEDULES is None:
+        import json
+        path = ROOT_DIR / "historical_schedules.json"
+        if path.exists():
+            HISTORICAL_SCHEDULES = json.loads(path.read_text())
+        else:
+            HISTORICAL_SCHEDULES = {}
+    return HISTORICAL_SCHEDULES
+
+@api.get("/import/historical-weeks")
+async def list_historical_weeks(_=Depends(admin_only)):
+    data = _load_historical()
+    return {"weeks": list(data.keys())}
+
+@api.post("/import/historical-load")
+async def import_historical(body: dict, _=Depends(admin_only)):
+    """Import all historical weeks into schedule_cells. body: {clear_existing?: bool}"""
+    data = _load_historical()
+    if not data:
+        raise HTTPException(status_code=404, detail="No historical data file found")
+    if body.get("clear_existing"):
+        await db.schedule_cells.delete_many({})
+    therapists = await db.therapists.find({}, {"_id": 0}).to_list(100)
+    t_by_name = {t["name"]: t["id"] for t in therapists}
+    DAYS_MAP = {"Sunday":0, "Monday":1, "Tuesday":2, "Wednesday":3, "Thursday":4}
+    TIMES = ["8:00 AM - 9:00 AM","9:00 AM - 10:00 AM","10:00 AM - 11:00 AM",
+             "11:00 AM - 12:00 PM","12:00 PM - 1:00 PM","1:00 PM - 2:00 PM",
+             "2:00 PM - 3:00 PM","3:00 PM - 4:00 PM","4:00 PM - 5:00 PM",
+             "5:00 PM - 6:00 PM"]
+    inserted = 0
+    weeks_loaded = 0
+    for week_label, therapists_data in data.items():
+        # parse week label like "26 Apr- 30 Apr" → use a fake ISO date for storage
+        week_start_iso = f"hist:{week_label}"
+        weeks_loaded += 1
+        for entry in therapists_data:
+            tname = entry.get("n")
+            t_id = t_by_name.get(tname)
+            if not t_id:
+                continue
+            for day_label, slots in entry.get("s", []):
+                day_idx = DAYS_MAP.get(day_label)
+                if day_idx is None:
+                    continue
+                for slot_idx, raw in enumerate(slots):
+                    if not raw or not str(raw).strip():
+                        continue
+                    txt = str(raw).strip()
+                    # parse service code
+                    service = "SS"
+                    child = None
+                    note = None
+                    custom = None
+                    upper = txt.upper()
+                    if upper.startswith("HS"): service = "HS"
+                    elif upper.startswith("SS"): service = "SS"
+                    elif upper.startswith("OS"): service = "OS"
+                    elif "AVC" in upper: service = "AVC"
+                    elif "SUPERVISION" in upper: service = "SUPERVISION"
+                    elif "OBSERVATION" in upper: service = "OBSERVATION"
+                    elif "MEETING" in upper: service = "MEETING"
+                    elif "LEAVE" in upper: service = "LEAVE"
+                    elif "BREAK" in upper: service = "BREAK"
+                    # extract child name after | or W/
+                    if "|" in txt:
+                        child = txt.split("|", 1)[1].strip()
+                    elif "W/" in txt:
+                        child = txt.split("W/", 1)[1].strip()
+                    elif "with" in txt.lower():
+                        child = txt.lower().split("with", 1)[1].strip()
+                    if child and "(" in child:
+                        custom = child[child.find("(")+1:child.find(")")]
+                        child = child[:child.find("(")].strip()
+                    if slot_idx >= len(TIMES):
+                        continue
+                    if service in ("LEAVE", "BREAK", "AVC"):
+                        note = txt
+                    await db.schedule_cells.insert_one({
+                        "id": str(uuid.uuid4()),
+                        "therapist_id": t_id, "day": day_idx,
+                        "time_slot": TIMES[slot_idx],
+                        "service_code": service, "child_name": child,
+                        "note": note, "custom_time": custom,
+                        "state": "normal", "color": None, "duration": 1,
+                        "week_start": week_start_iso, "created_at": now_iso(),
+                    })
+                    inserted += 1
+    return {"weeks_loaded": weeks_loaded, "cells_inserted": inserted}
+
+@api.post("/schedule/duplicate-week")
+async def duplicate_week(body: dict, _=Depends(admin_only)):
+    """Copy all cells from source_week to target_week. body: {source_week, target_week, clear_target?}"""
+    source = body.get("source_week"); target = body.get("target_week")
+    if not source or not target:
+        raise HTTPException(status_code=400, detail="source_week and target_week required")
+    if body.get("clear_target"):
+        await db.schedule_cells.delete_many({"week_start": target})
+    cells = await db.schedule_cells.find({"week_start": source}, {"_id": 0}).to_list(5000)
+    inserted = 0
+    for c in cells:
+        new_c = {**c, "id": str(uuid.uuid4()), "week_start": target,
+                 "state": "normal", "created_at": now_iso()}
+        await db.schedule_cells.insert_one(new_c)
+        inserted += 1
+    return {"copied": inserted}
+
+@api.post("/import/list-sheets")
+async def list_excel_sheets(file: UploadFile = File(...), _=Depends(admin_only)):
+    """Return the list of sheet names in an uploaded .xlsx file (helps user pick the right one)."""
+    import openpyxl, io
+    content = await file.read()
+    wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+    return {"sheets": wb.sheetnames}
+
+
+@api.post("/import/schedule-excel")
+async def import_schedule_excel(file: UploadFile = File(...),
+                                 week_start: str = Form(...),
+                                 clear_existing: Optional[str] = Form(None),
+                                 sheet_name: Optional[str] = Form(None),
+                                 _=Depends(admin_only)):
+    """Parse a Therapists' Schedule .xlsx file and create cells for the given week_start.
+    Expected layout: each sheet/section has a therapist name with rows for Sunday→Thursday
+    and 10 time-slot columns. Cell text format: 'SS | Child', 'HS | Child', 'Meeting w/ X', 'AVC', 'Leave', etc.
+    """
+    import openpyxl, io
+    content = await file.read()
+    wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+    therapists = await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).to_list(100)
+    t_by_name = {t["name"]: t["id"] for t in therapists}
+    # Also accept short names
+    for t in therapists:
+        short = t["name"].replace("Ms. ", "").strip()
+        t_by_name[short] = t["id"]
+        t_by_name[short.lower()] = t["id"]
+
+    DAYS_MAP = {"sunday": 0, "monday": 1, "tuesday": 2, "wednesday": 3, "thursday": 4}
+    TIMES = ["8:00 AM - 9:00 AM","9:00 AM - 10:00 AM","10:00 AM - 11:00 AM",
+             "11:00 AM - 12:00 PM","12:00 PM - 1:00 PM","1:00 PM - 2:00 PM",
+             "2:00 PM - 3:00 PM","3:00 PM - 4:00 PM","4:00 PM - 5:00 PM",
+             "5:00 PM - 6:00 PM"]
+
+    if clear_existing == "true":
+        await db.schedule_cells.delete_many({"week_start": week_start})
+
+    inserted = 0
+    skipped_unknown_therapist = []
+
+    def parse_cell(txt: str):
+        """Returns (service_code, child_name, custom_time, note) for a cell text."""
+        if not txt or not str(txt).strip():
+            return None
+        txt = str(txt).strip()
+        upper = txt.upper()
+        custom = None
+        note = None
+        child = None
+        service = "SS"
+        if "AVC" in upper: service = "AVC"; note = txt
+        elif "LEAVE" in upper: service = "LEAVE"; note = txt
+        elif "BREAK" in upper: service = "BREAK"; note = txt
+        elif "SUPERVISION" in upper: service = "SUPERVISION"
+        elif "OBSERVATION" in upper: service = "OBSERVATION"
+        elif "MEETING" in upper: service = "MEETING"
+        elif upper.startswith("HS"): service = "HS"
+        elif upper.startswith("OS"): service = "OS"
+        elif upper.startswith("SS"): service = "SS"
+        # Extract child after | or W/ or with
+        if "|" in txt:
+            child = txt.split("|", 1)[1].strip()
+        elif "W/" in upper:
+            idx = upper.index("W/")
+            child = txt[idx+2:].strip()
+        elif " with " in txt.lower():
+            child = txt.lower().split(" with ", 1)[1].strip().title()
+        # Extract custom time inside ( )
+        if child and "(" in child:
+            m_open = child.find("(")
+            m_close = child.find(")", m_open)
+            if m_close > m_open:
+                custom = child[m_open+1:m_close].strip()
+                child = child[:m_open].strip()
+        return service, child, custom, note
+
+    # Iterate selected sheet(s) only
+    sheets_to_process = [wb[sheet_name]] if sheet_name and sheet_name in wb.sheetnames else wb.worksheets
+    for ws in sheets_to_process:
+        # Build a dict of merged ranges -> width(cols) so we can detect long sessions
+        merged_lookup = {}  # (row, col) -> (cols_span)
+        for mrange in ws.merged_cells.ranges:
+            top_row, top_col = mrange.min_row, mrange.min_col
+            cols_span = mrange.max_col - mrange.min_col + 1
+            merged_lookup[(top_row, top_col)] = cols_span
+        # Use cell-by-cell iteration so we can track merged cells
+        max_row = ws.max_row
+        max_col = ws.max_column
+        i = 1  # 1-indexed
+        while i <= max_row:
+            # Read row as text
+            row_cells = []
+            for c in range(1, min(max_col, 16) + 1):
+                v = ws.cell(row=i, column=c).value
+                row_cells.append(str(v).strip() if v is not None else "")
+            joined = " ".join(c.lower() for c in row_cells)
+            # Detect header row
+            if "therapist" in joined and "days" in joined and "8:00" in joined:
+                current_t_id = None
+                for k in range(1, 6):
+                    sub_row = i + k
+                    if sub_row > max_row:
+                        break
+                    name_candidate = (ws.cell(row=sub_row, column=2).value or "")
+                    name_candidate = str(name_candidate).strip()
+                    if name_candidate and current_t_id is None:
+                        if name_candidate in t_by_name:
+                            current_t_id = t_by_name[name_candidate]
+                        else:
+                            for key, tid in t_by_name.items():
+                                if key.lower() == name_candidate.lower():
+                                    current_t_id = tid; break
+                    if current_t_id is None:
+                        if name_candidate and name_candidate not in skipped_unknown_therapist:
+                            skipped_unknown_therapist.append(name_candidate)
+                        continue
+                    day_label = str(ws.cell(row=sub_row, column=3).value or "").strip().lower()
+                    day_idx = DAYS_MAP.get(day_label)
+                    if day_idx is None:
+                        continue
+                    # Time slots in cols D-M (4-13). Skip cells covered by merge from previous slot.
+                    slot_idx = 0
+                    while slot_idx < 10:
+                        col_idx = 4 + slot_idx
+                        if col_idx > max_col:
+                            break
+                        # Check if this cell is the start of a merged range
+                        cells_span = merged_lookup.get((sub_row, col_idx), 1)
+                        # Check if this cell is COVERED by a merge that started earlier (same row, earlier col)
+                        is_covered = False
+                        for (mr, mc), span in merged_lookup.items():
+                            if mr == sub_row and mc < col_idx and mc + span > col_idx:
+                                is_covered = True; break
+                        if is_covered:
+                            slot_idx += 1; continue
+                        val = ws.cell(row=sub_row, column=col_idx).value
+                        val_str = str(val).strip() if val is not None else ""
+                        parsed = parse_cell(val_str)
+                        if parsed:
+                            service, child, custom, note = parsed
+                            await db.schedule_cells.insert_one({
+                                "id": str(uuid.uuid4()),
+                                "therapist_id": current_t_id,
+                                "day": day_idx,
+                                "time_slot": TIMES[slot_idx],
+                                "service_code": service, "child_name": child,
+                                "note": note, "custom_time": custom,
+                                "state": "normal", "color": None,
+                                "duration": cells_span,  # merged cell -> long session
+                                "week_start": week_start, "created_at": now_iso(),
+                            })
+                            inserted += 1
+                        slot_idx += cells_span  # advance past merged width
+                i += 6
+                continue
+            i += 1
+
+    return {"cells_inserted": inserted, "week_start": week_start, "skipped_therapists": skipped_unknown_therapist[:20]}
+
+@api.get("/")
+async def root():
+    return {"message": "Boost Growth Portal API", "status": "ok"}
+
+app.include_router(api)
+app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ------------------- Seed Data (FROM BASE44 SOURCE) -------------------
+THERAPIST_SEED = [
+    {"name": "Ms. Maha", "color": "#7A8A6A", "email": "maha@boostgrowthsa.com"},
+    {"name": "Ms. Fahda", "color": "#D4A64A", "email": "fahda@boostgrowthsa.com"},
+    {"name": "Ms. Razan", "color": "#8FA481", "email": "razan@boostgrowthsa.com"},
+    {"name": "Ms. Manal", "color": "#A4BCCB", "email": "manal@boostgrowthsa.com"},
+    {"name": "Ms. Hajer", "color": "#C97B5C", "email": "hajer@boostgrowthsa.com"},
+    {"name": "Ms. Rahaf", "color": "#9B7BAB", "email": "rahaf@boostgrowthsa.com"},
+    {"name": "Ms. Shatha", "color": "#5C8B7E", "email": "shatha@boostgrowthsa.com"},
+    {"name": "Ms. Alhanouf", "color": "#B89968", "email": "alhanouf@boostgrowthsa.com"},
+    {"name": "Ms. Waad", "color": "#7B96B5", "email": "waad@boostgrowthsa.com"},
+    {"name": "Ms. Bodoor", "color": "#A8745E", "email": "bodoor@boostgrowthsa.com"},
+    {"name": "Ms. Fatimah", "color": "#6B9080", "email": "fatimah@boostgrowthsa.com"},
+    {"name": "Ms. Shrooq", "color": "#D49A60", "email": "shrooq@boostgrowthsa.com"},
+    {"name": "Ms. Abeer", "color": "#8B7BA8", "email": "abeer@boostgrowthsa.com"},
+    {"name": "Ms. Najla", "color": "#7BA890", "email": "najla@boostgrowthsa.com"},
+    {"name": "Ms. Walaa", "color": "#C28E6A", "email": "walaa@boostgrowthsa.com"},
+    {"name": "Ms. Asma", "color": "#6A7F9B", "email": "asma@boostgrowthsa.com"},
+    {"name": "Ms. Jenan", "color": "#A38B5F", "email": "jenan@boostgrowthsa.com"},
+]
+
+CLIENT_SEED = [
+    {"file_no":"009","name":"Saleh Ahusainy","main":"Ms. Waad","co":["Ms. Manal","Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#FFE599","locs":[{"service":"SS","address":"Alnakeel - Home Sweet Home"},{"service":"HS","address":"Alnakheel - 1st floor, apartment #7"},{"service":"HS","address":"Grandmother house"}]},
+    {"file_no":"011","name":"Fahad Alyahya","main":"Ms. Alhanouf","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#A2C4C9","locs":[{"service":"HS","address":"Alyasmin - house no 3075"},{"service":"SS","address":"Talat School"}]},
+    {"file_no":"018","name":"Layan AlSaud","main":"Ms. Jenan","co":[],"pkg":24,"sup":"Ms. Jenan","color":"#C9DAF8","locs":[{"service":"ABA","address":"Alaqiq"}]},
+    {"file_no":"023","name":"Yahya Alqahtani","main":"Ms. Hajer","co":["Ms. Manal"],"pkg":24,"sup":"Ms. Fahda","color":"#D5A6BD","locs":[{"service":"HS","address":"Alaarid"}]},
+    {"file_no":"024","name":"Abdulaziz Alrasheed","main":"Ms. Shatha","co":["Ms. Manal","Ms. Hajer"],"pkg":24,"sup":"Ms. Fahda","color":"#E6B8AF","locs":[{"service":"HS","address":"Alnada - Building #26, 3rd floor, apartment #23"}]},
+    {"file_no":"027","name":"Mohmmed Alaqel","main":"Ms. Rahaf","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#FFF2CC","locs":[{"service":"HS","address":"AlMalqa - 331"}]},
+    {"file_no":"030","name":"Husam Alturaigy","main":"Ms. Manal","co":["Ms. Shatha"],"pkg":24,"sup":"Ms. Fahda","color":"#B4A7D6","locs":[{"service":"SS","address":"Whales of the future daycare"},{"service":"HS","address":"Alwaha - Home #4B"}]},
+    {"file_no":"034","name":"Aljouhrah Alduailij","main":"Ms. Asma","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#D9EAD3","locs":[{"service":"SS","address":"Alnakheel - Talat School"}]},
+    {"file_no":"035","name":"Saad Alghamdi","main":"Ms. Shatha","co":["Ms. Hajer","Ms. Fatimah"],"pkg":24,"sup":"Ms. Maha","color":"#B6D7A8","locs":[{"service":"HS","address":"Al Aqiq - House in the corner"},{"service":"SS","address":"Al Motaqdimah Schools"}]},
+    {"file_no":"037","name":"Suzan Alsultan","main":"Ms. Asma","co":[],"pkg":24,"sup":"Ms. Maha","color":"#FCE5CD","locs":[{"service":"HS","address":"King Fahad - Villa 1308"}]},
+    {"file_no":"038","name":"Salman Alrasheed","main":"Ms. Manal","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Maha","color":"#F4CCCC","locs":[{"service":"SS","address":"Summer Camp - Stars of Knowledge School"},{"service":"HS","address":"Alnada - Building #26, 3rd floor, apartment #23"}]},
+    {"file_no":"040","name":"Abdulaziz AlAbdulwahab","main":"Ms. Fatimah","co":["Ms. Fahda","Ms. Hajer"],"pkg":24,"sup":"Ms. Maha","color":"#6FA8DC","locs":[{"service":"HS","address":"Alraed - house no 8188"}]},
+    {"file_no":"041","name":"Ameerah Alshehri","main":"Ms. Fahda","co":["Ms. Fatimah"],"pkg":24,"sup":"Ms. Maha","color":"#EA9999","locs":[{"service":"HS","address":"Roshen - Villa 277"}]},
+    {"file_no":"042","name":"Sultan Aldamer","main":"Ms. Shrooq","co":["Ms. Rahaf"],"pkg":24,"sup":"Ms. Maha","color":"#FFE599","locs":[{"service":"SS","address":"Bright Mind School"},{"service":"HS","address":"Alhada - No house number"}]},
+    {"file_no":"047","name":"Alwaleed Alotaibi","main":"Ms. Hajer","co":["Ms. Alhanouf"],"pkg":24,"sup":"Ms. Maha","color":"#B4A7D6","locs":[{"service":"HS","address":"Alqairawan - house no 10"},{"service":"SS","address":"Al Motaqdimah Schools"}]},
+    {"file_no":"052","name":"Sulaiman Alkhurashi","main":"Ms. Rahaf","co":["Ms. Maha"],"pkg":24,"sup":"Ms. Maha","color":"#F9CB9C","locs":[{"service":"HS","address":"Alsulaimanyah - house no 24"}]},
+    {"file_no":"054","name":"Omar Alkhurashi","main":"Ms. Manal","co":["Ms. Maha"],"pkg":24,"sup":"Ms. Maha","color":"#D0E0E3","locs":[{"service":"HS","address":"Alsulaimanyah - house no 24"}]},
+    {"file_no":"060","name":"Mohammed Albedayea","main":"Ms. Bodoor","co":["Ms. Shatha"],"pkg":24,"sup":"Ms. Maha","color":"#D9EAD3","locs":[{"service":"HS","address":"Alyasmin - Home no 14"},{"service":"SS","address":"Yas School"}]},
+    {"file_no":"061","name":"Ibrahim Alnasir","main":"Ms. Rahaf","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#D9D2E9","locs":[{"service":"HS","address":"Alyasmin - Home no 39"},{"service":"SS","address":"Alnakheel - Talat School"}]},
+    {"file_no":"062","name":"Lulu Almutair","main":"Ms. Razan","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#D5A6BD","locs":[{"service":"HS","address":"Almuroj - Home no 4"},{"service":"SS","address":"Alnakheel - Talat School"}]},
+    {"file_no":"063","name":"Amani Ghaith","main":"Ms. Maha","co":[],"pkg":24,"sup":"Ms. Maha","color":"#FFF2CC","locs":[{"service":"HS","address":"Alnakheel"}]},
+    {"file_no":"065","name":"Aser Alharbi","main":"Ms. Najla","co":["Ms. Maha"],"pkg":24,"sup":"Ms. Maha","color":"#F4CCCC","locs":[{"service":"HS","address":"Al Izdihar - First floor - House no 15"}]},
+    {"file_no":"068","name":"Abdulrahman Alshawi","main":"Ms. Razan","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#C9DAF8","locs":[{"service":"HS","address":"AR Rayan - Home no 32"},{"service":"SS","address":"Kindergarten of KSU"}]},
+    {"file_no":"070","name":"Abdulelah Almuhana","main":"Ms. Abeer","co":["Ms. Maha"],"pkg":24,"sup":"Ms. Maha","color":"#CFE2F3","locs":[{"service":"SS","address":"Manarat Ar Riyadh"}]},
+    {"file_no":"072","name":"Khalid Bin Shuael","main":"Ms. Shatha","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#EAD1DC","locs":[{"service":"HS","address":"AlMursalat"}]},
+]
+
+# ------------------- Intake Seed (from Waiting_List_v4.xlsx) -------------------
+INTAKE_SEED = [
+    # Pre-Intake
+    {"intake_type":"pre","child_name":"Reema Idrees","service":"HS","phone":"546272994","district":"Iraqi","age":"2021","time_pref":"Morning","diagnosis":"PWS"},
+    {"intake_type":"pre","child_name":"Abdulaziz Alrajab","service":"HS","phone":"500252211","district":"Al Malqa","age":"2023","time_pref":"Any","diagnosis":"NA","notes":"Online CONCL"},
+    {"intake_type":"pre","child_name":"Mansour","service":"HS","phone":"507247881","district":"Alyasmeen","age":"2022","time_pref":"Any","diagnosis":"Speech delay"},
+    {"intake_type":"pre","child_name":"Leen","service":"SS","phone":"503225528","district":"Al Raed","age":"2010","time_pref":"Morning","diagnosis":"NA","notes":"3 hours at school"},
+    {"intake_type":"pre","child_name":"Ebrahim Alnami","service":"SS","phone":"564443542","district":"Alsulimania","age":"2022","time_pref":"Morning","diagnosis":"Premature - 29 weeks"},
+    {"intake_type":"pre","child_name":"Naif Alblawi","service":"HS","phone":"535544260","district":"Qurtubah","age":"2020","time_pref":"Evening","diagnosis":"ADHD"},
+    {"intake_type":"pre","child_name":"Saad Alajaji","service":"HS","phone":"555955342","district":"AL-Suwaidi","age":"2021","time_pref":"Evening","diagnosis":"NA"},
+    {"intake_type":"pre","child_name":"Reema Alotaibi","service":"HS","phone":"503553339","district":"AlArid","time_pref":"Evening","diagnosis":"Speech delay"},
+    {"intake_type":"pre","child_name":"Waseem Aljohani","service":"HS / SS","phone":"594744884","district":"Alnarjis","age":"2019","diagnosis":"ADHD","notes":"DR.Turki"},
+    {"intake_type":"pre","child_name":"Faisal Alzghaibi","service":"HS","phone":"966507479800","district":"Alyasmeen","diagnosis":"NA","notes":"Azraq"},
+    {"intake_type":"pre","child_name":"Sultan Abalkhail","service":"HS","phone":"558811313","district":"Al-Mursalat","age":"2019","diagnosis":"NA"},
+    {"intake_type":"pre","child_name":"Sultan Bandar","service":"HS","phone":"555579702","district":"Alyasmeen","age":"2019","time_pref":"Any","diagnosis":"Speech delay - ADHD"},
+    # Post-Intake
+    {"intake_type":"post","child_name":"Mohammed alnoweser","service":"HS","district":"King Fahad","age":"3 year","language":"English"},
+    {"intake_type":"post","child_name":"Mohammed Alofi","service":"HS","phone":"554505400","district":"AlAridh","age":"6","language":"English / Arabic"},
+    {"intake_type":"post","child_name":"Rakan Alaqel","service":"HS","phone":"538154083","district":"Alnarjis","age":"2019","language":"Arabic"},
+    {"intake_type":"post","child_name":"Nawaf Alshweeb","service":"HS","district":"Um Alhamam","age":"5.5","language":"ASD"},
+    {"intake_type":"post","child_name":"Abdulkareem Kaki","service":"HS","language":"Arabic"},
+    {"intake_type":"post","child_name":"Abdulaziz Alzahrani","service":"HS","phone":"555341092","district":"Almalqa","age":"4"},
+    {"intake_type":"post","child_name":"Yazeed Bu sheet","service":"SS","phone":"555009662","district":"Hitter","diagnosis":"Autism"},
+    {"intake_type":"post","child_name":"Omar ALImazrou","service":"HS","phone":"534888855","district":"AlArid","age":"2023","diagnosis":"Autism"},
+    {"intake_type":"post","child_name":"Fahad Suliman","service":"HS","phone":"966500566235","district":"Al-Sahafa","age":"2019","diagnosis":"ADD"},
+    {"intake_type":"post","child_name":"Naif Alwhibi","service":"SS / HS","phone":"506128118","district":"Ar Rabi","age":"2020","diagnosis":"ASD"},
+    {"intake_type":"post","child_name":"Ahmad Alshalfan","service":"SS / HS","phone":"505287407","district":"Almalqa","age":"2020","diagnosis":"ADHD and GDD"},
+    {"intake_type":"post","child_name":"Abdulelah Almuhana","service":"HS","phone":"966 56 554 4999","age":"2021"},
+    {"intake_type":"post","child_name":"Leena Alshahrani","service":"HS","phone":"530511175"},
+]
+
+# ------------------- Directory Seed (Internal Team) -------------------
+DIRECTORY_SEED = [
+    {"name":"Genan Almuhaisen","role":"Direct Manager","phone":"","email":"genan@boostgrowthsa.com"},
+    {"name":"Boost Growth (Main)","role":"Coordinator / General Inquiries","phone":"","email":"hello@boostgrowthsa.com"},
+    {"name":"Ms. Walaa","role":"Operations","phone":"","email":"walaa@boostgrowthsa.com"},
+    {"name":"Ms. Maha","role":"Supervisor","phone":"","email":"maha@boostgrowthsa.com"},
+    {"name":"Ms. Fahdah","role":"Supervisor","phone":"","email":"fahda@boostgrowthsa.com"},
+]
+
+# ------------------- Resources Seed -------------------
+RESOURCES_SEED = [
+    {"title":"Therapist Drive","description":"Session materials · forms · training","url":"https://drive.google.com/drive/folders/1iMDwfucwzsEIl9WxwhJi_h6tg2vVtAFr","visibility":"therapist","icon":"Folders","bg":"#E5EBE1","color":"#3D4F35","sort_order":10},
+    {"title":"Therapist Training Hub","description":"Protocols · lesson plans","url":"https://drive.google.com/drive/folders/1iMDwfucwzsEIl9WxwhJi_h6tg2vVtAFr","visibility":"therapist","icon":"Notebook","bg":"#EAF0F3","color":"#375568","sort_order":20},
+    {"title":"Client Files","description":"Per-client folders","url":"https://drive.google.com/drive/folders/1iMDwfucwzsEIl9WxwhJi_h6tg2vVtAFr","visibility":"admin","icon":"Folders","bg":"#FAF0D1","color":"#6B5218","sort_order":30},
+    {"title":"HR Files","description":"Employees · Contracts","url":"https://drive.google.com/drive/folders/1jWRO97gDHK_TfmZhTqCqm0SdBc6_b5bE","visibility":"admin","icon":"Files","bg":"#F1ECF7","color":"#4E3F70","sort_order":40},
+    {"title":"Company Policies","description":"Internal policies & SOPs","url":"https://drive.google.com/drive/folders/11VQQ-o1QoDQV-ktygB1tlnRmqCs3mxAb","visibility":"all","icon":"Notebook","bg":"#F4E7D8","color":"#8B6918","sort_order":50},
+]
+
+
+@app.on_event("startup")
+async def startup():
+    await db.users.create_index("email", unique=True)
+    await db.therapists.create_index("id", unique=True)
+    await db.schedule_cells.create_index([("week_start", 1), ("therapist_id", 1)])
+    await db.notifications.create_index("user_id")
+    await db.sessions.create_index([("client_id", 1), ("session_date", -1)])
+
+    admin_email = os.environ["ADMIN_EMAIL"].lower()
+    admin_password = os.environ["ADMIN_PASSWORD"]
+    admin_name = os.environ.get("ADMIN_NAME", "Admin")
+    existing = await db.users.find_one({"email": admin_email})
+    if not existing:
+        await db.users.insert_one({"id": str(uuid.uuid4()), "email": admin_email,
+                                   "password_hash": hash_password(admin_password),
+                                   "name": admin_name, "role": "admin", "created_at": now_iso()})
+        logger.info(f"Admin seeded: {admin_email}")
+    elif not verify_password(admin_password, existing["password_hash"]):
+        await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
+
+    # Seed therapists ONLY on first-time setup (count==0). NEVER overwrite existing data.
+    th_count = await db.therapists.count_documents({})
+    if th_count == 0:
+        for s in THERAPIST_SEED:
+            await db.therapists.insert_one({
+                "id": str(uuid.uuid4()), "name": s["name"], "color": s["color"],
+                "email": s.get("email"), "phone": None,
+                "pin_hash": hash_password("0000"),
+                "created_at": now_iso(),
+            })
+        logger.info(f"First-time seed: {len(THERAPIST_SEED)} therapists with PIN=0000")
+    else:
+        # Add any new seed therapists that don't exist yet (by name) — preserves existing UUIDs
+        existing_names = {t["name"] async for t in db.therapists.find({}, {"_id": 0, "name": 1})}
+        added = 0
+        for s in THERAPIST_SEED:
+            if s["name"] not in existing_names:
+                await db.therapists.insert_one({
+                    "id": str(uuid.uuid4()), "name": s["name"], "color": s["color"],
+                    "email": s.get("email"), "phone": None,
+                    "pin_hash": hash_password("0000"),
+                    "created_at": now_iso(),
+                })
+                added += 1
+        if added:
+            logger.info(f"Added {added} new therapist(s) without disturbing existing data")
+
+    # Load persisted email settings from db.settings into env
+    settings_doc = await db.settings.find_one({"key": "email"}, {"_id": 0})
+    if settings_doc:
+        if settings_doc.get("resend_api_key"):
+            os.environ["RESEND_API_KEY"] = settings_doc["resend_api_key"]
+        if settings_doc.get("from_email"):
+            os.environ["EMAIL_FROM"] = settings_doc["from_email"]
+
+    # Seed clients ONLY on first-time setup (count==0). Preserves user edits.
+    cl_count = await db.clients.count_documents({})
+    if cl_count == 0:
+        therapists_map = {t["name"]: t["id"] async for t in db.therapists.find({}, {"_id": 0, "name": 1, "id": 1})}
+        for c in CLIENT_SEED:
+            await db.clients.insert_one({
+                "id": str(uuid.uuid4()),
+                "file_no": c["file_no"], "name": c["name"],
+                "package_hours": c["pkg"], "supervisor": c["sup"],
+                "main_therapist_id": therapists_map.get(c["main"]),
+                "co_therapist_ids": [therapists_map[n] for n in c["co"] if n in therapists_map],
+                "color": c["color"], "locations": c["locs"],
+                "parent_name": None, "parent_phone": None, "age": None,
+                "notes": None, "created_at": now_iso(),
+            })
+        await db.meta.update_one({"key": "client_seed_version"},
+                                 {"$set": {"version": 1, "updated_at": now_iso()}},
+                                 upsert=True)
+        logger.info(f"First-time seed: {len(CLIENT_SEED)} clients")
+
+    # Seed Intake (only if empty — admin may manage manually)
+    if await db.intake.count_documents({}) == 0:
+        for item in INTAKE_SEED:
+            await db.intake.insert_one({
+                "id": str(uuid.uuid4()),
+                "status": "new",
+                "priority": False,
+                "created_at": now_iso(),
+                **item,
+            })
+        logger.info(f"Seeded {len(INTAKE_SEED)} intake records from waiting list")
+
+    # Seed Directory (only if empty)
+    if await db.directory.count_documents({}) == 0:
+        for item in DIRECTORY_SEED:
+            await db.directory.insert_one({
+                "id": str(uuid.uuid4()), **item, "created_at": now_iso(),
+            })
+        logger.info(f"Seeded {len(DIRECTORY_SEED)} directory contacts")
+
+    # Seed Resources (only if empty)
+    if await db.resources.count_documents({}) == 0:
+        for item in RESOURCES_SEED:
+            await db.resources.insert_one({
+                "id": str(uuid.uuid4()),
+                "category": "drive",
+                **item,
+                "created_at": now_iso(),
+            })
+        logger.info(f"Seeded {len(RESOURCES_SEED)} resources")
+
+    # Seed Leaves (only if empty) — from leaves_seed.json (parsed Vacation 2026)
+    if await db.leaves.count_documents({}) == 0:
+        seed_path = ROOT_DIR / "leaves_seed.json"
+        if seed_path.exists():
+            import json
+            seed = json.loads(seed_path.read_text())
+            t_by_name = {t["name"]: t["id"] async for t in db.therapists.find({}, {"_id": 0, "name": 1, "id": 1})}
+            inserted = 0
+            for item in seed:
+                tid = t_by_name.get(item.get("therapist_name"))
+                if not tid:
+                    continue
+                await db.leaves.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "therapist_id": tid,
+                    "start_date": item.get("start_date") or "",
+                    "end_date": item.get("end_date") or "",
+                    "days": item.get("days") or 0,
+                    "leave_type": item.get("leave_type") or "Annual",
+                    "status": item.get("status") or "done",
+                    "notes": item.get("notes"),
+                    "created_at": now_iso(),
+                })
+                inserted += 1
+            logger.info(f"Seeded {inserted} leaves from Vacation 2026")
+
+@app.on_event("shutdown")
+async def shutdown():
+    client.close()

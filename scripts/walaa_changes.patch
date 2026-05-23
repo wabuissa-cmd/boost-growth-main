@@ -1,0 +1,772 @@
+From 14b427e3da53426307d16daaf48ef84251501d07 Mon Sep 17 00:00:00 2001
+From: emergent-agent-e1 <github@emergent.sh>
+Date: Tue, 5 May 2026 21:19:27 +0000
+Subject: [PATCH 1/4] auto-commit for 23daa33e-6496-4492-bfe4-d5726c525dab
+
+---
+ backend/server.py               | 11 ++++++
+ frontend/src/index.css          | 26 +++++++-------
+ frontend/src/pages/Admin.jsx    | 60 ++++++++++++++++++++++++++++++---
+ frontend/src/pages/Schedule.jsx | 52 +++++++++++++++++++++++++---
+ 4 files changed, 128 insertions(+), 21 deletions(-)
+
+diff --git a/backend/server.py b/backend/server.py
+index 1af3a12..e6a3d9a 100644
+--- a/backend/server.py
++++ b/backend/server.py
+@@ -802,6 +802,17 @@ class EmailSettingsIn(BaseModel):
+     resend_api_key: Optional[str] = None
+     from_email: Optional[str] = None
+ 
++@api.post("/admin/email-test-send")
++async def email_test_send(payload: dict, _=Depends(admin_only)):
++    """Test send to a target email. Returns clear error if Resend rejects."""
++    to = (payload.get("to") or "").strip()
++    if not to:
++        raise HTTPException(status_code=400, detail="Recipient email required")
++    result = await _send_email_stub(to,
++        "Boost Growth — Test Email",
++        "This is a test email from your Boost Growth Portal.\n\nIf you received this, email notifications are working correctly.\n\n— Boost Growth Portal")
++    return result
++
+ @api.get("/admin/email-settings")
+ async def get_email_settings(_=Depends(admin_only)):
+     doc = await db.settings.find_one({"key": "email"}, {"_id": 0}) or {}
+diff --git a/frontend/src/index.css b/frontend/src/index.css
+index cd0ed41..07f2c76 100644
+--- a/frontend/src/index.css
++++ b/frontend/src/index.css
+@@ -165,13 +165,13 @@ html, body {
+ .cell-cancel-child {
+ 
+ /* Sheet-style schedule (mirrors Google Sheets layout) */
+-.sched-sheet { border-collapse: collapse; width: 100%; }
++.sched-sheet { border-collapse: collapse; width: 100%; background: #ECE7DC; }
+ .sched-sheet .sheet-th {
+     background: #EFE8D2;
+     color: #2C3625;
+     font-weight: 700;
+     font-size: 10.5px;
+-    padding: 8px 6px;
++    padding: 6px 4px;
+     text-align: center;
+     border: 1px solid #D9CDA3;
+     letter-spacing: 0.03em;
+@@ -179,23 +179,25 @@ html, body {
+     position: sticky; top: 0; z-index: 3;
+ }
+ .sched-sheet .sheet-td {
+-    border: 1px solid #E8E4DE;
++    border: 1px solid #DDD7CC;
+     padding: 4px 5px;
+     vertical-align: middle;
+-    background: #F5F2ED;   /* light gray-cream so empty cells are visibly empty (intentional gaps) */
+-    min-height: 48px;
+-    height: 48px;
+-    font-size: 11px;
++    background: #F0EBDF;     /* light gray-cream for ALL empty cells */
++    min-height: 42px;
++    height: 42px;
++    font-size: 10.5px;
+     transition: background 140ms ease;
+ }
+ .sched-sheet .sheet-slot.has-event { background: white; }   /* event cells override with their color via inline style */
+-.sched-sheet .sheet-idx { background: #FAF5E8; font-size: 13px; color: #5C6853; width: 38px; }
+-.sched-sheet .sheet-therapist { background: #FAF5E8; min-width: 130px; }
+-.sched-sheet .sheet-day { background: #F6F2E4; min-width: 80px; width: 80px; }
+-.sched-sheet .sheet-slot { min-width: 110px; cursor: default; }
++.sched-sheet .sheet-idx { background: #FAF5E8; font-size: 13px; color: #5C6853; width: 32px; min-width: 32px; }
++.sched-sheet .sheet-therapist { background: #FAF5E8; min-width: 110px; }
++.sched-sheet .sheet-day { background: #F6F2E4; min-width: 64px; width: 64px; }
++.sched-sheet .sheet-slot { min-width: 78px; cursor: default; }
+ .sched-sheet .sheet-slot.editable { cursor: pointer; }
+-.sched-sheet .sheet-slot.editable:hover { outline: 2px solid #7A8A6A; outline-offset: -2px; background: rgba(229, 235, 225, 0.35); }
++.sched-sheet .sheet-slot.editable:hover { outline: 2px solid #7A8A6A; outline-offset: -2px; }
+ .sched-sheet .sheet-slot.has-event { font-weight: 600; }
++.sched-sheet .sheet-slot.copied-source { outline: 2px dashed #C28E6A !important; outline-offset: -2px; animation: copy-pulse 1s ease-in-out infinite; }
++@keyframes copy-pulse { 0%,100% { outline-color: #C28E6A; } 50% { outline-color: #D4A064; } }
+ @media print {
+     .sched-sheet .sheet-th { background: #EFE8D2 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+     .sched-sheet .sheet-td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+diff --git a/frontend/src/pages/Admin.jsx b/frontend/src/pages/Admin.jsx
+index 9180028..453fd4b 100644
+--- a/frontend/src/pages/Admin.jsx
++++ b/frontend/src/pages/Admin.jsx
+@@ -9,6 +9,8 @@ export default function Admin() {
+   const [editEmail, setEditEmail] = useState(false);
+   const [emailForm, setEmailForm] = useState({ resend_api_key: "", from_email: "" });
+   const [emailQueue, setEmailQueue] = useState([]);
++  const [testTo, setTestTo] = useState("");
++  const [testResult, setTestResult] = useState(null);
+ 
+   const load = async () => {
+     const [t, e, q] = await Promise.all([
+@@ -28,8 +30,24 @@ export default function Admin() {
+     if (emailForm.resend_api_key) payload.resend_api_key = emailForm.resend_api_key;
+     if (emailForm.from_email) payload.from_email = emailForm.from_email;
+     if (Object.keys(payload).length === 0) { alert("Provide API key or From email"); return; }
+-    await api.post("/admin/email-settings", payload);
+-    setEditEmail(false); load();
++    try {
++      await api.post("/admin/email-settings", payload);
++      setEditEmail(false); load();
++    } catch (e) {
++      alert("Save failed: " + (e.response?.data?.detail || e.message));
++    }
++  };
++
++  const sendTest = async () => {
++    if (!testTo) return;
++    setTestResult({ status: "sending" });
++    try {
++      const r = await api.post("/admin/email-test-send", { to: testTo });
++      setTestResult(r.data);
++      load();
++    } catch (e) {
++      setTestResult({ status: "failed", error: e.response?.data?.detail || e.message });
++    }
+   };
+ 
+   const save = async () => {
+@@ -87,9 +105,17 @@ export default function Admin() {
+             <PencilSimple size={14} /> {editEmail ? "Cancel" : "Configure"}
+           </button>
+         </div>
++        <div className="text-xs mb-3 px-3 py-2 rounded-lg" style={{ background: "#FAF0D1", color: "#6B5218" }}>
++          <strong>⚠️ Resend Test Mode</strong> — While using <code>onboarding@resend.dev</code> as From, you can ONLY send emails to the address you registered with at Resend. To send to all therapists' work emails:
++          <ol className="list-decimal pl-5 mt-1.5">
++            <li>Go to <a href="https://resend.com/domains" target="_blank" rel="noreferrer" className="underline font-bold">resend.com/domains</a> → Add Domain → <code>boostgrowthsa.com</code></li>
++            <li>Add the 3 DNS records Resend gives you</li>
++            <li>Wait for verification (10 min – 24 h)</li>
++            <li>Then change "From Email" below to <code>noreply@boostgrowthsa.com</code></li>
++          </ol>
++        </div>
+         <div className="text-xs mb-3" style={{ color: "#5C6853" }}>
+-          When configured, cancellation alerts and key notifications will be emailed automatically. Get your API key at{" "}
+-          <a href="https://resend.com/api-keys" target="_blank" rel="noreferrer" className="underline" style={{ color: "#7A8A6A" }}>resend.com/api-keys</a> (3,000 emails free / month).
++          Get/manage keys: <a href="https://resend.com/api-keys" target="_blank" rel="noreferrer" className="underline" style={{ color: "#7A8A6A" }}>resend.com/api-keys</a>
+         </div>
+         {editEmail ? (
+           <div className="grid grid-cols-2 gap-3">
+@@ -112,6 +138,32 @@ export default function Admin() {
+             <div><span style={{ color: "#8B9E7A" }}>From:</span> <span style={{ color: "#2C3625" }}>{emailSettings.from_email}</span></div>
+           </div>
+         )}
++
++        {/* Test send */}
++        <div className="mt-4 pt-4 border-t" style={{ borderColor: "#E8E4DE" }}>
++          <div className="text-[11px] tracking-widest mb-2" style={{ color: "#8B9E7A" }}>SEND A TEST EMAIL</div>
++          <div className="flex gap-2 flex-wrap">
++            <input data-testid="test-email-input" className="input flex-1 text-sm" placeholder="recipient@example.com" value={testTo} onChange={e=>setTestTo(e.target.value)} />
++            <button data-testid="send-test-email-btn" onClick={sendTest} disabled={!testTo || testResult?.status==="sending"} className="btn btn-primary text-sm disabled:opacity-50">
++              {testResult?.status === "sending" ? "Sending..." : "Send Test"}
++            </button>
++          </div>
++          {testResult && testResult.status !== "sending" && (
++            <div className="mt-2 text-xs px-3 py-2 rounded-lg" style={{
++              background: testResult.status === "sent" ? "#E5EBE1" : "#FCE0E8",
++              color: testResult.status === "sent" ? "#3D4F35" : "#8B3A55"
++            }}>
++              {testResult.status === "sent" ? (
++                <>✅ <b>Email sent successfully!</b> Provider ID: <code>{testResult.provider_id}</code>. Check inbox of <b>{testResult.to}</b>.</>
++              ) : (
++                <>❌ <b>Failed:</b> <code>{testResult.error || JSON.stringify(testResult)}</code><br/>
++                {(testResult.error || "").includes("testing emails") && <span className="block mt-1">💡 In test mode you can only send to your Resend-registered email. Verify your domain to send to others.</span>}
++                {(testResult.error || "").includes("not verified") && <span className="block mt-1">💡 Domain not verified. Use <code>onboarding@resend.dev</code> as From, or verify your domain at resend.com/domains.</span>}
++                </>
++              )}
++            </div>
++          )}
++        </div>
+         {emailQueue.length > 0 && (
+           <div className="mt-4 pt-4 border-t" style={{ borderColor: "#E8E4DE" }}>
+             <div className="text-[11px] tracking-widest mb-2" style={{ color: "#8B9E7A" }}>RECENT EMAIL ACTIVITY ({emailQueue.length})</div>
+diff --git a/frontend/src/pages/Schedule.jsx b/frontend/src/pages/Schedule.jsx
+index 7869665..9d104dc 100644
+--- a/frontend/src/pages/Schedule.jsx
++++ b/frontend/src/pages/Schedule.jsx
+@@ -52,6 +52,7 @@ export default function Schedule() {
+   const [showDup, setShowDup] = useState(false);
+   const [dupTarget, setDupTarget] = useState(null);
+   const [dupClear, setDupClear] = useState(false);
++  const [clipboard, setClipboard] = useState(null);  // copied cell content
+ 
+   const weekStartISO = toISODate(weekStart);
+ 
+@@ -78,6 +79,12 @@ export default function Schedule() {
+     return () => document.removeEventListener("click", close);
+   }, [ctxMenu]);
+ 
++  useEffect(() => {
++    const onKey = (e) => { if (e.key === "Escape") setClipboard(null); };
++    if (clipboard) window.addEventListener("keydown", onKey);
++    return () => window.removeEventListener("keydown", onKey);
++  }, [clipboard]);
++
+   const cellMap = useMemo(() => {
+     const m = {};
+     cells.forEach(c => { m[`${c.therapist_id}_${c.day}_${c.time_slot}`] = c; });
+@@ -108,10 +115,33 @@ export default function Schedule() {
+   const handleCellClick = (e, therapist_id, day, time_slot, existing) => {
+     if (e) e.stopPropagation();
+     if (!isAdmin) return;
++    // If clipboard is set and the target slot is empty, paste it
++    if (clipboard && !existing) {
++      const payload = {
++        therapist_id, day, time_slot, week_start: weekStartISO,
++        service_code: clipboard.service_code,
++        child_name: clipboard.child_name,
++        custom_time: clipboard.custom_time,
++        note: clipboard.note,
++        duration: clipboard.duration || 1,
++        state: "normal",
++        color: clipboard.color || null,
++      };
++      api.post("/schedule", payload).then(load);
++      return;
++    }
+     setEdit(existing ? { ...existing }
+       : { therapist_id, day, time_slot, service_code: "SS", child_name: "", state: "normal", week_start: weekStartISO, color: null });
+   };
+ 
++  const copyCell = (cell) => {
++    setClipboard({
++      service_code: cell.service_code, child_name: cell.child_name,
++      custom_time: cell.custom_time, note: cell.note,
++      duration: cell.duration || 1, color: cell.color,
++    });
++  };
++
+   const save = async () => {
+     const payload = { ...edit, week_start: weekStartISO };
+     if (edit.id) await api.put(`/schedule/${edit.id}`, payload);
+@@ -164,14 +194,14 @@ export default function Schedule() {
+   const renderSheet = () => (
+     <div className="card p-0 overflow-hidden">
+       <div className="overflow-x-auto">
+-        <table className="text-xs border-collapse sched-sheet" style={{ minWidth: 1400 }}>
++        <table className="text-xs border-collapse sched-sheet" style={{ minWidth: 1000 }}>
+           <thead>
+             <tr>
+               <th className="sheet-th" style={{ minWidth: 38, width: 38 }}>#</th>
+-              <th className="sheet-th sheet-th-sticky" style={{ minWidth: 130 }}>Therapist</th>
+-              <th className="sheet-th" style={{ minWidth: 80 }}>Day</th>
++              <th className="sheet-th sheet-th-sticky" style={{ minWidth: 110 }}>Therapist</th>
++              <th className="sheet-th" style={{ minWidth: 64 }}>Day</th>
+               {TIME_SLOTS.map(ts => (
+-                <th key={ts} className="sheet-th" style={{ minWidth: 110 }}>
++                <th key={ts} className="sheet-th" style={{ minWidth: 78 }}>
+                   {ts.replace(' AM', 'a').replace(' PM', 'p').replace(' - ', '–')}
+                 </th>
+               ))}
+@@ -384,6 +414,17 @@ export default function Schedule() {
+         <span className="ml-auto text-[11px]" style={{ color: "#8B9E7A" }}>Each child = unique color · {clients.length} clients</span>
+       </div>
+ 
++      {clipboard && isAdmin && (
++        <div className="card p-3 mb-4 flex items-center gap-3 text-sm" style={{ background: "#FFF7E1", borderColor: "#E8C572" }} data-testid="clipboard-banner">
++          <Copy size={18} weight="duotone" style={{ color: "#8B6918" }} />
++          <div className="flex-1">
++            <div className="font-bold" style={{ color: "#6B5218" }}>📋 Cell copied — click any empty slot to paste</div>
++            <div className="text-xs" style={{ color: "#8B6918" }}>{clipboard.service_code}{clipboard.child_name && ` | ${clipboard.child_name}`}{clipboard.custom_time && ` (${clipboard.custom_time})`} {clipboard.duration > 1 && `· ${clipboard.duration}h`}</div>
++          </div>
++          <button onClick={() => setClipboard(null)} className="btn btn-ghost p-1.5"><X size={16} /></button>
++        </div>
++      )}
++
+       {isAdmin && (view === "blocks" || view === "sheet") && (
+         <div className="relative max-w-sm mb-5">
+           <MagnifyingGlass size={18} className="absolute top-3 left-3" style={{ color: "#8B9E7A" }} />
+@@ -494,7 +535,8 @@ export default function Schedule() {
+       {ctxMenu && (
+         <div className="fixed card p-1 z-50 min-w-48" style={{ top: ctxMenu.y, left: ctxMenu.x }} onClick={e => e.stopPropagation()}>
+           <button onClick={() => { handleCellClick(null, ctxMenu.cell.therapist_id, ctxMenu.cell.day, ctxMenu.cell.time_slot, ctxMenu.cell); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm">Edit</button>
+-          <button onClick={() => { duplicate(ctxMenu.cell.id); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm"><Copy size={14} /> Duplicate</button>
++          <button data-testid="copy-cell-btn" onClick={() => { copyCell(ctxMenu.cell); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm" style={{ color: "#7A8A6A" }}><Copy size={14} weight="duotone" /> Copy cell</button>
++          <button onClick={() => { duplicate(ctxMenu.cell.id); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm">Duplicate (next slot)</button>
+           <div className="divider my-1" />
+           <button onClick={() => setState(ctxMenu.cell, "cancel_child")} className="btn btn-ghost w-full justify-start text-sm" style={{ color: "#8B3A55" }}>🩷 Mark Client Cancel</button>
+           <button onClick={() => setState(ctxMenu.cell, "cancel_therapist")} className="btn btn-ghost w-full justify-start text-sm" style={{ color: "#8B6918" }}>🟡 Mark Therapist Cancel</button>
+-- 
+2.39.5
+
+
+From 0738fb73701391cc93b32a65c5815b46dbd9dc1a Mon Sep 17 00:00:00 2001
+From: emergent-agent-e1 <github@emergent.sh>
+Date: Tue, 5 May 2026 21:20:12 +0000
+Subject: [PATCH 2/4] Auto-generated changes
+
+---
+ .emergent/emergent.yml | 2 +-
+ .gitignore             | 9 +++++++++
+ 2 files changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/.emergent/emergent.yml b/.emergent/emergent.yml
+index d3d15e3..dafcb24 100644
+--- a/.emergent/emergent.yml
++++ b/.emergent/emergent.yml
+@@ -1,5 +1,5 @@
+ {
+   "env_image_name": "fastapi_react_mongo_shadcn_base_image_cloud_arm:release-04052026-2",
+   "job_id": "5fc4d6bd-7ad9-4d23-a3c8-5852696c3b4a",
+-  "created_at": "2026-05-05T21:02:13.207228+00:00Z"
++  "created_at": "2026-05-05T21:20:10.385502+00:00Z"
+ }
+diff --git a/.gitignore b/.gitignore
+index 40031e3..561e35f 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -90,3 +90,12 @@ credentials.json
+ *.pem
+ *.key
+ .credentials
++-e 
++# Environment and credential files
++.env
++.env.*
++*.env
++credentials.json
++*.pem
++*.key
++.credentials
+-- 
+2.39.5
+
+
+From f4973eba028ef97858a2faa6d12fc6f07c9a9639 Mon Sep 17 00:00:00 2001
+From: emergent-agent-e1 <github@emergent.sh>
+Date: Tue, 5 May 2026 21:35:53 +0000
+Subject: [PATCH 3/4] Auto-generated changes
+
+---
+ .emergent/emergent.yml | 2 +-
+ .gitignore             | 9 +++++++++
+ frontend/src/index.css | 7 ++++---
+ 3 files changed, 14 insertions(+), 4 deletions(-)
+
+diff --git a/.emergent/emergent.yml b/.emergent/emergent.yml
+index dafcb24..bf909ad 100644
+--- a/.emergent/emergent.yml
++++ b/.emergent/emergent.yml
+@@ -1,5 +1,5 @@
+ {
+   "env_image_name": "fastapi_react_mongo_shadcn_base_image_cloud_arm:release-04052026-2",
+   "job_id": "5fc4d6bd-7ad9-4d23-a3c8-5852696c3b4a",
+-  "created_at": "2026-05-05T21:20:10.385502+00:00Z"
++  "created_at": "2026-05-05T21:35:51.544389+00:00Z"
+ }
+diff --git a/.gitignore b/.gitignore
+index 561e35f..948014c 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -99,3 +99,12 @@ credentials.json
+ *.pem
+ *.key
+ .credentials
++-e 
++# Environment and credential files
++.env
++.env.*
++*.env
++credentials.json
++*.pem
++*.key
++.credentials
+diff --git a/frontend/src/index.css b/frontend/src/index.css
+index 07f2c76..b93752b 100644
+--- a/frontend/src/index.css
++++ b/frontend/src/index.css
+@@ -179,16 +179,17 @@ html, body {
+     position: sticky; top: 0; z-index: 3;
+ }
+ .sched-sheet .sheet-td {
+-    border: 1px solid #DDD7CC;
++    border: 1px solid #C8C0AE;
+     padding: 4px 5px;
+     vertical-align: middle;
+-    background: #F0EBDF;     /* light gray-cream for ALL empty cells */
++    text-align: center;          /* center text horizontally */
++    background: #D8D2C2;          /* darker gray-cream for empty cells (clear visual gap) */
+     min-height: 42px;
+     height: 42px;
+     font-size: 10.5px;
+     transition: background 140ms ease;
+ }
+-.sched-sheet .sheet-slot.has-event { background: white; }   /* event cells override with their color via inline style */
++.sched-sheet .sheet-slot.has-event { background: white; text-align: center; }   /* event cells override with their color via inline style */
+ .sched-sheet .sheet-idx { background: #FAF5E8; font-size: 13px; color: #5C6853; width: 32px; min-width: 32px; }
+ .sched-sheet .sheet-therapist { background: #FAF5E8; min-width: 110px; }
+ .sched-sheet .sheet-day { background: #F6F2E4; min-width: 64px; width: 64px; }
+-- 
+2.39.5
+
+
+From 24ad7dc8f74c74d7e1d5e307cfbdb75fe8576139 Mon Sep 17 00:00:00 2001
+From: Emergent Agent <agent@emergent.sh>
+Date: Wed, 6 May 2026 09:06:56 +0000
+Subject: [PATCH 4/4] Schedule: light gray empty cells, center text, remove
+ By-Day, therapist sees own schedule only; Import: fix
+ /import/schedule->schedule-excel; Add May10 import script
+
+---
+ frontend/src/index.css          |  14 ++--
+ frontend/src/pages/Import.jsx   |   1 +
+ frontend/src/pages/Schedule.jsx |  89 +++++-----------------
+ scripts/import_week_may10.py    | 131 ++++++++++++++++++++++++++++++++
+ 4 files changed, 160 insertions(+), 75 deletions(-)
+ create mode 100644 scripts/import_week_may10.py
+
+diff --git a/frontend/src/index.css b/frontend/src/index.css
+index b93752b..67f6a79 100644
+--- a/frontend/src/index.css
++++ b/frontend/src/index.css
+@@ -131,7 +131,10 @@ html, body {
+     position: relative;
+     transition: all 200ms ease;
+     font-size: 0.78rem;
++    text-align: center;
++    vertical-align: middle;
+ }
++.cell-base.cell-empty { background: #CFCFCF; }
+ .cell-base:hover { background: rgba(229, 235, 225, 0.5); }
+ .cell-empty:hover { box-shadow: inset 0 0 0 2px var(--brand); }
+ .cell-event {
+@@ -179,20 +182,21 @@ html, body {
+     position: sticky; top: 0; z-index: 3;
+ }
+ .sched-sheet .sheet-td {
+-    border: 1px solid #C8C0AE;
++    border: 1px solid #B8B0A0;
+     padding: 4px 5px;
+     vertical-align: middle;
+     text-align: center;          /* center text horizontally */
+-    background: #D8D2C2;          /* darker gray-cream for empty cells (clear visual gap) */
++    background: #CFCFCF;          /* clear light gray for empty cells (white event cells stand out) */
+     min-height: 42px;
+     height: 42px;
+     font-size: 10.5px;
+     transition: background 140ms ease;
+ }
+-.sched-sheet .sheet-slot.has-event { background: white; text-align: center; }   /* event cells override with their color via inline style */
++.sched-sheet .sheet-slot.has-event { background: white; text-align: center !important; vertical-align: middle !important; }   /* event cells - white by default; inline style for child-color overrides */
++.sched-sheet .sheet-slot.has-event > * { margin: 0 auto; text-align: center; }
+ .sched-sheet .sheet-idx { background: #FAF5E8; font-size: 13px; color: #5C6853; width: 32px; min-width: 32px; }
+-.sched-sheet .sheet-therapist { background: #FAF5E8; min-width: 110px; }
+-.sched-sheet .sheet-day { background: #F6F2E4; min-width: 64px; width: 64px; }
++.sched-sheet .sheet-therapist { background: #FAF5E8; min-width: 110px; text-align: center; }
++.sched-sheet .sheet-day { background: #F6F2E4; min-width: 64px; width: 64px; text-align: center; }
+ .sched-sheet .sheet-slot { min-width: 78px; cursor: default; }
+ .sched-sheet .sheet-slot.editable { cursor: pointer; }
+ .sched-sheet .sheet-slot.editable:hover { outline: 2px solid #7A8A6A; outline-offset: -2px; }
+diff --git a/frontend/src/pages/Import.jsx b/frontend/src/pages/Import.jsx
+index 2fe81d3..c838ef2 100644
+--- a/frontend/src/pages/Import.jsx
++++ b/frontend/src/pages/Import.jsx
+@@ -22,6 +22,7 @@ export default function ImportPage() {
+       const fd = new FormData(); fd.append("file", file);
+       let endpoint = `/import/${type}`;
+       if (type === "schedule") {
++        endpoint = `/import/schedule-excel`;
+         fd.append("week_start", scheduleWeekStart);
+         if (clearExisting) fd.append("clear_existing", "true");
+       }
+diff --git a/frontend/src/pages/Schedule.jsx b/frontend/src/pages/Schedule.jsx
+index 9d104dc..5b8156c 100644
+--- a/frontend/src/pages/Schedule.jsx
++++ b/frontend/src/pages/Schedule.jsx
+@@ -4,7 +4,7 @@ import { getChildColor, readable } from "../childColors";
+ import { useAuth } from "../auth";
+ import {
+   CaretLeft, CaretRight, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
+-  MagnifyingGlassPlus, MagnifyingGlassMinus, Printer, Info, GridFour, UsersThree,
++  MagnifyingGlassPlus, MagnifyingGlassMinus, Printer, Info, GridFour,
+   CopySimple, Table, CalendarBlank
+ } from "@phosphor-icons/react";
+ 
+@@ -27,11 +27,11 @@ function CellContent({ cell, sc }) {
+   if (!cell) return null;
+   const isMeta = ["LEAVE", "BREAK", "AVC"].includes(cell.service_code);
+   return (
+-    <div className="leading-tight">
+-      <div className="font-bold truncate text-[11px]">
++    <div className="leading-tight text-center w-full flex flex-col items-center justify-center">
++      <div className="font-bold text-[11px] text-center w-full">
+         {isMeta ? (cell.note || sc?.short) : (<>{sc?.short || cell.service_code}{cell.child_name && <> | {cell.child_name}</>}</>)}
+       </div>
+-      {cell.custom_time && <div className="text-[9px] opacity-80 truncate">({cell.custom_time})</div>}
++      {cell.custom_time && <div className="text-[9px] opacity-80 text-center w-full">({cell.custom_time})</div>}
+     </div>
+   );
+ }
+@@ -39,7 +39,11 @@ function CellContent({ cell, sc }) {
+ export default function Schedule() {
+   const { user } = useAuth();
+   const isAdmin = user?.role === "admin";
+-  const [view, setView] = useState(() => (typeof window !== "undefined" && window.innerWidth < 768) ? "blocks" : "sheet");
++  const [view, setView] = useState(() => {
++    // Therapists default to "blocks" (their own schedule); Admins default to "sheet" on desktop, "blocks" on mobile
++    if (typeof window !== "undefined" && window.innerWidth < 768) return "blocks";
++    return "sheet";
++  });
+   const [weekStart, setWeekStart] = useState(startOfWeek(new Date()));
+   const [cells, setCells] = useState([]);
+   const [therapists, setTherapists] = useState([]);
+@@ -108,9 +112,13 @@ export default function Schedule() {
+ 
+   const visibleTherapists = useMemo(() => {
+     let list = therapists;
++    // Therapist (non-admin) only sees her own schedule
++    if (!isAdmin && user?.id) {
++      list = list.filter(t => t.id === user.id);
++    }
+     if (search) list = list.filter(t => t.name.toLowerCase().includes(search.toLowerCase()));
+     return list;
+-  }, [therapists, search]);
++  }, [therapists, search, isAdmin, user?.id]);
+ 
+   const handleCellClick = (e, therapist_id, day, time_slot, existing) => {
+     if (e) e.stopPropagation();
+@@ -220,11 +228,11 @@ export default function Schedule() {
+                         {ti + 1}
+                       </td>
+                       <td rowSpan={5} className="sheet-td sheet-therapist" style={{ background: `${t.color}15` }}>
+-                        <div className="flex items-center gap-2 justify-center text-center">
+-                          <div className="w-7 h-7 rounded-full text-white text-[10px] flex items-center justify-center font-bold shrink-0" style={{ background: t.color }}>
++                        <div className="flex flex-col items-center justify-center gap-1.5 text-center px-1">
++                          <div className="w-8 h-8 rounded-full text-white text-[11px] flex items-center justify-center font-bold shrink-0" style={{ background: t.color }}>
+                             {t.name.replace("Ms. ", "").charAt(0)}
+                           </div>
+-                          <span className="font-bold text-[12px]" style={{ color: "#2C3625" }}>{t.name}</span>
++                          <span className="font-bold text-[11px] leading-tight break-words" style={{ color: "#2C3625" }}>{t.name}</span>
+                         </div>
+                       </td>
+                     </>
+@@ -316,64 +324,7 @@ export default function Schedule() {
+     </div>
+   );
+ 
+-  // === MASTER VIEW (all therapists in one big grid, by day-tabs) ===
+-  const [masterDay, setMasterDay] = useState(0);
+-  const renderMaster = () => (
+-    <div className="card p-0 overflow-hidden">
+-      <div className="p-3 border-b border-[#E8E4DE] flex items-center gap-2 flex-wrap" style={{ background: "#F6F4F0" }}>
+-        <UsersThree size={20} weight="duotone" style={{ color: "#7A8A6A" }} />
+-        <span className="font-bold mr-2">All Therapists ·</span>
+-        {DAYS_EN.map((d, i) => (
+-          <button key={i} onClick={() => setMasterDay(i)}
+-            className={`pill px-4 py-1.5 text-sm transition ${masterDay === i ? "bg-[#7A8A6A] text-white" : "bg-white border border-[#E8E4DE]"}`}>
+-            {d} <span className="opacity-60 text-[10px]">{addDays(weekStart, i).getDate()}/{addDays(weekStart, i).getMonth() + 1}</span>
+-          </button>
+-        ))}
+-      </div>
+-      <div className="overflow-x-auto">
+-        <table className="w-full text-xs border-collapse" style={{ minWidth: 1300 }}>
+-          <thead>
+-            <tr>
+-              <th className="cell-base text-center font-bold" style={{ minWidth: 130, background: "#F6F4F0", color: "#2C3625", position: "sticky", left: 0, zIndex: 2 }}>Therapist</th>
+-              {TIME_SLOTS.map(ts => (
+-                <th key={ts} className="cell-base text-center font-bold" style={{ background: "#F6F4F0", color: "#2C3625" }}>
+-                  {ts.replace(' AM', 'a').replace(' PM', 'p')}
+-                </th>
+-              ))}
+-            </tr>
+-          </thead>
+-          <tbody>
+-            {visibleTherapists.map(t => (
+-              <tr key={t.id}>
+-                <td className="cell-base font-bold" style={{ background: "#FAFAF7", position: "sticky", left: 0, zIndex: 1 }}>
+-                  <div className="flex items-center gap-2">
+-                    <div className="w-6 h-6 rounded-full text-white text-[10px] flex items-center justify-center font-bold shrink-0" style={{ background: t.color }}>{t.name.replace("Ms. ", "").charAt(0)}</div>
+-                    <span className="text-[12px]">{t.name}</span>
+-                  </div>
+-                </td>
+-                {TIME_SLOTS.map(ts => {
+-                  const cell = cellMap[`${t.id}_${masterDay}_${ts}`];
+-                  const isCovered = coveredSet.has(`${t.id}_${masterDay}_${ts}`);
+-                  if (isCovered) return null;
+-                  const sc = SERVICE_CODES.find(s => s.id === cell?.service_code);
+-                  const dur = cell?.duration || 1;
+-                  return (
+-                    <td key={ts} className={`cell-base ${cell ? 'has-event' : 'cell-empty'} ${isAdmin ? 'editable' : ''}`}
+-                      colSpan={dur}
+-                      style={cellStyle(cell)}
+-                      onClick={(e) => handleCellClick(e, t.id, masterDay, ts, cell)}
+-                      onContextMenu={(e) => onCtx(e, cell)}>
+-                      {cell && <CellContent cell={cell} sc={sc} />}
+-                    </td>
+-                  );
+-                })}
+-              </tr>
+-            ))}
+-          </tbody>
+-        </table>
+-      </div>
+-    </div>
+-  );
++  // === MASTER VIEW removed (was "By Day"). Keeping renderTherapistBlock + renderSheet only. ===
+ 
+   return (
+     <div>
+@@ -381,13 +332,12 @@ export default function Schedule() {
+         <div className="flex-1 min-w-[240px]">
+           <h1 className="font-display text-3xl font-semibold" style={{ color: "#2C3625" }}>Weekly Schedule</h1>
+           <div className="text-sm" style={{ color: "#5C6853" }}>
+-            {isAdmin ? "Click any cell to add/edit. Right-click for quick actions (cancel / notify / duplicate)." : "Read-only view of all therapists' schedule"}
++            {isAdmin ? "Click any cell to add/edit. Right-click for quick actions (cancel / notify / duplicate)." : "Your weekly schedule (read-only)"}
+           </div>
+         </div>
+         <div className="flex items-center gap-1.5 card p-1.5">
+           <button data-testid="view-sheet-btn" onClick={() => setView("sheet")} className={`btn ${view === "sheet" ? "btn-primary" : "btn-ghost"} text-xs`}><Table size={14} /> Sheet</button>
+           <button data-testid="view-blocks-btn" onClick={() => setView("blocks")} className={`btn ${view === "blocks" ? "btn-primary" : "btn-ghost"} text-xs`}><GridFour size={14} /> Per Therapist</button>
+-          <button data-testid="view-master-btn" onClick={() => setView("master")} className={`btn ${view === "master" ? "btn-primary" : "btn-ghost"} text-xs`}><UsersThree size={14} /> By Day</button>
+         </div>
+         <div className="flex items-center gap-1.5 card p-1.5">
+           <button data-testid="prev-week-btn" onClick={() => setWeekStart(addDays(weekStart, -7))} className="btn btn-ghost p-2"><CaretLeft size={18} /></button>
+@@ -449,7 +399,6 @@ export default function Schedule() {
+           </div>
+         )}
+         {view === "sheet" && renderSheet()}
+-        {view === "master" && renderMaster()}
+         {view === "blocks" && (
+           <div className="space-y-6 stagger">
+             {visibleTherapists.length === 0 && <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>No therapists found</div>}
+diff --git a/scripts/import_week_may10.py b/scripts/import_week_may10.py
+new file mode 100644
+index 0000000..db0c198
+--- /dev/null
++++ b/scripts/import_week_may10.py
+@@ -0,0 +1,131 @@
++"""Import schedule for week of May 10 - May 14 from Excel.
++Therapists must already exist (by name) in the DB. Auto-matches by `Ms. <Name>`.
++"""
++import asyncio
++import os
++import sys
++import uuid
++from datetime import datetime, timezone
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
++from dotenv import load_dotenv
++load_dotenv(Path(__file__).resolve().parents[1] / "backend" / ".env")
++
++from motor.motor_asyncio import AsyncIOMotorClient
++
++WEEK_START = "2026-05-10"  # Sunday May 10, 2026
++
++SCHEDULE = [
++    {"therapist": "Ms. Fahda", "items": [
++        (0, "9:00 AM - 10:00 AM", "SS", "Aljouharhah", "(8:30 AM - 10:30 AM)"),
++        (0, "1:00 PM - 2:00 PM", "HS", "Salman", None),
++        (0, "3:00 PM - 4:00 PM", "SUPERVISION", None, "W/ Abdulaziz A"),
++        (1, "2:00 PM - 3:00 PM", "HS", "Abdulaziz W", None),
++        (1, "3:00 PM - 4:00 PM", "SUPERVISION", None, "W/ Faisal"),
++        (2, "10:00 AM - 11:00 AM", "SS", "Aljouharhah", "(10:30 AM - 12:30 PM)"),
++        (3, "2:00 PM - 3:00 PM", "HS", "Abdulaziz W", None),
++        (3, "3:00 PM - 4:00 PM", "HS", "Salman", None),
++        (4, "9:00 AM - 10:00 AM", "SS", "Aljouharhah", "(8:30 AM - 10:30 AM)"),
++        (4, "1:00 PM - 2:00 PM", "HS", "Salman", None),
++    ]},
++    {"therapist": "Ms. Razan", "items": [
++        (0, "8:00 AM - 9:00 AM", "SS", "Saif", "Summer Camp"),
++        (1, "8:00 AM - 9:00 AM", "SS", "Saif", "Summer Camp"),
++        (2, "8:00 AM - 9:00 AM", "SS", "Saif", "Summer Camp"),
++        (3, "8:00 AM - 9:00 AM", "SS", "Saif", "Summer Camp"),
++        (4, "8:00 AM - 9:00 AM", "SS", "Saif", "Summer Camp"),
++    ]},
++    {"therapist": "Ms. Manal", "items": [
++        (0, "2:00 PM - 3:00 PM", "HS", "Salman", None),
++        (1, "11:00 AM - 12:00 PM", "HS", "Sultan", None),
++        (3, "11:00 AM - 12:00 PM", "HS", "Sultan", None),
++        (4, "11:00 AM - 12:00 PM", "HS", "Sultan", None),
++    ]},
++    {"therapist": "Ms. Sharifah", "items": [
++        (0, "8:00 AM - 9:00 AM", "SS", "Saleh", "Summer Camp"),
++        (1, "8:00 AM - 9:00 AM", "SS", "Saleh", "Summer Camp"),
++        (2, "8:00 AM - 9:00 AM", "SS", "Saleh", "Summer Camp"),
++        (3, "8:00 AM - 9:00 AM", "SS", "Saleh", "Summer Camp"),
++        (4, "8:00 AM - 9:00 AM", "SS", "Saleh", "Summer Camp"),
++    ]},
++    {"therapist": "Ms. Hajer", "items": [
++        (0, "8:00 AM - 9:00 AM", "HS", "Abdulaziz W", None),
++        (0, "10:00 AM - 11:00 AM", "HS", "Alwaleed", "(10:30 - 12:30)"),
++        (0, "1:00 PM - 2:00 PM", "HS", "Ameirah", "(1:30)"),
++        (1, "10:00 AM - 11:00 AM", "HS", "Alwaleed", "(10:30 - 12:30)"),
++        (1, "2:00 PM - 3:00 PM", "HS", "Yahaya", None),
++        (2, "8:00 AM - 9:00 AM", "HS", "Abdulaziz W", None),
++        (2, "10:00 AM - 11:00 AM", "HS", "Alwaleed", "(10:30 - 12:30)"),
++        (2, "1:00 PM - 2:00 PM", "HS", "Ameirah", "(1:30)"),
++        (3, "10:00 AM - 11:00 AM", "HS", "Alwaleed", "(10:30 - 12:30)"),
++        (3, "2:00 PM - 3:00 PM", "HS", "Yahaya", None),
++        (4, "8:00 AM - 9:00 AM", "HS", "Abdulaziz W", None),
++        (4, "10:00 AM - 11:00 AM", "HS", "Alwaleed", "(10:30 - 12:30)"),
++        (4, "1:00 PM - 2:00 PM", "HS", "Ameirah", "(1:30)"),
++    ]},
++    {"therapist": "Ms. Rahaf", "items": [
++        (0, "2:00 PM - 3:00 PM", "HS", "Abdulaziz A", None),
++        (1, "2:00 PM - 3:00 PM", "HS", "Abdulaziz A", None),
++        (2, "2:00 PM - 3:00 PM", "HS", "Abdulaziz A", None),
++        (3, "2:00 PM - 3:00 PM", "HS", "Abdulaziz A", None),
++        (4, "2:00 PM - 3:00 PM", "HS", "Abdulaziz A", None),
++    ]},
++    {"therapist": "Ms. Shatha", "items": [
++        (0, "9:00 AM - 10:00 AM", "HS", "Faisal", None),
++        (0, "11:00 AM - 12:00 PM", "HS", "Husam", None),
++        (1, "9:00 AM - 10:00 AM", "HS", "Faisal", None),
++        (1, "10:00 AM - 11:00 AM", "SS", "Husam", None),
++        (2, "10:00 AM - 11:00 AM", "SS", "Husam", None),
++        (3, "9:00 AM - 10:00 AM", "HS", "Faisal", None),
++        (4, "9:00 AM - 10:00 AM", "HS", "Faisal", None),
++        (4, "10:00 AM - 11:00 AM", "SS", "Husam", None),
++    ]},
++]
++
++
++async def main():
++    client = AsyncIOMotorClient(os.environ["MONGO_URL"])
++    db = client[os.environ["DB_NAME"]]
++
++    # Map therapist names -> ids
++    therapists = {t["name"]: t["id"] async for t in db.therapists.find({}, {"_id": 0, "id": 1, "name": 1})}
++    print(f"Found {len(therapists)} therapists in DB")
++
++    # Wipe existing schedule for this week (idempotent re-import)
++    deleted = await db.schedule_cells.delete_many({"week_start": WEEK_START})
++    print(f"Cleared {deleted.deleted_count} existing cells for week {WEEK_START}")
++
++    inserted = 0
++    skipped = 0
++    for entry in SCHEDULE:
++        tname = entry["therapist"]
++        tid = therapists.get(tname)
++        if not tid:
++            print(f"  ! skipping: therapist '{tname}' not in DB")
++            skipped += len(entry["items"])
++            continue
++        for day, slot, sc, child, note in entry["items"]:
++            doc = {
++                "id": str(uuid.uuid4()),
++                "therapist_id": tid,
++                "day": day,
++                "time_slot": slot,
++                "week_start": WEEK_START,
++                "service_code": sc,
++                "child_name": child,
++                "note": note,
++                "custom_time": None,
++                "duration": 1,
++                "state": "normal",
++                "color": None,
++                "created_at": datetime.now(timezone.utc).isoformat(),
++            }
++            await db.schedule_cells.insert_one(doc)
++            inserted += 1
++    print(f"\nDone! Inserted {inserted} cells. Skipped {skipped}.")
++    client.close()
++
++
++if __name__ == "__main__":
++    asyncio.run(main())
+-- 
+2.39.5
+

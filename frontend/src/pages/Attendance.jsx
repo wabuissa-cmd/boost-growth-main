@@ -1,0 +1,878 @@
+import { useEffect, useMemo, useState, useCallback } from "react";
+import api from "../api";
+import { useAuth } from "../auth";
+import {
+  MagnifyingGlass, Plus, X, Trash, PencilSimple, ClipboardText, ClockCounterClockwise,
+  CheckCircle, Prohibit, Warning, XCircle, Clock, MapPin, Printer, FileXls,
+  Receipt, ArrowsCounterClockwise, CalendarBlank, CloudArrowDown
+} from "@phosphor-icons/react";
+
+const STATUS_OPTS = [
+  { id: "Completed", label: "Completed", icon: <CheckCircle size={28} weight="fill"/>, color: "#3D4F35", bg: "#E5EBE1" },
+  { id: "No Service", label: "No Service", icon: <Prohibit size={28} weight="fill"/>, color: "#5C6853", bg: "#F0EDE9" },
+  { id: "Cancelled", label: "Cancelled", icon: <Warning size={28} weight="fill"/>, color: "#8B6918", bg: "#FAF0D1" },
+  { id: "No Show", label: "No Show", icon: <XCircle size={28} weight="fill"/>, color: "#8A3F27", bg: "#F8EBE7" },
+];
+
+function getUsedHours(sessions, clientId, resetAt) {
+  return sessions
+    .filter(s => s.client_id === clientId && s.status === "Completed")
+    .filter(s => !resetAt || (s.session_date && s.session_date >= resetAt.slice(0, 10)))
+    .reduce((sum, s) => sum + (parseFloat(s.hours) || 0), 0);
+}
+function getStatus(used, pkg) {
+  const rem = pkg - used;
+  const pct = rem / pkg;
+  if (rem <= 0 || pct <= 0.2 || rem <= 2) return "urgent";
+  if (pct <= 0.35 || rem <= 4) return "warning";
+  return "ok";
+}
+
+export default function Attendance() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const [clients, setClients] = useState([]);
+  const [therapists, setTherapists] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [logFor, setLogFor] = useState(null); // client OR null OR "__pick__"
+  const [editingSess, setEditingSess] = useState(null);
+  const [historyFor, setHistoryFor] = useState(null);
+
+  const load = useCallback(async () => {
+    const [c, t, s] = await Promise.all([
+      api.get("/clients"),
+      api.get("/therapists").catch(() => ({ data: [] })),
+      api.get("/sessions"),
+    ]);
+    setClients(c.data); setTherapists(t.data); setSessions(s.data);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const enriched = useMemo(() => clients.map(c => {
+    if (c.billing_mode === "weeks") {
+      // Weeks-based: compute completed weeks in current cycle
+      const cycleWeeks = c.cycle_weeks || 4;
+      const cycleStart = c.cycle_start_date ? new Date(c.cycle_start_date) : null;
+      const completedSessions = sessions.filter(s => s.client_id === c.id && s.status === "Completed");
+      let weeksDone = 0;
+      if (cycleStart) {
+        for (let k = 0; k < cycleWeeks; k++) {
+          const ws = new Date(cycleStart); ws.setDate(ws.getDate() + 7 * k);
+          const we = new Date(ws); we.setDate(we.getDate() + 5);
+          const wsISO = ws.toISOString().slice(0,10);
+          const weISO = we.toISOString().slice(0,10);
+          if (completedSessions.some(s => s.session_date >= wsISO && s.session_date < weISO)) weeksDone++;
+        }
+      }
+      const pct = Math.round((weeksDone / cycleWeeks) * 100);
+      const status = pct >= 75 ? "urgent" : pct >= 50 ? "warning" : "ok";
+      return { ...c, billing_mode: "weeks", weeksDone, cycleWeeks, weeksRem: cycleWeeks - weeksDone, pct, status, used: 0, pkg: 0, rem: 0 };
+    }
+    const used = getUsedHours(sessions, c.id, c.package_reset_at);
+    const pkg = c.package_hours || 24;
+    const rem = Math.max(0, pkg - used);
+    return { ...c, billing_mode: "hours", used, pkg, rem, pct: Math.min(100, Math.round(used/pkg*100)), status: getStatus(used, pkg) };
+  }), [clients, sessions]);
+
+  const filtered = useMemo(() => {
+    let list = enriched;
+    if (filter !== "all") list = list.filter(c => c.status === filter);
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter(c => c.name.toLowerCase().includes(q) || (c.file_no || "").includes(q));
+    }
+    const order = { urgent: 0, warning: 1, ok: 2 };
+    return [...list].sort((a, b) => order[a.status] - order[b.status]);
+  }, [enriched, filter, search]);
+
+  const counts = {
+    all: enriched.length,
+    urgent: enriched.filter(c => c.status === "urgent").length,
+    warning: enriched.filter(c => c.status === "warning").length,
+    ok: enriched.filter(c => c.status === "ok").length,
+  };
+
+  const findT = id => therapists.find(t => t.id === id);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+        <div>
+          <h1 className="font-display text-3xl font-semibold" style={{color: "#2C3625"}}>Attendance</h1>
+          <div className="text-sm" style={{color: "#5C6853"}}>Log sessions, track hours, monitor packages</div>
+        </div>
+        <button data-testid="log-session-picker" onClick={() => setLogFor("__pick__")} className="btn btn-primary"><Plus size={16}/> Log Session</button>
+      </div>
+
+      {/* Filter pills */}
+      <div className="flex gap-2 flex-wrap mb-3">
+        {[
+          {id:"all", label:"All", color:"#7A8A6A"},
+          {id:"urgent", label:"🔴 Urgent", color:"#C97B5C"},
+          {id:"warning", label:"🟡 Warning", color:"#D4A64A"},
+          {id:"ok", label:"🟢 OK", color:"#7A8A6A"},
+        ].map(f => (
+          <button key={f.id} onClick={() => setFilter(f.id)}
+                  className={`pill px-4 py-2 text-sm transition border-2 ${filter === f.id ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E8E4DE]"}`}>
+            {f.label} <span className="opacity-60 text-xs">({counts[f.id]})</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Search */}
+      <div className="relative mb-5">
+        <MagnifyingGlass size={18} className="absolute top-3 left-3" style={{color: "#8B9E7A"}}/>
+        <input data-testid="att-search" className="input pl-10" placeholder="Search client by name or file #..." value={search} onChange={e=>setSearch(e.target.value)}/>
+      </div>
+
+      {/* Client cards */}
+      <div className="space-y-3 stagger">
+        {filtered.length === 0 && <div className="card p-12 text-center" style={{color: "#8B9E7A"}}>No clients</div>}
+        {filtered.map(c => {
+          const fillColor = c.status === "urgent" ? "#C97B5C" : c.status === "warning" ? "#D4A64A" : "#7A8A6A";
+          const stCls = c.status === "urgent" ? "bg-[#F8EBE7] text-[#8A3F27]" : c.status === "warning" ? "bg-[#FAF0D1] text-[#6B5218]" : "bg-[#E5EBE1] text-[#3D4F35]";
+          const stIcon = c.status === "urgent" ? "🔴" : c.status === "warning" ? "🟡" : "🟢";
+          return (
+            <div key={c.id} className="card p-5" style={{borderColor: c.status === "ok" ? "#E8E4DE" : fillColor, borderWidth: c.status === "ok" ? 1 : 2}}>
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="flex items-start gap-3 flex-1 min-w-0">
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center font-bold shrink-0 text-white" style={{background: c.color || "#7A8A6A", color: "#2C3625"}}>
+                    {(c.name || "?").charAt(0)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-lg" style={{color: "#2C3625"}}>{c.name} <span className="text-xs font-normal ml-1" style={{color: "#8B9E7A"}}>#{c.file_no}</span></div>
+                    <div className="text-xs mt-0.5" style={{color: "#8B9E7A"}}>
+                      {c.billing_mode === "weeks" ? (
+                        <>📅 Week {c.weeksDone}/{c.cycleWeeks} · {c.weeksRem} left</>
+                      ) : (
+                        <>Pkg {c.pkg}h · Used {c.used.toFixed(1)}h</>
+                      )} · Main: {findT(c.main_therapist_id)?.name || "—"}
+                    </div>
+                    {/* Package end date + Payment status */}
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                      {c.package_end_date && (
+                        <span className="pill text-[10px] px-2 py-0.5 inline-flex items-center gap-1" style={{background: "#F4EDE3", color: "#6B5430", border: "1px solid #E0CDB0"}}>
+                          <CalendarBlank size={11}/> Ends {c.package_end_date}
+                        </span>
+                      )}
+                      <span data-testid={`pay-${c.id}`} className="pill text-[10px] px-2 py-0.5 font-bold" style={{
+                          background: c.payment_status === "complete" ? "#E5EBE1" : "#FAE8C8",
+                          color: c.payment_status === "complete" ? "#3D4F35" : "#8B6918",
+                          border: c.payment_status === "complete" ? "1px solid #B8C8A8" : "1px solid #E5C387",
+                        }}>
+                        {c.payment_status === "complete" ? "✓ Payment Complete" : "⚠ Payment Pending"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <span className={`pill ${stCls} font-bold`}>{stIcon} {c.status.toUpperCase()}</span>
+              </div>
+
+              <div className="flex items-center gap-2 mt-3 mb-3">
+                <div className="flex-1 h-2 bg-[#F0EDE9] rounded-full overflow-hidden">
+                  <div className="h-full rounded-full transition-all" style={{ width: `${c.pct}%`, background: fillColor }}/>
+                </div>
+                <span className="text-xs min-w-[100px] text-right font-bold" style={{color: "#5C6853"}}>
+                  {c.billing_mode === "weeks" ? `${c.weeksRem}/${c.cycleWeeks} weeks left` : `${c.rem}/${c.pkg}h left`}
+                </span>
+              </div>
+
+              <div className="flex gap-2 flex-wrap">
+                <button data-testid={`log-${c.id}`} onClick={() => setLogFor(c)} className="btn btn-primary text-xs"><Plus size={14}/> Log Session</button>
+                <button onClick={() => setHistoryFor(c)} className="btn btn-secondary text-xs"><ClockCounterClockwise size={14}/> History</button>
+                <button onClick={() => setHistoryFor(c)} className="btn btn-gold text-xs"><ClipboardText size={14}/> Invoice Sheet</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Picker modal */}
+      {logFor === "__pick__" && (
+        <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={() => setLogFor(null)}>
+          <div className="card p-6 w-full max-w-md modal-card" onClick={e=>e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-3">
+              <div className="font-display text-2xl">Select Client</div>
+              <button onClick={() => setLogFor(null)} className="btn btn-ghost p-2"><X size={18}/></button>
+            </div>
+            <div className="max-h-96 overflow-y-auto flex flex-col gap-2">
+              {enriched.map(c => (
+                <button key={c.id} onClick={() => setLogFor(c)} className="text-left p-3 rounded-xl border border-[#E8E4DE] hover:bg-[#E5EBE1] flex items-center gap-3 transition">
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center font-bold" style={{background: c.color || "#E5EBE1"}}>{c.name.charAt(0)}</div>
+                  <div className="flex-1">
+                    <div className="font-bold text-sm" style={{color: "#2C3625"}}>{c.name}</div>
+                    <div className="text-[11px]" style={{color: "#8B9E7A"}}>#{c.file_no} · {c.rem}/{c.pkg}h left</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Log Session form */}
+      {logFor && logFor !== "__pick__" && (
+        <LogSessionForm client={logFor} therapists={therapists} currentUser={user} onClose={() => setLogFor(null)} onSaved={() => { setLogFor(null); load(); }}/>
+      )}
+
+      {/* History / Invoice */}
+      {historyFor && (
+        <HistoryModal client={historyFor} sessions={sessions.filter(s => s.client_id === historyFor.id)}
+                      therapists={therapists} isAdmin={isAdmin} currentUserId={user?.id}
+                      onClose={() => setHistoryFor(null)}
+                      onEdit={(s) => { setEditingSess(s); }}
+                      onDeleted={() => load()}
+                      onClientUpdated={() => load()}/>
+      )}
+
+      {editingSess && (
+        <LogSessionForm session={editingSess} client={clients.find(c => c.id === editingSess.client_id)} therapists={therapists} currentUser={user}
+                        onClose={() => setEditingSess(null)} onSaved={() => { setEditingSess(null); load(); }}/>
+      )}
+    </div>
+  );
+}
+
+function LogSessionForm({ client, therapists, currentUser, onClose, onSaved, session }) {
+  const [form, setForm] = useState(session ? {...session} : {
+    client_id: client.id,
+    session_date: new Date().toISOString().slice(0, 10),
+    start_time: "14:00", end_time: "16:00", hours: 2,
+    status: "Completed",
+    therapist_ids: currentUser?.role === "therapist" ? [currentUser.id] : [client.main_therapist_id].filter(Boolean),
+    note: "", location: client.locations?.[0]?.address || "",
+  });
+
+  const computeHours = (st, et) => {
+    if (!st || !et) return 0;
+    const [h1,m1] = st.split(":").map(Number); const [h2,m2] = et.split(":").map(Number);
+    let diff = (h2*60+m2) - (h1*60+m1); if (diff < 0) diff += 24*60;
+    return Math.round(diff / 30) / 2;
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const payload = {...form, hours: computeHours(form.start_time, form.end_time)};
+    if (session?.id) await api.put(`/sessions/${session.id}`, payload);
+    else await api.post("/sessions", payload);
+    onSaved();
+  };
+
+  const toggleT = (id) => {
+    setForm(f => ({...f, therapist_ids: f.therapist_ids.includes(id) ? f.therapist_ids.filter(x => x !== id) : [...f.therapist_ids, id]}));
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={onClose}>
+      <form onSubmit={submit} className="card p-6 w-full max-w-lg modal-card max-h-[90vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <div className="font-display text-2xl" style={{color: "#2C3625"}}>{session ? "Edit Session" : "Log Session"}</div>
+            <div className="text-sm" style={{color: "#5C6853"}}>{client?.name} <span className="text-xs">#{client?.file_no}</span></div>
+          </div>
+          <button type="button" onClick={onClose} className="btn btn-ghost p-2"><X size={18}/></button>
+        </div>
+
+        {client?.locations?.length > 0 && (
+          <>
+            <label className="label">Service Type</label>
+            <select data-testid="sess-location" className="select mb-3" value={form.location} onChange={e=>setForm({...form, location: e.target.value})}>
+              {client.locations.map((l, i) => <option key={i} value={l.address}>{l.service} | {l.address}</option>)}
+            </select>
+          </>
+        )}
+
+        <label className="label">Status</label>
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          {STATUS_OPTS.map(s => (
+            <button key={s.id} type="button" onClick={() => setForm({...form, status: s.id})}
+                    className={`p-4 rounded-xl border-2 flex flex-col items-center gap-1 transition-all ${form.status === s.id ? "ring-2 ring-[#7A8A6A]" : ""}`}
+                    style={{background: s.bg, borderColor: form.status === s.id ? "#7A8A6A" : s.bg, color: s.color}}>
+              {s.icon}
+              <div className="font-bold text-sm">{s.label}</div>
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-3 gap-3 mb-3">
+          <div>
+            <label className="label">Date</label>
+            <input data-testid="sess-date" type="date" className="input" required value={form.session_date} onChange={e=>setForm({...form, session_date: e.target.value})}/>
+          </div>
+          <div>
+            <label className="label">Start</label>
+            <input type="time" className="input" value={form.start_time} onChange={e=>setForm({...form, start_time: e.target.value})}/>
+          </div>
+          <div>
+            <label className="label">End</label>
+            <input type="time" className="input" value={form.end_time} onChange={e=>setForm({...form, end_time: e.target.value})}/>
+          </div>
+        </div>
+        <div className="text-xs mb-3" style={{color: "#8B9E7A"}}>
+          <Clock size={12} className="inline mr-1"/> Calculated: <strong>{computeHours(form.start_time, form.end_time)}h</strong>
+        </div>
+
+        <label className="label">Therapist(s) {currentUser?.role === "therapist" && <span className="text-[10px] font-normal" style={{color: "#8B9E7A"}}>(your name added automatically)</span>}</label>
+        <div className="flex flex-wrap gap-2 mb-2">
+          {form.therapist_ids.map(id => {
+            const t = therapists.find(t => t.id === id);
+            if (!t) return null;
+            return (
+              <span key={id} className="pill px-3 py-1.5 text-xs" style={{background: t.color, color: "white"}}>
+                {t.name} <button type="button" onClick={() => toggleT(id)} className="ml-1 opacity-80 hover:opacity-100">✕</button>
+              </span>
+            );
+          })}
+        </div>
+        <select className="select mb-3" value="" onChange={e => { if (e.target.value) toggleT(e.target.value); e.target.value = ""; }}>
+          <option value="">+ Add co-therapist...</option>
+          {therapists.filter(t => !form.therapist_ids.includes(t.id)).map(t => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+
+        <label className="label">Note (optional)</label>
+        <textarea className="textarea mb-4" rows={3} value={form.note || ""} onChange={e=>setForm({...form, note: e.target.value})}/>
+
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="btn btn-outline">Cancel</button>
+          <button data-testid="sess-save" type="submit" className="btn btn-primary">{session ? "Save changes" : "Log Session"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function HistoryModal({ client, sessions, therapists, isAdmin, currentUserId, onClose, onEdit, onDeleted, onClientUpdated }) {
+  const [closed, setClosed] = useState(false);
+  const [closureDate, setClosureDate] = useState("");
+  // Invoice + package management state
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [packageSize, setPackageSize] = useState(client.package_hours || 24);
+  const [invoices, setInvoices] = useState([]);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState("");
+  const [packageEndDate, setPackageEndDate] = useState(client.package_end_date || "");
+  const [paymentStatus, setPaymentStatus] = useState(client.payment_status || "pending");
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showNewInvModal, setShowNewInvModal] = useState(false);
+  const [savingClient, setSavingClient] = useState(false);
+
+  const findT = id => therapists.find(t => t.id === id);
+  const selectedInvoice = invoices.find(i => i.id === selectedInvoiceId);
+  // When invoice selected, sessions belonging to it = sessions on/after invoice.start_date.
+  // When no invoice selected, fall back to client cycle (package_reset_at).
+  const filterStart = selectedInvoice?.start_date || (client.package_reset_at ? client.package_reset_at.slice(0, 10) : null);
+  const cycleSessions = sessions.filter(s => !filterStart || (s.session_date && s.session_date >= filterStart));
+  const used = cycleSessions.filter(s => s.status === "Completed").reduce((sum, s) => sum + (parseFloat(s.hours) || 0), 0);
+  const pkg = (selectedInvoice?.package_size) || client.package_hours || 24;
+  const rem = Math.max(0, pkg - used);
+  const completed = cycleSessions.filter(s => s.status === "Completed").length;
+  const noShows = cycleSessions.filter(s => s.status === "No Show").length;
+  const counted = completed + noShows;
+
+  // Load existing invoices for this client
+  useEffect(() => {
+    api.get(`/clients/${client.id}/invoices`).then(r => setInvoices(r.data || [])).catch(() => setInvoices([]));
+  }, [client.id]);
+
+  // When user picks an invoice from the dropdown, populate the form fields with that invoice's data
+  useEffect(() => {
+    if (selectedInvoice) {
+      setInvoiceNumber(selectedInvoice.invoice_number || "");
+      setPackageEndDate(selectedInvoice.period_to || client.package_end_date || "");
+      setPaymentStatus(selectedInvoice.payment_status || "pending");
+      setPackageSize(selectedInvoice.package_size || client.package_hours || 24);
+      setClosed(!!selectedInvoice.is_closed);
+      setClosureDate(selectedInvoice.close_date || "");
+    } else {
+      // No invoice selected -> client defaults
+      setInvoiceNumber("");
+      setPackageEndDate(client.package_end_date || "");
+      setPaymentStatus(client.payment_status || "pending");
+      setPackageSize(client.package_hours || 24);
+      setClosed(false);
+      setClosureDate("");
+    }
+  }, [selectedInvoiceId, invoices, client.package_end_date, client.payment_status, client.package_hours]);
+
+  const createInvoice = async (number, size, serviceType) => {
+    const trimmed = (number || "").trim();
+    if (!trimmed) { alert("Please enter an invoice number"); return; }
+    const r = await api.post(`/clients/${client.id}/invoices`, {
+      invoice_number: trimmed,
+      package_size: parseFloat(size) || (client.package_hours || 24),
+      payment_status: "pending",
+      start_date: new Date().toISOString().slice(0, 10),
+      service_type: serviceType || null,
+      is_closed: false,
+    });
+    setInvoices(prev => [r.data, ...prev]);
+    setSelectedInvoiceId(r.data.id);
+    setShowNewInvModal(false);
+  };
+
+  const deleteInvoice = async (iid) => {
+    if (!window.confirm("Delete this invoice number?")) return;
+    await api.delete(`/invoices/${iid}`);
+    setInvoices(prev => prev.filter(x => x.id !== iid));
+    if (selectedInvoiceId === iid) setSelectedInvoiceId("");
+  };
+
+  // Sync invoices from an uploaded client workbook (.xlsx) — reads sheet names matching INV pattern.
+  const syncFromExcel = async (file) => {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const r = await api.post(`/clients/${client.id}/invoices/sync-from-excel`, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const { invoices_added = [], invoices_updated = [], sessions_added = 0, sessions_skipped_existing = 0, matched_sheets = [] } = r.data || {};
+      const list = await api.get(`/clients/${client.id}/invoices`);
+      setInvoices(list.data || []);
+      alert([
+        `Invoice sheets detected: ${matched_sheets.length}`,
+        `Invoices added: ${invoices_added.length}`,
+        `Invoices updated: ${invoices_updated.length}`,
+        `Sessions added: ${sessions_added}`,
+        `Sessions already existed (skipped): ${sessions_skipped_existing}`,
+      ].join("\n"));
+    } catch (e) {
+      alert("Sync failed: " + (e?.response?.data?.detail || e.message));
+    }
+  };
+
+  // Sync from Google Drive (reads the public Google Sheets URL stored on the client).
+  const syncFromDrive = async () => {
+    const stored = client.attendance_sheet_url || client.drive_url || "";
+    const url = window.prompt(
+      "Paste the Google Sheets URL for this client's attendance sheet.\n\nThe sheet must be shared as 'Anyone with the link can view'.",
+      stored
+    );
+    if (!url) return;
+    try {
+      const r = await api.post(`/clients/${client.id}/invoices/sync-from-drive`, { drive_url: url });
+      const { invoices_added = [], invoices_updated = [], sessions_added = 0, sessions_skipped_existing = 0, matched_sheets = [] } = r.data || {};
+      const list = await api.get(`/clients/${client.id}/invoices`);
+      setInvoices(list.data || []);
+      alert([
+        `Sync complete from Drive`,
+        `Invoice sheets detected: ${matched_sheets.length}`,
+        `Invoices added: ${invoices_added.length}`,
+        `Invoices updated: ${invoices_updated.length}`,
+        `Sessions added: ${sessions_added}`,
+        `Sessions already existed (skipped): ${sessions_skipped_existing}`,
+      ].join("\n"));
+    } catch (e) {
+      alert("Sync from Drive failed: " + (e?.response?.data?.detail || e.message));
+    }
+  };
+
+  // Save: when invoice selected -> update the invoice; otherwise -> update the client defaults.
+  const savePackageInfo = async () => {
+    setSavingClient(true);
+    try {
+      if (selectedInvoice) {
+        const updated = await api.put(`/invoices/${selectedInvoice.id}`, {
+          invoice_number: (invoiceNumber || selectedInvoice.invoice_number).trim(),
+          payment_status: paymentStatus,
+          period_to: packageEndDate || null,
+          package_size: parseFloat(packageSize) || selectedInvoice.package_size,
+          start_date: selectedInvoice.start_date,
+          notes: selectedInvoice.notes || null,
+          amount: selectedInvoice.amount || null,
+          period_from: selectedInvoice.period_from || null,
+          service_type: selectedInvoice.service_type || null,
+          is_closed: !!closed,
+          close_date: closed ? (closureDate || null) : null,
+        });
+        setInvoices(prev => prev.map(inv => inv.id === updated.data.id ? updated.data : inv));
+      } else {
+        await api.put(`/clients/${client.id}`, {
+          ...client,
+          package_end_date: packageEndDate || null,
+          payment_status: paymentStatus,
+        });
+        onClientUpdated && onClientUpdated();
+      }
+    } finally { setSavingClient(false); }
+  };
+
+  // Toggle closed state for the selected invoice and auto-save
+  const toggleClosed = async () => {
+    if (!selectedInvoice) {
+      // Local-only toggle when no invoice selected
+      setClosed(c => !c);
+      return;
+    }
+    const newClosed = !closed;
+    const newDate = newClosed ? (closureDate || new Date().toISOString().slice(0, 10)) : null;
+    setClosed(newClosed);
+    setClosureDate(newDate || "");
+    const updated = await api.put(`/invoices/${selectedInvoice.id}`, {
+      invoice_number: (invoiceNumber || selectedInvoice.invoice_number).trim(),
+      payment_status: paymentStatus,
+      period_to: packageEndDate || null,
+      package_size: parseFloat(packageSize) || selectedInvoice.package_size,
+      start_date: selectedInvoice.start_date,
+      notes: selectedInvoice.notes || null,
+      amount: selectedInvoice.amount || null,
+      period_from: selectedInvoice.period_from || null,
+      service_type: selectedInvoice.service_type || null,
+      is_closed: newClosed,
+      close_date: newDate,
+    });
+    setInvoices(prev => prev.map(inv => inv.id === updated.data.id ? updated.data : inv));
+  };
+
+  const performReset = async () => {
+    await api.post(`/clients/${client.id}/reset-package`);
+    setShowResetConfirm(false);
+    onClientUpdated && onClientUpdated();
+    onClose();
+  };
+
+  // Group sessions by day-of-week (CYCLE sessions only)
+  const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"];
+  const byDay = {};
+  DAYS.forEach(d => byDay[d] = []);
+  [...cycleSessions].sort((a,b) => new Date(a.session_date) - new Date(b.session_date)).forEach(s => {
+    const d = new Date(s.session_date);
+    const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
+    if (byDay[dayName]) byDay[dayName].push(s);
+  });
+
+  const removeSess = async (sid) => {
+    if (!window.confirm("Delete this session?")) return;
+    await api.delete(`/sessions/${sid}`);
+    onDeleted();
+  };
+
+  const fmtDate = (d) => {
+    const dt = new Date(d);
+    return `${dt.getDate()}/${dt.getMonth()+1}/${dt.getFullYear()}`;
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={onClose}>
+      <div className="card p-0 w-full max-w-5xl modal-card max-h-[92vh] flex flex-col printable" onClick={e=>e.stopPropagation()}>
+        {/* Action bar */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-[#E8E4DE] no-print flex-wrap gap-2">
+          <div className="font-bold text-sm" style={{color: "#2C3625"}}>Attendance Sheet · {client.name}</div>
+          <div className="flex gap-2 flex-wrap items-center">
+            {/* Always-visible Invoice History dropdown */}
+            {invoices.length > 0 ? (
+              <select data-testid="invoice-dropdown" value={selectedInvoiceId} onChange={e => setSelectedInvoiceId(e.target.value)}
+                      className="select text-xs" style={{maxWidth: 280}}>
+                <option value="">-- View Invoice --</option>
+                {invoices.map(inv => {
+                  const lock = inv.is_closed ? "🔒" : "🔓";
+                  const status = inv.is_closed ? "Closed" : "Open";
+                  const cd = inv.is_closed && inv.close_date ? ` ${inv.close_date.split("-").reverse().join("/")}` : "";
+                  return (
+                    <option key={inv.id} value={inv.id}>{lock} {inv.invoice_number} ({status}{cd})</option>
+                  );
+                })}
+              </select>
+            ) : (
+              <span className="text-[11px] italic px-2 py-1.5" style={{color: "#8B6918", background: "#FAE8C8", borderRadius: 8}}>
+                No invoices found
+              </span>
+            )}
+            {isAdmin && (
+              <>
+                <input id={`sync-xlsx-${client.id}`} type="file" accept=".xlsx" className="hidden"
+                       data-testid="sync-xlsx-input"
+                       onChange={e => { const f = e.target.files?.[0]; if (f) { syncFromExcel(f); } e.target.value = ""; }}/>
+                <button data-testid="sync-xlsx-btn"
+                        onClick={() => document.getElementById(`sync-xlsx-${client.id}`).click()}
+                        className="btn btn-secondary text-xs"
+                        title="Upload the client's master .xlsx — sheet tabs starting with INV will be added as invoices automatically.">
+                  <FileXls size={14}/> Sync from Excel
+                </button>
+                <button data-testid="sync-drive-btn"
+                        onClick={syncFromDrive}
+                        className="btn btn-secondary text-xs"
+                        title="Fetch directly from a publicly shared Google Sheets URL (no upload needed).">
+                  <CloudArrowDown size={14}/> Sync from Drive
+                </button>
+              </>
+            )}
+            {isAdmin && (
+              <button data-testid="new-invoice-btn" onClick={() => setShowNewInvModal(true)} className="btn btn-primary text-xs">
+                <Plus size={14}/> New Invoice
+              </button>
+            )}
+            <button data-testid="export-excel-btn" onClick={async () => {
+              const url = `${api.defaults.baseURL}/clients/${client.id}/sessions/export`;
+              const token = localStorage.getItem("bg_token");
+              const r = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {}, credentials: 'include' });
+              if (!r.ok) { alert("Export failed"); return; }
+              const blob = await r.blob();
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = `attendance_${client.file_no || client.id}_${client.name.replace(/\s+/g,'_')}.xlsx`;
+              document.body.appendChild(a); a.click(); a.remove();
+            }} className="btn btn-gold text-xs"><FileXls size={14}/> Export Excel</button>
+            <button onClick={() => window.print()} className="btn btn-secondary text-xs"><Printer size={14}/> Print / Save PDF</button>
+            <button onClick={onClose} className="btn btn-ghost p-2"><X size={20}/></button>
+          </div>
+        </div>
+
+        {/* Admin-only management bar: Invoice Number entry, Package End Date, Payment status, Reset */}
+        {isAdmin && (
+          <div className="px-5 py-3 border-b border-[#E8E4DE] no-print flex flex-wrap gap-3 items-end" style={{background: "#FAFAF7"}}>
+            <div className="flex-1 min-w-[180px]">
+              <label className="label flex items-center gap-1 text-[10px]"><Receipt size={11}/> INVOICE NUMBER {selectedInvoice ? "(editing)" : "(no invoice selected)"}</label>
+              <input data-testid="invoice-num-input" className="input text-xs" placeholder="e.g. INV 4042"
+                     value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)} disabled={!selectedInvoice}/>
+            </div>
+            <div className="flex-1 min-w-[120px]">
+              <label className="label text-[10px]">PACKAGE SIZE (h)</label>
+              <input data-testid="pkg-size-input" type="number" min="0" step="0.5" className="input text-xs"
+                     value={packageSize} onChange={e => setPackageSize(e.target.value)} disabled={!selectedInvoice}/>
+            </div>
+            <div className="flex-1 min-w-[150px]">
+              <label className="label flex items-center gap-1 text-[10px]"><CalendarBlank size={11}/> PACKAGE END DATE</label>
+              <input data-testid="pkg-end-input" type="date" className="input text-xs" value={packageEndDate} onChange={e => setPackageEndDate(e.target.value)}/>
+            </div>
+            <div className="flex-1 min-w-[160px]">
+              <label className="label text-[10px]">PAYMENT STATUS</label>
+              <select data-testid="pay-status-select" className="select text-xs" value={paymentStatus} onChange={e => setPaymentStatus(e.target.value)}>
+                <option value="pending">⚠ Payment Pending</option>
+                <option value="complete">✓ Payment Complete</option>
+              </select>
+            </div>
+            <button data-testid="save-pkg-btn" onClick={savePackageInfo} disabled={savingClient}
+                    className="btn btn-secondary text-xs whitespace-nowrap">{savingClient ? "Saving..." : (selectedInvoice ? "Save Invoice" : "Save Defaults")}</button>
+            <button data-testid="reset-pkg-btn" onClick={() => setShowResetConfirm(true)}
+                    disabled={paymentStatus !== "complete"}
+                    title={paymentStatus !== "complete" ? "Mark payment as Complete first" : ""}
+                    className="btn btn-outline text-xs whitespace-nowrap"
+                    style={{borderColor: paymentStatus === "complete" ? "#7A8A6A" : "#D1D1D1", color: paymentStatus === "complete" ? "#3D4F35" : "#8B9E7A"}}>
+              <ArrowsCounterClockwise size={13}/> Start New Package
+            </button>
+          </div>
+        )}
+
+        {/* Pending payment warning - always visible (not collapsed) */}
+        {paymentStatus === "pending" && (
+          <div data-testid="pending-warning" className="px-5 py-2.5 flex items-center gap-2 text-sm font-bold no-print"
+               style={{background: "#FAE8C8", color: "#8B6918", borderBottom: "1px solid #E5C387"}}>
+            <Warning size={18} weight="fill"/>
+            <span>Payment Pending — please collect payment before starting a new package cycle.</span>
+          </div>
+        )}
+
+        {/* Show selected invoice details if any */}
+        {selectedInvoice && (
+          <div className="px-5 py-2 text-xs no-print flex items-center justify-between flex-wrap gap-2" style={{background: "#F4EDE3", color: "#6B5430", borderBottom: "1px solid #E0CDB0"}}>
+            <div>
+              <strong>Viewing:</strong> {selectedInvoice.invoice_number}
+              {selectedInvoice.service_type && <span className="ml-2 opacity-80">· {selectedInvoice.service_type}</span>}
+              {selectedInvoice.start_date && <span className="ml-2 opacity-70">starts {fmtDate(selectedInvoice.start_date)}</span>}
+              {selectedInvoice.package_size && <span className="ml-2 opacity-70">· {selectedInvoice.package_size}h package</span>}
+              {selectedInvoice.is_closed && <span className="ml-2" style={{color: "#8A3F27"}}>· 🔒 Closed{selectedInvoice.close_date ? ` ${fmtDate(selectedInvoice.close_date)}` : ""}</span>}
+            </div>
+            {isAdmin && (
+              <button onClick={() => deleteInvoice(selectedInvoice.id)} className="underline text-[11px]" style={{color: "#8A3F27"}}>delete invoice</button>
+            )}
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto bg-white">
+          {/* Logo + Title */}
+          <div className="px-8 pt-8 pb-4 flex items-center justify-between border-b-2" style={{borderColor: "#7A8A6A"}}>
+            <div className="flex items-center gap-3">
+              <div className="w-14 h-14 rounded-xl flex items-center justify-center p-2" style={{background: "#7A8A6A"}}>
+                <img src="/bg-logo.png" alt="" className="w-full h-full object-contain"/>
+              </div>
+              <div>
+                <div className="font-display text-2xl font-semibold" style={{color: "#2C3625"}}>Boost Growth</div>
+                <div className="text-[11px] tracking-[0.2em] font-bold" style={{color: "#8B9E7A"}}>ATTENDANCE SHEET · ABA SERVICES</div>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="flex items-center gap-2 justify-end flex-wrap">
+                {selectedInvoice && (
+                  <span className="pill text-[11px]" style={{background: "#F4EDE3", color: "#6B5430"}}>{selectedInvoice.invoice_number}</span>
+                )}
+                <span className="pill text-[11px]" style={{
+                    background: paymentStatus === "complete" ? "#E5EBE1" : "#FAE8C8",
+                    color: paymentStatus === "complete" ? "#3D4F35" : "#8B6918"}}>
+                  {paymentStatus === "complete" ? "✓ Paid" : "⚠ Pending"}
+                </span>
+                <span className="pill text-[11px]" style={{background: closed ? "#F8EBE7" : "#E5EBE1", color: closed ? "#8A3F27" : "#3D4F35"}}>
+                  {closed ? "🔒 CLOSED" : "🔓 OPEN"}
+                </span>
+                <button onClick={toggleClosed} className="text-[10px] underline no-print" style={{color: "#7A8A6A"}}>toggle</button>
+              </div>
+              {closed && (
+                <input type="date" value={closureDate} onChange={e=>setClosureDate(e.target.value)} className="text-xs mt-1 border-0 outline-none bg-transparent text-right no-print"/>
+              )}
+              {closed && closureDate && <div className="text-xs mt-0.5" style={{color: "#5C6853"}}>Closure: {fmtDate(closureDate)}</div>}
+              {packageEndDate && <div className="text-xs mt-0.5" style={{color: "#5C6853"}}>Pkg ends: {fmtDate(packageEndDate)}</div>}
+            </div>
+          </div>
+
+          {/* Patient info row */}
+          <div className="px-8 py-4 grid grid-cols-4 gap-4 border-b border-[#E8E4DE] text-sm">
+            <div>
+              <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PATIENT'S NAME</div>
+              <div className="font-bold" style={{color: "#2C3625"}}>{client.name}</div>
+            </div>
+            <div>
+              <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>FILE NO.</div>
+              <div className="font-bold" style={{color: "#2C3625"}}>{client.file_no || "—"}</div>
+            </div>
+            <div>
+              <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}># PAID SESH.</div>
+              <div className="font-bold" style={{color: "#2C3625"}}>{counted}</div>
+            </div>
+            <div>
+              <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>{pkg}H DAYS</div>
+              <div className="font-bold" style={{color: "#2C3625"}}>{used.toFixed(1)} / {pkg}h</div>
+            </div>
+          </div>
+
+          {/* Sessions table grouped by day */}
+          {cycleSessions.length === 0 ? (
+            <div className="p-12 text-center" style={{color: "#8B9E7A"}}>
+              {selectedInvoice ? "This invoice is empty — sessions logged from now on will be tracked here" : (filterStart ? "No sessions in current cycle" : "No sessions logged yet")}
+            </div>
+          ) : (
+            <table className="w-full text-xs">
+              <thead style={{background: "#F0E9D8"}}>
+                <tr style={{color: "#2C3625"}}>
+                  <th className="p-2 text-left font-bold">Day</th>
+                  <th className="p-2 text-left font-bold">Date</th>
+                  <th className="p-2 text-left font-bold">Status</th>
+                  <th className="p-2 text-left font-bold">Time</th>
+                  <th className="p-2 text-left font-bold"># of Hrs</th>
+                  <th className="p-2 text-left font-bold">Therapist</th>
+                  <th className="p-2 text-left font-bold">Note</th>
+                  <th className="p-2 no-print"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {DAYS.map(day => {
+                  const list = byDay[day];
+                  if (list.length === 0) return null;
+                  return list.map((s, i) => {
+                    const stColor = s.status === "Completed" ? "#3D4F35" :
+                                    s.status === "Cancelled" ? "#6B5218" :
+                                    s.status === "No Show" ? "#8A3F27" : "#5C6853";
+                    const stBg = s.status === "Completed" ? "#E5EBE1" :
+                                  s.status === "Cancelled" ? "#FAF0D1" :
+                                  s.status === "No Show" ? "#F8EBE7" : "#F0EDE9";
+                    const tNames = (s.therapist_ids || []).map(id => findT(id)?.name?.replace("Ms. ", "")).filter(Boolean).join(" - ");
+                    const canEdit = isAdmin || (s.therapist_ids || []).includes(currentUserId);
+                    return (
+                      <tr key={s.id} className="border-t border-[#E8E4DE]">
+                        {i === 0 && <td className="p-2 font-bold align-top" rowSpan={list.length} style={{background: "#FAFAF7", color: "#2C3625"}}>{day}</td>}
+                        <td className="p-2 font-bold">{fmtDate(s.session_date)}</td>
+                        <td className="p-2"><span className="pill text-[10px] uppercase" style={{background: stBg, color: stColor}}>{s.status}</span></td>
+                        <td className="p-2">{s.start_time && s.end_time ? `${s.start_time} - ${s.end_time}` : "—"}</td>
+                        <td className="p-2 font-bold">{s.hours}</td>
+                        <td className="p-2">{tNames || "—"}</td>
+                        <td className="p-2 italic" style={{color: "#5C6853"}}>{s.note || ""}</td>
+                        <td className="p-2 text-right whitespace-nowrap no-print">
+                          {canEdit && <button onClick={() => onEdit(s)} className="btn btn-ghost p-1.5"><PencilSimple size={14}/></button>}
+                          {canEdit && <button onClick={() => removeSess(s.id)} className="btn btn-ghost p-1.5 text-red-700"><Trash size={14}/></button>}
+                        </td>
+                      </tr>
+                    );
+                  });
+                })}
+              </tbody>
+            </table>
+          )}
+
+          {/* Footer summary */}
+          <div className="px-8 py-5 border-t-2 grid grid-cols-4 gap-4 text-sm" style={{borderColor: "#7A8A6A", background: "#FAFAF7"}}>
+            <div>
+              <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>TOTAL DELIVERED SESSIONS</div>
+              <div className="font-display text-2xl" style={{color: "#3D4F35"}}>{completed}</div>
+            </div>
+            <div>
+              <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>TOTAL NO-SHOW (counted)</div>
+              <div className="font-display text-2xl" style={{color: "#8A3F27"}}>{noShows}</div>
+            </div>
+            <div>
+              <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>TOTAL COUNTED SESSIONS</div>
+              <div className="font-display text-2xl" style={{color: "#2C3625"}}>{counted}</div>
+            </div>
+            <div>
+              <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>HOURS REMAINING</div>
+              <div className="font-display text-2xl" style={{color: rem <= 4 ? "#C97B5C" : "#3D4F35"}}>{rem}h</div>
+            </div>
+          </div>
+          <div className="px-8 py-3 text-[10px] text-center" style={{color: "#8B9E7A"}}>
+            Generated {new Date().toLocaleString('en-US')} · Boost Growth Center · boost-growthsa.com
+          </div>
+        </div>
+
+        {/* New Invoice modal */}
+        {showNewInvModal && (
+          <NewInvoiceModal client={client} defaultPackage={client.package_hours || 24}
+                           onCancel={() => setShowNewInvModal(false)}
+                           onCreate={createInvoice}/>
+        )}
+
+        {/* Reset confirmation dialog */}
+        {showResetConfirm && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60]" onClick={() => setShowResetConfirm(false)}>
+            <div className="card p-6 w-full max-w-md" onClick={e=>e.stopPropagation()}>
+              <div className="font-display text-xl mb-2" style={{color: "#2C3625"}}>Start a new package cycle?</div>
+              <p className="text-sm mb-3" style={{color: "#5C6853"}}>
+                This will reset <strong>{client.name}'s</strong> used-hours counter to <strong>0</strong> and start a new cycle.
+                Past sessions are <strong>kept</strong> in the database but will no longer count against the new cycle.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setShowResetConfirm(false)} className="btn btn-outline">Cancel</button>
+                <button data-testid="confirm-reset-btn" onClick={performReset} className="btn btn-primary" style={{background: "#7A8A6A"}}>
+                  Yes, start new cycle
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NewInvoiceModal({ client, defaultPackage, onCancel, onCreate }) {
+  const [num, setNum] = useState("");
+  const [size, setSize] = useState(defaultPackage);
+  const [serviceType, setServiceType] = useState("Home Session");
+  const submit = (e) => { e.preventDefault(); onCreate(num, size, serviceType); };
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60]" onClick={onCancel}>
+      <form onSubmit={submit} className="card p-6 w-full max-w-md" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <div className="font-display text-xl" style={{color: "#2C3625"}}>New Invoice</div>
+          <button type="button" onClick={onCancel} className="btn btn-ghost p-2"><X size={18}/></button>
+        </div>
+        <p className="text-xs mb-4" style={{color: "#8B9E7A"}}>Create a fresh invoice tab for <strong>{client.name}</strong>. The new sheet starts empty.</p>
+        <label className="label">Invoice Number (manual)</label>
+        <input data-testid="new-inv-num" className="input mb-3" placeholder="e.g. INV0490"
+               required autoFocus value={num} onChange={e => setNum(e.target.value)}/>
+        <label className="label">Service Type</label>
+        <select data-testid="new-inv-service" className="select mb-3" value={serviceType} onChange={e => setServiceType(e.target.value)}>
+          <option value="Home Session">Home Session</option>
+          <option value="School Support">School Support</option>
+        </select>
+        <label className="label">Package Size (sessions or hours)</label>
+        <input data-testid="new-inv-size" type="number" min="0" step="0.5" className="input mb-4"
+               required value={size} onChange={e => setSize(e.target.value)}/>
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onCancel} className="btn btn-outline">Cancel</button>
+          <button data-testid="confirm-new-inv" type="submit" className="btn btn-primary">Create Invoice</button>
+        </div>
+      </form>
+    </div>
+  );
+}

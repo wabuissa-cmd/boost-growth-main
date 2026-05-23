@@ -1,0 +1,167 @@
+{
+  "theme": "light",
+  "archetype": "1 (Organic & Earthy)",
+  "design_philosophy": {
+    "core_principles": [
+      "Warm & Organic: Use the seedling/growth metaphor to create a welcoming, professional therapy environment. Avoid clinical or sterile pure whites and stark greys.",
+      "Bilingual Elegance: Seamlessly blend RTL Arabic with LTR English. Use Tajawal for rounded, friendly, and highly legible Arabic/English body text, and Playfair Display for premium English headlines.",
+      "Density with Breathing Room: As a workspace tool (schedule, attendance, forms), the UI must be dense enough for productivity but use soft radii, generous padding inside cards, and pastel status colors to prevent cognitive overload."
+    ],
+    "surface_strategy": "Tactile & Soft. Use flat or very slightly tinted backgrounds (off-white/cream) for main areas, with cards having a 1px warm border (#E8E4DE) and very soft, ambient green-tinted shadows. Avoid pure black shadows or harsh high-contrast borders."
+  },
+  "typography": {
+    "primary_font": "Tajawal, sans-serif",
+    "secondary_font": "Playfair Display, serif",
+    "hierarchy": {
+      "h1": "font-serif text-4xl sm:text-5xl tracking-tight text-[#2C3625]",
+      "h2": "font-serif text-2xl sm:text-3xl tracking-tight text-[#3D4F35]",
+      "h3": "font-sans text-xl sm:text-2xl font-bold text-[#48543E]",
+      "h4": "font-sans text-lg sm:text-xl font-bold text-[#48543E]",
+      "body": "font-sans text-base leading-relaxed text-[#5C6853]",
+      "small": "font-sans text-sm text-[#6B7B65]",
+      "overline": "font-sans text-xs font-bold uppercase tracking-[0.2em] text-[#8B9E7A]"
+    },
+    "rtl_guidelines": "Ensure the application supports 'dir=\"rtl\"'. Use Tailwind's logical properties (e.g., 'ms-4' instead of 'ml-4', 'pe-2' instead of 'pr-2', 'text-start' instead of 'text-left') to ensure layouts flip correctly for Arabic text."
+  },
+  "colors": {
+    "background": {
+      "base": "#F6F4F0",
+      "surface": "#FFFFFF",
+      "surface_warm": "#F0E9D8",
+      "overlay": "rgba(44, 54, 37, 0.4)"
+    },
+    "brand": {
+      "primary": "#7A8A6A",
+      "primary_hover": "#606E52",
+      "primary_light": "#E5EBE1",
+      "secondary": "#D4A64A",
+      "secondary_hover": "#C4963A",
+      "secondary_light": "#FAF0D1"
+    },
+    "text": {
+      "primary": "#2C3625",
+      "secondary": "#5C6853",
+      "muted": "#8B9E7A",
+      "inverse": "#FFFFFF"
+    },
+    "border": {
+      "default": "#E8E4DE",
+      "focus": "#7A8A6A",
+      "light": "#F0EDE9"
+    },
+    "semantic": {
+      "success": { "bg": "#E5EBE1", "text": "#3D4F35", "border": "#B4C2A9" },
+      "warning": { "bg": "#FAF0D1", "text": "#6B5218", "border": "#E6C983" },
+      "error": { "bg": "#F8EBE7", "text": "#8A3F27", "border": "#ECA6A6" },
+      "info": { "bg": "#EAF0F3", "text": "#375568", "border": "#A4BCCB" }
+    },
+    "schedule_cells": {
+      "empty": "#FAFAF7",
+      "booked_green": "#E5EBE1",
+      "booked_blue": "#EAF0F3",
+      "cancel_child": "#F8EBE7",
+      "cancel_therapist": "#FAF0D1",
+      "edit_mode": "#F3EDF7"
+    }
+  },
+  "layout": {
+    "spacing_scale": "Use Tailwind default scale. Over-index on p-6 and p-8 for cards to provide breathing room.",
+    "container": "max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8",
+    "grid_system": {
+      "dashboard_cards": "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6",
+      "schedule_table": "Dense CSS Grid or HTML Table. Min-width for cells to prevent squishing. Sticky first column (time/therapist) and sticky header (days)."
+    },
+    "radii": {
+      "card": "rounded-2xl",
+      "button": "rounded-xl",
+      "input": "rounded-xl",
+      "pill": "rounded-full"
+    },
+    "shadows": {
+      "card_default": "shadow-[0_4px_20px_rgba(61,79,53,0.04)]",
+      "card_hover": "shadow-[0_12px_32px_rgba(61,79,53,0.08)]",
+      "dropdown": "shadow-[0_16px_40px_rgba(44,54,37,0.12)]"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-[#7A8A6A] hover:bg-[#606E52] text-white rounded-xl px-6 py-3 font-bold transition-all active:scale-[0.98] shadow-sm",
+      "secondary": "bg-[#F0E9D8] hover:bg-[#E8E4DE] text-[#48543E] rounded-xl px-6 py-3 font-bold transition-all active:scale-[0.98]",
+      "outline": "bg-white border border-[#E8E4DE] hover:border-[#7A8A6A] text-[#5C6853] rounded-xl px-6 py-3 font-bold transition-all hover:shadow-sm",
+      "ghost": "bg-transparent hover:bg-[#E5EBE1] text-[#5C6853] rounded-xl px-4 py-2 transition-colors"
+    },
+    "cards": {
+      "default": "bg-white border border-[#E8E4DE] rounded-2xl p-6 shadow-[0_4px_20px_rgba(61,79,53,0.04)] transition-all hover:shadow-[0_12px_32px_rgba(61,79,53,0.08)] hover:-translate-y-0.5",
+      "stat_card": "flex flex-col gap-2 p-6 bg-white rounded-2xl border border-[#E8E4DE] relative overflow-hidden. Use a subtle gradient or large faint icon in the background."
+    },
+    "inputs": {
+      "text": "w-full bg-white border border-[#E8E4DE] rounded-xl px-4 py-3 text-[#2C3625] focus:outline-none focus:ring-2 focus:ring-[#7A8A6A]/20 focus:border-[#7A8A6A] transition-all placeholder:text-[#A8B5A0]",
+      "select": "appearance-none w-full bg-white border border-[#E8E4DE] rounded-xl px-4 py-3 text-[#2C3625] focus:outline-none focus:ring-2 focus:ring-[#7A8A6A]/20 focus:border-[#7A8A6A] bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20width%3D%2220%22%20height%3D%2220%22%20viewBox%3D%220%200%2020%2020%22%20fill%3D%22none%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M5%207.5L10%2012.5L15%207.5%22%20stroke%3D%22%236B7B65%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[position:calc(100%-1rem)_center] rtl:bg-[position:1rem_center]"
+    },
+    "status_pills": {
+      "base": "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider",
+      "variants": "Use semantic colors defined in the colors.semantic object. E.g., bg-[#FAF0D1] text-[#6B5218] for 'Pending'."
+    },
+    "schedule_grid": {
+      "container": "border border-[#E8E4DE] rounded-2xl overflow-hidden bg-white",
+      "header_cell": "bg-[#F6F4F0] p-3 text-sm font-bold text-[#5C6853] border-b border-[#E8E4DE] text-center",
+      "time_cell": "bg-[#F6F4F0] p-3 text-xs font-bold text-[#8B9E7A] border-r border-[#E8E4DE] rtl:border-r-0 rtl:border-l text-center w-20 shrink-0",
+      "data_cell": "border-b border-r border-[#E8E4DE] rtl:border-r-0 rtl:border-l p-1 min-w-[120px] transition-colors cursor-pointer hover:bg-[#E5EBE1]/30",
+      "event_block": "w-full h-full rounded-lg p-2 text-xs flex flex-col gap-1 border shadow-sm transition-transform active:scale-95"
+    }
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "installation": "yarn add @phosphor-icons/react",
+    "style": "Duotone or Regular weight. Use 20px for inline text icons, 24px for standard UI controls, 32px+ for empty states or dashboard widgets.",
+    "logo_instructions": "Use Phosphor 'Plant' icon (Duotone) combined with text 'BOOST GROWTH' as the main logo. Color: #7A8A6A."
+  },
+  "media": {
+    "images": [
+      {
+        "slug": "login_background",
+        "category": "background",
+        "description": "Abstract, warm, organic fluid texture with sage green and cream tones for the login page background.",
+        "url": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop"
+      },
+      {
+        "slug": "auth_side_image",
+        "category": "hero",
+        "description": "Calming natural botanical or therapy room texture for the left panel of the auth screen.",
+        "url": "https://images.unsplash.com/photo-1604871000636-074fa5117945?q=80&w=2400&auto=format&fit=crop"
+      },
+      {
+        "slug": "placeholder_avatar_female",
+        "category": "avatar",
+        "description": "Placeholder for therapist/admin profile picture.",
+        "url": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=800&q=80"
+      },
+      {
+        "slug": "placeholder_avatar_male",
+        "category": "avatar",
+        "description": "Placeholder for therapist/admin profile picture.",
+        "url": "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=800&q=80"
+      }
+    ]
+  },
+  "motion_and_interactions": {
+    "hover": "All interactive elements must change state on hover. Buttons should dim/darken, cards should lift slightly (-translate-y-0.5) with increased shadow.",
+    "active": "Buttons and clickable schedule cells should have an active:scale-[0.98] to feel responsive.",
+    "transitions": "Use Tailwind's standard 'transition-all duration-200 ease-in-out' for smooth color and shadow changes.",
+    "modals": "Modals (like cell edit or attendance form) should enter with a subtle fade and scale up (opacity-0 scale-95 to opacity-100 scale-100)."
+  },
+  "accessibility_and_testing": {
+    "contrast": "Ensure text over the primary sage green (#7A8A6A) is pure white. Muted text (#8B9E7A) should only be used on very light backgrounds (#F6F4F0 or #FFFFFF).",
+    "rtl": "Use logical properties everywhere (e.g. padding-inline-start, margin-inline-end). Avoid fixed left/right positioning.",
+    "testing_attributes": "All buttons, inputs, links, tabs, and interactive grid cells MUST have 'data-testid' attributes in kebab-case representing their role (e.g., data-testid='login-submit-button', data-testid='schedule-cell-tuesday-9am')."
+  },
+  "instructions_to_main_agent": [
+    "Install @phosphor-icons/react for the icon set. Use 'Plant' icon as the brand logo.",
+    "Configure Tailwind to support RTL using logical properties and ensure the HTML tag receives dir='rtl' dynamically based on user language (default to Arabic).",
+    "Use standard HTML/Tailwind for the marketing/login layouts, and customized Shadcn components for dashboard forms, selects, and dialogs.",
+    "Customize Shadcn components heavily: increase border-radius to 12px or 16px (rounded-xl/2xl), change default borders to #E8E4DE, and remove pure black shadows.",
+    "The weekly schedule is a complex component: implement it using CSS Grid with a sticky column for therapists/time, and allow click-to-open 'cell edit modal' functionality.",
+    "Attendance sheets require an invoice-style layout. Build a dense table view with pagination or tabbed navigation for different Gregorian months.",
+    "For the typography, import 'Tajawal' and 'Playfair Display' from Google Fonts and set Tajawal as the default sans font in tailwind.config.js."
+  ]
+}
