@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr
+from fastapi.middleware.cors import CORSMiddleware
 
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -2251,7 +2252,16 @@ async def root():
     return {"message": "Boost Growth Portal API", "status": "ok"}
 
 app.include_router(api)
-app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://boost-growth-main-production-7283.up.railway.app",
+        "https://boost-growth-main-production.up.railway.app"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
