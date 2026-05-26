@@ -413,12 +413,52 @@ const PR_STATUS_META = {
   resolved: { label: "Resolved", bg: "#E5EBE1", color: "#3D4F35", border: "#B8C8A8" },
 };
 
+// ═══════════════════════════════════════════════════════════
+// PROGRESS REPORTS — 3-STEP COMPONENT
+// Replace the entire ProgressReportsList function in Clients.jsx
+// (from line ~416 to end of file)
+// ═══════════════════════════════════════════════════════════
+
+// Supervisors map — who supervises which clients
+const SUPERVISOR_CLIENTS = {
+  msMaha:  ["035","037","038","040","041","042","047","052","054","060","063","065","070"],
+  msFahda: ["009","011","018","023","024","027","030","034","061","062","068","072","079"],
+};
+
+// ═══════════════════════════════════════════════════════════
+// PROGRESS REPORTS — 3-STEP COMPONENT
+// Replace the entire ProgressReportsList function in Clients.jsx
+// (from line ~416 to end of file)
+// ═══════════════════════════════════════════════════════════
+
+// Supervisors map — who supervises which clients
+const SUPERVISOR_CLIENTS = {
+  msMaha:  ["035","037","038","040","041","042","047","052","054","060","063","065","070"],
+  msFahda: ["009","011","018","023","024","027","030","034","061","062","068","072","079"],
+};
+
 function ProgressReportsList({ clientId, isAdmin }) {
+  const { user } = useAuth();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState({ title: "", url: "", report_date: "", notes: "" });
   const [busy, setBusy] = useState(null);
+
+  // Permission logic
+  const isSupervisorOfClient = () => {
+    if (isAdmin) return true;
+    if (!user) return false;
+    const key = user.key || user.email?.split("@")[0];
+    const supervised = SUPERVISOR_CLIENTS[key] || [];
+    return supervised.includes(String(clientId).padStart(3,"0"));
+  };
+
+  const canMarkUploaded   = isAdmin || isSupervisorOfClient() ||
+    (user?.main_client_ids || []).includes(clientId);
+  const canMarkReviewed   = isAdmin || isSupervisorOfClient();
+  const canMarkResolved   = isAdmin || isSupervisorOfClient();
+  const canAddReport      = isAdmin || isSupervisorOfClient();
 
   const load = async () => {
     setLoading(true);
@@ -434,7 +474,10 @@ function ProgressReportsList({ clientId, isAdmin }) {
     if (!draft.title.trim()) { alert("Title is required"); return; }
     setBusy("add");
     try {
-      await api.post(`/clients/${clientId}/progress-reports`, { ...draft, status: "uploaded" });
+      await api.post(`/clients/${clientId}/progress-reports`, {
+        ...draft,
+        uploaded: false, reviewed: false, resolved: false
+      });
       setDraft({ title: "", url: "", report_date: "", notes: "" });
       setAdding(false);
       await load();
@@ -443,10 +486,15 @@ function ProgressReportsList({ clientId, isAdmin }) {
     } finally { setBusy(null); }
   };
 
-  const updateStatus = async (rid, status) => {
-    setBusy(rid);
+  // Toggle one of the 3 steps
+  const toggleStep = async (rid, step, currentValue) => {
+    setBusy(rid + step);
     try {
-      await api.put(`/progress-reports/${rid}/status`, { status });
+      await api.put(`/progress-reports/${rid}/steps`, {
+        [step]: !currentValue,
+        [`${step}_by`]: user?.name || user?.email || "Admin",
+        [`${step}_at`]: new Date().toISOString(),
+      });
       await load();
     } catch (e) {
       alert("Update failed: " + (e.response?.data?.detail || e.message));
@@ -460,14 +508,44 @@ function ProgressReportsList({ clientId, isAdmin }) {
     finally { setBusy(null); }
   };
 
+  const StepBadge = ({ rid, step, label, value, enabled, by, at }) => {
+    const colors = {
+      uploaded: { on: "#D97706", bg: "#FEF3C7", border: "#FCD34D" },
+      reviewed:  { on: "#2563EB", bg: "#DBEAFE", border: "#93C5FD" },
+      resolved:  { on: "#16A34A", bg: "#DCFCE7", border: "#86EFAC" },
+    };
+    const c = colors[step];
+    const isBusy = busy === rid + step;
+    return (
+      <button
+        disabled={!enabled || isBusy}
+        onClick={() => toggleStep(rid, step, value)}
+        title={value && by ? `${label} by ${by} on ${at ? new Date(at).toLocaleDateString() : ""}` : `Mark as ${label}`}
+        className="flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-bold transition-all"
+        style={{
+          background: value ? c.bg : "#F9F9F7",
+          color: value ? c.on : "#9CA3AF",
+          borderColor: value ? c.border : "#E5E7EB",
+          cursor: enabled ? "pointer" : "default",
+          opacity: (!enabled && !value) ? 0.5 : 1,
+        }}
+      >
+        <span style={{ fontSize: 13 }}>{value ? "✓" : "○"}</span>
+        {label}
+      </button>
+    );
+  };
+
   return (
     <div className="p-3 rounded-xl border mt-3" style={{ borderColor: "#E8E4DE" }} data-testid="progress-reports-section">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-3">
         <div>
           <div className="text-sm font-bold" style={{ color: "#2C3625" }}>Progress Reports</div>
-          <div className="text-[10px]" style={{ color: "#8B9E7A" }}>{items.length} report{items.length === 1 ? "" : "s"} · track status per report</div>
+          <div className="text-[10px]" style={{ color: "#8B9E7A" }}>
+            {items.length} report{items.length === 1 ? "" : "s"} · 3 steps per report
+          </div>
         </div>
-        {isAdmin && !adding && (
+        {canAddReport && !adding && (
           <button data-testid="add-progress-report-btn" onClick={() => setAdding(true)} className="btn btn-outline text-xs">
             <Plus size={12} /> Add Report
           </button>
@@ -475,8 +553,8 @@ function ProgressReportsList({ clientId, isAdmin }) {
       </div>
 
       {adding && (
-        <div className="p-3 rounded-lg mb-2 space-y-2" style={{ background: "#FAFAF7", border: "1px solid #E8E4DE" }}>
-          <input data-testid="pr-title" className="input text-xs" placeholder="Report title (e.g. Q1 Progress Report)"
+        <div className="p-3 rounded-lg mb-3 space-y-2" style={{ background: "#FAFAF7", border: "1px solid #E8E4DE" }}>
+          <input data-testid="pr-title" className="input text-xs" placeholder="Report title (e.g. Progress Report — Apr 2026)"
             value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} autoFocus />
           <input data-testid="pr-url" className="input text-xs" placeholder="Drive/Doc URL (optional)"
             value={draft.url} onChange={e => setDraft({ ...draft, url: e.target.value })} />
@@ -502,46 +580,64 @@ function ProgressReportsList({ clientId, isAdmin }) {
       )}
 
       <div className="space-y-2">
-        {items.map(r => {
-          const meta = PR_STATUS_META[r.status] || PR_STATUS_META.uploaded;
-          return (
-            <div key={r.id} data-testid={`pr-row-${r.id}`}
-              className="flex items-center gap-2 p-2 rounded-lg border" style={{ borderColor: "#E8E4DE", background: "white" }}>
-              <span className="pill text-[10px] px-2 py-0.5 font-bold whitespace-nowrap"
-                style={{ background: meta.bg, color: meta.color, border: `1px solid ${meta.border}` }}>
-                ● {meta.label}
-              </span>
+        {items.map(r => (
+          <div key={r.id} data-testid={`pr-row-${r.id}`}
+            className="p-3 rounded-lg border" style={{ borderColor: "#E8E4DE", background: "white" }}>
+
+            {/* Header */}
+            <div className="flex items-start justify-between mb-2">
               <div className="flex-1 min-w-0">
-                <div className="font-bold text-xs truncate" style={{ color: "#2C3625" }}>{r.title}</div>
-                <div className="text-[10px] flex items-center gap-2" style={{ color: "#8B9E7A" }}>
-                  {r.report_date && <span>{r.report_date}</span>}
-                  {r.notes && <span className="truncate">· {r.notes}</span>}
+                <div className="font-bold text-xs" style={{ color: "#2C3625" }}>{r.title}</div>
+                <div className="text-[10px] flex items-center gap-2 mt-0.5" style={{ color: "#8B9E7A" }}>
+                  {r.report_date && <span>📅 {r.report_date}</span>}
+                  {r.notes && <span>· {r.notes}</span>}
                 </div>
               </div>
-              {r.url && (
-                <a href={r.url} target="_blank" rel="noreferrer" className="text-[11px] underline whitespace-nowrap" style={{ color: "#7A8A6A" }}>
-                  <ArrowSquareOut size={12} className="inline" /> Open
-                </a>
-              )}
-              {isAdmin && (
-                <>
-                  <select data-testid={`pr-status-${r.id}`} value={r.status}
-                    onChange={e => updateStatus(r.id, e.target.value)}
-                    disabled={busy === r.id}
-                    className="select text-[11px]" style={{ minWidth: 110, padding: "4px 8px" }}>
-                    <option value="uploaded">Uploaded</option>
-                    <option value="reviewed">Reviewed</option>
-                    <option value="resolved">Resolved</option>
-                  </select>
+              <div className="flex items-center gap-1 ml-2">
+                {r.url && (
+                  <a href={r.url} target="_blank" rel="noreferrer"
+                    className="text-[11px] underline whitespace-nowrap" style={{ color: "#7A8A6A" }}>
+                    <ArrowSquareOut size={12} className="inline" /> Open
+                  </a>
+                )}
+                {isAdmin && (
                   <button data-testid={`pr-del-${r.id}`} onClick={() => removeReport(r.id)}
-                    disabled={busy === r.id} className="btn btn-ghost p-1 text-red-700">
+                    disabled={busy === r.id} className="btn btn-ghost p-1 text-red-700 ml-1">
                     <Trash size={13} />
                   </button>
-                </>
-              )}
+                )}
+              </div>
             </div>
-          );
-        })}
+
+            {/* 3-Step Badges */}
+            <div className="flex gap-2 flex-wrap">
+              <StepBadge
+                rid={r.id} step="uploaded" label="Uploaded"
+                value={r.uploaded} enabled={canMarkUploaded}
+                by={r.uploaded_by} at={r.uploaded_at}
+              />
+              <StepBadge
+                rid={r.id} step="reviewed" label="Reviewed"
+                value={r.reviewed} enabled={canMarkReviewed}
+                by={r.reviewed_by} at={r.reviewed_at}
+              />
+              <StepBadge
+                rid={r.id} step="resolved" label="Resolved"
+                value={r.resolved} enabled={canMarkResolved}
+                by={r.resolved_by} at={r.resolved_at}
+              />
+            </div>
+
+            {/* Who did what */}
+            {(r.uploaded_by || r.reviewed_by || r.resolved_by) && (
+              <div className="mt-2 text-[10px] space-y-0.5" style={{ color: "#9CA3AF" }}>
+                {r.uploaded_by && <div>✓ Uploaded by {r.uploaded_by}</div>}
+                {r.reviewed_by && <div>✓ Reviewed by {r.reviewed_by}</div>}
+                {r.resolved_by && <div>✓ Resolved by {r.resolved_by}</div>}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

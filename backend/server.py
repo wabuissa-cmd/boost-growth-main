@@ -704,6 +704,17 @@ class ProgressReportIn(BaseModel):
     report_date: Optional[str] = None    # ISO date when the report was made
 
 class ProgressStatusIn(BaseModel):
+     class ProgressStepsIn(BaseModel):
+         uploaded: Optional[bool] = None
+         uploaded_by: Optional[str] = None
+         uploaded_at: Optional[str] = None
+         reviewed: Optional[bool] = None
+         reviewed_by: Optional[str] = None
+         reviewed_at: Optional[str] = None
+         resolved: Optional[bool] = None
+         resolved_by: Optional[str] = None
+         resolved_at: Optional[str] = None
+
     status: str
 
 @api.get("/clients/{cid}/progress-reports")
@@ -762,7 +773,25 @@ async def set_progress_report_status(rid: str, payload: ProgressStatusIn, _=Depe
         raise HTTPException(status_code=400, detail=f"Status must be one of {sorted(PROGRESS_STATUSES)}")
     await db.progress_reports.update_one({"id": rid}, {"$set": {"status": status, "updated_at": now_iso()}})
     return await db.progress_reports.find_one({"id": rid}, {"_id": 0})
-
+ @api.put("/progress-reports/{rid}/steps")
+     async def update_progress_report_steps(rid: str, payload: ProgressStepsIn, user=Depends(get_current_user)):
+         update = {}
+         if payload.uploaded is not None:
+             update["uploaded"] = payload.uploaded
+             if payload.uploaded_by: update["uploaded_by"] = payload.uploaded_by
+             if payload.uploaded_at: update["uploaded_at"] = payload.uploaded_at
+         if payload.reviewed is not None:
+             update["reviewed"] = payload.reviewed
+             if payload.reviewed_by: update["reviewed_by"] = payload.reviewed_by
+             if payload.reviewed_at: update["reviewed_at"] = payload.reviewed_at
+         if payload.resolved is not None:
+             update["resolved"] = payload.resolved
+             if payload.resolved_by: update["resolved_by"] = payload.resolved_by
+             if payload.resolved_at: update["resolved_at"] = payload.resolved_at
+         if update:
+             update["updated_at"] = now_iso()
+             await db.progress_reports.update_one({"id": rid}, {"$set": update})
+         return await db.progress_reports.find_one({"id": rid}, {"_id": 0})
 @api.delete("/progress-reports/{rid}")
 async def delete_progress_report(rid: str, _=Depends(admin_only)):
     await db.progress_reports.delete_one({"id": rid})
