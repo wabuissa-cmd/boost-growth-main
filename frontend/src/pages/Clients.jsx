@@ -413,46 +413,14 @@ const PR_STATUS_META = {
   resolved: { label: "Resolved", bg: "#E5EBE1", color: "#3D4F35", border: "#B8C8A8" },
 };
 
-// ═══════════════════════════════════════════════════════════
-// PROGRESS REPORTS — 3-STEP COMPONENT
-// Replace the entire ProgressReportsList function in Clients.jsx
-// (from line ~416 to end of file)
-// ═══════════════════════════════════════════════════════════
-
-// Supervisors map — who supervises which clients
 const SUPERVISOR_CLIENTS = {
   msMaha:  ["035","037","038","040","041","042","047","052","054","060","063","065","070"],
   msFahda: ["009","011","018","023","024","027","030","034","061","062","068","072","079"],
-};
-
-// ═══════════════════════════════════════════════════════════
-// PROGRESS REPORTS — 3-STEP COMPONENT
-// Replace the entire ProgressReportsList function in Clients.jsx
-// (from line ~416 to end of file)
-// ═══════════════════════════════════════════════════════════
-
-// Supervisors map — who supervises which clients
-const SUPERVISOR_CLIENTS = {
-  msMaha:  ["035","037","038","040","041","042","047","052","054","060","063","065","070"],
-  msFahda: ["009","011","018","023","024","027","030","034","061","062","068","072","079"],
-};
-
-// ═══════════════════════════════════════════════════════════
-// كيفية استخدام هذا الملف:
-// 1. افتحي Clients.jsx في Cursor
-// 2. ابحثي عن: function ProgressReportsList
-// 3. احذفي كل شيء من هذا السطر حتى نهاية الملف
-// 4. والصقي كل محتوى هذا الملف مكانه
-// ═══════════════════════════════════════════════════════════
-
-const SUPERVISOR_CLIENTS = {
-  msFahda: ["009","011","018","023","024","027","030","034","061","062","068","072","079"],
-  msMaha:  ["035","037","038","040","041","042","047","052","054","060","063","065","070"],
 };
 
 function ProgressReportsList({ clientId, isAdmin }) {
   const { user } = useAuth();
-  const [items, setItems]   = useState([]);
+  const [items, setItems]    = useState([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding]  = useState(false);
   const [draft, setDraft]    = useState({ title: "", url: "", report_date: "", notes: "" });
@@ -465,11 +433,10 @@ function ProgressReportsList({ clientId, isAdmin }) {
     return (SUPERVISOR_CLIENTS[key] || []).includes(String(clientId).padStart(3, "0"));
   };
 
-  // ─── الصلاحيات ───
-  const canAdd        = true;            // كل الأخصائيات يقدرن يضيفن تقرير
-  const canUploaded   = true;            // كل الأخصائيات يقدرن يضغطن Uploaded
-  const canReviewed   = isAdmin || isSupervisor();  // المشرفة والأدمن فقط
-  const canResolved   = isAdmin || isSupervisor();  // المشرفة والأدمن فقط
+  const canAdd      = true;
+  const canUploaded = true;
+  const canReviewed = isAdmin || isSupervisor();
+  const canResolved = isAdmin || isSupervisor();
 
   const load = async () => {
     setLoading(true);
@@ -487,8 +454,7 @@ function ProgressReportsList({ clientId, isAdmin }) {
     setBusy("add");
     try {
       await api.post(`/clients/${clientId}/progress-reports`, {
-        ...draft,
-        uploaded: false, reviewed: false, resolved: false,
+        ...draft, uploaded: false, reviewed: false, resolved: false,
       });
       setDraft({ title: "", url: "", report_date: "", notes: "" });
       setAdding(false);
@@ -549,7 +515,6 @@ function ProgressReportsList({ clientId, isAdmin }) {
 
   return (
     <div className="p-3 rounded-xl border mt-3" style={{ borderColor: "#E8E4DE" }}>
-      {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div>
           <div className="text-sm font-bold" style={{ color: "#2C3625" }}>Progress Reports</div>
@@ -572,7 +537,6 @@ function ProgressReportsList({ clientId, isAdmin }) {
         )}
       </div>
 
-      {/* Add Form */}
       {adding && (
         <div className="p-3 rounded-lg mb-3 space-y-2 border" style={{ background: "#FAFAF7", borderColor: "#E8E4DE" }}>
           <input className="input text-xs w-full" placeholder="Report title (e.g. Progress Report — Apr 2026)"
@@ -606,11 +570,9 @@ function ProgressReportsList({ clientId, isAdmin }) {
         </div>
       )}
 
-      {/* Reports List */}
       <div className="space-y-2">
         {items.map(r => (
           <div key={r.id} className="p-3 rounded-lg border" style={{ borderColor: "#E8E4DE", background: "white" }}>
-            {/* Report Header */}
             <div className="flex items-start justify-between mb-2">
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-xs" style={{ color: "#2C3625" }}>{r.title}</div>
@@ -637,7 +599,6 @@ function ProgressReportsList({ clientId, isAdmin }) {
               </div>
             </div>
 
-            {/* 3 Steps */}
             <div className="flex gap-2 flex-wrap">
               <StepBadge rid={r.id} step="uploaded" label="Uploaded"
                 value={r.uploaded} enabled={canUploaded}
@@ -650,7 +611,6 @@ function ProgressReportsList({ clientId, isAdmin }) {
                 by={r.resolved_by} at={r.resolved_at} />
             </div>
 
-            {/* Who did what */}
             {(r.uploaded_by || r.reviewed_by || r.resolved_by) && (
               <div className="mt-2 text-[10px] space-y-0.5 pt-2 border-t" style={{ color: "#9CA3AF", borderColor: "#F0EDE9" }}>
                 {r.uploaded_by && <div>📤 Uploaded by <strong>{r.uploaded_by}</strong></div>}
