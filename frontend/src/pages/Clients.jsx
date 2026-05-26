@@ -437,67 +437,78 @@ const SUPERVISOR_CLIENTS = {
   msFahda: ["009","011","018","023","024","027","030","034","061","062","068","072","079"],
 };
 
+// ═══════════════════════════════════════════════════════════
+// كيفية استخدام هذا الملف:
+// 1. افتحي Clients.jsx في Cursor
+// 2. ابحثي عن: function ProgressReportsList
+// 3. احذفي كل شيء من هذا السطر حتى نهاية الملف
+// 4. والصقي كل محتوى هذا الملف مكانه
+// ═══════════════════════════════════════════════════════════
+
+const SUPERVISOR_CLIENTS = {
+  msFahda: ["009","011","018","023","024","027","030","034","061","062","068","072","079"],
+  msMaha:  ["035","037","038","040","041","042","047","052","054","060","063","065","070"],
+};
+
 function ProgressReportsList({ clientId, isAdmin }) {
   const { user } = useAuth();
-  const [items, setItems] = useState([]);
+  const [items, setItems]   = useState([]);
   const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState({ title: "", url: "", report_date: "", notes: "" });
-  const [busy, setBusy] = useState(null);
+  const [adding, setAdding]  = useState(false);
+  const [draft, setDraft]    = useState({ title: "", url: "", report_date: "", notes: "" });
+  const [busy, setBusy]      = useState(null);
 
-  // Permission logic
-  const isSupervisorOfClient = () => {
+  const isSupervisor = () => {
     if (isAdmin) return true;
     if (!user) return false;
-    const key = user.key || user.email?.split("@")[0];
-    const supervised = SUPERVISOR_CLIENTS[key] || [];
-    return supervised.includes(String(clientId).padStart(3,"0"));
+    const key = user.key || "";
+    return (SUPERVISOR_CLIENTS[key] || []).includes(String(clientId).padStart(3, "0"));
   };
 
-  const canMarkUploaded   = isAdmin || isSupervisorOfClient() ||
-    (user?.main_client_ids || []).includes(clientId);
-  const canMarkReviewed   = isAdmin || isSupervisorOfClient();
-  const canMarkResolved   = isAdmin || isSupervisorOfClient();
-  const canAddReport      = isAdmin || isSupervisorOfClient();
+  // ─── الصلاحيات ───
+  const canAdd        = true;            // كل الأخصائيات يقدرن يضيفن تقرير
+  const canUploaded   = true;            // كل الأخصائيات يقدرن يضغطن Uploaded
+  const canReviewed   = isAdmin || isSupervisor();  // المشرفة والأدمن فقط
+  const canResolved   = isAdmin || isSupervisor();  // المشرفة والأدمن فقط
 
   const load = async () => {
     setLoading(true);
     try {
       const { data } = await api.get(`/clients/${clientId}/progress-reports`);
       setItems(data || []);
-    } catch (_e) { setItems([]); }
+    } catch (_) { setItems([]); }
     finally { setLoading(false); }
   };
+
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [clientId]);
 
   const addReport = async () => {
-    if (!draft.title.trim()) { alert("Title is required"); return; }
+    if (!draft.title.trim()) { alert("Please enter a report title"); return; }
     setBusy("add");
     try {
       await api.post(`/clients/${clientId}/progress-reports`, {
         ...draft,
-        uploaded: false, reviewed: false, resolved: false
+        uploaded: false, reviewed: false, resolved: false,
       });
       setDraft({ title: "", url: "", report_date: "", notes: "" });
       setAdding(false);
       await load();
     } catch (e) {
-      alert("Add failed: " + (e.response?.data?.detail || e.message));
+      alert("Failed: " + (e.response?.data?.detail || e.message));
     } finally { setBusy(null); }
   };
 
-  // Toggle one of the 3 steps
   const toggleStep = async (rid, step, currentValue) => {
     setBusy(rid + step);
     try {
       await api.put(`/progress-reports/${rid}/steps`, {
         [step]: !currentValue,
-        [`${step}_by`]: user?.name || user?.email || "Admin",
+        [`${step}_by`]: user?.name || user?.email || "User",
         [`${step}_at`]: new Date().toISOString(),
       });
       await load();
     } catch (e) {
-      alert("Update failed: " + (e.response?.data?.detail || e.message));
+      alert("Failed: " + (e.response?.data?.detail || e.message));
     } finally { setBusy(null); }
   };
 
@@ -511,80 +522,95 @@ function ProgressReportsList({ clientId, isAdmin }) {
   const StepBadge = ({ rid, step, label, value, enabled, by, at }) => {
     const colors = {
       uploaded: { on: "#D97706", bg: "#FEF3C7", border: "#FCD34D" },
-      reviewed:  { on: "#2563EB", bg: "#DBEAFE", border: "#93C5FD" },
-      resolved:  { on: "#16A34A", bg: "#DCFCE7", border: "#86EFAC" },
+      reviewed: { on: "#2563EB", bg: "#DBEAFE", border: "#93C5FD" },
+      resolved: { on: "#16A34A", bg: "#DCFCE7", border: "#86EFAC" },
     };
     const c = colors[step];
     const isBusy = busy === rid + step;
     return (
       <button
         disabled={!enabled || isBusy}
-        onClick={() => toggleStep(rid, step, value)}
-        title={value && by ? `${label} by ${by} on ${at ? new Date(at).toLocaleDateString() : ""}` : `Mark as ${label}`}
+        onClick={() => enabled && toggleStep(rid, step, value)}
+        title={value && by ? `${label} by ${by}${at ? " · " + new Date(at).toLocaleDateString() : ""}` : (enabled ? `Mark as ${label}` : `Only supervisors can mark ${label}`)}
         className="flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-bold transition-all"
         style={{
           background: value ? c.bg : "#F9F9F7",
           color: value ? c.on : "#9CA3AF",
           borderColor: value ? c.border : "#E5E7EB",
           cursor: enabled ? "pointer" : "default",
-          opacity: (!enabled && !value) ? 0.5 : 1,
+          opacity: (!enabled && !value) ? 0.45 : 1,
         }}
       >
-        <span style={{ fontSize: 13 }}>{value ? "✓" : "○"}</span>
+        <span style={{ fontSize: 13 }}>{isBusy ? "…" : value ? "✓" : "○"}</span>
         {label}
       </button>
     );
   };
 
   return (
-    <div className="p-3 rounded-xl border mt-3" style={{ borderColor: "#E8E4DE" }} data-testid="progress-reports-section">
+    <div className="p-3 rounded-xl border mt-3" style={{ borderColor: "#E8E4DE" }}>
+      {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div>
           <div className="text-sm font-bold" style={{ color: "#2C3625" }}>Progress Reports</div>
           <div className="text-[10px]" style={{ color: "#8B9E7A" }}>
-            {items.length} report{items.length === 1 ? "" : "s"} · 3 steps per report
+            {items.length} report{items.length !== 1 ? "s" : ""}
+            {" · "}
+            <span style={{ color: "#D97706" }}>Uploaded</span>
+            {" → "}
+            <span style={{ color: "#2563EB" }}>Reviewed</span>
+            {" → "}
+            <span style={{ color: "#16A34A" }}>Resolved</span>
           </div>
         </div>
-        {canAddReport && !adding && (
-          <button data-testid="add-progress-report-btn" onClick={() => setAdding(true)} className="btn btn-outline text-xs">
-            <Plus size={12} /> Add Report
+        {canAdd && !adding && (
+          <button onClick={() => setAdding(true)}
+            className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg border font-bold transition hover:bg-[#F0EDE9]"
+            style={{ borderColor: "#C4963A", color: "#C4963A", background: "#FBF3E2" }}>
+            + Add Report
           </button>
         )}
       </div>
 
+      {/* Add Form */}
       {adding && (
-        <div className="p-3 rounded-lg mb-3 space-y-2" style={{ background: "#FAFAF7", border: "1px solid #E8E4DE" }}>
-          <input data-testid="pr-title" className="input text-xs" placeholder="Report title (e.g. Progress Report — Apr 2026)"
+        <div className="p-3 rounded-lg mb-3 space-y-2 border" style={{ background: "#FAFAF7", borderColor: "#E8E4DE" }}>
+          <input className="input text-xs w-full" placeholder="Report title (e.g. Progress Report — Apr 2026)"
             value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} autoFocus />
-          <input data-testid="pr-url" className="input text-xs" placeholder="Drive/Doc URL (optional)"
+          <input className="input text-xs w-full" placeholder="Google Drive link (optional)"
             value={draft.url} onChange={e => setDraft({ ...draft, url: e.target.value })} />
           <div className="flex gap-2">
-            <input data-testid="pr-date" type="date" className="input text-xs flex-1"
+            <input type="date" className="input text-xs flex-1"
               value={draft.report_date} onChange={e => setDraft({ ...draft, report_date: e.target.value })} />
             <input className="input text-xs flex-1" placeholder="Notes (optional)"
               value={draft.notes} onChange={e => setDraft({ ...draft, notes: e.target.value })} />
           </div>
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-2 pt-1">
             <button onClick={() => { setAdding(false); setDraft({ title: "", url: "", report_date: "", notes: "" }); }}
-              className="btn btn-ghost text-xs">Cancel</button>
-            <button data-testid="pr-save" onClick={addReport} disabled={busy === "add"} className="btn btn-primary text-xs">
-              {busy === "add" ? <span className="spinner" /> : "Save Report"}
+              className="text-xs px-3 py-1.5 rounded-lg border" style={{ borderColor: "#E8E4DE", color: "#6B7280" }}>
+              Cancel
+            </button>
+            <button onClick={addReport} disabled={busy === "add"}
+              className="text-xs px-3 py-1.5 rounded-lg font-bold"
+              style={{ background: "#3D5C3A", color: "white" }}>
+              {busy === "add" ? "Saving…" : "Save Report"}
             </button>
           </div>
         </div>
       )}
 
-      {loading && <div className="text-xs italic py-2" style={{ color: "#8B9E7A" }}>Loading…</div>}
+      {loading && <div className="text-xs italic py-3 text-center" style={{ color: "#8B9E7A" }}>Loading…</div>}
       {!loading && items.length === 0 && (
-        <div className="text-xs italic py-3 text-center" style={{ color: "#8B9E7A" }}>No progress reports yet</div>
+        <div className="text-xs italic py-4 text-center" style={{ color: "#B8C0AC" }}>
+          No progress reports yet
+        </div>
       )}
 
+      {/* Reports List */}
       <div className="space-y-2">
         {items.map(r => (
-          <div key={r.id} data-testid={`pr-row-${r.id}`}
-            className="p-3 rounded-lg border" style={{ borderColor: "#E8E4DE", background: "white" }}>
-
-            {/* Header */}
+          <div key={r.id} className="p-3 rounded-lg border" style={{ borderColor: "#E8E4DE", background: "white" }}>
+            {/* Report Header */}
             <div className="flex items-start justify-between mb-2">
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-xs" style={{ color: "#2C3625" }}>{r.title}</div>
@@ -593,47 +619,43 @@ function ProgressReportsList({ clientId, isAdmin }) {
                   {r.notes && <span>· {r.notes}</span>}
                 </div>
               </div>
-              <div className="flex items-center gap-1 ml-2">
+              <div className="flex items-center gap-1 ml-2 flex-shrink-0">
                 {r.url && (
                   <a href={r.url} target="_blank" rel="noreferrer"
-                    className="text-[11px] underline whitespace-nowrap" style={{ color: "#7A8A6A" }}>
-                    <ArrowSquareOut size={12} className="inline" /> Open
+                    className="text-[10px] px-1.5 py-0.5 rounded border underline"
+                    style={{ color: "#3D5C3A", borderColor: "#C4D4B8" }}>
+                    Open ↗
                   </a>
                 )}
-                {isAdmin && (
-                  <button data-testid={`pr-del-${r.id}`} onClick={() => removeReport(r.id)}
-                    disabled={busy === r.id} className="btn btn-ghost p-1 text-red-700 ml-1">
-                    <Trash size={13} />
+                {(isAdmin || isSupervisor()) && (
+                  <button onClick={() => removeReport(r.id)} disabled={busy === r.id}
+                    className="text-[11px] px-1.5 py-0.5 rounded border ml-1"
+                    style={{ color: "#DC2626", borderColor: "#FCA5A5", background: "#FEF2F2" }}>
+                    ✕
                   </button>
                 )}
               </div>
             </div>
 
-            {/* 3-Step Badges */}
+            {/* 3 Steps */}
             <div className="flex gap-2 flex-wrap">
-              <StepBadge
-                rid={r.id} step="uploaded" label="Uploaded"
-                value={r.uploaded} enabled={canMarkUploaded}
-                by={r.uploaded_by} at={r.uploaded_at}
-              />
-              <StepBadge
-                rid={r.id} step="reviewed" label="Reviewed"
-                value={r.reviewed} enabled={canMarkReviewed}
-                by={r.reviewed_by} at={r.reviewed_at}
-              />
-              <StepBadge
-                rid={r.id} step="resolved" label="Resolved"
-                value={r.resolved} enabled={canMarkResolved}
-                by={r.resolved_by} at={r.resolved_at}
-              />
+              <StepBadge rid={r.id} step="uploaded" label="Uploaded"
+                value={r.uploaded} enabled={canUploaded}
+                by={r.uploaded_by} at={r.uploaded_at} />
+              <StepBadge rid={r.id} step="reviewed" label="Reviewed"
+                value={r.reviewed} enabled={canReviewed}
+                by={r.reviewed_by} at={r.reviewed_at} />
+              <StepBadge rid={r.id} step="resolved" label="Resolved"
+                value={r.resolved} enabled={canResolved}
+                by={r.resolved_by} at={r.resolved_at} />
             </div>
 
             {/* Who did what */}
             {(r.uploaded_by || r.reviewed_by || r.resolved_by) && (
-              <div className="mt-2 text-[10px] space-y-0.5" style={{ color: "#9CA3AF" }}>
-                {r.uploaded_by && <div>✓ Uploaded by {r.uploaded_by}</div>}
-                {r.reviewed_by && <div>✓ Reviewed by {r.reviewed_by}</div>}
-                {r.resolved_by && <div>✓ Resolved by {r.resolved_by}</div>}
+              <div className="mt-2 text-[10px] space-y-0.5 pt-2 border-t" style={{ color: "#9CA3AF", borderColor: "#F0EDE9" }}>
+                {r.uploaded_by && <div>📤 Uploaded by <strong>{r.uploaded_by}</strong></div>}
+                {r.reviewed_by && <div>🔍 Reviewed by <strong>{r.reviewed_by}</strong></div>}
+                {r.resolved_by && <div>✅ Resolved by <strong>{r.resolved_by}</strong></div>}
               </div>
             )}
           </div>
