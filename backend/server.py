@@ -3,6 +3,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
+import asyncio
 import os
 import re
 import uuid
@@ -19,7 +20,11 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr
 
 mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
+client = AsyncIOMotorClient(
+    mongo_url,
+    serverSelectionTimeoutMS=15000,
+    connectTimeoutMS=15000,
+)
 db = client[os.environ['DB_NAME']]
 
 UPLOAD_DIR = ROOT_DIR / 'uploads'
@@ -2469,6 +2474,11 @@ async def import_schedule_excel(file: UploadFile = File(...),
 async def root():
     return {"message": "Boost Growth Portal API", "status": "ok"}
 
+
+@api.get("/health")
+async def health():
+    return {"status": "ok"}
+
 app.include_router(api)
 app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 logging.basicConfig(level=logging.INFO)
@@ -2580,137 +2590,148 @@ RESOURCES_SEED = [
 ]
 
 
-@app.on_event("startup")
-async def startup():
-    await db.users.create_index("email", unique=True)
-    await db.therapists.create_index("id", unique=True)
-    await db.schedule_cells.create_index([("week_start", 1), ("therapist_id", 1)])
-    await db.notifications.create_index("user_id")
-    await db.sessions.create_index([("client_id", 1), ("session_date", -1)])
+async def _run_startup():
+    try:
+        await db.users.create_index("email", unique=True)
+        await db.therapists.create_index("id", unique=True)
+        await db.schedule_cells.create_index([("week_start", 1), ("therapist_id", 1)])
+        await db.notifications.create_index("user_id")
+        await db.sessions.create_index([("client_id", 1), ("session_date", -1)])
 
-    admin_email = os.environ["ADMIN_EMAIL"].lower()
-    admin_password = os.environ["ADMIN_PASSWORD"]
-    admin_name = os.environ.get("ADMIN_NAME", "Admin")
-    existing = await db.users.find_one({"email": admin_email})
-    if not existing:
-        await db.users.insert_one({"id": str(uuid.uuid4()), "email": admin_email,
-                                   "password_hash": hash_password(admin_password),
-                                   "name": admin_name, "role": "admin", "created_at": now_iso()})
-        logger.info(f"Admin seeded: {admin_email}")
-    elif not verify_password(admin_password, existing["password_hash"]):
-        await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
+        admin_email = os.environ["ADMIN_EMAIL"].lower()
+        admin_password = os.environ["ADMIN_PASSWORD"]
+        admin_name = os.environ.get("ADMIN_NAME", "Admin")
+        existing = await db.users.find_one({"email": admin_email})
+        if not existing:
+            await db.users.insert_one({"id": str(uuid.uuid4()), "email": admin_email,
+                                       "password_hash": hash_password(admin_password),
+                                       "name": admin_name, "role": "admin", "created_at": now_iso()})
+            logger.info(f"Admin seeded: {admin_email}")
+        elif not verify_password(admin_password, existing["password_hash"]):
+            await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
 
-    # Seed therapists ONLY on first-time setup (count==0). NEVER overwrite existing data.
-    th_count = await db.therapists.count_documents({})
-    if th_count == 0:
-        for s in THERAPIST_SEED:
-            await db.therapists.insert_one({
-                "id": str(uuid.uuid4()), "name": s["name"], "color": s["color"],
-                "email": s.get("email"), "phone": None,
-                "pin_hash": hash_password("0000"),
-                "created_at": now_iso(),
-            })
-        logger.info(f"First-time seed: {len(THERAPIST_SEED)} therapists with PIN=0000")
-    else:
-        # Add any new seed therapists that don't exist yet (by name) — preserves existing UUIDs
-        existing_names = {t["name"] async for t in db.therapists.find({}, {"_id": 0, "name": 1})}
-        added = 0
-        for s in THERAPIST_SEED:
-            if s["name"] not in existing_names:
+        # Seed therapists ONLY on first-time setup (count==0). NEVER overwrite existing data.
+        th_count = await db.therapists.count_documents({})
+        if th_count == 0:
+            for s in THERAPIST_SEED:
                 await db.therapists.insert_one({
                     "id": str(uuid.uuid4()), "name": s["name"], "color": s["color"],
                     "email": s.get("email"), "phone": None,
                     "pin_hash": hash_password("0000"),
                     "created_at": now_iso(),
                 })
-                added += 1
-        if added:
-            logger.info(f"Added {added} new therapist(s) without disturbing existing data")
+            logger.info(f"First-time seed: {len(THERAPIST_SEED)} therapists with PIN=0000")
+        else:
+            # Add any new seed therapists that don't exist yet (by name) — preserves existing UUIDs
+            existing_names = {t["name"] async for t in db.therapists.find({}, {"_id": 0, "name": 1})}
+            added = 0
+            for s in THERAPIST_SEED:
+                if s["name"] not in existing_names:
+                    await db.therapists.insert_one({
+                        "id": str(uuid.uuid4()), "name": s["name"], "color": s["color"],
+                        "email": s.get("email"), "phone": None,
+                        "pin_hash": hash_password("0000"),
+                        "created_at": now_iso(),
+                    })
+                    added += 1
+            if added:
+                logger.info(f"Added {added} new therapist(s) without disturbing existing data")
 
-    # Load persisted email settings from db.settings into env
-    settings_doc = await db.settings.find_one({"key": "email"}, {"_id": 0})
-    if settings_doc:
-        if settings_doc.get("resend_api_key"):
-            os.environ["RESEND_API_KEY"] = settings_doc["resend_api_key"]
-        if settings_doc.get("from_email"):
-            os.environ["EMAIL_FROM"] = settings_doc["from_email"]
+        # Load persisted email settings from db.settings into env
+        settings_doc = await db.settings.find_one({"key": "email"}, {"_id": 0})
+        if settings_doc:
+            if settings_doc.get("resend_api_key"):
+                os.environ["RESEND_API_KEY"] = settings_doc["resend_api_key"]
+            if settings_doc.get("from_email"):
+                os.environ["EMAIL_FROM"] = settings_doc["from_email"]
 
-    # Seed clients ONLY on first-time setup (count==0). Preserves user edits.
-    cl_count = await db.clients.count_documents({})
-    if cl_count == 0:
-        therapists_map = {t["name"]: t["id"] async for t in db.therapists.find({}, {"_id": 0, "name": 1, "id": 1})}
-        for c in CLIENT_SEED:
-            await db.clients.insert_one({
-                "id": str(uuid.uuid4()),
-                "file_no": c["file_no"], "name": c["name"],
-                "package_hours": c["pkg"], "supervisor": c["sup"],
-                "main_therapist_id": therapists_map.get(c["main"]),
-                "co_therapist_ids": [therapists_map[n] for n in c["co"] if n in therapists_map],
-                "color": c["color"], "locations": c["locs"],
-                "parent_name": None, "parent_phone": None, "age": None,
-                "notes": None, "created_at": now_iso(),
-            })
-        await db.meta.update_one({"key": "client_seed_version"},
-                                 {"$set": {"version": 1, "updated_at": now_iso()}},
-                                 upsert=True)
-        logger.info(f"First-time seed: {len(CLIENT_SEED)} clients")
-
-    # Seed Intake (only if empty — admin may manage manually)
-    if await db.intake.count_documents({}) == 0:
-        for item in INTAKE_SEED:
-            await db.intake.insert_one({
-                "id": str(uuid.uuid4()),
-                "status": "new",
-                "priority": False,
-                "created_at": now_iso(),
-                **item,
-            })
-        logger.info(f"Seeded {len(INTAKE_SEED)} intake records from waiting list")
-
-    # Seed Directory (only if empty)
-    if await db.directory.count_documents({}) == 0:
-        for item in DIRECTORY_SEED:
-            await db.directory.insert_one({
-                "id": str(uuid.uuid4()), **item, "created_at": now_iso(),
-            })
-        logger.info(f"Seeded {len(DIRECTORY_SEED)} directory contacts")
-
-    # Seed Resources (only if empty)
-    if await db.resources.count_documents({}) == 0:
-        for item in RESOURCES_SEED:
-            await db.resources.insert_one({
-                "id": str(uuid.uuid4()),
-                "category": "drive",
-                **item,
-                "created_at": now_iso(),
-            })
-        logger.info(f"Seeded {len(RESOURCES_SEED)} resources")
-
-    # Seed Leaves (only if empty) — from leaves_seed.json (parsed Vacation 2026)
-    if await db.leaves.count_documents({}) == 0:
-        seed_path = ROOT_DIR / "leaves_seed.json"
-        if seed_path.exists():
-            import json
-            seed = json.loads(seed_path.read_text())
-            t_by_name = {t["name"]: t["id"] async for t in db.therapists.find({}, {"_id": 0, "name": 1, "id": 1})}
-            inserted = 0
-            for item in seed:
-                tid = t_by_name.get(item.get("therapist_name"))
-                if not tid:
-                    continue
-                await db.leaves.insert_one({
+        # Seed clients ONLY on first-time setup (count==0). Preserves user edits.
+        cl_count = await db.clients.count_documents({})
+        if cl_count == 0:
+            therapists_map = {t["name"]: t["id"] async for t in db.therapists.find({}, {"_id": 0, "name": 1, "id": 1})}
+            for c in CLIENT_SEED:
+                await db.clients.insert_one({
                     "id": str(uuid.uuid4()),
-                    "therapist_id": tid,
-                    "start_date": item.get("start_date") or "",
-                    "end_date": item.get("end_date") or "",
-                    "days": item.get("days") or 0,
-                    "leave_type": item.get("leave_type") or "Annual",
-                    "status": item.get("status") or "done",
-                    "notes": item.get("notes"),
+                    "file_no": c["file_no"], "name": c["name"],
+                    "package_hours": c["pkg"], "supervisor": c["sup"],
+                    "main_therapist_id": therapists_map.get(c["main"]),
+                    "co_therapist_ids": [therapists_map[n] for n in c["co"] if n in therapists_map],
+                    "color": c["color"], "locations": c["locs"],
+                    "parent_name": None, "parent_phone": None, "age": None,
+                    "notes": None, "created_at": now_iso(),
+                })
+            await db.meta.update_one({"key": "client_seed_version"},
+                                     {"$set": {"version": 1, "updated_at": now_iso()}},
+                                     upsert=True)
+            logger.info(f"First-time seed: {len(CLIENT_SEED)} clients")
+
+        # Seed Intake (only if empty — admin may manage manually)
+        if await db.intake.count_documents({}) == 0:
+            for item in INTAKE_SEED:
+                await db.intake.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "status": "new",
+                    "priority": False,
+                    "created_at": now_iso(),
+                    **item,
+                })
+            logger.info(f"Seeded {len(INTAKE_SEED)} intake records from waiting list")
+
+        # Seed Directory (only if empty)
+        if await db.directory.count_documents({}) == 0:
+            for item in DIRECTORY_SEED:
+                await db.directory.insert_one({
+                    "id": str(uuid.uuid4()), **item, "created_at": now_iso(),
+                })
+            logger.info(f"Seeded {len(DIRECTORY_SEED)} directory contacts")
+
+        # Seed Resources (only if empty)
+        if await db.resources.count_documents({}) == 0:
+            for item in RESOURCES_SEED:
+                await db.resources.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "category": "drive",
+                    **item,
                     "created_at": now_iso(),
                 })
-                inserted += 1
-            logger.info(f"Seeded {inserted} leaves from Vacation 2026")
+            logger.info(f"Seeded {len(RESOURCES_SEED)} resources")
+
+        # Seed Leaves (only if empty) — from leaves_seed.json (parsed Vacation 2026)
+        if await db.leaves.count_documents({}) == 0:
+            seed_path = ROOT_DIR / "leaves_seed.json"
+            if seed_path.exists():
+                import json
+                seed = json.loads(seed_path.read_text())
+                t_by_name = {t["name"]: t["id"] async for t in db.therapists.find({}, {"_id": 0, "name": 1, "id": 1})}
+                inserted = 0
+                for item in seed:
+                    tid = t_by_name.get(item.get("therapist_name"))
+                    if not tid:
+                        continue
+                    await db.leaves.insert_one({
+                        "id": str(uuid.uuid4()),
+                        "therapist_id": tid,
+                        "start_date": item.get("start_date") or "",
+                        "end_date": item.get("end_date") or "",
+                        "days": item.get("days") or 0,
+                        "leave_type": item.get("leave_type") or "Annual",
+                        "status": item.get("status") or "done",
+                        "notes": item.get("notes"),
+                        "created_at": now_iso(),
+                    })
+                    inserted += 1
+                logger.info(f"Seeded {inserted} leaves from Vacation 2026")
+    except Exception:
+        logger.exception(
+            "Background startup/seed failed — check MONGO_URL and MongoDB Atlas network access (0.0.0.0/0)"
+        )
+
+
+@app.on_event("startup")
+async def startup():
+    asyncio.create_task(_run_startup())
+    logger.info("API ready; database init running in background")
+
 
 @app.on_event("shutdown")
 async def shutdown():
