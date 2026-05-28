@@ -1,19 +1,4 @@
-# Railway Nixpacks — builds React + copies to backend/static, then runs FastAPI
-
-[phases.setup]
-nixPkgs = ["nodejs_18", "python311"]
-
-[phases.install]
-cmds = [
-  "pip install -r backend/requirements.txt",
-  "cd frontend && npm install --legacy-peer-deps",
-]
-
-[phases.build]
-cmds = [
-  "cd frontend && CI=true GENERATE_SOURCEMAP=false npm run build",
-  "rm -rf backend/static && mkdir -p backend/static && cp -r frontend/build/* backend/static/",
-]
+# Nixpacks start only — build runs via railway.json buildCommand (bash build.sh)
 
 [start]
-cmd = "cd backend && uvicorn server:app --host 0.0.0.0 --port $PORT"
+cmd = "cd backend && python3 -m uvicorn server:app --host 0.0.0.0 --port $PORT"

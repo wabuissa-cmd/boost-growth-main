@@ -1,12 +1,10 @@
-# Boost Growth — Railway (Nixpacks: more reliable than Docker on hobby plans)
-# Variables: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD
-# Do NOT set REACT_APP_BACKEND_URL
+# Force Nixpacks (NOT Docker). Root Directory in Railway Settings must be EMPTY.
 
 [build]
 builder = "NIXPACKS"
+buildCommand = "pip install -r backend/requirements.txt && (test -f backend/static/index.html || bash build.sh)"
 
 [deploy]
-startCommand = "cd backend && uvicorn server:app --host 0.0.0.0 --port $PORT"
+startCommand = "cd backend && python3 -m uvicorn server:app --host 0.0.0.0 --port $PORT"
 healthcheckPath = "/api/"
 healthcheckTimeout = 300
-restartPolicyType = "ON_FAILURE"
