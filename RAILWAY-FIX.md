@@ -1,40 +1,26 @@
-# إصلاح فوري — Railway
+# ⚠️ Railway — خطوة مهمة (سبب خطأ npx)
 
-## المشكلة
-Deploy يفشل → Railway يبقي النسخة القديمة (Emergent) → صفحة بيضاء.
+## الخطأ
+`The executable npx could not be found`
 
-## 3 خطوات فقط
+## السبب
+Railway يحاول تشغيل **npx serve** (إعداد قديم للـ Frontend فقط).
+الـ Build نجح ✅ لكن Start Command غلط ❌
 
-### 1) Settings → Root Directory
-**احذفي** `frontend` — خليها **فاضية**.
+## الحل (30 ثانية)
 
-### 2) Settings → Build
-- **Builder = Nixpacks** (مو Dockerfile)
-- إذا في خيار Dockerfile → **عطّليه**
+1. Railway → **boost-growth-main** → **Settings**
+2. ابحثي عن **Deploy** → **Start Command** (أو Custom Start Command)
+3. **احذفي** أي شيء فيه `npx` أو `serve`
+4. اتركيه **فارغ** أو الصقي:
+   ```
+   uvicorn server:app --host 0.0.0.0 --port $PORT
+   ```
+5. **Settings → Root Directory** = **فارغ** (مو frontend)
+6. **Deployments → Redeploy**
 
-### 3) Deployments → Redeploy
-
----
-
-## بعد النجاح
-افتحي: `https://boost-growth-main-production-7283.up.railway.app/api/`
-
-لازم JSON:
-```json
-{"message":"Boost Growth Portal API","status":"ok"}
-```
-
-**مو** HTML ولا Emergent badge.
-
----
+## بعد Success
+`https://boost-growth-main-production-7283.up.railway.app/api/` → JSON
 
 ## الدخول
-- Admin / Supervisor
-- Email = `ADMIN_EMAIL`
-- Password = `ADMIN_PASSWORD`
-
----
-
-## Variables
-- احذفي `REACT_APP_BACKEND_URL`
-- `MONGO_URL` بباسوورد Atlas صحيح
+admin@boostgrowthsa.com / Admin123
