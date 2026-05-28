@@ -17,7 +17,6 @@ from fastapi.responses import FileResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr
-from fastapi.middleware.cors import CORSMiddleware
 
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -447,7 +446,7 @@ MASTER_THERAPISTS = [
     # (key,        first_name_token,  display_email,                    role,        leave_balance, join_date)
     ("msMaha",     "Maha",     "msalthunayan@boostgrowthsa.com",  "therapist", None, None),
     ("msFahda",    "Fahda",    "falghadeeb@boostgrowthsa.com",    "therapist", 19,   None),
-    ("msRazan",    "Razan",    "ralshatri@boostgrowthsa.com",     "therapist", 21,   None),
+    ("msRazan",    "Razan",    "ralshatri@boostgrowthsa.com",     "therapist", 17,   None),
     ("msManal",    "Manal",    "maldosery@boostgrowthsa.com",     "therapist", 7,    None),
     ("msAsma",     "Asma",     "asma@boostgrowthsa.com",          "therapist", None, None),
     ("msHajer",    "Hajer",    "halfulaij@boostgrowthsa.com",     "therapist", 11,   None),
@@ -458,7 +457,7 @@ MASTER_THERAPISTS = [
     ("msBodoor",   "Bodoor",   "baalkhlifah@boostgrowthsa.com",   "therapist", 28,   "2025-10-21"),
     ("msFatimah",  "Fatimah",  "falkhater@boostgrowthsa.com",     "therapist", 26,   "2025-11-09"),
     ("msShrooq",   "Shrooq",   "salamri@boostgrowthsa.com",       "therapist", 18,   "2026-02-08"),
-    ("msAbeer",    "Abeer",    "aalshreef@boostgrowthsa.com",     "therapist", None, None),
+    ("msAbeer",    "Abeer",    "aalshreef@boostgrowthsa.com",     "therapist", 4,    None),
     ("msNaja",     "Naja",     "naja@boostgrowthsa.com",          "therapist", None, None),
 ]
 
@@ -584,13 +583,59 @@ async def seed_master_data(_=Depends(admin_only)):
     return results
 
 # ------------------- Schedule -------------------
+@api.get("/schedule/week-status")
+async def schedule_week_status(week_start: str, user=Depends(get_current_user)):
+    doc = await db.schedule_weeks.find_one({"week_start": week_start}, {"_id": 0})
+    status = (doc or {}).get("status") or "published"
+    if user.get("role") != "admin" and status == "draft":
+        status = "published"
+    return {"week_start": week_start, "status": status, "published_at": (doc or {}).get("published_at")}
+
+@api.post("/schedule/publish")
+async def publish_schedule_week(body: dict, admin=Depends(admin_only)):
+    week_start = (body.get("week_start") or "").strip()
+    if not week_start:
+        raise HTTPException(status_code=400, detail="week_start required")
+    await db.schedule_weeks.update_one(
+        {"week_start": week_start},
+        {"$set": {"status": "published", "published_at": now_iso(), "published_by": admin.get("name") or "Admin"}},
+        upsert=True,
+    )
+    therapists = await db.therapists.find({"email": {"$exists": True, "$ne": None}}, {"_id": 0, "email": 1, "name": 1}).to_list(200)
+    sent = 0
+    for t in therapists:
+        if t.get("email"):
+            r = await _send_email_stub(
+                t["email"],
+                f"[Boost Growth] Schedule published — week of {week_start}",
+                f"Hello {t.get('name', '')},\n\nThe schedule for week starting {week_start} has been published. Please log in to view it.\n\n— Boost Growth Portal",
+            )
+            if r.get("status") == "sent":
+                sent += 1
+    return {"ok": True, "week_start": week_start, "emails_sent": sent}
+
+@api.post("/schedule/set-draft")
+async def set_schedule_draft(body: dict, _=Depends(admin_only)):
+    week_start = (body.get("week_start") or "").strip()
+    if not week_start:
+        raise HTTPException(status_code=400, detail="week_start required")
+    await db.schedule_weeks.update_one(
+        {"week_start": week_start},
+        {"$set": {"status": "draft", "updated_at": now_iso()}},
+        upsert=True,
+    )
+    return {"ok": True, "week_start": week_start, "status": "draft"}
+
 @api.get("/schedule")
 async def list_schedule(week_start: Optional[str] = None, user=Depends(get_current_user)):
     q: dict = {}
     if week_start:
         q["week_start"] = week_start
+        meta = await db.schedule_weeks.find_one({"week_start": week_start}, {"_id": 0})
+        if meta and meta.get("status") == "draft" and user.get("role") != "admin":
+            return []
     cells = await db.schedule_cells.find(q, {"_id": 0}).to_list(5000)
-    return cells  # everyone sees full schedule (master view) per user request
+    return cells
 
 async def _notify(user_id: str, ntype: str, title: str, message: str):
     await db.notifications.insert_one({
@@ -704,18 +749,79 @@ class ProgressReportIn(BaseModel):
     report_date: Optional[str] = None    # ISO date when the report was made
 
 class ProgressStatusIn(BaseModel):
-     class ProgressStepsIn(BaseModel):
-         uploaded: Optional[bool] = None
-         uploaded_by: Optional[str] = None
-         uploaded_at: Optional[str] = None
-         reviewed: Optional[bool] = None
-         reviewed_by: Optional[str] = None
-         reviewed_at: Optional[str] = None
-         resolved: Optional[bool] = None
-         resolved_by: Optional[str] = None
-         resolved_at: Optional[str] = None
-
     status: str
+
+class ProgressStepsIn(BaseModel):
+    uploaded: Optional[bool] = None
+    uploaded_by: Optional[str] = None
+    uploaded_at: Optional[str] = None
+    reviewed: Optional[bool] = None
+    reviewed_by: Optional[str] = None
+    reviewed_at: Optional[str] = None
+    resolved: Optional[bool] = None
+    resolved_by: Optional[str] = None
+    resolved_at: Optional[str] = None
+
+SUPERVISOR_CLIENT_FILES = {
+    "msMaha": ["035", "037", "038", "040", "041", "042", "047", "052", "054", "060", "063", "065", "070"],
+    "msFahda": ["009", "011", "018", "023", "024", "027", "030", "034", "061", "062", "068", "072", "079"],
+}
+
+async def _client_file_no(client_id: str) -> Optional[str]:
+    c = await db.clients.find_one({"id": client_id}, {"_id": 0, "file_no": 1})
+    if not c or not c.get("file_no"):
+        return None
+    return str(c["file_no"]).zfill(3)
+
+def _is_supervisor_for_file(user: dict, file_no: str) -> bool:
+    key = user.get("key") or ""
+    fn = str(file_no or "").zfill(3)
+    return fn in (SUPERVISOR_CLIENT_FILES.get(key) or [])
+
+async def _can_edit_progress_step(user: dict, report_id: str, step: str) -> bool:
+    if user.get("role") == "admin":
+        return True
+    doc = await db.progress_reports.find_one({"id": report_id}, {"_id": 0, "client_id": 1})
+    if not doc:
+        return False
+    if step == "uploaded":
+        if user.get("role") != "therapist":
+            return False
+        client = await db.clients.find_one(
+            {"id": doc["client_id"]},
+            {"_id": 0, "main_therapist_id": 1, "co_therapist_ids": 1},
+        )
+        if not client:
+            return False
+        uid = user["id"]
+        return client.get("main_therapist_id") == uid or uid in (client.get("co_therapist_ids") or [])
+    if step in ("reviewed", "resolved"):
+        fn = await _client_file_no(doc["client_id"])
+        return bool(fn and _is_supervisor_for_file(user, fn))
+    return False
+
+@api.get("/progress-reports/summary")
+async def get_progress_reports_summary(user=Depends(get_current_user)):
+    pipeline = [
+        {"$sort": {"created_at": -1}},
+        {"$group": {
+            "_id": "$client_id",
+            "uploaded": {"$first": "$uploaded"},
+            "reviewed": {"$first": "$reviewed"},
+            "resolved": {"$first": "$resolved"},
+            "count": {"$sum": 1},
+        }},
+    ]
+    results = await db.progress_reports.aggregate(pipeline).to_list(500)
+    return {
+        r["_id"]: {
+            "uploaded": bool(r.get("uploaded")),
+            "reviewed": bool(r.get("reviewed")),
+            "resolved": bool(r.get("resolved")),
+            "count": r.get("count", 0),
+        }
+        for r in results
+    }
 
 @api.get("/clients/{cid}/progress-reports")
 async def list_progress_reports(cid: str, user=Depends(get_current_user)):
@@ -730,19 +836,25 @@ async def list_progress_reports(cid: str, user=Depends(get_current_user)):
     return await db.progress_reports.find({"client_id": cid}, {"_id": 0}).sort("created_at", -1).to_list(200)
 
 @api.post("/clients/{cid}/progress-reports")
-async def create_progress_report(cid: str, payload: ProgressReportIn, user=Depends(admin_only)):
+async def create_progress_report(cid: str, payload: ProgressReportIn, user=Depends(get_current_user)):
     rid = str(uuid.uuid4())
-    status = (payload.status or "uploaded").lower()
-    if status not in PROGRESS_STATUSES:
-        raise HTTPException(status_code=400, detail=f"Status must be one of {sorted(PROGRESS_STATUSES)}")
     doc = {
-        "id": rid, "client_id": cid,
+        "id": rid,
+        "client_id": cid,
         "title": payload.title.strip(),
         "url": (payload.url or "").strip() or None,
-        "status": status,
         "notes": payload.notes,
         "report_date": payload.report_date,
-        "created_by": user["id"],
+        "uploaded": False,
+        "uploaded_by": None,
+        "uploaded_at": None,
+        "reviewed": False,
+        "reviewed_by": None,
+        "reviewed_at": None,
+        "resolved": False,
+        "resolved_by": None,
+        "resolved_at": None,
+        "created_by": user.get("name") or user.get("email"),
         "created_at": now_iso(),
         "updated_at": now_iso(),
     }
@@ -773,25 +885,47 @@ async def set_progress_report_status(rid: str, payload: ProgressStatusIn, _=Depe
         raise HTTPException(status_code=400, detail=f"Status must be one of {sorted(PROGRESS_STATUSES)}")
     await db.progress_reports.update_one({"id": rid}, {"$set": {"status": status, "updated_at": now_iso()}})
     return await db.progress_reports.find_one({"id": rid}, {"_id": 0})
- @api.put("/progress-reports/{rid}/steps")
-     async def update_progress_report_steps(rid: str, payload: ProgressStepsIn, user=Depends(get_current_user)):
-         update = {}
-         if payload.uploaded is not None:
-             update["uploaded"] = payload.uploaded
-             if payload.uploaded_by: update["uploaded_by"] = payload.uploaded_by
-             if payload.uploaded_at: update["uploaded_at"] = payload.uploaded_at
-         if payload.reviewed is not None:
-             update["reviewed"] = payload.reviewed
-             if payload.reviewed_by: update["reviewed_by"] = payload.reviewed_by
-             if payload.reviewed_at: update["reviewed_at"] = payload.reviewed_at
-         if payload.resolved is not None:
-             update["resolved"] = payload.resolved
-             if payload.resolved_by: update["resolved_by"] = payload.resolved_by
-             if payload.resolved_at: update["resolved_at"] = payload.resolved_at
-         if update:
-             update["updated_at"] = now_iso()
-             await db.progress_reports.update_one({"id": rid}, {"$set": update})
-         return await db.progress_reports.find_one({"id": rid}, {"_id": 0})
+
+@api.put("/progress-reports/{rid}/steps")
+async def update_progress_report_steps(rid: str, payload: ProgressStepsIn, user=Depends(get_current_user)):
+    report = await db.progress_reports.find_one({"id": rid}, {"_id": 0})
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    update = {}
+    for field in (
+        "uploaded", "uploaded_by", "uploaded_at",
+        "reviewed", "reviewed_by", "reviewed_at",
+        "resolved", "resolved_by", "resolved_at",
+    ):
+        val = getattr(payload, field, None)
+        if val is not None:
+            update[field] = val
+    for step in ("uploaded", "reviewed", "resolved"):
+        if step in update and not await _can_edit_progress_step(user, rid, step):
+            raise HTTPException(status_code=403, detail=f"Not allowed to update '{step}'")
+    if update:
+        update["updated_at"] = now_iso()
+        await db.progress_reports.update_one({"id": rid}, {"$set": update})
+        if any(k in update for k in ("uploaded", "reviewed", "resolved")):
+            client = await db.clients.find_one(
+                {"id": report["client_id"]},
+                {"_id": 0, "name": 1, "main_therapist_id": 1},
+            )
+            if client and client.get("main_therapist_id"):
+                therapist = await db.therapists.find_one(
+                    {"id": client["main_therapist_id"]},
+                    {"_id": 0, "email": 1, "name": 1},
+                )
+                if therapist and therapist.get("email"):
+                    steps_changed = [k for k in ("uploaded", "reviewed", "resolved") if k in update]
+                    await _send_email_stub(
+                        therapist["email"],
+                        f"[Boost Growth] Progress report updated — {client.get('name', '')}",
+                        f"Hello {therapist.get('name', '')},\n\nProgress report steps updated: {', '.join(steps_changed)}.\n\n— Boost Growth Portal",
+                    )
+    doc = await db.progress_reports.find_one({"id": rid}, {"_id": 0})
+    return doc or {}
+
 @api.delete("/progress-reports/{rid}")
 async def delete_progress_report(rid: str, _=Depends(admin_only)):
     await db.progress_reports.delete_one({"id": rid})
@@ -1021,9 +1155,10 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
     ).to_list(500)}
     pkg_default = client.get("package_hours") or 24
     existing_sessions = await db.sessions.find(
-        {"client_id": cid}, {"_id": 0, "session_date": 1, "start_time": 1}
+        {"client_id": cid}, {"_id": 0, "session_date": 1, "start_time": 1, "sync_key": 1}
     ).to_list(5000)
     existing_key = {(s.get("session_date"), s.get("start_time") or "") for s in existing_sessions}
+    existing_sync = {s["sync_key"] for s in existing_sessions if s.get("sync_key")}
 
     invoices_added, invoices_updated, sessions_added, sessions_skipped = [], [], 0, 0
 
@@ -1092,7 +1227,7 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
         # Earliest session_date for this invoice -> use as start_date
         earliest = None
         # Iterate session rows after the header
-        for row in ws.iter_rows(min_row=header_row_idx + 1, values_only=True):
+        for row_idx, row in enumerate(ws.iter_rows(min_row=header_row_idx + 1, values_only=True), start=header_row_idx + 1):
             if row is None or all((c is None or (isinstance(c, str) and not c.strip())) for c in row):
                 continue
             raw_date = row[col_map["date"]] if col_map["date"] < len(row) else None
@@ -1131,8 +1266,9 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
             ther_ids = _resolve_therapist_ids(ther_cell)
             note_val = str(row[col_map["note"]]).strip() if "note" in col_map and col_map["note"] < len(row) and row[col_map["note"]] else ""
 
+            sync_key = f"{clean}|{date_iso}|{row_idx}"
             key = (date_iso, start_t)
-            if key in existing_key:
+            if sync_key in existing_sync or key in existing_key:
                 sessions_skipped += 1
                 continue
             sess_doc = {
@@ -1147,10 +1283,12 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
                 "note": note_val or None,
                 "source": origin,
                 "source_invoice": clean,
+                "sync_key": sync_key,
                 "created_at": now_iso(),
             }
             await db.sessions.insert_one(sess_doc)
             existing_key.add(key)
+            existing_sync.add(sync_key)
             sessions_added += 1
             if earliest is None or date_iso < earliest:
                 earliest = date_iso
@@ -1762,16 +1900,39 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, admin=Depend
     leave = await db.leaves.find_one({"id": lid})
     if not leave:
         raise HTTPException(status_code=404, detail="Not found")
+    prev_status = leave.get("status")
     await db.leaves.update_one({"id": lid}, {"$set": {
         "status": payload.status, "admin_note": payload.admin_note,
         "decided_by": admin.get("name") or "Admin", "decided_at": now_iso(),
     }})
-    # Notify therapist
+    # Deduct balance when newly approved (annual leave types only)
+    if payload.status == "approved" and prev_status != "approved" and leave.get("therapist_id"):
+        if (leave.get("leave_type") or "").lower() not in ("unpaid", "absence"):
+            t = await db.therapists.find_one({"id": leave["therapist_id"]}, {"_id": 0, "leave_balance": 1})
+            if t is not None and t.get("leave_balance") is not None:
+                days = float(leave.get("days") or 0)
+                new_bal = max(0.0, float(t["leave_balance"]) - days)
+                await db.therapists.update_one(
+                    {"id": leave["therapist_id"]},
+                    {"$set": {"leave_balance": new_bal}},
+                )
+    # Notify therapist (in-app + email)
     if leave.get("therapist_id"):
         msg_map = {"approved": "Approved", "rejected": "Rejected", "done": "Completed", "cancelled": "Cancelled", "pending": "Pending"}
-        await _notify(leave["therapist_id"], "leave",
-                      f"Leave {msg_map.get(payload.status, payload.status)}",
-                      f"Your {leave.get('leave_type')} leave from {leave.get('start_date')} to {leave.get('end_date')} ({leave.get('days')}d) is now {msg_map.get(payload.status, payload.status)}.")
+        label = msg_map.get(payload.status, payload.status)
+        msg = (
+            f"Your {leave.get('leave_type')} leave from {leave.get('start_date')} to "
+            f"{leave.get('end_date')} ({leave.get('days')}d) is now {label}."
+        )
+        await _notify(leave["therapist_id"], "leave", f"Leave {label}", msg)
+        if payload.status in ("approved", "rejected"):
+            therapist = await db.therapists.find_one({"id": leave["therapist_id"]}, {"_id": 0, "email": 1, "name": 1})
+            if therapist and therapist.get("email"):
+                await _send_email_stub(
+                    therapist["email"],
+                    f"[Boost Growth] Leave request {label}",
+                    f"Hello {therapist.get('name', '')},\n\n{msg}\n\n— Boost Growth Portal",
+                )
     return await db.leaves.find_one({"id": lid}, {"_id": 0})
 
 @api.delete("/leaves/{lid}")
@@ -1874,6 +2035,34 @@ async def update_intake(iid: str, payload: IntakeIn, _=Depends(admin_only)):
 async def delete_intake(iid: str, _=Depends(admin_only)):
     await db.intake.delete_one({"id": iid})
     return {"ok": True}
+
+@api.post("/admin/seed-intake-master")
+async def seed_intake_master(_=Depends(admin_only)):
+    """Upsert INTAKE_SEED records by child_name + intake_type. Does not delete existing rows."""
+    created, updated = 0, 0
+    for item in INTAKE_SEED:
+        name = item.get("child_name", "").strip()
+        itype = item.get("intake_type", "pre")
+        if not name:
+            continue
+        match = await db.intake.find_one(
+            {"child_name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}, "intake_type": itype},
+            {"_id": 0, "id": 1},
+        )
+        doc = {**item, "child_name": name, "intake_type": itype}
+        if match:
+            await db.intake.update_one({"id": match["id"]}, {"$set": doc})
+            updated += 1
+        else:
+            await db.intake.insert_one({
+                "id": str(uuid.uuid4()),
+                "status": item.get("status") or "new",
+                "priority": bool(item.get("priority")),
+                "created_at": now_iso(),
+                **doc,
+            })
+            created += 1
+    return {"created": created, "updated": updated, "total_seed": len(INTAKE_SEED)}
 
 # ------------------- Reports -------------------
 @api.get("/reports/dashboard")
@@ -2281,16 +2470,7 @@ async def root():
     return {"message": "Boost Growth Portal API", "status": "ok"}
 
 app.include_router(api)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://boost-growth-main-production-7283.up.railway.app",
-        "https://boost-growth-main-production.up.railway.app"
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -2353,10 +2533,14 @@ INTAKE_SEED = [
     {"intake_type":"pre","child_name":"Ebrahim Alnami","service":"SS","phone":"564443542","district":"Alsulimania","age":"2022","time_pref":"Morning","diagnosis":"Premature - 29 weeks"},
     {"intake_type":"pre","child_name":"Naif Alblawi","service":"HS","phone":"535544260","district":"Qurtubah","age":"2020","time_pref":"Evening","diagnosis":"ADHD"},
     {"intake_type":"pre","child_name":"Saad Alajaji","service":"HS","phone":"555955342","district":"AL-Suwaidi","age":"2021","time_pref":"Evening","diagnosis":"NA"},
-    {"intake_type":"pre","child_name":"Reema Alotaibi","service":"HS","phone":"503553339","district":"AlArid","time_pref":"Evening","diagnosis":"Speech delay"},
+    {"intake_type":"pre","child_name":"Reema Alotaibi","service":"HS","phone":"503553339","district":"AlArid","time_pref":"Evening","diagnosis":"Speech delay","priority": True},
+    {"intake_type":"pre","child_name":"Feras AlFouzan","service":"SS","district":"AlFalah","age":"2019","diagnosis":"ASD nonverbal"},
+    {"intake_type":"pre","child_name":"Saud Alshrafi","service":"SS","district":"Alyasmeen","age":"2020","diagnosis":"ADHD"},
+    {"intake_type":"pre","child_name":"Khalid Abunayyan","service":"HS","district":"Diriyah","age":"2021","diagnosis":"ADD"},
+    {"intake_type":"pre","child_name":"Fahad Abdullatif","service":"HS","district":"Sidrah","age":"2020","diagnosis":"ADHD"},
+    {"intake_type":"pre","child_name":"Mela Mohammed","service":"SS","district":"Tuwiq","age":"2022","diagnosis":"ADHD"},
+    {"intake_type":"pre","child_name":"Mansour Tonkar","service":"SS","district":"Al-Moroj","age":"2019","diagnosis":"ASD"},
     {"intake_type":"pre","child_name":"Waseem Aljohani","service":"HS / SS","phone":"594744884","district":"Alnarjis","age":"2019","diagnosis":"ADHD","notes":"DR.Turki"},
-    {"intake_type":"pre","child_name":"Faisal Alzghaibi","service":"HS","phone":"966507479800","district":"Alyasmeen","diagnosis":"NA","notes":"Azraq"},
-    {"intake_type":"pre","child_name":"Sultan Abalkhail","service":"HS","phone":"558811313","district":"Al-Mursalat","age":"2019","diagnosis":"NA"},
     {"intake_type":"pre","child_name":"Sultan Bandar","service":"HS","phone":"555579702","district":"Alyasmeen","age":"2019","time_pref":"Any","diagnosis":"Speech delay - ADHD"},
     # Post-Intake
     {"intake_type":"post","child_name":"Mohammed alnoweser","service":"HS","district":"King Fahad","age":"3 year","language":"English"},
@@ -2365,13 +2549,16 @@ INTAKE_SEED = [
     {"intake_type":"post","child_name":"Nawaf Alshweeb","service":"HS","district":"Um Alhamam","age":"5.5","language":"ASD"},
     {"intake_type":"post","child_name":"Abdulkareem Kaki","service":"HS","language":"Arabic"},
     {"intake_type":"post","child_name":"Abdulaziz Alzahrani","service":"HS","phone":"555341092","district":"Almalqa","age":"4"},
-    {"intake_type":"post","child_name":"Yazeed Bu sheet","service":"SS","phone":"555009662","district":"Hitter","diagnosis":"Autism"},
-    {"intake_type":"post","child_name":"Omar ALImazrou","service":"HS","phone":"534888855","district":"AlArid","age":"2023","diagnosis":"Autism"},
+    {"intake_type":"post","child_name":"Yazeed Bu sheet","service":"SS","phone":"555009662","district":"Hitten","diagnosis":"Autism"},
+    {"intake_type":"post","child_name":"Misk Alsadoon","service":"HS","district":"Qurtubah"},
+    {"intake_type":"post","child_name":"Omar ALImazrou","service":"HS","phone":"534888855","district":"AlArid","age":"2023","diagnosis":"Autism","priority": True},
     {"intake_type":"post","child_name":"Fahad Suliman","service":"HS","phone":"966500566235","district":"Al-Sahafa","age":"2019","diagnosis":"ADD"},
-    {"intake_type":"post","child_name":"Naif Alwhibi","service":"SS / HS","phone":"506128118","district":"Ar Rabi","age":"2020","diagnosis":"ASD"},
-    {"intake_type":"post","child_name":"Ahmad Alshalfan","service":"SS / HS","phone":"505287407","district":"Almalqa","age":"2020","diagnosis":"ADHD and GDD"},
-    {"intake_type":"post","child_name":"Abdulelah Almuhana","service":"HS","phone":"966 56 554 4999","age":"2021"},
-    {"intake_type":"post","child_name":"Leena Alshahrani","service":"HS","phone":"530511175"},
+    {"intake_type":"post","child_name":"Naif Alwhibi","service":"SS / HS","phone":"506128118","district":"Ar Rabi","age":"2020","diagnosis":"ASD","priority": True},
+    {"intake_type":"post","child_name":"Ahmad Alshalfan","service":"SS / HS","phone":"505287407","district":"Almalqa","age":"2020","diagnosis":"ADHD and GDD","priority": True},
+    {"intake_type":"post","child_name":"Abdulelah Almuhana","service":"HS","phone":"966565544999","district":"Al-Taawun","age":"2021","priority": True},
+    {"intake_type":"post","child_name":"Faisal Alzghaibi","service":"HS","district":"Alyasmeen","age":"1445"},
+    {"intake_type":"post","child_name":"Sultan Abalkhail","service":"HS/SS","district":"Al-Mursalat","age":"2019"},
+    {"intake_type":"post","child_name":"Leena Alshahrani","service":"HS","phone":"530511175","district":"Alnarjis"},
 ]
 
 # ------------------- Directory Seed (Internal Team) -------------------
@@ -2528,3 +2715,22 @@ async def startup():
 @app.on_event("shutdown")
 async def shutdown():
     client.close()
+
+
+# ------------------- Frontend (React build) — same host as /api -------------------
+FRONTEND_DIR = ROOT_DIR / "static"
+
+if FRONTEND_DIR.is_dir():
+    @app.get("/{spa_path:path}")
+    async def serve_frontend(spa_path: str = ""):
+        """Serve CRA build; unknown paths → index.html for client-side routing."""
+        if spa_path.startswith("api") or spa_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
+        if spa_path:
+            asset = FRONTEND_DIR / spa_path
+            if asset.is_file():
+                return FileResponse(asset)
+        index = FRONTEND_DIR / "index.html"
+        if index.is_file():
+            return FileResponse(index)
+        raise HTTPException(status_code=404, detail="Frontend not built — run build or deploy with Dockerfile")

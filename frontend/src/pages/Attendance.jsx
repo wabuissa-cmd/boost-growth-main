@@ -7,6 +7,18 @@ import {
   Receipt, ArrowsCounterClockwise, CalendarBlank, CloudArrowDown
 } from "@phosphor-icons/react";
 
+const SUPERVISOR_CLIENTS = {
+  msMaha: ["035", "037", "038", "040", "041", "042", "047", "052", "054", "060", "063", "065", "070"],
+  msFahda: ["009", "011", "018", "023", "024", "027", "030", "034", "061", "062", "068", "072", "079"],
+};
+
+function isSupervisorForClient(user, fileNo) {
+  if (!user || user.role === "admin") return user?.role === "admin";
+  const key = user.key || "";
+  const fn = String(fileNo || "").padStart(3, "0");
+  return (SUPERVISOR_CLIENTS[key] || []).includes(fn);
+}
+
 const STATUS_OPTS = [
   { id: "Completed", label: "Completed", icon: <CheckCircle size={28} weight="fill"/>, color: "#3D4F35", bg: "#E5EBE1" },
   { id: "No Service", label: "No Service", icon: <Prohibit size={28} weight="fill"/>, color: "#5C6853", bg: "#F0EDE9" },
@@ -220,7 +232,7 @@ export default function Attendance() {
       {/* History / Invoice */}
       {historyFor && (
         <HistoryModal client={historyFor} sessions={sessions.filter(s => s.client_id === historyFor.id)}
-                      therapists={therapists} isAdmin={isAdmin} currentUserId={user?.id}
+                      therapists={therapists} isAdmin={isAdmin} user={user} currentUserId={user?.id}
                       onClose={() => setHistoryFor(null)}
                       onEdit={(s) => { setEditingSess(s); }}
                       onDeleted={() => load()}
@@ -345,7 +357,7 @@ function LogSessionForm({ client, therapists, currentUser, onClose, onSaved, ses
   );
 }
 
-function HistoryModal({ client, sessions, therapists, isAdmin, currentUserId, onClose, onEdit, onDeleted, onClientUpdated }) {
+function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUserId, onClose, onEdit, onDeleted, onClientUpdated }) {
   const [closed, setClosed] = useState(false);
   const [closureDate, setClosureDate] = useState("");
   // Invoice + package management state
@@ -768,7 +780,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, currentUserId, on
                                   s.status === "Cancelled" ? "#FAF0D1" :
                                   s.status === "No Show" ? "#F8EBE7" : "#F0EDE9";
                     const tNames = (s.therapist_ids || []).map(id => findT(id)?.name?.replace("Ms. ", "")).filter(Boolean).join(" - ");
-                    const canEdit = isAdmin || (s.therapist_ids || []).includes(currentUserId);
+                    const canEdit = isAdmin || isSupervisorForClient(user, client.file_no) || (s.therapist_ids || []).includes(currentUserId);
                     return (
                       <tr key={s.id} className="border-t border-[#E8E4DE]">
                         {i === 0 && <td className="p-2 font-bold align-top" rowSpan={list.length} style={{background: "#FAFAF7", color: "#2C3625"}}>{day}</td>}

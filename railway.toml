@@ -1,0 +1,10 @@
+# Boost Growth — ONE Railway service (Dockerfile builds API + React together)
+# Variables in Railway dashboard: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/api/"
+healthcheckTimeout = 120

@@ -29,6 +29,8 @@ next-env.d.ts
 /build
 dist/
 dist
+backend/static/*
+!backend/static/.gitkeep
 
 # Environment files (comprehensive coverage)
 

@@ -61,6 +61,7 @@ export default function Schedule() {
   const [dupTarget, setDupTarget] = useState(null);
   const [dupClear, setDupClear] = useState(false);
   const [clipboard, setClipboard] = useState(null);  // copied cell content
+  const [weekStatus, setWeekStatus] = useState("published");
 
   const weekStartISO = toISODate(weekStart);
 
@@ -80,8 +81,25 @@ export default function Schedule() {
       api.get("/leaves", { params: { year: yr } }).catch(() => ({ data: [] })),
     ]);
     setCells(c.data); setTherapists(t.data); setClients(cl.data); setLeaves(lv.data || []);
+    try {
+      const st = await api.get("/schedule/week-status", { params: { week_start: weekStartISO } });
+      setWeekStatus(st.data?.status || "published");
+    } catch (_) { setWeekStatus("published"); }
   }, [weekStartISO, weekStart]);
   useEffect(() => { load(); }, [load]);
+
+  const setDraft = async () => {
+    await api.post("/schedule/set-draft", { week_start: weekStartISO });
+    setWeekStatus("draft");
+    alert("This week is now in Draft mode (hidden from therapists until published).");
+  };
+  const publishWeek = async () => {
+    if (!window.confirm(`Publish schedule for ${formatDateRange(weekStart)}? All therapists will be emailed.`)) return;
+    const r = await api.post("/schedule/publish", { week_start: weekStartISO });
+    setWeekStatus("published");
+    alert(`Published. Emails sent: ${r.data?.emails_sent ?? 0}`);
+    load();
+  };
 
   useEffect(() => {
     const close = () => setCtxMenu(null);
@@ -412,7 +430,18 @@ export default function Schedule() {
           <div className="w-px h-6 bg-[#E8E4DE] mx-1" />
           <button onClick={() => window.print()} className="btn btn-ghost p-2"><Printer size={16} /></button>
         </div>
-        {isAdmin && <button data-testid="duplicate-week-btn" onClick={() => { setDupTarget(toISODate(addDays(weekStart, 7))); setShowDup(true); }} className="btn btn-gold"><CopySimple size={16} /> Duplicate Week →</button>}
+        {isAdmin && (
+          <>
+            {weekStatus === "draft" ? (
+              <span className="pill text-xs px-2 py-1" style={{ background: "#FAF0D1", color: "#6B5218" }}>Draft — not visible to therapists</span>
+            ) : (
+              <span className="pill text-xs px-2 py-1" style={{ background: "#E5EBE1", color: "#3D4F35" }}>Published</span>
+            )}
+            <button type="button" onClick={setDraft} className="btn btn-outline text-xs">Save as Draft</button>
+            <button type="button" onClick={publishWeek} className="btn btn-primary text-xs">Publish Week</button>
+            <button data-testid="duplicate-week-btn" onClick={() => { setDupTarget(toISODate(addDays(weekStart, 7))); setShowDup(true); }} className="btn btn-gold"><CopySimple size={16} /> Duplicate Week →</button>
+          </>
+        )}
       </div>
 
       <div className="card p-3 mb-4 flex items-center flex-wrap gap-3 text-xs">

@@ -39,8 +39,8 @@ export default function Shell() {
   // Requests dropdown — Requests / Leaves / Therapist Leaves (admin)
   const requestsItems = [];
   if (isAdmin) requestsItems.push({ to: "/requests", label: "Requests", testid: "nav-requests" });
-  requestsItems.push({ to: "/leaves", label: isAdmin ? "Leaves" : "My Leaves", testid: "nav-leaves" });
-  if (isAdmin) requestsItems.push({ to: "/therapist-leaves", label: "Therapist Leaves", testid: "nav-therapist-leaves" });
+  requestsItems.push({ to: "/leaves", label: isAdmin ? "Leave Balances" : "My Leaves", testid: "nav-leaves" });
+  if (isAdmin) requestsItems.push({ to: "/therapist-leaves", label: "Leave History", testid: "nav-therapist-leaves" });
 
   // Admin tools (Reports moved here since it doesn't fit Requests)
   const adminTools = isAdmin ? [

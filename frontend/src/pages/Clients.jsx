@@ -12,12 +12,17 @@ export default function Clients() {
   const [search, setSearch] = useState("");
   const [previewClient, setPreviewClient] = useState(null);
   const [detailsClient, setDetailsClient] = useState(null);
+  const [prSummaries, setPrSummaries] = useState({});
 
   const load = async () => {
     const [c, t] = await Promise.all([api.get("/clients"), api.get("/therapists").catch(() => ({data:[]}))]);
     setItems(c.data); setTherapists(t.data);
   };
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    api.get("/progress-reports/summary").then(r => setPrSummaries(r.data || {})).catch(() => {});
+  }, [items]);
 
   const save = async () => {
     if (edit.id) await api.put(`/clients/${edit.id}`, edit);
@@ -106,11 +111,7 @@ export default function Clients() {
                   href={c.drive_url || null}
                   preview={true}
                   onPreview={() => setPreviewClient({ client: c, kind: "case" })}/>
-                <ClientActionBtn icon="📊" label="Progress Report" testId={`btn-prog-${c.id}`}
-                  available={!!c.drive_url}
-                  href={c.drive_url || null}
-                  preview={true}
-                  onPreview={() => setPreviewClient({ client: c, kind: "progress" })}/>
+                <ProgressTracker clientId={c.id} summary={prSummaries[c.id]} onOpen={() => setDetailsClient({ ...c, _openTab: "attachments" })}/>
                 <ClientActionBtn icon="👤" label="Details" testId={`btn-details-${c.id}`}
                   available={true}
                   preview={true}
@@ -243,6 +244,34 @@ export default function Clients() {
 }
 
 // ----- Helper components for client cards -----
+function ProgressTracker({ clientId, summary, onOpen }) {
+  const s = summary || { uploaded: false, reviewed: false, resolved: false, count: 0 };
+  const steps = [
+    { key: "uploaded", label: "Uploaded", color: "#D97706", bg: "#FEF3C7" },
+    { key: "reviewed", label: "Reviewed", color: "#2563EB", bg: "#DBEAFE" },
+    { key: "resolved", label: "Resolved", color: "#16A34A", bg: "#DCFCE7" },
+  ];
+  const allDone = s.uploaded && s.reviewed && s.resolved;
+  return (
+    <button type="button" onClick={onOpen}
+      className="text-left py-1.5 px-2 rounded-lg border hover:bg-[#F0EDE9] transition w-full col-span-2"
+      style={{ borderColor: allDone ? "#86EFAC" : "#F0EDE9", background: allDone ? "#F0FDF4" : "white" }}>
+      <div className="text-[10px] font-bold mb-1.5 flex items-center gap-1" style={{ color: "#3D4F35" }}>
+        📊 Progress Report
+        {s.count > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: "#EEF2EB", color: "#5C6853" }}>{s.count} reports</span>}
+      </div>
+      <div className="flex gap-1.5">
+        {steps.map(step => (
+          <span key={step.key} className="text-[9px] px-1.5 py-0.5 rounded-md font-bold"
+            style={{ background: s[step.key] ? step.bg : "#F5F5F5", color: s[step.key] ? step.color : "#C0C0C0", border: `1px solid ${s[step.key] ? step.color + "40" : "#E5E5E5"}` }}>
+            {s[step.key] ? "✓" : "○"} {step.label}
+          </span>
+        ))}
+      </div>
+    </button>
+  );
+}
+
 function ClientActionBtn({ icon, label, available, href, preview, onPreview, testId }) {
   if (!available) {
     return (
@@ -294,7 +323,7 @@ function ClientPreviewModal({ client, kind, onClose }) {
 
 function ClientDetailsModal({ client, therapists, onClose, isAdmin, onSaved }) {
   const findT = id => therapists.find(t => t.id === id);
-  const [tab, setTab] = useState("info"); // info | attachments
+  const [tab, setTab] = useState(client._openTab || "info"); // info | attachments
   const [att, setAtt] = useState({
     intake_file_url: client.intake_file_url || "",
     attendance_sheet_url: client.attendance_sheet_url || client.drive_url || "",
@@ -397,7 +426,7 @@ function ClientDetailsModal({ client, therapists, onClose, isAdmin, onSaved }) {
                   </button>
                 </div>
               )}
-              <ProgressReportsList clientId={client.id} isAdmin={isAdmin}/>
+              <ProgressReportsList clientId={client.id} fileNo={client.file_no} isAdmin={isAdmin}/>
             </div>
           )}
         </div>
@@ -418,7 +447,7 @@ const SUPERVISOR_CLIENTS = {
   msFahda: ["009","011","018","023","024","027","030","034","061","062","068","072","079"],
 };
 
-function ProgressReportsList({ clientId, isAdmin }) {
+function ProgressReportsList({ clientId, fileNo, isAdmin }) {
   const { user } = useAuth();
   const [items, setItems]    = useState([]);
   const [loading, setLoading] = useState(true);
@@ -430,7 +459,8 @@ function ProgressReportsList({ clientId, isAdmin }) {
     if (isAdmin) return true;
     if (!user) return false;
     const key = user.key || "";
-    return (SUPERVISOR_CLIENTS[key] || []).includes(String(clientId).padStart(3, "0"));
+    const fn = String(fileNo || "").padStart(3, "0");
+    return (SUPERVISOR_CLIENTS[key] || []).includes(fn);
   };
 
   const canAdd      = true;

@@ -1,7 +1,9 @@
 import axios from "axios";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-export const API = `${BACKEND_URL}/api`;
+// Production (single Railway service): leave REACT_APP_BACKEND_URL unset → use /api on same host.
+// Local dev: set REACT_APP_BACKEND_URL=http://localhost:8000 in frontend/.env
+const BACKEND_URL = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
+export const API = BACKEND_URL ? `${BACKEND_URL}/api` : "/api";
 
 const api = axios.create({ baseURL: API, withCredentials: true });
 
