@@ -1,10 +1,12 @@
-# Boost Growth — ONE Railway service (Dockerfile builds API + React together)
-# Variables in Railway dashboard: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD
+# Boost Growth — Railway (Nixpacks: more reliable than Docker on hobby plans)
+# Variables: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD
+# Do NOT set REACT_APP_BACKEND_URL
 
 [build]
-builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
+builder = "NIXPACKS"
 
 [deploy]
+startCommand = "cd backend && uvicorn server:app --host 0.0.0.0 --port $PORT"
 healthcheckPath = "/api/"
-healthcheckTimeout = 120
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
