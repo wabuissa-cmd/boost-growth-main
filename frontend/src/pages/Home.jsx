@@ -29,6 +29,8 @@ export default function Home() {
         const map = {0:0, 1:1, 2:2, 3:3, 4:4, 5:5, 6:6};
         const todayDayIdx = map[jsDow];
 
+        const asList = (r) => (Array.isArray(r?.data) ? r.data : []);
+
         const [c, t, r, s, sess] = await Promise.all([
           api.get("/clients").catch(() => ({ data: [] })),
           api.get("/therapists").catch(() => ({ data: [] })),
@@ -37,10 +39,16 @@ export default function Home() {
           api.get("/sessions").catch(() => ({ data: [] })),
         ]);
 
+        const clients = asList(c);
+        const therapists = asList(t);
+        const requests = asList(r);
+        const schedule = asList(s);
+        const sessions = asList(sess);
+
         // Schedule cells for the displayed week, scoped to current user
         const myCells = isAdmin
-          ? s.data
-          : s.data.filter(x => x.therapist_id === user?.id);
+          ? schedule
+          : schedule.filter(x => x.therapist_id === user?.id);
         const real = myCells.filter(x => !["LEAVE", "BREAK", "AVC"].includes(x.service_code));
         const scheduledHours = real.reduce((acc, x) => acc + (x.duration || 1), 0);
         // Cancelled cells (this week, this user)
@@ -52,8 +60,8 @@ export default function Home() {
         const weekStartDate = weekISO;
         const weekEndDate = toISODate(new Date(new Date(weekISO).getTime() + 7 * 24 * 3600 * 1000));
         const mySessions = isAdmin
-          ? sess.data
-          : sess.data.filter(x => (x.therapist_ids || []).includes(user?.id));
+          ? sessions
+          : sessions.filter(x => (x.therapist_ids || []).includes(user?.id));
         const sessionsThisWeek = mySessions.filter(x =>
           x.session_date >= weekStartDate && x.session_date < weekEndDate
         );
@@ -63,8 +71,8 @@ export default function Home() {
           .reduce((acc, x) => acc + (parseFloat(x.hours) || 0), 0);
 
         setStats({
-          clients: c.data.length, therapists: t.data.length,
-          requests: r.data.filter(x => x.status === "pending").length,
+          clients: clients.length, therapists: therapists.length,
+          requests: requests.filter(x => x.status === "pending").length,
           weekSessions: real.length, weekHours: scheduledHours,
           completedThisWeek, hoursThisWeek, cancelledThisWeek, todayUpcoming,
         });

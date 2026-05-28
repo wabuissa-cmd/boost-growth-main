@@ -1,3 +1,4 @@
+import { Component } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth";
 import Login from "./pages/Login";
@@ -62,12 +63,37 @@ function AppRoutes() {
   );
 }
 
+class ErrorBoundary extends Component {
+  state = { err: null };
+  static getDerivedStateFromError(err) { return { err }; }
+  render() {
+    if (this.state.err) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-organic p-6">
+          <div className="card p-8 max-w-md text-center">
+            <div className="font-display text-xl mb-2" style={{ color: "#2C3625" }}>Something went wrong</div>
+            <p className="text-sm mb-4" style={{ color: "#5C6853" }}>
+              The app could not load. Try clearing site data and signing in again.
+            </p>
+            <button type="button" className="btn btn-primary" onClick={() => { localStorage.removeItem("bg_token"); window.location.href = "/login"; }}>
+              Back to Login
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <AppRoutes/>
-      </BrowserRouter>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <BrowserRouter>
+          <AppRoutes/>
+        </BrowserRouter>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }

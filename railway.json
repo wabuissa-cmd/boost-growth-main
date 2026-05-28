@@ -1,0 +1,13 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "pip install -r backend/requirements.txt && cd frontend && npm install --legacy-peer-deps && CI=true GENERATE_SOURCEMAP=false npm run build && rm -rf ../backend/static && mkdir -p ../backend/static && cp -r build/* ../backend/static/"
+  },
+  "deploy": {
+    "startCommand": "cd backend && uvicorn server:app --host 0.0.0.0 --port $PORT",
+    "healthcheckPath": "/api/",
+    "healthcheckTimeout": 300,
+    "restartPolicyType": "ON_FAILURE"
+  }
+}

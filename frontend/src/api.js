@@ -7,6 +7,17 @@ export const API = BACKEND_URL ? `${BACKEND_URL}/api` : "/api";
 
 const api = axios.create({ baseURL: API, withCredentials: true });
 
+api.interceptors.response.use(
+  (res) => {
+    const d = res.data;
+    if (typeof d === "string" && d.trimStart().startsWith("<!")) {
+      return Promise.reject(new Error("Server returned HTML instead of JSON — API not reachable"));
+    }
+    return res;
+  },
+  (err) => Promise.reject(err)
+);
+
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("bg_token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
