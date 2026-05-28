@@ -1,10 +1,10 @@
-# Force Nixpacks (NOT Docker). Root Directory in Railway Settings must be EMPTY.
+# Railway — simple Docker (Python only, frontend pre-built in backend/static)
+# Root Directory MUST be empty (not "frontend")
 
 [build]
-builder = "NIXPACKS"
-buildCommand = "pip install -r backend/requirements.txt && (test -f backend/static/index.html || bash build.sh)"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "cd backend && python3 -m uvicorn server:app --host 0.0.0.0 --port $PORT"
 healthcheckPath = "/api/"
-healthcheckTimeout = 300
+healthcheckTimeout = 120
