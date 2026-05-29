@@ -4,7 +4,7 @@ import { useAuth } from "../auth";
 import {
   MagnifyingGlass, Plus, X, Trash, PencilSimple, ClipboardText, ClockCounterClockwise,
   CheckCircle, Prohibit, Warning, XCircle, Clock, MapPin, Printer, FileXls,
-  Receipt, ArrowsCounterClockwise, CalendarBlank
+  Receipt, ArrowsCounterClockwise, CalendarBlank, CaretDown
 } from "@phosphor-icons/react";
 
 const SUPERVISOR_CLIENTS = {
@@ -368,12 +368,28 @@ function LogSessionForm({ client, therapists, currentUser, onClose, onSaved, ses
 
 function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, currentUserId, onClose, onEdit, onDeleted }) {
   const findT = id => therapists.find(t => t.id === id);
+  const [invoices, setInvoices] = useState([]);
+  const [filterInvoiceId, setFilterInvoiceId] = useState("");
+
+  useEffect(() => {
+    api.get(`/clients/${client.id}/invoices`).then(r => setInvoices(r.data || [])).catch(() => setInvoices([]));
+  }, [client.id]);
+
+  const filteredSessions = sessions.filter(s => {
+    if (!filterInvoiceId) return true;
+    const inv = invoices.find(i => i.id === filterInvoiceId);
+    if (!inv) return true;
+    const invNum = (inv.invoice_number || "").trim();
+    return s.invoice_id === filterInvoiceId ||
+      (s.source_invoice && s.source_invoice.trim() === invNum);
+  });
+
   const resetAt = client.package_reset_at;
   const pkg = client.package_hours || 24;
-  const used = sessions.filter(s => s.status === "Completed")
+  const used = filteredSessions.filter(s => s.status === "Completed")
     .filter(s => !resetAt || (s.session_date && s.session_date >= resetAt.slice(0, 10)))
     .reduce((sum, s) => sum + (parseFloat(s.hours) || 0), 0);
-  const sorted = [...sessions].sort((a, b) => new Date(a.session_date) - new Date(b.session_date));
+  const sorted = [...filteredSessions].sort((a, b) => new Date(a.session_date) - new Date(b.session_date));
   const dayShort = (d) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" });
   const fmtDate = (d) => {
     const dt = new Date(d);
@@ -401,6 +417,16 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
             <div className="text-sm mt-2" style={{ color: "#5C6853" }}>
               Package: <strong>{pkg}h</strong> · Used: <strong>{used.toFixed(1)}h</strong>
             </div>
+            {invoices.length > 0 && (
+              <div className="mt-4 max-w-xs mx-auto">
+                <select className="select text-xs w-full" value={filterInvoiceId} onChange={e => setFilterInvoiceId(e.target.value)}>
+                  <option value="">All Invoices</option>
+                  {invoices.map(inv => (
+                    <option key={inv.id} value={inv.id}>{inv.invoice_number}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
           {sorted.length === 0 ? (
             <div className="p-12 text-center" style={{ color: "#8B9E7A" }}>No sessions logged yet</div>
@@ -461,19 +487,13 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   const [showNewInvModal, setShowNewInvModal] = useState(false);
   const [showInvoiceDetails, setShowInvoiceDetails] = useState(false);
   const [savingClient, setSavingClient] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [newInvMenuOpen, setNewInvMenuOpen] = useState(false);
+  const [localSessions, setLocalSessions] = useState(sessions);
 
   const findT = id => therapists.find(t => t.id === id);
   const selectedInvoice = invoices.find(i => i.id === selectedInvoiceId);
-  const filterStart = selectedInvoice?.start_date || (client.package_reset_at ? client.package_reset_at.slice(0, 10) : null);
-  const cycleSessions = sessions.filter(s => {
-    if (selectedInvoiceId && selectedInvoice) {
-      const invNum = (selectedInvoice.invoice_number || "").trim();
-      return s.invoice_id === selectedInvoiceId ||
-        (s.source_invoice && s.source_invoice.trim() === invNum);
-    }
-    if (filterStart) return s.session_date && s.session_date >= filterStart;
-    return true;
-  });
+  const cycleSessions = localSessions;
   const used = cycleSessions.filter(s => s.status === "Completed").reduce((sum, s) => sum + (parseFloat(s.hours) || 0), 0);
   const pkg = (selectedInvoice?.package_size) || client.package_hours || 24;
   const rem = Math.max(0, pkg - used);
@@ -485,6 +505,13 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   useEffect(() => {
     api.get(`/clients/${client.id}/invoices`).then(r => setInvoices(r.data || [])).catch(() => setInvoices([]));
   }, [client.id]);
+
+  // Re-fetch sessions when invoice filter changes
+  useEffect(() => {
+    const params = { client_id: client.id };
+    if (selectedInvoiceId) params.invoice_id = selectedInvoiceId;
+    api.get("/sessions", { params }).then(r => setLocalSessions(r.data || [])).catch(() => setLocalSessions([]));
+  }, [client.id, selectedInvoiceId]);
 
   // When user picks an invoice from the dropdown, populate the form fields with that invoice's data
   useEffect(() => {
@@ -619,6 +646,19 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
     onClose();
   };
 
+  const exportExcel = async () => {
+    const url = `${api.defaults.baseURL}/clients/${client.id}/sessions/export`;
+    const token = localStorage.getItem("bg_token");
+    const r = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {}, credentials: "include" });
+    if (!r.ok) { alert("Export failed"); return; }
+    const blob = await r.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `attendance_${client.file_no || client.id}_${client.name.replace(/\s+/g, "_")}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setExportOpen(false);
+  };
+
   const fmtDate = (d) => {
     const dt = new Date(d);
     return `${dt.getDate()}/${dt.getMonth()+1}/${dt.getFullYear()}`;
@@ -631,125 +671,78 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
       <div className="card p-0 w-full max-w-5xl modal-card max-h-[92vh] flex flex-col printable" onClick={e=>e.stopPropagation()}>
         {/* Action bar */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-[#E8E4DE] no-print flex-wrap gap-2">
-          <div className="font-bold text-sm" style={{color: "#2C3625"}}>Attendance Sheet · {client.name}</div>
+          <div className="font-bold text-sm" style={{color: "#2C3625"}}>Invoice Sheet · {client.name}</div>
           <div className="flex gap-2 flex-wrap items-center">
-            {/* Always-visible Invoice History dropdown */}
             {invoices.length > 0 ? (
               <select data-testid="invoice-dropdown" value={selectedInvoiceId} onChange={e => setSelectedInvoiceId(e.target.value)}
-                      className="select text-xs" style={{maxWidth: 280}}>
-                <option value="">-- View Invoice --</option>
-                {invoices.map(inv => {
-                  const lock = inv.is_closed ? "🔒" : "🔓";
-                  const status = inv.is_closed ? "Closed" : "Open";
-                  const cd = inv.is_closed && inv.close_date ? ` ${inv.close_date.split("-").reverse().join("/")}` : "";
-                  return (
-                    <option key={inv.id} value={inv.id}>{lock} {inv.invoice_number} ({status}{cd})</option>
-                  );
-                })}
+                      className="select text-xs" style={{maxWidth: 220}}>
+                <option value="">All Invoices</option>
+                {invoices.map(inv => (
+                  <option key={inv.id} value={inv.id}>{inv.invoice_number}{inv.is_closed ? " (Closed)" : ""}</option>
+                ))}
               </select>
             ) : (
-              <span className="text-[11px] italic px-2 py-1.5" style={{color: "#8B6918", background: "#FAE8C8", borderRadius: 8}}>
-                No invoices found
-              </span>
+              <span className="text-[11px] italic px-2 py-1.5" style={{color: "#8B6918", background: "#FAE8C8", borderRadius: 8}}>No invoices</span>
             )}
             {isAdmin && (
               <>
                 <input id={`sync-xlsx-${client.id}`} type="file" accept=".xlsx" className="hidden"
                        data-testid="sync-xlsx-input"
                        onChange={e => { const f = e.target.files?.[0]; if (f) { syncFromExcel(f); } e.target.value = ""; }}/>
-                <button data-testid="sync-xlsx-btn"
-                        onClick={() => document.getElementById(`sync-xlsx-${client.id}`).click()}
-                        className="btn btn-secondary text-xs"
-                        title="Upload the client's master .xlsx — sheet tabs starting with INV will be added as invoices automatically.">
-                  <FileXls size={14}/> Sync from Excel
-                </button>
-                <button data-testid="invoice-details-btn" onClick={() => setShowInvoiceDetails(true)}
-                        disabled={!selectedInvoice}
-                        className="btn btn-outline text-xs disabled:opacity-50"
-                        title="View current invoice summary">
-                  <Receipt size={14}/> Invoice Details
-                </button>
+                <button data-testid="sync-xlsx-btn" onClick={() => document.getElementById(`sync-xlsx-${client.id}`).click()}
+                        className="btn btn-secondary text-xs"><FileXls size={14}/> Sync from Excel</button>
               </>
             )}
             {isAdmin && (
-              <button data-testid="new-invoice-btn" onClick={() => setShowNewInvModal(true)} className="btn btn-primary text-xs">
-                <Plus size={14}/> New Invoice
-              </button>
+              <div className="relative">
+                <button data-testid="new-invoice-btn" onClick={() => setNewInvMenuOpen(o => !o)} className="btn btn-primary text-xs">
+                  <Plus size={14}/> New Invoice <CaretDown size={12}/>
+                </button>
+                {newInvMenuOpen && (
+                  <div className="absolute right-0 mt-1 card p-1 z-50 min-w-[200px] shadow-lg">
+                    <button onClick={() => { setShowNewInvModal(true); setNewInvMenuOpen(false); }} className="btn btn-ghost w-full justify-start text-xs">New Invoice</button>
+                    <button onClick={() => { setShowResetConfirm(true); setNewInvMenuOpen(false); }} className="btn btn-ghost w-full justify-start text-xs">Start New Package</button>
+                  </div>
+                )}
+              </div>
             )}
-            <button data-testid="export-excel-btn" onClick={async () => {
-              const url = `${api.defaults.baseURL}/clients/${client.id}/sessions/export`;
-              const token = localStorage.getItem("bg_token");
-              const r = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {}, credentials: 'include' });
-              if (!r.ok) { alert("Export failed"); return; }
-              const blob = await r.blob();
-              const a = document.createElement("a");
-              a.href = URL.createObjectURL(blob);
-              a.download = `attendance_${client.file_no || client.id}_${client.name.replace(/\s+/g,'_')}.xlsx`;
-              document.body.appendChild(a); a.click(); a.remove();
-            }} className="btn btn-gold text-xs"><FileXls size={14}/> Export Excel</button>
-            <button onClick={() => window.print()} className="btn btn-secondary text-xs"><Printer size={14}/> Print / Save PDF</button>
+            <div className="relative">
+              <button onClick={() => setExportOpen(o => !o)} className="btn btn-gold text-xs">Export <CaretDown size={12}/></button>
+              {exportOpen && (
+                <div className="absolute right-0 mt-1 card p-1 z-50 min-w-[180px] shadow-lg">
+                  <button data-testid="export-excel-btn" onClick={exportExcel} className="btn btn-ghost w-full justify-start text-xs"><FileXls size={14}/> Export as Excel</button>
+                  <button onClick={() => { window.print(); setExportOpen(false); }} className="btn btn-ghost w-full justify-start text-xs"><Printer size={14}/> Export as PDF</button>
+                  {isAdmin && selectedInvoice && (
+                    <button onClick={() => { savePackageInfo(); setExportOpen(false); }} className="btn btn-ghost w-full justify-start text-xs">Save</button>
+                  )}
+                </div>
+              )}
+            </div>
             <button onClick={onClose} className="btn btn-ghost p-2"><X size={20}/></button>
           </div>
         </div>
 
-        {/* Admin-only management bar: Invoice Number entry, Package End Date, Payment status, Reset */}
-        {isAdmin && (
-          <div className="px-5 py-3 border-b border-[#E8E4DE] no-print flex flex-wrap gap-3 items-end" style={{background: "#FAFAF7"}}>
-            <div className="flex-1 min-w-[180px]">
-              <label className="label flex items-center gap-1 text-[10px]"><Receipt size={11}/> INVOICE NUMBER {selectedInvoice ? "(editing)" : "(no invoice selected)"}</label>
-              <input data-testid="invoice-num-input" className="input text-xs" placeholder="e.g. INV 4042"
-                     value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)} disabled={!selectedInvoice}/>
-            </div>
-            <div className="flex-1 min-w-[120px]">
-              <label className="label text-[10px]">PACKAGE SIZE (h)</label>
-              <input data-testid="pkg-size-input" type="number" min="0" step="0.5" className="input text-xs"
-                     value={packageSize} onChange={e => setPackageSize(e.target.value)} disabled={!selectedInvoice}/>
-            </div>
-            <div className="flex-1 min-w-[150px]">
-              <label className="label flex items-center gap-1 text-[10px]"><CalendarBlank size={11}/> PACKAGE END DATE</label>
-              <input data-testid="pkg-end-input" type="date" className="input text-xs" value={packageEndDate} onChange={e => setPackageEndDate(e.target.value)}/>
-            </div>
-            <div className="flex-1 min-w-[160px]">
-              <label className="label text-[10px]">PAYMENT STATUS</label>
-              <select data-testid="pay-status-select" className="select text-xs" value={paymentStatus} onChange={e => setPaymentStatus(e.target.value)}>
-                <option value="pending">⚠ Payment Pending</option>
-                <option value="complete">✓ Payment Complete</option>
-              </select>
-            </div>
-            <button data-testid="save-pkg-btn" onClick={savePackageInfo} disabled={savingClient}
-                    className="btn btn-secondary text-xs whitespace-nowrap">{savingClient ? "Saving..." : (selectedInvoice ? "Save Invoice" : "Save Defaults")}</button>
-            <button data-testid="reset-pkg-btn" onClick={() => setShowResetConfirm(true)}
-                    disabled={paymentStatus !== "complete"}
-                    title={paymentStatus !== "complete" ? "Mark payment as Complete first" : ""}
-                    className="btn btn-outline text-xs whitespace-nowrap"
-                    style={{borderColor: paymentStatus === "complete" ? "#7A8A6A" : "#D1D1D1", color: paymentStatus === "complete" ? "#3D4F35" : "#8B9E7A"}}>
-              <ArrowsCounterClockwise size={13}/> Start New Package
-            </button>
-          </div>
-        )}
-
-        {/* Pending payment warning - always visible (not collapsed) */}
-        {paymentStatus === "pending" && (
-          <div data-testid="pending-warning" className="px-5 py-2.5 flex items-center gap-2 text-sm font-bold no-print"
-               style={{background: "#FAE8C8", color: "#8B6918", borderBottom: "1px solid #E5C387"}}>
-            <Warning size={18} weight="fill"/>
-            <span>Payment Pending — please collect payment before starting a new package cycle.</span>
-          </div>
-        )}
-
-        {/* Show selected invoice details if any */}
+        {/* Compact invoice summary line */}
         {selectedInvoice && (
-          <div className="px-5 py-2 text-xs no-print flex items-center justify-between flex-wrap gap-2" style={{background: "#F4EDE3", color: "#6B5430", borderBottom: "1px solid #E0CDB0"}}>
-            <div>
-              <strong>Viewing:</strong> {selectedInvoice.invoice_number}
-              {selectedInvoice.service_type && <span className="ml-2 opacity-80">· {selectedInvoice.service_type}</span>}
-              {selectedInvoice.start_date && <span className="ml-2 opacity-70">starts {fmtDate(selectedInvoice.start_date)}</span>}
-              {selectedInvoice.package_size && <span className="ml-2 opacity-70">· {selectedInvoice.package_size}h package</span>}
-              {selectedInvoice.is_closed && <span className="ml-2" style={{color: "#8A3F27"}}>· 🔒 Closed{selectedInvoice.close_date ? ` ${fmtDate(selectedInvoice.close_date)}` : ""}</span>}
-            </div>
+          <div className="px-5 py-2 flex items-center gap-2 text-xs no-print border-b border-[#E8E4DE] flex-wrap" style={{background: "#FAFAF7"}}>
+            <span className="font-bold" style={{color: "#2C3625"}}>{selectedInvoice.invoice_number}</span>
+            <span className="pill text-[10px]" style={{background: closed ? "#F8EBE7" : "#E5EBE1", color: closed ? "#8A3F27" : "#3D4F35"}}>
+              {closed ? "Closed" : "Open"}
+            </span>
+            <span style={{color: "#5C6853"}}>{rem.toFixed(1)}h remaining</span>
+            <button onClick={() => setShowInvoiceDetails(true)} className="btn btn-ghost text-[11px] py-0 px-2">ⓘ Details</button>
             {isAdmin && (
-              <button onClick={() => deleteInvoice(selectedInvoice.id)} className="underline text-[11px]" style={{color: "#8A3F27"}}>delete invoice</button>
+              <button onClick={() => deleteInvoice(selectedInvoice.id)} className="ml-auto text-[11px] underline" style={{color: "#8A3F27"}}>delete</button>
             )}
+          </div>
+        )}
+
+        {/* Pending payment warning */}
+        {selectedInvoice && paymentStatus === "pending" && (
+          <div data-testid="pending-warning" className="px-5 py-2 flex items-center gap-2 text-xs font-bold no-print"
+               style={{background: "#FAE8C8", color: "#8B6918", borderBottom: "1px solid #E5C387"}}>
+            <Warning size={16} weight="fill"/>
+            <span>Payment Pending</span>
           </div>
         )}
 
@@ -811,7 +804,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
           {/* Sessions table grouped by day */}
           {cycleSessions.length === 0 ? (
             <div className="p-12 text-center" style={{color: "#8B9E7A"}}>
-              {selectedInvoice ? "This invoice is empty — sessions logged from now on will be tracked here" : (filterStart ? "No sessions in current cycle" : "No sessions logged yet")}
+              {selectedInvoiceId ? "No sessions for this invoice" : "No sessions logged yet"}
             </div>
           ) : (
             <table className="w-full text-xs">
@@ -889,22 +882,37 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                 <div className="font-display text-xl" style={{ color: "#2C3625" }}>Invoice Details</div>
                 <button onClick={() => setShowInvoiceDetails(false)} className="btn btn-ghost p-2"><X size={18}/></button>
               </div>
-              <div className="space-y-2 text-sm">
-                <div><span style={{ color: "#8B9E7A" }}>Invoice #</span> <strong>{selectedInvoice.invoice_number}</strong></div>
+              <div className="space-y-3 text-sm">
+                <div><span style={{ color: "#8B9E7A" }}>Invoice #</span> <strong>{invoiceNumber || selectedInvoice.invoice_number}</strong></div>
                 <div>
-                  <span className="pill text-xs" style={{ background: selectedInvoice.is_closed ? "#F8EBE7" : "#E5EBE1", color: selectedInvoice.is_closed ? "#8A3F27" : "#3D4F35" }}>
-                    {selectedInvoice.is_closed ? "Closed" : "Open"}
+                  <span className="pill text-xs" style={{ background: closed ? "#F8EBE7" : "#E5EBE1", color: closed ? "#8A3F27" : "#3D4F35" }}>
+                    {closed ? "Closed" : "Open"}
                   </span>
                 </div>
-                {selectedInvoice.start_date && <div><span style={{ color: "#8B9E7A" }}>Start</span> {fmtDate(selectedInvoice.start_date)}</div>}
-                <div><span style={{ color: "#8B9E7A" }}>Package</span> {selectedInvoice.package_size || pkg}h</div>
-                <div><span style={{ color: "#8B9E7A" }}>Hours remaining</span> {rem.toFixed(1)}h</div>
-                <div>
-                  <span style={{ color: "#8B9E7A" }}>Payment</span>{" "}
-                  <span className="pill text-xs" style={{ background: paymentStatus === "complete" ? "#E5EBE1" : "#FAE8C8", color: paymentStatus === "complete" ? "#3D4F35" : "#8B6918" }}>
-                    {paymentStatus === "complete" ? "Paid" : "Pending"}
-                  </span>
-                </div>
+                {selectedInvoice.start_date && <div><span style={{ color: "#8B9E7A" }}>Start Date</span> {fmtDate(selectedInvoice.start_date)}</div>}
+                <div><span style={{ color: "#8B9E7A" }}>Package</span> {packageSize || selectedInvoice.package_size || pkg}h</div>
+                <div><span style={{ color: "#8B9E7A" }}>Hours Used</span> {used.toFixed(1)}h</div>
+                <div><span style={{ color: "#8B9E7A" }}>Hours Remaining</span> {rem.toFixed(1)}h</div>
+                {isAdmin && (
+                  <>
+                    <div>
+                      <label className="label text-[10px]">Payment</label>
+                      <select data-testid="pay-status-select" className="select text-xs w-full" value={paymentStatus} onChange={e => setPaymentStatus(e.target.value)}>
+                        <option value="pending">Pending</option>
+                        <option value="complete">Paid</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label text-[10px]">Package End Date</label>
+                      <input data-testid="pkg-end-input" type="date" className="input text-xs w-full" value={packageEndDate} onChange={e => setPackageEndDate(e.target.value)}/>
+                    </div>
+                    <button data-testid="save-pkg-btn" onClick={() => { savePackageInfo(); setShowInvoiceDetails(false); }} disabled={savingClient}
+                            className="btn btn-primary w-full text-xs">{savingClient ? "Saving..." : "Save"}</button>
+                  </>
+                )}
+                {!isAdmin && (
+                  <div><span style={{ color: "#8B9E7A" }}>Payment</span> {paymentStatus === "complete" ? "Paid" : "Pending"}</div>
+                )}
               </div>
             </div>
           </div>

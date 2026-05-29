@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import api from "../api";
+import api, { startOfWeek, toISODate } from "../api";
 import { UploadSimple, Download, CheckCircle, X, FileXls, CalendarBlank, UserList } from "@phosphor-icons/react";
 
 export default function ImportPage() {
@@ -9,7 +9,7 @@ export default function ImportPage() {
   const [loading, setLoading] = useState(false);
   const [historicalWeeks, setHistoricalWeeks] = useState([]);
   const [clearExisting, setClearExisting] = useState(false);
-  const [scheduleWeekStart, setScheduleWeekStart] = useState(new Date().toISOString().slice(0,10));
+  const [scheduleWeekStart, setScheduleWeekStart] = useState(toISODate(startOfWeek(new Date())));
   const [sheetName, setSheetName] = useState("");
   const [availableSheets, setAvailableSheets] = useState([]);
 
@@ -93,7 +93,7 @@ export default function ImportPage() {
               The file must contain therapist names (e.g. "Ms. Maha") followed by Sunday-Thursday rows with 10 time-slot columns.
               Cell content like <code>SS | Sulaiman</code>, <code>HS | Omar</code>, <code>Meeting w/ Walaa</code>, <code>AVC</code>, <code>Supervision W/ Khalid</code> will be auto-parsed.
             </div>
-            <label className="label">Target Week Start (Sunday)</label>
+            <label className="label">Target Week Start (Sunday — e.g. 2026-05-31)</label>
             <input type="date" className="input mb-3" value={scheduleWeekStart} onChange={e => setScheduleWeekStart(e.target.value)}/>
             <label className="btn btn-outline w-full justify-start cursor-pointer mb-3">
               <UploadSimple size={18}/> {file ? file.name : "Choose Excel file..."}

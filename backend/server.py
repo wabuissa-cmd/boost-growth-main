@@ -1373,10 +1373,17 @@ async def reset_package(cid: str, user=Depends(admin_only)):
 
 # ------------------- Sessions (Attendance log) -------------------
 @api.get("/sessions")
-async def list_sessions(client_id: Optional[str] = None, user=Depends(get_current_user)):
+async def list_sessions(client_id: Optional[str] = None, invoice_id: Optional[str] = None, user=Depends(get_current_user)):
     q = {}
     if client_id:
         q["client_id"] = client_id
+    if invoice_id:
+        inv = await db.invoices.find_one({"id": invoice_id}, {"_id": 0, "invoice_number": 1})
+        if inv:
+            inv_num = (inv.get("invoice_number") or "").strip()
+            q["$or"] = [{"invoice_id": invoice_id}, {"source_invoice": inv_num}]
+        else:
+            q["invoice_id"] = invoice_id
     items = await db.sessions.find(q, {"_id": 0}).sort("session_date", -1).to_list(2000)
     if user.get("role") == "therapist":
         uid = user["id"]
@@ -2458,6 +2465,16 @@ def _normalize_schedule_grid(rows) -> List[List[str]]:
     return grid
 
 
+def _normalize_week_start(week_start: str) -> str:
+    """Normalize any date to the Sunday (week start) ISO string."""
+    from datetime import date, timedelta
+    raw = (week_start or "").strip()[:10]
+    d = date.fromisoformat(raw)
+    days_since_sunday = (d.weekday() + 1) % 7
+    sunday = d - timedelta(days=days_since_sunday)
+    return sunday.isoformat()
+
+
 async def _import_schedule_grid(grid: List[List[str]], week_start: str, t_by_name: dict, clear_existing: bool):
     if clear_existing:
         await db.schedule_cells.delete_many({"week_start": week_start})
@@ -2503,11 +2520,16 @@ async def _import_schedule_grid(grid: List[List[str]], week_start: str, t_by_nam
                         parsed = _parse_schedule_cell_text(val)
                         if parsed:
                             service, child, custom, note = parsed
+                            canonical_ts = (
+                                SCHEDULE_TIME_SLOTS[slot_idx]
+                                if slot_idx < len(SCHEDULE_TIME_SLOTS)
+                                else ts
+                            )
                             await db.schedule_cells.insert_one({
                                 "id": str(uuid.uuid4()),
                                 "therapist_id": current_t_id,
                                 "day": day_idx,
-                                "time_slot": ts,
+                                "time_slot": canonical_ts,
                                 "service_code": service,
                                 "child_name": child,
                                 "note": note,
@@ -2601,6 +2623,8 @@ async def import_schedule_excel(file: UploadFile = File(...),
     import io
     content = await file.read()
     fname = (file.filename or "").lower()
+    week_start = _normalize_week_start(week_start)
+    logger.info(f"Schedule import week_start={week_start} (normalized to Sunday)")
     therapists = await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).to_list(100)
     t_by_name = {t["name"]: t["id"] for t in therapists}
     for t in therapists:

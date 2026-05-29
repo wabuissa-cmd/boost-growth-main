@@ -4,7 +4,7 @@ import api, { startOfWeek, toISODate } from "../api";
 import { useAuth } from "../auth";
 import {
   CalendarBlank, ClipboardText, UsersThree, ListChecks, Plant, ArrowRight, Sparkle,
-  CheckCircle, Clock, XCircle, CalendarCheck
+  CheckCircle, Clock, XCircle, CalendarCheck, MagnifyingGlass
 } from "@phosphor-icons/react";
 import { quoteOfTheDay } from "../data/quotes";
 
@@ -95,6 +95,13 @@ export default function Home() {
     { to: "/requests", icon: <ListChecks size={26} weight="duotone" />, title: "Requests", desc: "Pending requests", count: stats.requests, color: "#F1ECF7", iconColor: "#4E3F70" },
   ];
 
+  const quickLinks = [
+    { to: "/schedule", label: "Schedule", icon: <CalendarBlank size={18} weight="duotone"/> },
+    { to: "/attendance", label: "Attendance", icon: <ClipboardText size={18} weight="duotone"/> },
+    { to: "/requests", label: "Requests", icon: <ListChecks size={18} weight="duotone"/> },
+    { to: "/requests", label: "Track My Request", icon: <MagnifyingGlass size={18} weight="duotone"/> },
+  ];
+
   return (
     <div>
       {/* Hero banner */}
@@ -142,21 +149,11 @@ export default function Home() {
         <div className="card p-5">
           <div className="font-bold mb-3" style={{color: "#2C3625"}}>Quick Links</div>
           <div className="grid grid-cols-2 gap-2 text-sm">
-            {isAdmin ? (
-              <>
-                <a href="https://drive.google.com/drive/folders/1iMDwfucwzsEIl9WxwhJi_h6tg2vVtAFr" target="_blank" rel="noreferrer" className="btn btn-outline justify-start">📁 Client Files</a>
-                <a href="https://drive.google.com/drive/folders/1jWRO97gDHK_TfmZhTqCqm0SdBc6_b5bE" target="_blank" rel="noreferrer" className="btn btn-outline justify-start">💼 HR</a>
-                <a href="https://drive.google.com/drive/folders/11VQQ-o1QoDQV-ktygB1tlnRmqCs3mxAb" target="_blank" rel="noreferrer" className="btn btn-outline justify-start">📜 Policies</a>
-                <a href="https://boost-growthsa.com" target="_blank" rel="noreferrer" className="btn btn-outline justify-start">🌱 Website</a>
-              </>
-            ) : (
-              <>
-                <Link to="/schedule" className="btn btn-outline justify-start">📅 Schedule <span className="text-[10px] opacity-70">(الجدول)</span></Link>
-                <Link to="/attendance" className="btn btn-outline justify-start">📋 Attendance <span className="text-[10px] opacity-70">(التحضير)</span></Link>
-                <Link to="/requests" className="btn btn-outline justify-start">📝 Requests <span className="text-[10px] opacity-70">(الطلبات)</span></Link>
-                <Link to="/requests" className="btn btn-outline justify-start">🔍 Track My Request <span className="text-[10px] opacity-70">(متابعة الطلب)</span></Link>
-              </>
-            )}
+            {quickLinks.map(l => (
+              <Link key={l.label} to={l.to} className="btn btn-outline justify-start gap-2">
+                {l.icon}<span>{l.label}</span>
+              </Link>
+            ))}
           </div>
         </div>
         {/* Daily Quote (rotates by day of year) */}

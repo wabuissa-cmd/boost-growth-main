@@ -438,6 +438,8 @@ export default function Schedule() {
           <button data-testid="next-week-btn" onClick={() => setWeekStart(addDays(weekStart, 7))} className="btn btn-ghost p-2"><CaretRight size={18} /></button>
           <div className="w-px h-6 bg-[#E8E4DE] mx-1" />
           <button onClick={() => setWeekStart(startOfWeek(new Date()))} className="btn btn-ghost text-xs"><House size={14} /> Today</button>
+          <input type="date" title="Jump to week" className="input text-xs w-[130px] py-1.5"
+            onChange={e => { if (e.target.value) setWeekStart(startOfWeek(new Date(e.target.value + "T12:00:00"))); }} />
         </div>
         <div className="flex items-center gap-1.5 card p-1.5">
           <button data-testid="zoom-out-btn"
