@@ -4,7 +4,7 @@ import { useAuth } from "../auth";
 import {
   MagnifyingGlass, Plus, X, Trash, PencilSimple, ClipboardText, ClockCounterClockwise,
   CheckCircle, Prohibit, Warning, XCircle, Clock, MapPin, Printer, FileXls,
-  Receipt, ArrowsCounterClockwise, CalendarBlank, CloudArrowDown
+  Receipt, ArrowsCounterClockwise, CalendarBlank
 } from "@phosphor-icons/react";
 
 const SUPERVISOR_CLIENTS = {
@@ -51,6 +51,7 @@ export default function Attendance() {
   const [logFor, setLogFor] = useState(null); // client OR null OR "__pick__"
   const [editingSess, setEditingSess] = useState(null);
   const [historyFor, setHistoryFor] = useState(null);
+  const [sheetMode, setSheetMode] = useState("invoice");
 
   const load = useCallback(async () => {
     const [c, t, s] = await Promise.all([
@@ -193,8 +194,8 @@ export default function Attendance() {
 
               <div className="flex gap-2 flex-wrap">
                 <button data-testid={`log-${c.id}`} onClick={() => setLogFor(c)} className="btn btn-primary text-xs"><Plus size={14}/> Log Session</button>
-                <button onClick={() => setHistoryFor(c)} className="btn btn-secondary text-xs"><ClockCounterClockwise size={14}/> History</button>
-                <button onClick={() => setHistoryFor(c)} className="btn btn-gold text-xs"><ClipboardText size={14}/> Invoice Sheet</button>
+                <button onClick={() => { setSheetMode("history"); setHistoryFor(c); }} className="btn btn-secondary text-xs"><ClockCounterClockwise size={14}/> History</button>
+                <button onClick={() => { setSheetMode("invoice"); setHistoryFor(c); }} className="btn btn-gold text-xs"><ClipboardText size={14}/> Invoice Sheet</button>
               </div>
             </div>
           );
@@ -230,7 +231,15 @@ export default function Attendance() {
       )}
 
       {/* History / Invoice */}
-      {historyFor && (
+      {historyFor && sheetMode === "history" && (
+        <AttendanceHistoryModal client={historyFor} sessions={sessions.filter(s => s.client_id === historyFor.id)}
+                                therapists={therapists} isAdmin={isAdmin} user={user} currentUserId={user?.id}
+                                onClose={() => setHistoryFor(null)}
+                                onEdit={(s) => { setEditingSess(s); }}
+                                onDeleted={() => load()}/>
+      )}
+
+      {historyFor && sheetMode === "invoice" && (
         <HistoryModal client={historyFor} sessions={sessions.filter(s => s.client_id === historyFor.id)}
                       therapists={therapists} isAdmin={isAdmin} user={user} currentUserId={user?.id}
                       onClose={() => setHistoryFor(null)}
@@ -357,6 +366,87 @@ function LogSessionForm({ client, therapists, currentUser, onClose, onSaved, ses
   );
 }
 
+function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, currentUserId, onClose, onEdit, onDeleted }) {
+  const findT = id => therapists.find(t => t.id === id);
+  const resetAt = client.package_reset_at;
+  const pkg = client.package_hours || 24;
+  const used = sessions.filter(s => s.status === "Completed")
+    .filter(s => !resetAt || (s.session_date && s.session_date >= resetAt.slice(0, 10)))
+    .reduce((sum, s) => sum + (parseFloat(s.hours) || 0), 0);
+  const sorted = [...sessions].sort((a, b) => new Date(a.session_date) - new Date(b.session_date));
+  const dayShort = (d) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" });
+  const fmtDate = (d) => {
+    const dt = new Date(d);
+    return `${dt.getDate()}/${dt.getMonth() + 1}/${dt.getFullYear()}`;
+  };
+  const removeSess = async (sid) => {
+    if (!window.confirm("Delete this session?")) return;
+    await api.delete(`/sessions/${sid}`);
+    onDeleted();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={onClose}>
+      <div className="card p-0 w-full max-w-4xl modal-card max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-[#E8E4DE]">
+          <div className="font-bold text-sm" style={{ color: "#2C3625" }}>Attendance History · {client.name}</div>
+          <button onClick={onClose} className="btn btn-ghost p-2"><X size={20}/></button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          <div className="px-8 pt-8 pb-4 text-center border-b-2" style={{ borderColor: "#7A8A6A" }}>
+            <div className="w-16 h-16 rounded-xl mx-auto mb-3 flex items-center justify-center p-2" style={{ background: "#7A8A6A" }}>
+              <img src="/bg-logo.png" alt="" className="w-full h-full object-contain"/>
+            </div>
+            <div className="font-display text-2xl font-semibold" style={{ color: "#2C3625" }}>{client.name}</div>
+            <div className="text-sm mt-2" style={{ color: "#5C6853" }}>
+              Package: <strong>{pkg}h</strong> · Used: <strong>{used.toFixed(1)}h</strong>
+            </div>
+          </div>
+          {sorted.length === 0 ? (
+            <div className="p-12 text-center" style={{ color: "#8B9E7A" }}>No sessions logged yet</div>
+          ) : (
+            <table className="w-full text-xs">
+              <thead style={{ background: "#F0E9D8" }}>
+                <tr style={{ color: "#2C3625" }}>
+                  <th className="p-2 text-left font-bold">Day</th>
+                  <th className="p-2 text-left font-bold">Date</th>
+                  <th className="p-2 text-left font-bold">Status</th>
+                  <th className="p-2 text-left font-bold">Time</th>
+                  <th className="p-2 text-left font-bold">Hours</th>
+                  <th className="p-2 text-left font-bold">Therapist</th>
+                  <th className="p-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map(s => {
+                  const canEdit = isAdmin || isSupervisorForClient(user, client.file_no) || (s.therapist_ids || []).includes(currentUserId);
+                  const tNames = (s.therapist_ids || []).map(id => findT(id)?.name?.replace("Ms. ", "")).filter(Boolean).join(" - ");
+                  const stBg = s.status === "Completed" ? "#E5EBE1" : s.status === "No Show" ? "#F8EBE7" : "#F0EDE9";
+                  const stColor = s.status === "Completed" ? "#3D4F35" : s.status === "No Show" ? "#8A3F27" : "#5C6853";
+                  return (
+                    <tr key={s.id} className="border-t border-[#E8E4DE]">
+                      <td className="p-2 font-bold">{dayShort(s.session_date)}</td>
+                      <td className="p-2">{fmtDate(s.session_date)}</td>
+                      <td className="p-2"><span className="pill text-[10px]" style={{ background: stBg, color: stColor }}>{s.status}</span></td>
+                      <td className="p-2">{s.start_time && s.end_time ? `${s.start_time} - ${s.end_time}` : "—"}</td>
+                      <td className="p-2 font-bold">{s.hours}</td>
+                      <td className="p-2">{tNames || "—"}</td>
+                      <td className="p-2 text-right">
+                        {canEdit && <button onClick={() => onEdit(s)} className="btn btn-ghost p-1.5"><PencilSimple size={14}/></button>}
+                        {canEdit && isAdmin && <button onClick={() => removeSess(s.id)} className="btn btn-ghost p-1.5 text-red-700"><Trash size={14}/></button>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUserId, onClose, onEdit, onDeleted, onClientUpdated }) {
   const [closed, setClosed] = useState(false);
   const [closureDate, setClosureDate] = useState("");
@@ -369,14 +459,21 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   const [paymentStatus, setPaymentStatus] = useState(client.payment_status || "pending");
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showNewInvModal, setShowNewInvModal] = useState(false);
+  const [showInvoiceDetails, setShowInvoiceDetails] = useState(false);
   const [savingClient, setSavingClient] = useState(false);
 
   const findT = id => therapists.find(t => t.id === id);
   const selectedInvoice = invoices.find(i => i.id === selectedInvoiceId);
-  // When invoice selected, sessions belonging to it = sessions on/after invoice.start_date.
-  // When no invoice selected, fall back to client cycle (package_reset_at).
   const filterStart = selectedInvoice?.start_date || (client.package_reset_at ? client.package_reset_at.slice(0, 10) : null);
-  const cycleSessions = sessions.filter(s => !filterStart || (s.session_date && s.session_date >= filterStart));
+  const cycleSessions = sessions.filter(s => {
+    if (selectedInvoiceId && selectedInvoice) {
+      const invNum = (selectedInvoice.invoice_number || "").trim();
+      return s.invoice_id === selectedInvoiceId ||
+        (s.source_invoice && s.source_invoice.trim() === invNum);
+    }
+    if (filterStart) return s.session_date && s.session_date >= filterStart;
+    return true;
+  });
   const used = cycleSessions.filter(s => s.status === "Completed").reduce((sum, s) => sum + (parseFloat(s.hours) || 0), 0);
   const pkg = (selectedInvoice?.package_size) || client.package_hours || 24;
   const rem = Math.max(0, pkg - used);
@@ -456,31 +553,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
     }
   };
 
-  // Sync from Google Drive (reads the public Google Sheets URL stored on the client).
-  const syncFromDrive = async () => {
-    const stored = client.attendance_sheet_url || client.drive_url || "";
-    const url = window.prompt(
-      "Paste the Google Sheets URL for this client's attendance sheet.\n\nThe sheet must be shared as 'Anyone with the link can view'.",
-      stored
-    );
-    if (!url) return;
-    try {
-      const r = await api.post(`/clients/${client.id}/invoices/sync-from-drive`, { drive_url: url });
-      const { invoices_added = [], invoices_updated = [], sessions_added = 0, sessions_skipped_existing = 0, matched_sheets = [] } = r.data || {};
-      const list = await api.get(`/clients/${client.id}/invoices`);
-      setInvoices(list.data || []);
-      alert([
-        `Sync complete from Drive`,
-        `Invoice sheets detected: ${matched_sheets.length}`,
-        `Invoices added: ${invoices_added.length}`,
-        `Invoices updated: ${invoices_updated.length}`,
-        `Sessions added: ${sessions_added}`,
-        `Sessions already existed (skipped): ${sessions_skipped_existing}`,
-      ].join("\n"));
-    } catch (e) {
-      alert("Sync from Drive failed: " + (e?.response?.data?.detail || e.message));
-    }
-  };
+  // Sync from Google Drive removed per product request.
 
   // Save: when invoice selected -> update the invoice; otherwise -> update the client defaults.
   const savePackageInfo = async () => {
@@ -546,26 +619,12 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
     onClose();
   };
 
-  // Group sessions by day-of-week (CYCLE sessions only)
-  const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"];
-  const byDay = {};
-  DAYS.forEach(d => byDay[d] = []);
-  [...cycleSessions].sort((a,b) => new Date(a.session_date) - new Date(b.session_date)).forEach(s => {
-    const d = new Date(s.session_date);
-    const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
-    if (byDay[dayName]) byDay[dayName].push(s);
-  });
-
-  const removeSess = async (sid) => {
-    if (!window.confirm("Delete this session?")) return;
-    await api.delete(`/sessions/${sid}`);
-    onDeleted();
-  };
-
   const fmtDate = (d) => {
     const dt = new Date(d);
     return `${dt.getDate()}/${dt.getMonth()+1}/${dt.getFullYear()}`;
   };
+  const dayShort = (d) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" });
+  const sortedInvoiceSessions = [...cycleSessions].sort((a, b) => new Date(a.session_date) - new Date(b.session_date));
 
   return (
     <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={onClose}>
@@ -604,11 +663,11 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                         title="Upload the client's master .xlsx — sheet tabs starting with INV will be added as invoices automatically.">
                   <FileXls size={14}/> Sync from Excel
                 </button>
-                <button data-testid="sync-drive-btn"
-                        onClick={syncFromDrive}
-                        className="btn btn-secondary text-xs"
-                        title="Fetch directly from a publicly shared Google Sheets URL (no upload needed).">
-                  <CloudArrowDown size={14}/> Sync from Drive
+                <button data-testid="invoice-details-btn" onClick={() => setShowInvoiceDetails(true)}
+                        disabled={!selectedInvoice}
+                        className="btn btn-outline text-xs disabled:opacity-50"
+                        title="View current invoice summary">
+                  <Receipt size={14}/> Invoice Details
                 </button>
               </>
             )}
@@ -769,10 +828,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                 </tr>
               </thead>
               <tbody>
-                {DAYS.map(day => {
-                  const list = byDay[day];
-                  if (list.length === 0) return null;
-                  return list.map((s, i) => {
+                {sortedInvoiceSessions.map(s => {
                     const stColor = s.status === "Completed" ? "#3D4F35" :
                                     s.status === "Cancelled" ? "#6B5218" :
                                     s.status === "No Show" ? "#8A3F27" : "#5C6853";
@@ -783,7 +839,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                     const canEdit = isAdmin || isSupervisorForClient(user, client.file_no) || (s.therapist_ids || []).includes(currentUserId);
                     return (
                       <tr key={s.id} className="border-t border-[#E8E4DE]">
-                        {i === 0 && <td className="p-2 font-bold align-top" rowSpan={list.length} style={{background: "#FAFAF7", color: "#2C3625"}}>{day}</td>}
+                        <td className="p-2 font-bold">{dayShort(s.session_date)}</td>
                         <td className="p-2 font-bold">{fmtDate(s.session_date)}</td>
                         <td className="p-2"><span className="pill text-[10px] uppercase" style={{background: stBg, color: stColor}}>{s.status}</span></td>
                         <td className="p-2">{s.start_time && s.end_time ? `${s.start_time} - ${s.end_time}` : "—"}</td>
@@ -792,11 +848,10 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                         <td className="p-2 italic" style={{color: "#5C6853"}}>{s.note || ""}</td>
                         <td className="p-2 text-right whitespace-nowrap no-print">
                           {canEdit && <button onClick={() => onEdit(s)} className="btn btn-ghost p-1.5"><PencilSimple size={14}/></button>}
-                          {canEdit && <button onClick={() => removeSess(s.id)} className="btn btn-ghost p-1.5 text-red-700"><Trash size={14}/></button>}
+                          {canEdit && <button onClick={async () => { if (window.confirm("Delete?")) { await api.delete(`/sessions/${s.id}`); onDeleted(); } }} className="btn btn-ghost p-1.5 text-red-700"><Trash size={14}/></button>}
                         </td>
                       </tr>
                     );
-                  });
                 })}
               </tbody>
             </table>
@@ -825,6 +880,35 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
             Generated {new Date().toLocaleString('en-US')} · Boost Growth Center · boost-growthsa.com
           </div>
         </div>
+
+        {/* Invoice Details popup */}
+        {showInvoiceDetails && selectedInvoice && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60]" onClick={() => setShowInvoiceDetails(false)}>
+            <div className="card p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+              <div className="flex justify-between items-center mb-3">
+                <div className="font-display text-xl" style={{ color: "#2C3625" }}>Invoice Details</div>
+                <button onClick={() => setShowInvoiceDetails(false)} className="btn btn-ghost p-2"><X size={18}/></button>
+              </div>
+              <div className="space-y-2 text-sm">
+                <div><span style={{ color: "#8B9E7A" }}>Invoice #</span> <strong>{selectedInvoice.invoice_number}</strong></div>
+                <div>
+                  <span className="pill text-xs" style={{ background: selectedInvoice.is_closed ? "#F8EBE7" : "#E5EBE1", color: selectedInvoice.is_closed ? "#8A3F27" : "#3D4F35" }}>
+                    {selectedInvoice.is_closed ? "Closed" : "Open"}
+                  </span>
+                </div>
+                {selectedInvoice.start_date && <div><span style={{ color: "#8B9E7A" }}>Start</span> {fmtDate(selectedInvoice.start_date)}</div>}
+                <div><span style={{ color: "#8B9E7A" }}>Package</span> {selectedInvoice.package_size || pkg}h</div>
+                <div><span style={{ color: "#8B9E7A" }}>Hours remaining</span> {rem.toFixed(1)}h</div>
+                <div>
+                  <span style={{ color: "#8B9E7A" }}>Payment</span>{" "}
+                  <span className="pill text-xs" style={{ background: paymentStatus === "complete" ? "#E5EBE1" : "#FAE8C8", color: paymentStatus === "complete" ? "#3D4F35" : "#8B6918" }}>
+                    {paymentStatus === "complete" ? "Paid" : "Pending"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* New Invoice modal */}
         {showNewInvModal && (

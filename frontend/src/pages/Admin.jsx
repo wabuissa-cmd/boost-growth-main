@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import api from "../api";
-import { Plus, PencilSimple, Trash, X, UserPlus, Key, EnvelopeSimple, CheckCircle, Warning, Database } from "@phosphor-icons/react";
+import { useAuth } from "../auth";
+import { Plus, PencilSimple, Trash, X, UserPlus, Key, EnvelopeSimple, CheckCircle, Warning, Database, SignOut } from "@phosphor-icons/react";
 
 export default function Admin() {
+  const { logout } = useAuth();
   const [therapists, setTherapists] = useState([]);
   const [edit, setEdit] = useState(null);
   const [emailSettings, setEmailSettings] = useState({ configured: false, from_email: "", key_preview: null });
@@ -109,11 +111,12 @@ export default function Admin() {
 
   return (
     <div>
-      <div className="flex items-center mb-5">
-        <div className="flex-1">
+      <div className="flex items-center mb-5 flex-wrap gap-2">
+        <div className="flex-1 min-w-[200px]">
           <h1 className="font-display text-3xl font-semibold" style={{color: "#2C3625"}}>Admin Panel</h1>
           <div className="text-sm" style={{color: "#5C6853"}}>Therapists & system settings</div>
         </div>
+        <button data-testid="admin-logout-btn" onClick={logout} className="btn btn-outline"><SignOut size={16}/> Log Out</button>
         <button data-testid="add-therapist-btn" onClick={() => setEdit({ name: "", color: "#7A8A6A", pin: "0000" })} className="btn btn-primary"><UserPlus size={16}/> New Therapist</button>
       </div>
 

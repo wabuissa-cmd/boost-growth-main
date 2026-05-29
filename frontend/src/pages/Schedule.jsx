@@ -52,6 +52,7 @@ export default function Schedule() {
   const [edit, setEdit] = useState(null);
   const [ctxMenu, setCtxMenu] = useState(null);
   const [notify, setNotify] = useState(null);
+  const [notifyReceipts, setNotifyReceipts] = useState([]);
   const [zoom, setZoom] = useState(() => {
     if (typeof window === "undefined") return 100;
     const stored = parseInt(localStorage.getItem("scheduleZoom") || "100", 10);
@@ -207,6 +208,34 @@ export default function Schedule() {
     });
   };
 
+  const openNotify = (cell, cancelState = null) => {
+    const therapist = therapists.find(t => t.id === cell.therapist_id);
+    const defaultMsg = cancelState === "cancel_therapist"
+      ? `Your session "${cell.service_code}${cell.child_name ? ' | ' + cell.child_name : ''}" at ${cell.time_slot} on ${DAYS_EN[cell.day]} has been marked as Therapist Cancellation.`
+      : cancelState === "cancel_child"
+        ? `The session "${cell.service_code}${cell.child_name ? ' | ' + cell.child_name : ''}" at ${cell.time_slot} on ${DAYS_EN[cell.day]} has been marked as Client Cancellation.`
+        : `Notice regarding ${cell.service_code}${cell.child_name ? ' | ' + cell.child_name : ''} — ${DAYS_EN[cell.day]} ${cell.time_slot}.`;
+    setNotify({
+      ...cell,
+      message: defaultMsg,
+      cancelState,
+      recipient_ids: cell.therapist_id ? [cell.therapist_id] : [],
+      send_email: false,
+      send_in_app: true,
+    });
+    setNotifyReceipts([]);
+    if (cell.id && isAdmin) {
+      api.get(`/schedule/${cell.id}/notification-receipts`).then(r => setNotifyReceipts(r.data || [])).catch(() => setNotifyReceipts([]));
+    }
+  };
+
+  const toggleRecipient = (tid) => {
+    setNotify(n => {
+      const ids = n.recipient_ids || [];
+      return { ...n, recipient_ids: ids.includes(tid) ? ids.filter(x => x !== tid) : [...ids, tid] };
+    });
+  };
+
   const save = async () => {
     const payload = { ...edit, week_start: weekStartISO };
     if (edit.id) await api.put(`/schedule/${edit.id}`, payload);
@@ -214,34 +243,25 @@ export default function Schedule() {
     setEdit(null); load();
   };
   const remove = async (id) => { await api.delete(`/schedule/${id}`); load(); };
-  const duplicate = async (id) => { await api.post(`/schedule/${id}/duplicate`); load(); };
   const sendNotify = async () => {
-    // If notify is for a cancellation state, also persist the cancel + email via cancel-notify
+    const payload = {
+      cell_id: notify.id,
+      message: notify.message,
+      recipient_ids: notify.recipient_ids || [],
+      send_email: !!notify.send_email,
+      send_in_app: notify.send_in_app !== false,
+    };
     if (notify.cancelState) {
-      await api.post(`/schedule/cancel-notify`, {
-        cell_id: notify.id,
-        state: notify.cancelState,
-        message: notify.message,
-        send_email: !!notify.send_email,
-        extra_email: notify.extra_email || null,
-      });
+      await api.post(`/schedule/cancel-notify`, { ...payload, state: notify.cancelState });
     } else {
-      await api.post(`/schedule/${notify.id}/notify`, { message: notify.message });
+      await api.post(`/schedule/${notify.id}/notify`, payload);
     }
     setNotify(null);
     load();
   };
   const setState = async (cell, state) => {
     if (state === "cancel_therapist" || state === "cancel_child") {
-      // Open notify modal first; cell update happens on send
-      const therapist = therapists.find(t => t.id === cell.therapist_id);
-      const defaultMsg = state === "cancel_therapist"
-        ? `Your session "${cell.service_code}${cell.child_name ? ' | ' + cell.child_name : ''}" at ${cell.time_slot} on day ${DAYS_EN[cell.day]} has been marked as Therapist Cancellation.`
-        : `The session "${cell.service_code}${cell.child_name ? ' | ' + cell.child_name : ''}" at ${cell.time_slot} on day ${DAYS_EN[cell.day]} has been marked as Client Cancellation.`;
-      setNotify({
-        ...cell, message: defaultMsg, cancelState: state,
-        send_email: true, extra_email: therapist?.email || "",
-      });
+      openNotify(cell, state);
       setCtxMenu(null);
       return;
     }
@@ -316,7 +336,7 @@ export default function Schedule() {
                         key={ts}
                         colSpan={dur}
                         data-testid={`sheet-cell-${t.id}-${di}-${ts}`}
-                        className={`sheet-td sheet-slot ${cell ? 'has-event' : ''} ${isAdmin ? 'editable' : ''} ${leaveInfo ? 'on-leave-cell' : ''}`}
+                        className={`sheet-td sheet-slot ${cell ? 'has-event' : 'cell-empty'} ${isAdmin ? 'editable' : ''} ${leaveInfo ? 'on-leave-cell' : ''}`}
                         style={cellStyle(cell)}
                         onClick={(e) => handleCellClick(e, t.id, di, ts, cell)}
                         onContextMenu={(e) => onCtx(e, cell)}
@@ -405,7 +425,7 @@ export default function Schedule() {
         <div className="flex-1 min-w-[240px]">
           <h1 className="font-display text-3xl font-semibold" style={{ color: "#2C3625" }}>Weekly Schedule</h1>
           <div className="text-sm" style={{ color: "#5C6853" }}>
-            {isAdmin ? "Click any cell to add/edit. Right-click for quick actions (cancel / notify / duplicate)." : "Your weekly schedule (read-only)"}
+            {isAdmin ? "Click any cell to add/edit. Right-click for quick actions (cancel / notify)." : "Your weekly schedule (read-only)"}
           </div>
         </div>
         <div className="flex items-center gap-1.5 card p-1.5">
@@ -518,8 +538,9 @@ export default function Schedule() {
             {!["LEAVE", "BREAK", "AVC"].includes(edit.service_code) && (
               <>
                 <label className="label">Child / Subject</label>
-                <input data-testid="cell-child-input" className="input mb-3" list="clients-list" value={edit.child_name || ""} onChange={e => setEdit({ ...edit, child_name: e.target.value, color: null })} placeholder="Child name" />
+                <input data-testid="cell-child-input" className="input mb-1" list="clients-list" value={edit.child_name || ""} onChange={e => setEdit({ ...edit, child_name: e.target.value, color: null })} placeholder="Type or select client name..." />
                 <datalist id="clients-list">{clients.map(c => <option key={c.id} value={c.name} />)}</datalist>
+                <div className="text-[11px] mb-3" style={{ color: "#8B9E7A" }}>Select from list or type a custom name (e.g. Amani (2:30-4:30))</div>
                 {edit.child_name && (
                   <div className="text-xs flex items-center gap-2 mb-3" style={{ color: "#5C6853" }}>
                     Auto-color: <span className="w-5 h-5 rounded border border-[#E8E4DE] inline-block" style={{ background: edit.color || getChildColor(edit.child_name) || "#E5EBE1" }} />
@@ -547,16 +568,20 @@ export default function Schedule() {
             <label className="label">Note</label>
             <input className="input mb-3" value={edit.note || ""} onChange={e => setEdit({ ...edit, note: e.target.value })} />
 
-            <label className="label">State</label>
-            <div className="flex gap-2 mb-4 flex-wrap">
-              {STATES.map(s => (
-                <button key={s.id} type="button" onClick={() => setEdit({ ...edit, state: s.id })}
-                  className={`pill ${edit.state === s.id ? "ring-2 ring-[#7A8A6A]" : ""}`}
-                  style={{ background: s.swatch, color: "#2C3625", border: `1px solid ${s.swatch}` }}>
-                  {s.id !== "normal" && "✕ "}{s.label}
-                </button>
-              ))}
-            </div>
+            {edit.id && (
+              <>
+                <label className="label">State</label>
+                <div className="flex gap-2 mb-4 flex-wrap">
+                  {STATES.map(s => (
+                    <button key={s.id} type="button" onClick={() => setEdit({ ...edit, state: s.id })}
+                      className={`pill ${edit.state === s.id ? "ring-2 ring-[#7A8A6A]" : ""}`}
+                      style={{ background: s.swatch, color: "#2C3625", border: `1px solid ${s.swatch}` }}>
+                      {s.id !== "normal" && "✕ "}{s.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
 
             <div className="flex gap-2 justify-end flex-wrap">
               {edit.id && isAdmin && (
@@ -572,8 +597,7 @@ export default function Schedule() {
                 </>
               )}
               {edit.id && <button data-testid="cell-delete-btn" onClick={() => { remove(edit.id); setEdit(null); }} className="btn btn-danger"><Trash size={16} /> Delete</button>}
-              {edit.id && <button onClick={() => { duplicate(edit.id); setEdit(null); }} className="btn btn-secondary"><Copy size={16} /> Duplicate</button>}
-              {edit.id && edit.state !== "normal" && <button onClick={() => { setNotify({ ...edit, message: "" }); setEdit(null); }} className="btn btn-gold"><BellRinging size={16} /> Notify</button>}
+              {edit.id && edit.state !== "normal" && <button onClick={() => { openNotify(edit); setEdit(null); }} className="btn btn-gold"><BellRinging size={16} /> Notify</button>}
               <button onClick={() => setEdit(null)} className="btn btn-outline">Cancel</button>
               <button data-testid="cell-save-btn" onClick={save} className="btn btn-primary">Save</button>
             </div>
@@ -585,13 +609,12 @@ export default function Schedule() {
         <div className="fixed card p-1 z-50 min-w-48" style={{ top: ctxMenu.y, left: ctxMenu.x }} onClick={e => e.stopPropagation()}>
           <button onClick={() => { handleCellClick(null, ctxMenu.cell.therapist_id, ctxMenu.cell.day, ctxMenu.cell.time_slot, ctxMenu.cell); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm">Edit</button>
           <button data-testid="copy-cell-btn" onClick={() => { copyCell(ctxMenu.cell); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm" style={{ color: "#7A8A6A" }}><Copy size={14} weight="duotone" /> Copy cell</button>
-          <button onClick={() => { duplicate(ctxMenu.cell.id); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm">Duplicate (next slot)</button>
           <div className="divider my-1" />
           <button onClick={() => setState(ctxMenu.cell, "cancel_child")} className="btn btn-ghost w-full justify-start text-sm" style={{ color: "#8B3A55" }}>🩷 Mark Client Cancel</button>
           <button onClick={() => setState(ctxMenu.cell, "cancel_therapist")} className="btn btn-ghost w-full justify-start text-sm" style={{ color: "#8B6918" }}>🟡 Mark Therapist Cancel</button>
           <button onClick={() => setState(ctxMenu.cell, "normal")} className="btn btn-ghost w-full justify-start text-sm">✓ Mark Normal</button>
           <div className="divider my-1" />
-          <button onClick={() => { setNotify({ ...ctxMenu.cell, message: "" }); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm"><BellRinging size={14} /> Notify Therapist</button>
+          <button onClick={() => { openNotify(ctxMenu.cell); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm"><BellRinging size={14} /> Notify Therapist</button>
           <button onClick={() => { remove(ctxMenu.cell.id); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm text-red-700"><Trash size={14} /> Delete</button>
         </div>
       )}
@@ -617,39 +640,50 @@ export default function Schedule() {
             <textarea data-testid="notify-message" className="textarea mb-3" rows={4} placeholder="Notification message..."
               value={notify.message} onChange={e => setNotify({ ...notify, message: e.target.value })} />
 
-            {notify.cancelState && (
-              <>
-                <div className="rounded-xl border p-3 mb-3" style={{ borderColor: "#E8E4DE", background: "#FAFAF7" }}>
-                  <label className="flex items-center gap-2 cursor-pointer mb-2">
-                    <input data-testid="notify-send-email-cb" type="checkbox" checked={!!notify.send_email}
-                      onChange={e => setNotify({ ...notify, send_email: e.target.checked })} />
-                    <span className="text-sm font-bold flex items-center gap-1" style={{ color: "#2C3625" }}>
-                      <BellRinging size={14} /> Also send email notification
-                    </span>
+            <div className="rounded-xl border p-3 mb-3" style={{ borderColor: "#E8E4DE", background: "#FAFAF7" }}>
+              <div className="text-[11px] font-bold mb-2" style={{ color: "#5C6853" }}>Recipients</div>
+              <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+                {therapists.map(t => (
+                  <label key={t.id} className="flex items-center gap-1.5 text-xs cursor-pointer pill px-2 py-1" style={{ background: (notify.recipient_ids || []).includes(t.id) ? "#E5EBE1" : "#fff", border: "1px solid #E8E4DE" }}>
+                    <input type="checkbox" checked={(notify.recipient_ids || []).includes(t.id)} onChange={() => toggleRecipient(t.id)} />
+                    {t.name}
                   </label>
-                  {notify.send_email && (
-                    <>
-                      <select data-testid="notify-email-input" className="select text-sm"
-                              value={notify.extra_email || ""}
-                              onChange={e => setNotify({ ...notify, extra_email: e.target.value })}>
-                        <option value="">— Select therapist email —</option>
-                        {therapists.filter(t => t.email).map(t => (
-                          <option key={t.id} value={t.email}>{t.name} · {t.email}</option>
-                        ))}
-                      </select>
-                      <div className="text-[11px] mt-2" style={{ color: "#8B9E7A" }}>
-                        💡 Only saved official therapist emails are listed. Email queues automatically once Resend API key is configured.
-                      </div>
-                    </>
-                  )}
-                </div>
-                <div className="text-xs mb-3 px-3 py-2 rounded-lg" style={{
-                  background: notify.cancelState === "cancel_therapist" ? "#FFF4C4" : "#FCE0E8",
-                  color: notify.cancelState === "cancel_therapist" ? "#6B5218" : "#8B3A55"
-                }}>
-                  ✕ The session will be marked as <b>{notify.cancelState === "cancel_therapist" ? "Therapist Cancellation" : "Client Cancellation"}</b>.
-                </div>
-              </>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl border p-3 mb-3" style={{ borderColor: "#E8E4DE", background: "#FAFAF7" }}>
+              <label className="flex items-center gap-2 cursor-pointer mb-2">
+                <input type="checkbox" checked={notify.send_in_app !== false} onChange={e => setNotify({ ...notify, send_in_app: e.target.checked })} />
+                <span className="text-sm font-bold" style={{ color: "#2C3625" }}>Send in-app notification</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input data-testid="notify-send-email-cb" type="checkbox" checked={!!notify.send_email} onChange={e => setNotify({ ...notify, send_email: e.target.checked })} />
+                <span className="text-sm font-bold flex items-center gap-1" style={{ color: "#2C3625" }}>
+                  <BellRinging size={14} /> Also send email notification
+                </span>
+              </label>
+            </div>
+
+            {notify.cancelState && (
+              <div className="text-xs mb-3 px-3 py-2 rounded-lg" style={{
+                background: notify.cancelState === "cancel_therapist" ? "#FFF4C4" : "#FCE0E8",
+                color: notify.cancelState === "cancel_therapist" ? "#6B5218" : "#8B3A55"
+              }}>
+                ✕ The session will be marked as <b>{notify.cancelState === "cancel_therapist" ? "Therapist Cancellation" : "Client Cancellation"}</b>.
+              </div>
+            )}
+
+            {isAdmin && notifyReceipts.length > 0 && (
+              <div className="rounded-xl border p-3 mb-3 text-xs" style={{ borderColor: "#E8E4DE", background: "#FAFAF7" }}>
+                <div className="font-bold mb-2" style={{ color: "#2C3625" }}>Read receipts</div>
+                {notifyReceipts.map(r => (
+                  <div key={r.id} className="flex items-center justify-between py-1 border-b border-[#F0EDE9] last:border-0">
+                    <span>{r.therapist_name || r.user_id}</span>
+                    <span style={{ color: r.acknowledged ? "#3D4F35" : "#8B6918" }}>{r.acknowledged ? "✓ Received & Read" : "⏳ Pending"}</span>
+                  </div>
+                ))}
+              </div>
             )}
 
             <div className="flex justify-end gap-2">

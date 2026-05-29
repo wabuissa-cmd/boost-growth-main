@@ -73,7 +73,7 @@ export default function ImportPage() {
         {[
           { id: "clients", label: "Clients", desc: "Excel/CSV with name, file_no, package_hours, etc.", icon: <UserList size={26} weight="duotone"/>, color: "#7A8A6A", bg: "#E5EBE1" },
           { id: "intake", label: "Intake", desc: "Pre/Post intake list (Excel/CSV)", icon: <FileXls size={26} weight="duotone"/>, color: "#D4A64A", bg: "#FAF0D1" },
-          { id: "schedule", label: "Schedule (xlsx)", desc: "Therapists' Schedule Excel file", icon: <CalendarBlank size={26} weight="duotone"/>, color: "#8B3A55", bg: "#FCE0E8" },
+          { id: "schedule", label: "Schedule (xlsx/csv)", desc: "Therapists' Schedule Excel or CSV file", icon: <CalendarBlank size={26} weight="duotone"/>, color: "#8B3A55", bg: "#FCE0E8" },
           { id: "historical", label: "Historical", desc: `${historicalWeeks.length} weeks ready from Base44`, icon: <CalendarBlank size={26} weight="duotone"/>, color: "#375568", bg: "#EAF0F3" },
         ].map(x => (
           <button key={x.id} onClick={() => { setType(x.id); setResult(null); }}
@@ -88,7 +88,7 @@ export default function ImportPage() {
       <div className="card p-6">
         {type === "schedule" ? (
           <div>
-            <div className="font-bold mb-3" style={{color: "#2C3625"}}>Upload Therapists' Schedule (.xlsx)</div>
+            <div className="font-bold mb-3" style={{color: "#2C3625"}}>Upload Therapists' Schedule (.xlsx or .csv)</div>
             <div className="text-xs mb-4 p-3 rounded-xl border border-[#E8E4DE]" style={{background: "#FAFAF7", color: "#5C6853"}}>
               The file must contain therapist names (e.g. "Ms. Maha") followed by Sunday-Thursday rows with 10 time-slot columns.
               Cell content like <code>SS | Sulaiman</code>, <code>HS | Omar</code>, <code>Meeting w/ Walaa</code>, <code>AVC</code>, <code>Supervision W/ Khalid</code> will be auto-parsed.
@@ -97,7 +97,7 @@ export default function ImportPage() {
             <input type="date" className="input mb-3" value={scheduleWeekStart} onChange={e => setScheduleWeekStart(e.target.value)}/>
             <label className="btn btn-outline w-full justify-start cursor-pointer mb-3">
               <UploadSimple size={18}/> {file ? file.name : "Choose Excel file..."}
-              <input type="file" accept=".xlsx,.xls" onChange={e => setFile(e.target.files[0])} className="hidden"/>
+              <input type="file" accept=".xlsx,.xls,.csv" onChange={e => setFile(e.target.files[0])} className="hidden"/>
             </label>
             {availableSheets.length > 0 && (
               <div className="mb-3">

@@ -50,6 +50,10 @@ export default function Shell() {
   ] : [];
 
   const markAllRead = async () => { await api.post("/notifications/read-all"); loadNotifs(); };
+  const acknowledge = async (nid) => {
+    await api.post(`/notifications/${nid}/acknowledge`);
+    loadNotifs();
+  };
 
   return (
     <div className="min-h-screen bg-organic flex flex-col">
@@ -113,6 +117,12 @@ export default function Shell() {
                         <div className="font-bold" style={{color: "#2C3625"}}>{n.title}</div>
                         <div className="text-xs mt-0.5" style={{color: "#5C6853"}}>{n.message}</div>
                         <div className="text-[10px] mt-1" style={{color: "#8B9E7A"}}>{new Date(n.created_at).toLocaleString('en-US')}</div>
+                        {n.requires_ack && !n.acknowledged && (
+                          <button onClick={() => acknowledge(n.id)} className="btn btn-outline text-[10px] mt-2 py-1 px-2">✓ Received & Read</button>
+                        )}
+                        {n.acknowledged && (
+                          <div className="text-[10px] mt-1 font-bold" style={{color: "#3D4F35"}}>✓ Acknowledged</div>
+                        )}
                       </div>
                     ))}
                   </div>

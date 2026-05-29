@@ -254,10 +254,19 @@ class LeaveStatusUpdate(BaseModel):
 
 class CancelNotifyIn(BaseModel):
     cell_id: str
-    state: str                     # cancel_therapist / cancel_child
+    state: Optional[str] = None           # cancel_therapist / cancel_child (optional)
     message: str
     send_email: Optional[bool] = False
-    extra_email: Optional[str] = None     # override or extra recipient
+    send_in_app: Optional[bool] = True
+    recipient_ids: Optional[List[str]] = None
+    extra_email: Optional[str] = None     # legacy single email override
+
+class ScheduleNotifyIn(BaseModel):
+    cell_id: str
+    message: str
+    recipient_ids: List[str] = []
+    send_email: Optional[bool] = False
+    send_in_app: Optional[bool] = True
 
 # ------------------- Auth -------------------
 @api.post("/auth/login")
@@ -642,11 +651,15 @@ async def list_schedule(week_start: Optional[str] = None, user=Depends(get_curre
     cells = await db.schedule_cells.find(q, {"_id": 0}).to_list(5000)
     return cells
 
-async def _notify(user_id: str, ntype: str, title: str, message: str):
-    await db.notifications.insert_one({
+async def _notify(user_id: str, ntype: str, title: str, message: str, **extra):
+    doc = {
         "id": str(uuid.uuid4()), "user_id": user_id, "type": ntype,
-        "title": title, "message": message, "read": False, "created_at": now_iso(),
-    })
+        "title": title, "message": message, "read": False,
+        "acknowledged": False, "created_at": now_iso(),
+        **extra,
+    }
+    await db.notifications.insert_one(doc)
+    return doc
 
 async def _notify_admins(ntype: str, title: str, message: str):
     """Send notification to all admin users."""
@@ -700,13 +713,43 @@ async def delete_schedule_cell(cid: str, _=Depends(admin_only)):
     return {"ok": True}
 
 @api.post("/schedule/{cid}/notify")
-async def notify_schedule(cid: str, body: dict, _=Depends(admin_only)):
+async def notify_schedule(cid: str, body: ScheduleNotifyIn, _=Depends(admin_only)):
     cell = await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
-    if not cell or not cell.get("therapist_id"):
-        raise HTTPException(status_code=400, detail="No therapist assigned")
-    msg = body.get("message") or f"Notice about session: {cell.get('child_name') or ''}"
-    await _notify(cell["therapist_id"], "schedule_alert", "Notice from Admin", msg)
-    return {"ok": True}
+    if not cell:
+        raise HTTPException(status_code=404, detail="Schedule cell not found")
+    msg = body.message or f"Notice about session: {cell.get('child_name') or ''}"
+    recipients = body.recipient_ids or ([cell["therapist_id"]] if cell.get("therapist_id") else [])
+    if not recipients:
+        raise HTTPException(status_code=400, detail="No recipients selected")
+    sent = []
+    for rid in recipients:
+        if body.send_in_app:
+            n = await _notify(
+                rid, "schedule_alert", "Notice from Admin", msg,
+                schedule_cell_id=cid, requires_ack=True,
+            )
+            sent.append({"user_id": rid, "notification_id": n["id"]})
+        if body.send_email:
+            therapist = await db.therapists.find_one({"id": rid}, {"_id": 0})
+            if therapist and therapist.get("email"):
+                subj = "[Boost Growth] Notice from Admin"
+                await _send_email_stub(therapist["email"], subj, msg)
+    return {"ok": True, "sent": sent}
+
+@api.get("/schedule/{cid}/notification-receipts")
+async def schedule_notification_receipts(cid: str, _=Depends(admin_only)):
+    items = await db.notifications.find(
+        {"schedule_cell_id": cid}, {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    therapists = {t["id"]: t async for t in db.therapists.find({}, {"_id": 0, "id": 1, "name": 1})}
+    out = []
+    for n in items:
+        tid = n.get("user_id")
+        out.append({
+            **n,
+            "therapist_name": therapists.get(tid, {}).get("name") if tid in therapists else None,
+        })
+    return out
 
 # ------------------- Clients & Sessions -------------------
 @api.get("/clients")
@@ -1288,6 +1331,7 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
                 "note": note_val or None,
                 "source": origin,
                 "source_invoice": clean,
+                "invoice_id": inv_doc.get("id"),
                 "sync_key": sync_key,
                 "created_at": now_iso(),
             }
@@ -1502,6 +1546,14 @@ async def list_notifications(user=Depends(get_current_user)):
 @api.post("/notifications/{nid}/read")
 async def mark_read(nid: str, user=Depends(get_current_user)):
     await db.notifications.update_one({"id": nid, "user_id": user["id"]}, {"$set": {"read": True}})
+    return {"ok": True}
+
+@api.post("/notifications/{nid}/acknowledge")
+async def acknowledge_notification(nid: str, user=Depends(get_current_user)):
+    await db.notifications.update_one(
+        {"id": nid, "user_id": user["id"]},
+        {"$set": {"read": True, "acknowledged": True, "acknowledged_at": now_iso()}},
+    )
     return {"ok": True}
 
 @api.post("/notifications/read-all")
@@ -1987,21 +2039,29 @@ async def _send_email_stub(to: str, subject: str, body: str) -> dict:
 
 @api.post("/schedule/cancel-notify")
 async def schedule_cancel_notify(payload: CancelNotifyIn, _=Depends(admin_only)):
-    """Mark cell as cancelled + send in-app notification + queue email if requested."""
+    """Mark cell as cancelled (optional) + send in-app/email notifications to selected therapists."""
     cell = await db.schedule_cells.find_one({"id": payload.cell_id}, {"_id": 0})
     if not cell:
         raise HTTPException(status_code=404, detail="Schedule cell not found")
-    # Update state
-    await db.schedule_cells.update_one({"id": payload.cell_id}, {"$set": {"state": payload.state}})
-    # In-app notification
-    if cell.get("therapist_id"):
-        title = "Session marked as Therapist Cancellation" if payload.state == "cancel_therapist" else "Session marked as Client Cancellation"
-        await _notify(cell["therapist_id"], "schedule_cancel", title, payload.message)
-        # Email
-        email_result = None
+    if payload.state:
+        await db.schedule_cells.update_one({"id": payload.cell_id}, {"$set": {"state": payload.state}})
+    recipients = payload.recipient_ids or ([cell["therapist_id"]] if cell.get("therapist_id") else [])
+    title = "Notice from Admin"
+    if payload.state == "cancel_therapist":
+        title = "Session marked as Therapist Cancellation"
+    elif payload.state == "cancel_child":
+        title = "Session marked as Client Cancellation"
+    sent = []
+    for rid in recipients:
+        if payload.send_in_app:
+            n = await _notify(
+                rid, "schedule_cancel", title, payload.message,
+                schedule_cell_id=payload.cell_id, requires_ack=True,
+            )
+            sent.append({"user_id": rid, "notification_id": n["id"]})
         if payload.send_email:
-            therapist = await db.therapists.find_one({"id": cell["therapist_id"]}, {"_id": 0})
-            recipient = payload.extra_email or (therapist.get("email") if therapist else None)
+            therapist = await db.therapists.find_one({"id": rid}, {"_id": 0})
+            recipient = payload.extra_email if len(recipients) == 1 and payload.extra_email else (therapist.get("email") if therapist else None)
             if recipient:
                 subj = f"[Boost Growth] {title}"
                 body_lines = [
@@ -2014,9 +2074,8 @@ async def schedule_cancel_notify(payload: CancelNotifyIn, _=Depends(admin_only))
                     "",
                     "— Boost Growth Portal",
                 ]
-                email_result = await _send_email_stub(recipient, subj, "\n".join(body_lines))
-        return {"ok": True, "in_app": True, "email": email_result}
-    return {"ok": True, "in_app": False}
+                await _send_email_stub(recipient, subj, "\n".join(body_lines))
+    return {"ok": True, "sent": sent}
 
 # ------------------- Intake (admin only) -------------------
 @api.get("/intake")
@@ -2318,157 +2377,256 @@ async def list_excel_sheets(file: UploadFile = File(...), _=Depends(admin_only))
     return {"sheets": wb.sheetnames}
 
 
-@api.post("/import/schedule-excel")
-async def import_schedule_excel(file: UploadFile = File(...),
-                                 week_start: str = Form(...),
-                                 clear_existing: Optional[str] = Form(None),
-                                 sheet_name: Optional[str] = Form(None),
-                                 _=Depends(admin_only)):
-    """Parse a Therapists' Schedule .xlsx file and create cells for the given week_start.
-    Expected layout: each sheet/section has a therapist name with rows for Sunday→Thursday
-    and 10 time-slot columns. Cell text format: 'SS | Child', 'HS | Child', 'Meeting w/ X', 'AVC', 'Leave', etc.
-    """
-    import openpyxl, io
-    content = await file.read()
-    wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
-    therapists = await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).to_list(100)
-    t_by_name = {t["name"]: t["id"] for t in therapists}
-    # Also accept short names
-    for t in therapists:
-        short = t["name"].replace("Ms. ", "").strip()
-        t_by_name[short] = t["id"]
-        t_by_name[short.lower()] = t["id"]
+SCHEDULE_TIME_SLOTS = [
+    "8:00 AM - 9:00 AM", "9:00 AM - 10:00 AM", "10:00 AM - 11:00 AM",
+    "11:00 AM - 12:00 PM", "12:00 PM - 1:00 PM", "1:00 PM - 2:00 PM",
+    "2:00 PM - 3:00 PM", "3:00 PM - 4:00 PM", "4:00 PM - 5:00 PM",
+    "5:00 PM - 6:00 PM",
+]
+SCHEDULE_DAYS_MAP = {"sunday": 0, "monday": 1, "tuesday": 2, "wednesday": 3, "thursday": 4}
 
-    DAYS_MAP = {"sunday": 0, "monday": 1, "tuesday": 2, "wednesday": 3, "thursday": 4}
-    TIMES = ["8:00 AM - 9:00 AM","9:00 AM - 10:00 AM","10:00 AM - 11:00 AM",
-             "11:00 AM - 12:00 PM","12:00 PM - 1:00 PM","1:00 PM - 2:00 PM",
-             "2:00 PM - 3:00 PM","3:00 PM - 4:00 PM","4:00 PM - 5:00 PM",
-             "5:00 PM - 6:00 PM"]
 
-    if clear_existing == "true":
-        await db.schedule_cells.delete_many({"week_start": week_start})
-
-    inserted = 0
-    skipped_unknown_therapist = []
-
-    def parse_cell(txt: str):
-        """Returns (service_code, child_name, custom_time, note) for a cell text."""
-        if not txt or not str(txt).strip():
-            return None
-        txt = str(txt).strip()
-        upper = txt.upper()
-        custom = None
-        note = None
-        child = None
+def _parse_schedule_cell_text(txt: str):
+    """Returns (service_code, child_name, custom_time, note) or None."""
+    if not txt or not str(txt).strip():
+        return None
+    txt = str(txt).strip()
+    upper = txt.upper()
+    custom = None
+    note = None
+    child = None
+    service = "SS"
+    if "AVC" in upper:
+        service = "AVC"; note = txt
+    elif "LEAVE" in upper:
+        service = "LEAVE"; note = txt
+    elif "BREAK" in upper:
+        service = "BREAK"; note = txt
+    elif "SUPERVISION" in upper:
+        service = "SUPERVISION"
+    elif "OBSERVATION" in upper:
+        service = "OBSERVATION"
+    elif "MEETING" in upper:
+        service = "MEETING"
+    elif upper.startswith("HS"):
+        service = "HS"
+    elif upper.startswith("OS"):
+        service = "OS"
+    elif upper.startswith("SS"):
         service = "SS"
-        if "AVC" in upper: service = "AVC"; note = txt
-        elif "LEAVE" in upper: service = "LEAVE"; note = txt
-        elif "BREAK" in upper: service = "BREAK"; note = txt
-        elif "SUPERVISION" in upper: service = "SUPERVISION"
-        elif "OBSERVATION" in upper: service = "OBSERVATION"
-        elif "MEETING" in upper: service = "MEETING"
-        elif upper.startswith("HS"): service = "HS"
-        elif upper.startswith("OS"): service = "OS"
-        elif upper.startswith("SS"): service = "SS"
-        # Extract child after | or W/ or with
-        if "|" in txt:
-            child = txt.split("|", 1)[1].strip()
-        elif "W/" in upper:
-            idx = upper.index("W/")
-            child = txt[idx+2:].strip()
-        elif " with " in txt.lower():
-            child = txt.lower().split(" with ", 1)[1].strip().title()
-        # Extract custom time inside ( )
-        if child and "(" in child:
-            m_open = child.find("(")
-            m_close = child.find(")", m_open)
-            if m_close > m_open:
-                custom = child[m_open+1:m_close].strip()
-                child = child[:m_open].strip()
-        return service, child, custom, note
+    if "|" in txt:
+        child = txt.split("|", 1)[1].strip()
+    elif "W/" in upper:
+        idx = upper.index("W/")
+        child = txt[idx + 2:].strip()
+    elif " with " in txt.lower():
+        child = txt.lower().split(" with ", 1)[1].strip().title()
+    if child and "(" in child:
+        m_open = child.find("(")
+        m_close = child.find(")", m_open)
+        if m_close > m_open:
+            custom = child[m_open + 1:m_close].strip()
+            child = child[:m_open].strip()
+    return service, child, custom, note
 
-    # Iterate selected sheet(s) only
-    sheets_to_process = [wb[sheet_name]] if sheet_name and sheet_name in wb.sheetnames else wb.worksheets
-    for ws in sheets_to_process:
-        # Build a dict of merged ranges -> width(cols) so we can detect long sessions
-        merged_lookup = {}  # (row, col) -> (cols_span)
-        for mrange in ws.merged_cells.ranges:
-            top_row, top_col = mrange.min_row, mrange.min_col
-            cols_span = mrange.max_col - mrange.min_col + 1
-            merged_lookup[(top_row, top_col)] = cols_span
-        # Use cell-by-cell iteration so we can track merged cells
-        max_row = ws.max_row
-        max_col = ws.max_column
-        i = 1  # 1-indexed
-        while i <= max_row:
-            # Read row as text
-            row_cells = []
-            for c in range(1, min(max_col, 16) + 1):
-                v = ws.cell(row=i, column=c).value
-                row_cells.append(str(v).strip() if v is not None else "")
-            joined = " ".join(c.lower() for c in row_cells)
-            # Detect header row
-            if "therapist" in joined and "days" in joined and "8:00" in joined:
-                current_t_id = None
-                for k in range(1, 6):
-                    sub_row = i + k
-                    if sub_row > max_row:
+
+def _resolve_schedule_therapist(name: str, t_by_name: dict) -> Optional[str]:
+    name = (name or "").strip()
+    if not name:
+        return None
+    if name in t_by_name:
+        return t_by_name[name]
+    for key, tid in t_by_name.items():
+        if key.lower() == name.lower():
+            return tid
+    return None
+
+
+def _normalize_schedule_grid(rows) -> List[List[str]]:
+    grid = []
+    for row in rows:
+        if row is None:
+            grid.append([])
+            continue
+        cells = []
+        for c in row:
+            if c is None:
+                cells.append("")
+            else:
+                cells.append(str(c).strip())
+        grid.append(cells)
+    return grid
+
+
+async def _import_schedule_grid(grid: List[List[str]], week_start: str, t_by_name: dict, clear_existing: bool):
+    if clear_existing:
+        await db.schedule_cells.delete_many({"week_start": week_start})
+    inserted = 0
+    skipped_unknown = []
+    time_slots = list(SCHEDULE_TIME_SLOTS)
+    i = 0
+    while i < len(grid):
+        row = grid[i]
+        joined = " ".join(c.lower() for c in row)
+        if "therapist" in joined and "days" in joined and "8:00" in joined:
+            header_times = []
+            for c in row[3:]:
+                if c and ("AM" in c.upper() or "PM" in c.upper()):
+                    header_times.append(c)
+            if header_times:
+                time_slots = header_times
+            current_t_id = None
+            i += 1
+            while i < len(grid):
+                r = grid[i]
+                if not any(r):
+                    if i + 1 < len(grid) and not any(grid[i + 1]):
+                        i += 1
                         break
-                    name_candidate = (ws.cell(row=sub_row, column=2).value or "")
-                    name_candidate = str(name_candidate).strip()
-                    if name_candidate and current_t_id is None:
-                        if name_candidate in t_by_name:
-                            current_t_id = t_by_name[name_candidate]
-                        else:
-                            for key, tid in t_by_name.items():
-                                if key.lower() == name_candidate.lower():
-                                    current_t_id = tid; break
-                    if current_t_id is None:
-                        if name_candidate and name_candidate not in skipped_unknown_therapist:
-                            skipped_unknown_therapist.append(name_candidate)
-                        continue
-                    day_label = str(ws.cell(row=sub_row, column=3).value or "").strip().lower()
-                    day_idx = DAYS_MAP.get(day_label)
-                    if day_idx is None:
-                        continue
-                    # Time slots in cols D-M (4-13). Skip cells covered by merge from previous slot.
-                    slot_idx = 0
-                    while slot_idx < 10:
-                        col_idx = 4 + slot_idx
-                        if col_idx > max_col:
+                    i += 1
+                    continue
+                name_c = r[1] if len(r) > 1 else ""
+                if name_c and name_c.lower() not in SCHEDULE_DAYS_MAP:
+                    tid = _resolve_schedule_therapist(name_c, t_by_name)
+                    if tid:
+                        current_t_id = tid
+                    elif name_c and name_c not in skipped_unknown:
+                        skipped_unknown.append(name_c)
+                day_label = (r[2] if len(r) > 2 else "").lower()
+                day_idx = SCHEDULE_DAYS_MAP.get(day_label)
+                if day_idx is not None and current_t_id:
+                    for slot_idx, ts in enumerate(time_slots):
+                        col_idx = 3 + slot_idx
+                        if col_idx >= len(r):
                             break
-                        # Check if this cell is the start of a merged range
-                        cells_span = merged_lookup.get((sub_row, col_idx), 1)
-                        # Check if this cell is COVERED by a merge that started earlier (same row, earlier col)
-                        is_covered = False
-                        for (mr, mc), span in merged_lookup.items():
-                            if mr == sub_row and mc < col_idx and mc + span > col_idx:
-                                is_covered = True; break
-                        if is_covered:
-                            slot_idx += 1; continue
-                        val = ws.cell(row=sub_row, column=col_idx).value
-                        val_str = str(val).strip() if val is not None else ""
-                        parsed = parse_cell(val_str)
+                        val = r[col_idx].strip()
+                        parsed = _parse_schedule_cell_text(val)
                         if parsed:
                             service, child, custom, note = parsed
                             await db.schedule_cells.insert_one({
                                 "id": str(uuid.uuid4()),
                                 "therapist_id": current_t_id,
                                 "day": day_idx,
-                                "time_slot": TIMES[slot_idx],
-                                "service_code": service, "child_name": child,
-                                "note": note, "custom_time": custom,
-                                "state": "normal", "color": None,
-                                "duration": cells_span,  # merged cell -> long session
-                                "week_start": week_start, "created_at": now_iso(),
+                                "time_slot": ts,
+                                "service_code": service,
+                                "child_name": child,
+                                "note": note,
+                                "custom_time": custom,
+                                "state": "normal",
+                                "color": None,
+                                "duration": 1,
+                                "week_start": week_start,
+                                "created_at": now_iso(),
                             })
                             inserted += 1
-                        slot_idx += cells_span  # advance past merged width
-                i += 6
-                continue
-            i += 1
+                i += 1
+            continue
+        i += 1
+    return inserted, skipped_unknown
 
-    return {"cells_inserted": inserted, "week_start": week_start, "skipped_therapists": skipped_unknown_therapist[:20]}
+
+async def _seed_schedule_week_2026_05_24(t_by_name: dict):
+    """Seed May 24–28 2026 schedule if empty (idempotent)."""
+    week_start = "2026-05-24"
+    if await db.schedule_cells.count_documents({"week_start": week_start}) > 0:
+        return 0
+    seed_rows = [
+        ("Ms. Maha", 0, "8:00 AM - 9:00 AM", "Leave"),
+        ("Ms. Fahda", 0, "10:00 AM - 11:00 AM", "Supervision W/ Lulu (10-11:30)"),
+        ("Ms. Fahda", 0, "11:00 AM - 12:00 PM", "HS | Saleh (11:30-1:30)"),
+        ("Ms. Fahda", 0, "1:00 PM - 2:00 PM", "HS | Ibrahim"),
+        ("Ms. Fahda", 1, "8:00 AM - 9:00 AM", "HS | Abdulaziz A"),
+        ("Ms. Fahda", 1, "9:00 AM - 10:00 AM", "HS | Ibrahim"),
+        ("Ms. Razan", 0, "8:00 AM - 9:00 AM", "Leave"),
+        ("Ms. Manal", 0, "8:00 AM - 9:00 AM", "HS | Abdulaziz A"),
+        ("Ms. Manal", 0, "9:00 AM - 10:00 AM", "HS | Omar"),
+        ("Ms. Manal", 1, "8:00 AM - 9:00 AM", "HS | Salman"),
+        ("Ms. Manal", 1, "9:00 AM - 10:00 AM", "HS | Saleh"),
+        ("Ms. Hajer", 0, "8:00 AM - 9:00 AM", "Leave"),
+        ("Ms. Rahaf", 0, "8:00 AM - 9:00 AM", "Leave"),
+        ("Ms. Shatha", 0, "8:00 AM - 9:00 AM", "Leave"),
+        ("Ms. Alhanouf", 0, "8:00 AM - 9:00 AM", "Leave"),
+        ("Ms. Waad", 0, "8:00 AM - 9:00 AM", "Leave"),
+        ("Ms. Bodoor", 0, "8:00 AM - 9:00 AM", "Leave"),
+        ("Ms. Fatimah", 0, "8:00 AM - 9:00 AM", "HS | Lulu"),
+        ("Ms. Fatimah", 0, "9:00 AM - 10:00 AM", "HS | Abdulaziz W"),
+        ("Ms. Fatimah", 0, "10:00 AM - 11:00 AM", "AVC"),
+        ("Ms. Fatimah", 1, "8:00 AM - 9:00 AM", "HS | Lulu"),
+        ("Ms. Fatimah", 1, "9:00 AM - 10:00 AM", "HS | Abdulaziz W"),
+        ("Ms. Shrooq", 0, "8:00 AM - 9:00 AM", "Leave"),
+        ("Ms. Abeer", 0, "8:00 AM - 9:00 AM", "Leave"),
+        ("Ms. Najla", 0, "8:00 AM - 9:00 AM", "HS | Abdulaziz A"),
+        ("Ms. Najla", 0, "9:00 AM - 10:00 AM", "HS | Omar"),
+        ("Ms. Najla", 1, "8:00 AM - 9:00 AM", "HS | Khalid"),
+        ("Ms. Walaa", 0, "8:00 AM - 9:00 AM", "HS | Khalid"),
+        ("Ms. Walaa", 1, "8:00 AM - 9:00 AM", "HS | Khalid"),
+    ]
+    inserted = 0
+    for tname, day, slot, content in seed_rows:
+        tid = _resolve_schedule_therapist(tname, t_by_name)
+        if not tid:
+            continue
+        parsed = _parse_schedule_cell_text(content)
+        if not parsed:
+            continue
+        service, child, custom, note = parsed
+        await db.schedule_cells.insert_one({
+            "id": str(uuid.uuid4()),
+            "therapist_id": tid,
+            "day": day,
+            "time_slot": slot,
+            "service_code": service,
+            "child_name": child,
+            "note": note,
+            "custom_time": custom,
+            "state": "normal",
+            "color": None,
+            "duration": 1,
+            "week_start": week_start,
+            "created_at": now_iso(),
+        })
+        inserted += 1
+    if inserted:
+        logger.info(f"Seeded {inserted} schedule cells for week {week_start}")
+    return inserted
+
+
+@api.post("/import/schedule-excel")
+async def import_schedule_excel(file: UploadFile = File(...),
+                                 week_start: str = Form(...),
+                                 clear_existing: Optional[str] = Form(None),
+                                 sheet_name: Optional[str] = Form(None),
+                                 _=Depends(admin_only)):
+    """Parse Therapists' Schedule .xlsx or .csv and create cells for week_start."""
+    import io
+    content = await file.read()
+    fname = (file.filename or "").lower()
+    therapists = await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).to_list(100)
+    t_by_name = {t["name"]: t["id"] for t in therapists}
+    for t in therapists:
+        short = t["name"].replace("Ms. ", "").strip()
+        t_by_name[short] = t["id"]
+        t_by_name[short.lower()] = t["id"]
+
+    if fname.endswith(".csv"):
+        import csv
+        text = content.decode("utf-8-sig", errors="replace")
+        grid = _normalize_schedule_grid(list(csv.reader(io.StringIO(text))))
+    else:
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+        ws = wb[sheet_name] if sheet_name and sheet_name in wb.sheetnames else wb.active
+        max_row = ws.max_row or 0
+        max_col = ws.max_column or 0
+        raw = []
+        for r in range(1, max_row + 1):
+            raw.append([ws.cell(row=r, column=c).value for c in range(1, max_col + 1)])
+        grid = _normalize_schedule_grid(raw)
+
+    inserted, skipped = await _import_schedule_grid(
+        grid, week_start, t_by_name, clear_existing == "true"
+    )
+    return {"cells_inserted": inserted, "week_start": week_start, "skipped_therapists": skipped[:20]}
 
 @api.get("/")
 async def root():
@@ -2636,6 +2794,14 @@ async def _run_startup():
                     added += 1
             if added:
                 logger.info(f"Added {added} new therapist(s) without disturbing existing data")
+
+        # Seed schedule week 2026-05-24 if empty
+        t_map = {t["name"]: t["id"] async for t in db.therapists.find({}, {"_id": 0, "name": 1, "id": 1})}
+        for t in await db.therapists.find({}, {"_id": 0, "name": 1, "id": 1}).to_list(100):
+            short = t["name"].replace("Ms. ", "").strip()
+            t_map[short] = t["id"]
+            t_map[short.lower()] = t["id"]
+        await _seed_schedule_week_2026_05_24(t_map)
 
         # Load persisted email settings from db.settings into env
         settings_doc = await db.settings.find_one({"key": "email"}, {"_id": 0})
