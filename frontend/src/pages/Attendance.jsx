@@ -46,11 +46,14 @@ function getUsedHours(sessions, clientId, resetAt) {
 }
 
 function ServiceTypeToggle({ value, onChange, tabState }) {
+  const ts = tabState || {};
   const renderBtn = (code) => {
     const active = value === code;
-    const count = code === "HS" ? tabState.hsCount : tabState.ssCount;
-    const legacy = code === "HS" ? tabState.hsLegacy : tabState.ssLegacy;
-    const disabled = code === "HS" ? tabState.hsDisabled : tabState.ssDisabled;
+    const count = code === "HS" ? (ts.hsCount || 0) : (ts.ssCount || 0);
+    const legacy = code === "HS" ? ts.hsLegacy : ts.ssLegacy;
+    const disabled = code === "HS" ? ts.hsDisabled : ts.ssDisabled;
+
+    let label = code;
     if (count > 0) {
       label = legacy ? `${code} (legacy) (${count})` : `${code} (${count})`;
     } else if (!disabled) {
@@ -62,7 +65,7 @@ function ServiceTypeToggle({ value, onChange, tabState }) {
     const tooltip = disabled
       ? `This client does not have ${code === "HS" ? "Home Session (HS)" : "School Support (SS)"} service`
       : legacy
-        ? `Historical ${code} invoices (client is now ${tabState.clientType || "other"} only)`
+        ? `Historical ${code} invoices (client is now ${ts.clientType || "other"} only)`
         : undefined;
 
     return (
