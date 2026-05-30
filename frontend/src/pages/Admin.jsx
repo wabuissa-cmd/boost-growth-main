@@ -8,9 +8,15 @@ export default function Admin() {
   const { logout } = useAuth();
   const [therapists, setTherapists] = useState([]);
   const [edit, setEdit] = useState(null);
-  const [emailSettings, setEmailSettings] = useState({ configured: false, from_email: "", key_preview: null });
+  const [emailSettings, setEmailSettings] = useState({
+    configured: false, from_email: "", key_preview: null, active_provider: "none",
+    smtp_configured: false, smtp_host: "smtp.gmail.com", smtp_port: 587, smtp_user: "",
+  });
   const [editEmail, setEditEmail] = useState(false);
-  const [emailForm, setEmailForm] = useState({ resend_api_key: "", from_email: "" });
+  const [emailForm, setEmailForm] = useState({
+    resend_api_key: "", from_email: "", email_provider: "auto",
+    smtp_host: "smtp.gmail.com", smtp_port: 587, smtp_user: "", smtp_password: "",
+  });
   const [emailQueue, setEmailQueue] = useState([]);
   const [testTo, setTestTo] = useState("");
   const [testResult, setTestResult] = useState(null);
@@ -40,7 +46,15 @@ export default function Admin() {
     setTherapists(t.data);
     setEmailSettings(e.data);
     setEmailQueue(q.data);
-    setEmailForm({ resend_api_key: "", from_email: e.data?.from_email || "" });
+    setEmailForm({
+      resend_api_key: "",
+      from_email: e.data?.from_email || "Boost Growth <hr@boostgrowthsa.com>",
+      email_provider: e.data?.provider || "auto",
+      smtp_host: e.data?.smtp_host || "smtp.gmail.com",
+      smtp_port: e.data?.smtp_port || 587,
+      smtp_user: e.data?.smtp_user || "",
+      smtp_password: "",
+    });
   };
   useEffect(() => { load(); }, []);
 
@@ -48,7 +62,12 @@ export default function Admin() {
     const payload = {};
     if (emailForm.resend_api_key) payload.resend_api_key = emailForm.resend_api_key;
     if (emailForm.from_email) payload.from_email = emailForm.from_email;
-    if (Object.keys(payload).length === 0) { alert("Provide API key or From email"); return; }
+    if (emailForm.email_provider) payload.email_provider = emailForm.email_provider;
+    if (emailForm.smtp_host) payload.smtp_host = emailForm.smtp_host;
+    if (emailForm.smtp_port) payload.smtp_port = parseInt(emailForm.smtp_port, 10);
+    if (emailForm.smtp_user) payload.smtp_user = emailForm.smtp_user;
+    if (emailForm.smtp_password) payload.smtp_password = emailForm.smtp_password;
+    if (Object.keys(payload).length === 0) { alert("أدخلي بيانات SMTP أو Resend API Key"); return; }
     try {
       await api.post("/admin/email-settings", payload);
       setEditEmail(false); load();
@@ -418,36 +437,68 @@ export default function Admin() {
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <EnvelopeSimple size={20} weight="duotone" style={{ color: "#7A8A6A" }} />
-            <div className="font-bold" style={{ color: "#2C3625" }}>Email Notifications (Resend)</div>
+            <div className="font-bold" style={{ color: "#2C3625" }}>Email Notifications</div>
             {emailSettings.configured
-              ? <span className="pill text-[10px] px-2 py-0.5" style={{ background: "#E5EBE1", color: "#3D4F35" }}><CheckCircle size={11} weight="fill" /> Configured</span>
+              ? <span className="pill text-[10px] px-2 py-0.5" style={{ background: "#E5EBE1", color: "#3D4F35" }}><CheckCircle size={11} weight="fill" /> {emailSettings.active_provider === "smtp" ? "Gmail/SMTP" : emailSettings.active_provider === "resend" ? "Resend" : "Configured"}</span>
               : <span className="pill text-[10px] px-2 py-0.5" style={{ background: "#FAF0D1", color: "#6B5218" }}><Warning size={11} weight="fill" /> Not configured</span>}
           </div>
           <button data-testid="edit-email-settings-btn" onClick={() => setEditEmail(s => !s)} className="btn btn-outline text-xs">
             <PencilSimple size={14} /> {editEmail ? "Cancel" : "Configure"}
           </button>
         </div>
-        <div className="text-xs mb-3 px-3 py-2 rounded-lg" style={{ background: "#FAF0D1", color: "#6B5218" }}>
-          <strong>⚠️ Resend Test Mode</strong> — While using <code>onboarding@resend.dev</code> as From, you can ONLY send emails to the address you registered with at Resend. To send to all therapists' work emails:
-          <ol className="list-decimal pl-5 mt-1.5">
-            <li>Go to <a href="https://resend.com/domains" target="_blank" rel="noreferrer" className="underline font-bold">resend.com/domains</a> → Add Domain → <code>boostgrowthsa.com</code></li>
-            <li>Add the 3 DNS records Resend gives you</li>
-            <li>Wait for verification (10 min – 24 h)</li>
-            <li>Then change "From Email" below to <code>noreply@boostgrowthsa.com</code></li>
+
+        <div className="text-xs mb-3 px-3 py-3 rounded-lg" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+          <strong>✅ الطريقة الأسهل (موصى بها): Gmail / Google Workspace</strong>
+          <p className="mt-1.5">إذا عندكم إيميل <code>hr@boostgrowthsa.com</code> على Google — ما تحتاجين Resend ولا DNS. فقط App Password:</p>
+          <ol className="list-decimal pr-5 mt-2 space-y-1">
+            <li>افتحي <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" className="underline font-bold">Google App Passwords</a> (لازم 2-Step Verification مفعّل)</li>
+            <li>أنشئي App Password جديد → انسخي الرمز (16 حرف)</li>
+            <li>Configure → Provider: <strong>Gmail (SMTP)</strong></li>
+            <li>SMTP User: <code>hr@boostgrowthsa.com</code> · Password: الرمز · From: <code>Boost Growth &lt;hr@boostgrowthsa.com&gt;</code></li>
+            <li>Save → Send Test → أي إيميل (إيميلك أو إيميل الأخصائي)</li>
           </ol>
         </div>
-        <div className="text-xs mb-3" style={{ color: "#5C6853" }}>
-          Get/manage keys: <a href="https://resend.com/api-keys" target="_blank" rel="noreferrer" className="underline" style={{ color: "#7A8A6A" }}>resend.com/api-keys</a>
+
+        <div className="text-xs mb-3 px-3 py-2 rounded-lg" style={{ background: "#FAF0D1", color: "#6B5218" }}>
+          <strong>⚠️ Resend (بديل) — ليش ما ضبط معك؟</strong>
+          <p className="mt-1">بدون تفعيل الدومين في <a href="https://resend.com/domains" target="_blank" rel="noreferrer" className="underline">resend.com/domains</a>، Resend يرسل <em>فقط</em> لإيميل حسابك المسجّل في Resend — مو لإيميل الأخصائيين. لإرسال لأي شخص لازم تضيفين DNS records لـ <code>boostgrowthsa.com</code>.</p>
         </div>
+
         {editEmail ? (
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
-              <label className="label">Resend API Key</label>
-              <input data-testid="resend-key-input" className="input" type="password" placeholder="re_xxxxxxxxxxx" value={emailForm.resend_api_key} onChange={e => setEmailForm({ ...emailForm, resend_api_key: e.target.value })} />
+              <label className="label">Provider</label>
+              <select className="input" value={emailForm.email_provider} onChange={e => setEmailForm({ ...emailForm, email_provider: e.target.value })}>
+                <option value="auto">Auto — Gmail first, then Resend</option>
+                <option value="smtp">Gmail / SMTP only</option>
+                <option value="resend">Resend only</option>
+              </select>
             </div>
             <div className="col-span-2">
-              <label className="label">From Email (e.g., "Boost Growth &lt;noreply@boostgrowthsa.com&gt;")</label>
-              <input className="input" placeholder="Boost Growth <noreply@boostgrowthsa.com>" value={emailForm.from_email} onChange={e => setEmailForm({ ...emailForm, from_email: e.target.value })} />
+              <label className="label">From Email</label>
+              <input className="input" placeholder="Boost Growth <hr@boostgrowthsa.com>" value={emailForm.from_email} onChange={e => setEmailForm({ ...emailForm, from_email: e.target.value })} />
+            </div>
+            <div className="col-span-2 text-[11px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>GMAIL / SMTP</div>
+            <div>
+              <label className="label">SMTP Host</label>
+              <input className="input" value={emailForm.smtp_host} onChange={e => setEmailForm({ ...emailForm, smtp_host: e.target.value })} />
+            </div>
+            <div>
+              <label className="label">SMTP Port</label>
+              <input className="input" type="number" value={emailForm.smtp_port} onChange={e => setEmailForm({ ...emailForm, smtp_port: e.target.value })} />
+            </div>
+            <div className="col-span-2">
+              <label className="label">SMTP User (Gmail address)</label>
+              <input className="input" placeholder="hr@boostgrowthsa.com" value={emailForm.smtp_user} onChange={e => setEmailForm({ ...emailForm, smtp_user: e.target.value })} />
+            </div>
+            <div className="col-span-2">
+              <label className="label">SMTP Password (Google App Password — 16 chars)</label>
+              <input data-testid="smtp-password-input" className="input" type="password" placeholder="xxxx xxxx xxxx xxxx" value={emailForm.smtp_password} onChange={e => setEmailForm({ ...emailForm, smtp_password: e.target.value })} />
+            </div>
+            <div className="col-span-2 text-[11px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>RESEND (optional)</div>
+            <div className="col-span-2">
+              <label className="label">Resend API Key</label>
+              <input data-testid="resend-key-input" className="input" type="password" placeholder="re_xxxxxxxxxxx" value={emailForm.resend_api_key} onChange={e => setEmailForm({ ...emailForm, resend_api_key: e.target.value })} />
             </div>
             <div className="col-span-2 flex justify-end gap-2">
               <button onClick={() => setEditEmail(false)} className="btn btn-outline">Cancel</button>
@@ -456,8 +507,10 @@ export default function Admin() {
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><span style={{ color: "#8B9E7A" }}>API Key:</span> <span className="font-mono" style={{ color: "#2C3625" }}>{emailSettings.key_preview ? emailSettings.key_preview : "—"}</span></div>
+            <div><span style={{ color: "#8B9E7A" }}>Active:</span> <span style={{ color: "#2C3625" }}>{emailSettings.active_provider || "none"}</span></div>
             <div><span style={{ color: "#8B9E7A" }}>From:</span> <span style={{ color: "#2C3625" }}>{emailSettings.from_email}</span></div>
+            <div><span style={{ color: "#8B9E7A" }}>SMTP:</span> <span style={{ color: "#2C3625" }}>{emailSettings.smtp_configured ? `✓ ${emailSettings.smtp_user}` : "—"}</span></div>
+            <div><span style={{ color: "#8B9E7A" }}>Resend:</span> <span className="font-mono" style={{ color: "#2C3625" }}>{emailSettings.key_preview || "—"}</span></div>
           </div>
         )}
 
@@ -476,11 +529,15 @@ export default function Admin() {
               color: testResult.status === "sent" ? "#3D4F35" : "#8B3A55"
             }}>
               {testResult.status === "sent" ? (
-                <>✅ <b>Email sent successfully!</b> Provider ID: <code>{testResult.provider_id}</code>. Check inbox of <b>{testResult.to}</b>.</>
+                <>✅ <b>تم الإرسال!</b> Provider: <code>{testResult.provider}</code>
+                  {testResult.provider_id && <> · ID: <code>{testResult.provider_id}</code></>}
+                  . تحققي من inbox: <b>{testResult.to}</b> (وشوفي Spam)</>
               ) : (
-                <>❌ <b>Failed:</b> <code>{testResult.error || JSON.stringify(testResult)}</code><br/>
-                {(testResult.error || "").includes("testing emails") && <span className="block mt-1">💡 In test mode you can only send to your Resend-registered email. Verify your domain to send to others.</span>}
-                {(testResult.error || "").includes("not verified") && <span className="block mt-1">💡 Domain not verified. Use <code>onboarding@resend.dev</code> as From, or verify your domain at resend.com/domains.</span>}
+                <>❌ <b>فشل:</b> <code>{testResult.error || JSON.stringify(testResult)}</code><br/>
+                {(testResult.error || "").includes("testing emails") && <span className="block mt-1">💡 Resend test mode: أرسلي فقط لإيميل حسابك في Resend، أو استخدمي Gmail SMTP.</span>}
+                {(testResult.error || "").includes("not verified") && <span className="block mt-1">💡 الدومين غير مفعّل في Resend — استخدمي Gmail SMTP (أسهل).</span>}
+                {(testResult.error || "").includes("535") && <span className="block mt-1">💡 Gmail: تأكدي من App Password (مو كلمة مرور الحساب العادية).</span>}
+                {testResult.status === "queued_no_key" && <span className="block mt-1">💡 ما في إعدادات — Configure → Gmail SMTP → Save</span>}
                 </>
               )}
             </div>

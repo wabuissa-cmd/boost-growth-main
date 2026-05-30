@@ -2766,6 +2766,64 @@ async def export_sessions_excel(cid: str, user=Depends(get_current_user)):
 class EmailSettingsIn(BaseModel):
     resend_api_key: Optional[str] = None
     from_email: Optional[str] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    email_provider: Optional[str] = None  # auto | smtp | resend
+
+def _apply_email_settings(doc: dict) -> None:
+    """Load persisted email settings into process env."""
+    if not doc:
+        return
+    if doc.get("resend_api_key"):
+        os.environ["RESEND_API_KEY"] = doc["resend_api_key"]
+    if doc.get("from_email"):
+        os.environ["EMAIL_FROM"] = doc["from_email"]
+    if doc.get("smtp_host"):
+        os.environ["SMTP_HOST"] = doc["smtp_host"]
+    if doc.get("smtp_port"):
+        os.environ["SMTP_PORT"] = str(doc["smtp_port"])
+    if doc.get("smtp_user"):
+        os.environ["SMTP_USER"] = doc["smtp_user"]
+    if doc.get("smtp_password"):
+        os.environ["SMTP_PASSWORD"] = doc["smtp_password"]
+    if doc.get("email_provider"):
+        os.environ["EMAIL_PROVIDER"] = doc["email_provider"]
+
+def _email_from_address() -> str:
+    return os.environ.get("EMAIL_FROM") or "Boost Growth <hr@boostgrowthsa.com>"
+
+def _smtp_configured() -> bool:
+    return bool(os.environ.get("SMTP_USER") and os.environ.get("SMTP_PASSWORD"))
+
+def _resend_configured() -> bool:
+    return bool(os.environ.get("RESEND_API_KEY"))
+
+def _send_via_smtp_sync(to: str, subject: str, body: str) -> None:
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    host = os.environ.get("SMTP_HOST") or "smtp.gmail.com"
+    port = int(os.environ.get("SMTP_PORT") or "587")
+    user = os.environ.get("SMTP_USER")
+    password = os.environ.get("SMTP_PASSWORD")
+    if not user or not password:
+        raise ValueError("SMTP user/password not configured")
+    from_addr = _email_from_address()
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = from_addr
+    msg["To"] = to
+    msg.attach(MIMEText(body, "plain", "utf-8"))
+    msg.attach(MIMEText(f"<p>{body.replace(chr(10), '<br/>')}</p>", "html", "utf-8"))
+    with smtplib.SMTP(host, port, timeout=30) as server:
+        server.ehlo()
+        server.starttls()
+        server.ehlo()
+        server.login(user, password)
+        server.sendmail(user, [to], msg.as_string())
 
 @api.post("/admin/email-test-send")
 async def email_test_send(payload: dict, _=Depends(admin_only)):
@@ -2781,10 +2839,28 @@ async def email_test_send(payload: dict, _=Depends(admin_only)):
 @api.get("/admin/email-settings")
 async def get_email_settings(_=Depends(admin_only)):
     doc = await db.settings.find_one({"key": "email"}, {"_id": 0}) or {}
-    has_key = bool(doc.get("resend_api_key") or os.environ.get("RESEND_API_KEY"))
+    has_resend = bool(doc.get("resend_api_key") or os.environ.get("RESEND_API_KEY"))
+    has_smtp = bool(doc.get("smtp_user") and doc.get("smtp_password"))
+    provider = doc.get("email_provider") or os.environ.get("EMAIL_PROVIDER") or "auto"
+    active = "none"
+    if provider == "smtp" and has_smtp:
+        active = "smtp"
+    elif provider == "resend" and has_resend:
+        active = "resend"
+    elif has_smtp:
+        active = "smtp"
+    elif has_resend:
+        active = "resend"
     return {
-        "configured": has_key,
-        "from_email": doc.get("from_email") or os.environ.get("EMAIL_FROM") or "Boost Growth <noreply@boostgrowthsa.com>",
+        "configured": has_smtp or has_resend,
+        "provider": provider,
+        "active_provider": active,
+        "smtp_configured": has_smtp,
+        "resend_configured": has_resend,
+        "from_email": doc.get("from_email") or os.environ.get("EMAIL_FROM") or "Boost Growth <hr@boostgrowthsa.com>",
+        "smtp_host": doc.get("smtp_host") or os.environ.get("SMTP_HOST") or "smtp.gmail.com",
+        "smtp_port": doc.get("smtp_port") or int(os.environ.get("SMTP_PORT") or "587"),
+        "smtp_user": doc.get("smtp_user") or os.environ.get("SMTP_USER") or "",
         "key_preview": (doc.get("resend_api_key") or "")[:8] + "..." if doc.get("resend_api_key") else None,
     }
 
@@ -2792,7 +2868,6 @@ async def get_email_settings(_=Depends(admin_only)):
 async def save_email_settings(payload: EmailSettingsIn, _=Depends(admin_only)):
     update = {}
     if payload.resend_api_key and payload.resend_api_key.strip():
-        # Validate: Resend keys start with 're_' and are at least 30 chars
         key = payload.resend_api_key.strip()
         if not key.startswith("re_") or len(key) < 30:
             raise HTTPException(status_code=400,
@@ -2800,14 +2875,22 @@ async def save_email_settings(payload: EmailSettingsIn, _=Depends(admin_only)):
         update["resend_api_key"] = key
     if payload.from_email and payload.from_email.strip():
         update["from_email"] = payload.from_email.strip()
+    if payload.smtp_host and payload.smtp_host.strip():
+        update["smtp_host"] = payload.smtp_host.strip()
+    if payload.smtp_port:
+        update["smtp_port"] = int(payload.smtp_port)
+    if payload.smtp_user is not None:
+        update["smtp_user"] = payload.smtp_user.strip()
+    if payload.smtp_password and payload.smtp_password.strip():
+        update["smtp_password"] = payload.smtp_password.strip()
+    if payload.email_provider and payload.email_provider.strip() in ("auto", "smtp", "resend"):
+        update["email_provider"] = payload.email_provider.strip()
     if not update:
         raise HTTPException(status_code=400, detail="No fields")
     update["updated_at"] = now_iso()
     await db.settings.update_one({"key": "email"}, {"$set": update, "$setOnInsert": {"key": "email"}}, upsert=True)
-    if "resend_api_key" in update:
-        os.environ["RESEND_API_KEY"] = update["resend_api_key"]
-    if "from_email" in update:
-        os.environ["EMAIL_FROM"] = update["from_email"]
+    doc = await db.settings.find_one({"key": "email"}, {"_id": 0}) or {}
+    _apply_email_settings(doc)
     return {"ok": True, "configured": True}
 
 @api.get("/admin/email-queue")
@@ -3256,35 +3339,51 @@ async def admin_repair_session_invoices(_=Depends(admin_only)):
 
 # ------------------- Cancel-Notify (in-app + queued email) -------------------
 async def _send_email_stub(to: str, subject: str, body: str) -> dict:
-    """Email send stub. Will integrate with Resend once API key is configured.
-    Currently logs and stores in db.email_queue for later delivery.
-    """
-    api_key = os.environ.get("RESEND_API_KEY")
+    """Send email via SMTP (preferred) or Resend. Logs all attempts to email_queue."""
+    provider_pref = os.environ.get("EMAIL_PROVIDER", "auto")
+    use_smtp = provider_pref == "smtp" or (provider_pref == "auto" and _smtp_configured())
+    use_resend = provider_pref == "resend" or (provider_pref == "auto" and not use_smtp and _resend_configured())
+
     queue_doc = {
         "id": str(uuid.uuid4()),
         "to": to, "subject": subject, "body": body,
-        "status": "queued", "provider": "resend",
+        "status": "queued", "provider": "none",
         "created_at": now_iso(),
     }
-    if api_key:
+
+    if use_smtp:
+        queue_doc["provider"] = "smtp"
+        try:
+            await asyncio.to_thread(_send_via_smtp_sync, to, subject, body)
+            queue_doc["status"] = "sent"
+        except Exception as e:
+            queue_doc["status"] = "failed"
+            queue_doc["error"] = str(e)[:500]
+            logger.warning(f"SMTP send failed to {to}: {e}")
+    elif use_resend:
+        api_key = os.environ.get("RESEND_API_KEY")
+        queue_doc["provider"] = "resend"
         try:
             import httpx
             async with httpx.AsyncClient() as cli:
                 r = await cli.post("https://api.resend.com/emails",
                                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                                   json={"from": os.environ.get("EMAIL_FROM", "Boost Growth <hr@boostgrowthsa.com>"),
+                                   json={"from": _email_from_address(),
                                          "to": [to], "subject": subject, "html": f"<p>{body.replace(chr(10),'<br/>')}</p>"})
                 if r.status_code in (200, 202):
                     queue_doc["status"] = "sent"
                     queue_doc["provider_id"] = r.json().get("id")
                 else:
                     queue_doc["status"] = "failed"
-                    queue_doc["error"] = r.text[:300]
+                    queue_doc["error"] = r.text[:500]
         except Exception as e:
             queue_doc["status"] = "failed"
-            queue_doc["error"] = str(e)[:300]
+            queue_doc["error"] = str(e)[:500]
     else:
         queue_doc["status"] = "queued_no_key"
+        queue_doc["error"] = "No email provider configured (SMTP or Resend API key)"
+        logger.info(f"Email queued (no provider): to={to} subject={subject}")
+
     await db.email_queue.insert_one(queue_doc)
     queue_doc.pop("_id", None)
     return queue_doc
@@ -4182,10 +4281,7 @@ async def _run_startup():
         # Load persisted email settings from db.settings into env
         settings_doc = await db.settings.find_one({"key": "email"}, {"_id": 0})
         if settings_doc:
-            if settings_doc.get("resend_api_key"):
-                os.environ["RESEND_API_KEY"] = settings_doc["resend_api_key"]
-            if settings_doc.get("from_email"):
-                os.environ["EMAIL_FROM"] = settings_doc["from_email"]
+            _apply_email_settings(settings_doc)
 
         # Seed clients ONLY on first-time setup (count==0). Preserves user edits.
         cl_count = await db.clients.count_documents({})
