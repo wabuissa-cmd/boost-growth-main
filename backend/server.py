@@ -1205,23 +1205,46 @@ import re as _re_top  # for module load
 
 # ---------- Invoice service type (HS / SS) ----------
 def _normalize_service_type(val: Optional[str]) -> Optional[str]:
-    """Return canonical 'HS' or 'SS', or None if unknown."""
+    """Return canonical 'HS', 'SS', or 'AVC', or None if unknown."""
     if not val:
         return None
     s = str(val).strip().lower()
-    if s in ("hs", "home session", "home"):
+    if s in ("hs", "home session", "home", "home sessions"):
         return "HS"
     if s in ("ss", "school support", "school"):
         return "SS"
+    if s in ("avc",):
+        return "AVC"
     if "school support" in s:
         return "SS"
-    if "home session" in s:
+    if "home session" in s or "home sessions" in s:
         return "HS"
     if "ss" in s and "hs" not in s:
         return "SS"
     if "hs" in s and "ss" not in s:
         return "HS"
+    if "avc" in s:
+        return "AVC"
     return None
+
+
+def _service_type_from_label(text: str) -> Optional[str]:
+    """Parse 'Service: Home Sessions' / 'School Support' / 'HS' etc."""
+    if not text:
+        return None
+    raw = str(text).strip()
+    s = raw.lower()
+    if s.startswith("service:"):
+        s = s.split(":", 1)[1].strip()
+    if s in ("hs", "ss", "avc"):
+        return s.upper()
+    if "school" in s:
+        return "SS"
+    if "home" in s:
+        return "HS"
+    if "avc" in s:
+        return "AVC"
+    return _normalize_service_type(raw)
 
 
 def _session_blob_service_hint(session: dict) -> Optional[str]:
@@ -1266,22 +1289,39 @@ async def _infer_invoice_service_type(inv_id: str, client_id: str, inv_num: str,
 
 
 async def _migrate_invoice_service_types() -> int:
-    """Set service_type=HS|SS on invoices missing or using legacy labels."""
+    """Re-infer HS/SS/AVC on invoices from sessions; client profile only when type is missing."""
     migrated = 0
+    client_cache: dict = {}
     invoices = await db.invoices.find({}, {"_id": 0}).to_list(5000)
     for inv in invoices:
-        current = _normalize_service_type(inv.get("service_type"))
-        if current in ("HS", "SS"):
-            if inv.get("service_type") != current:
-                await db.invoices.update_one({"id": inv["id"]}, {"$set": {"service_type": current}})
+        cid = inv.get("client_id") or ""
+        if cid not in client_cache:
+            client_cache[cid] = await db.clients.find_one(
+                {"id": cid}, {"_id": 0, "service_type": 1}
+            )
+        client = client_cache.get(cid)
+
+        inferred = await _infer_invoice_service_type(
+            inv["id"], cid, inv.get("invoice_number", ""), client=None
+        )
+        if not inferred and not inv.get("service_type") and client:
+            cst = _normalize_service_type(client.get("service_type"))
+            if cst in ("HS", "SS", "AVC"):
+                inferred = cst
+
+        if not inferred:
+            normalized = _normalize_service_type(inv.get("service_type"))
+            if normalized and inv.get("service_type") != normalized:
+                await db.invoices.update_one(
+                    {"id": inv["id"]}, {"$set": {"service_type": normalized}}
+                )
                 migrated += 1
             continue
-        inferred = await _infer_invoice_service_type(
-            inv["id"], inv.get("client_id", ""), inv.get("invoice_number", ""),
-            client=await db.clients.find_one({"id": inv.get("client_id")}, {"_id": 0, "service_type": 1}),
-        )
-        if inferred:
-            await db.invoices.update_one({"id": inv["id"]}, {"$set": {"service_type": inferred}})
+
+        if inv.get("service_type") != inferred:
+            await db.invoices.update_one(
+                {"id": inv["id"]}, {"$set": {"service_type": inferred}}
+            )
             migrated += 1
     return migrated
 
@@ -1362,58 +1402,90 @@ _HEADER_TOKENS = {"day", "days", "date", "status", "time", "hrs", "hours", "# of
 
 
 def _parse_invoice_header(ws, sheet_name: str = "") -> dict:
-    """Read the first ~3 rows of a sheet to extract invoice number, status,
-    package size and service type. Robust to slight variations."""
-    info = {"invoice_number": (sheet_name or ws.title or "").strip(), "is_closed": False,
-            "close_date": None, "package_size": None, "service_type": None}
-    rows = []
-    for r in ws.iter_rows(min_row=1, max_row=4, values_only=True):
-        rows.append([str(c).strip() if c is not None else "" for c in r])
+    """Read the header section (rows 1–10) for invoice metadata and service type."""
+    sn = (sheet_name or ws.title or "").strip()
+    info = {
+        "invoice_number": sn,
+        "is_closed": False,
+        "close_date": None,
+        "package_size": None,
+        "service_type": None,
+    }
+    rows: list = []
+    for r in ws.iter_rows(min_row=1, max_row=10, values_only=True):
+        rows.append([str(c).strip() if c is not None else "" for c in (r or [])])
+
+    # Invoice number — tab name (INV0465) or embedded in row 1+
+    if _INV_SHEET_RE.match(sn):
+        info["invoice_number"] = _re_top.sub(r"[\s\-_]+", "", sn, flags=_re_top.IGNORECASE).upper()
+    else:
+        for row in rows[:4]:
+            joined = " ".join(row)
+            m = _re_top.search(r"(inv[\s\-_]*\d+)", joined, _re_top.IGNORECASE)
+            if m:
+                info["invoice_number"] = _re_top.sub(
+                    r"[\s\-_]+", "", m.group(1), flags=_re_top.IGNORECASE
+                ).upper()
+                break
+
     flat = " | ".join(" ".join(r) for r in rows).lower()
-    # Status
+
+    # Open / closed status
     if "closed" in flat:
         info["is_closed"] = True
-        # try to grab a date next to "closed"
         m = _re_top.search(r"closed[^0-9]*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", flat)
         if m:
             try:
                 info["close_date"] = _normalize_date(m.group(1))
             except Exception:
                 pass
-    # Service type — read explicit cells first (Boost Growth row 2, col G)
+
+    # Row 5 (or any header row): "Service: Home Sessions" in column A or any cell
     for row in rows:
-        for cell in row:
-            cu = (cell or "").strip().upper()
-            if cu in ("SS", "HS"):
-                info["service_type"] = cu
-                break
-            cl = (cell or "").strip().lower()
-            if cl == "school support":
-                info["service_type"] = "SS"
-                break
-            if cl == "home session":
-                info["service_type"] = "HS"
-                break
+        for ci, cell in enumerate(row):
+            raw = (cell or "").strip()
+            if not raw:
+                continue
+            if raw.lower().startswith("service:"):
+                st = _service_type_from_label(raw)
+                if st:
+                    info["service_type"] = st
+                    break
         if info.get("service_type"):
             break
+
+    # Tab / row hints: "INV0465 | SS", standalone HS/SS cells, keywords in header block
     if not info.get("service_type"):
-        if _re_top.search(r"school\s*support", flat):
+        sn_low = sn.lower()
+        if _re_top.search(r"\bss\b|school", sn_low):
             info["service_type"] = "SS"
-        elif _re_top.search(r"home\s*session", flat):
+        elif _re_top.search(r"\bhs\b|home", sn_low):
             info["service_type"] = "HS"
-        elif _re_top.search(r"(?<![a-z])ss(?![a-z])", flat):
-            info["service_type"] = "SS"
-        elif _re_top.search(r"(?<![a-z])hs(?![a-z])", flat):
-            info["service_type"] = "HS"
-    sn = (sheet_name or ws.title or "").lower()
     if not info.get("service_type"):
-        if _re_top.search(r"\bss\b|school", sn):
+        for row in rows[:6]:
+            for cell in row:
+                cu = (cell or "").strip().upper()
+                if cu in ("SS", "HS", "AVC"):
+                    info["service_type"] = cu
+                    break
+                st = _service_type_from_label(cell)
+                if st:
+                    info["service_type"] = st
+                    break
+            if info.get("service_type"):
+                break
+    if not info.get("service_type"):
+        if _re_top.search(r"school\s*support|\|\s*ss\b|\bss\s*\|", flat):
             info["service_type"] = "SS"
-        elif _re_top.search(r"\bhs\b|home", sn):
+        elif _re_top.search(r"home\s*session|\|\s*hs\b|\bhs\s*\|", flat):
             info["service_type"] = "HS"
+        elif _re_top.search(r"\bavc\b", flat):
+            info["service_type"] = "AVC"
+
     if info.get("service_type"):
         info["service_type"] = _normalize_service_type(info["service_type"])
-    # Package size — look for "Paid SESH" or "# Paid"
+
+    # Package size — "# Paid SESH.: 24 Hours" (usually row 6)
     m = _re_top.search(r"paid\s+sesh[^0-9]*([\d.]+)", flat)
     if m:
         try:
@@ -1501,41 +1573,49 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
 
     invoices_added, invoices_updated, sessions_added, sessions_skipped = [], [], 0, 0
 
-    for name in matched_sheets:
+    for tab_idx, name in enumerate(matched_sheets):
         ws = wb[name]
         clean = name.strip()
         header_info = _parse_invoice_header(ws, clean)
+        inv_num = header_info.get("invoice_number") or clean
+        if not _INV_SHEET_RE.match(inv_num):
+            inv_num = f"INV_{cid[:8]}_{tab_idx + 1}"
+        header_info["invoice_number"] = inv_num
         sheet_hs = sheet_ss = 0
-        # Upsert invoice
+        # Upsert invoice — match by invoice_number or legacy tab name
         inv_pkg = header_info.get("package_size") or pkg_default
-        if clean in existing_inv:
-            # Update mutable header fields only (don't touch payment_status)
-            update = {k: v for k, v in {
+        existing = existing_inv.get(inv_num) or existing_inv.get(clean)
+        if existing:
+            update = {
                 "is_closed": header_info["is_closed"],
-                "close_date": header_info["close_date"],
-                "service_type": _normalize_service_type(header_info["service_type"]),
+                "close_date": header_info.get("close_date"),
                 "package_size": inv_pkg,
-            }.items() if v is not None}
-            if update:
-                await db.invoices.update_one({"id": existing_inv[clean]["id"]}, {"$set": update})
-            invoices_updated.append(clean)
-            inv_doc = {**existing_inv[clean], **update}
+                "invoice_number": inv_num,
+            }
+            detected_st = _normalize_service_type(header_info.get("service_type"))
+            if detected_st:
+                update["service_type"] = detected_st
+            await db.invoices.update_one({"id": existing["id"]}, {"$set": update})
+            invoices_updated.append(inv_num)
+            inv_doc = {**existing, **update}
+            existing_inv[inv_num] = inv_doc
         else:
             inv_doc = {
                 "id": str(uuid.uuid4()), "client_id": cid,
-                "invoice_number": clean, "notes": None, "amount": None,
+                "invoice_number": inv_num, "notes": None, "amount": None,
                 "period_from": None, "period_to": header_info.get("close_date"),
                 "package_size": inv_pkg,
                 "payment_status": "complete" if header_info["is_closed"] else "pending",
                 "start_date": now_iso()[:10],
-                "service_type": _normalize_service_type(header_info["service_type"]),
+                "service_type": _normalize_service_type(header_info.get("service_type")),
                 "is_closed": header_info["is_closed"],
-                "close_date": header_info["close_date"],
+                "close_date": header_info.get("close_date"),
                 "source": origin, "source_sheet": clean,
                 "created_by": user_id, "created_at": now_iso(),
             }
             await db.invoices.insert_one(inv_doc)
-            invoices_added.append(clean)
+            invoices_added.append(inv_num)
+            existing_inv[inv_num] = inv_doc
 
         # Find header row containing the session columns
         header_row_idx = None
@@ -1619,7 +1699,7 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
             elif nh == "SS":
                 sheet_ss += 1
 
-            sync_key = f"{clean}|{date_iso}|{row_idx}"
+            sync_key = f"{inv_num}|{date_iso}|{row_idx}"
             key = (date_iso, start_t)
             if sync_key in existing_sync or key in existing_key:
                 sessions_skipped += 1
@@ -1635,7 +1715,7 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
                 "therapist_ids": ther_ids,
                 "note": note_val or None,
                 "source": origin,
-                "source_invoice": clean,
+                "source_invoice": inv_num,
                 "invoice_id": inv_doc.get("id"),
                 "sync_key": sync_key,
                 "created_at": now_iso(),
@@ -1651,19 +1731,17 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
         if earliest:
             await db.invoices.update_one({"id": inv_doc["id"]}, {"$set": {"start_date": earliest}})
 
-        # Resolve service_type from header, sheet sessions, or client profile
-        st = _normalize_service_type(header_info.get("service_type") or inv_doc.get("service_type"))
+        # Final service_type: Row 5 header → session majority → client profile
+        st = _normalize_service_type(header_info.get("service_type"))
         if not st and sheet_hs > sheet_ss:
             st = "HS"
         elif not st and sheet_ss > sheet_hs:
             st = "SS"
         elif not st:
             client_st = _normalize_service_type(client.get("service_type"))
-            if client_st == "SS":
-                st = "SS"
-            elif client_st == "HS":
-                st = "HS"
-        if st and inv_doc.get("service_type") != st:
+            if client_st in ("SS", "HS", "AVC"):
+                st = client_st
+        if st:
             await db.invoices.update_one({"id": inv_doc["id"]}, {"$set": {"service_type": st}})
             inv_doc["service_type"] = st
 
