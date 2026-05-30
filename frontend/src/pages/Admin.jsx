@@ -20,6 +20,10 @@ export default function Admin() {
   const [seeding, setSeeding] = useState(false);
   const [prSeedResult, setPrSeedResult] = useState(null);
   const [prSeeding, setPrSeeding] = useState(false);
+  const [deleteFileNo, setDeleteFileNo] = useState("");
+  const [deletePreview, setDeletePreview] = useState(null);
+  const [deleteResult, setDeleteResult] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = async () => {
     const [t, e, q] = await Promise.all([
@@ -106,6 +110,37 @@ export default function Admin() {
       alert("Seed failed: " + (e.response?.data?.detail || e.message));
     } finally {
       setPrSeeding(false);
+    }
+  };
+
+  const lookupDeleteClient = async () => {
+    const fn = deleteFileNo.trim();
+    if (!fn) return;
+    setDeletePreview(null);
+    setDeleteResult(null);
+    try {
+      const { data } = await api.get(`/admin/client-lookup/${encodeURIComponent(fn)}`);
+      setDeletePreview(data);
+    } catch (e) {
+      alert("Lookup failed: " + (e.response?.data?.detail || e.message));
+    }
+  };
+
+  const confirmDeleteSessionsInvoices = async () => {
+    if (!deletePreview) return;
+    const msg = `Delete ALL sessions and invoices for ${deletePreview.name} (#${deletePreview.file_no})?\n\n${deletePreview.sessions_count} sessions · ${deletePreview.invoices_count} invoices\n\nThe client record will be kept.`;
+    if (!window.confirm(msg)) return;
+    setDeleting(true);
+    setDeleteResult(null);
+    try {
+      const { data } = await api.post("/admin/delete-client-sessions-invoices", { file_no: deletePreview.file_no });
+      setDeleteResult(data);
+      setDeletePreview(null);
+      setDeleteFileNo("");
+    } catch (e) {
+      alert("Delete failed: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -199,6 +234,49 @@ export default function Admin() {
             {prSeedResult.missing_clients?.length > 0 && (
               <div style={{ color: "#8B6918" }}>Clients not found: {prSeedResult.missing_clients.join(", ")}</div>
             )}
+          </div>
+        )}
+      </div>
+
+      <div className="card p-5 mb-5" style={{ borderColor: "#E8C4C4", background: "#FDF5F5" }}>
+        <div className="font-bold mb-1" style={{ color: "#8A3F27" }}>Delete Sessions &amp; Invoices for Client</div>
+        <div className="text-xs mb-3" style={{ color: "#5C6853" }}>
+          Removes all attendance sessions and invoices for one client (by file number). Client profile is kept — use before re-importing from Excel.
+        </div>
+        <div className="flex flex-wrap gap-2 items-end">
+          <div>
+            <label className="text-[11px] font-bold block mb-1" style={{ color: "#5C6853" }}>File No.</label>
+            <input
+              data-testid="delete-client-file-no"
+              className="input text-sm w-28"
+              placeholder="e.g. 009"
+              value={deleteFileNo}
+              onChange={e => { setDeleteFileNo(e.target.value); setDeletePreview(null); setDeleteResult(null); }}
+              onKeyDown={e => e.key === "Enter" && lookupDeleteClient()}
+            />
+          </div>
+          <button type="button" onClick={lookupDeleteClient} className="btn btn-secondary text-sm">Look up</button>
+          {deletePreview && (
+            <button
+              data-testid="delete-client-sessions-btn"
+              type="button"
+              onClick={confirmDeleteSessionsInvoices}
+              disabled={deleting}
+              className="btn text-sm"
+              style={{ background: "#C97B5C", color: "#fff", borderColor: "#C97B5C" }}
+            >
+              {deleting ? <span className="spinner" /> : `Delete for ${deletePreview.name}`}
+            </button>
+          )}
+        </div>
+        {deletePreview && (
+          <div className="mt-3 p-3 rounded-lg text-xs" style={{ background: "#FAE8C8", color: "#6B5218" }}>
+            <strong>{deletePreview.name}</strong> (#{deletePreview.file_no}) — {deletePreview.sessions_count} sessions, {deletePreview.invoices_count} invoices
+          </div>
+        )}
+        {deleteResult && (
+          <div className="mt-3 p-3 rounded-lg text-xs" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+            <strong>{deleteResult.message}</strong>
           </div>
         )}
       </div>

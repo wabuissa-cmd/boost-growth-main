@@ -26,6 +26,112 @@ export function dayShort(iso) {
   return parseISO(iso).toLocaleDateString("en-US", { weekday: "short" });
 }
 
+export function dayNameFromDate(iso) {
+  return parseISO(iso).toLocaleDateString("en-US", { weekday: "short" });
+}
+
+export function isSchoolDay(date) {
+  const d = typeof date === "string" ? parseISO(date) : date;
+  const wd = d.getDay();
+  return wd >= 0 && wd <= 4;
+}
+
+export function fmtWeekRange(startISO, endISO) {
+  if (!startISO) return "(upcoming)";
+  const s = parseISO(startISO);
+  const e = endISO ? parseISO(endISO) : s;
+  const fmt = (dt) => `${dt.getDate()} ${dt.toLocaleDateString("en-US", { month: "short" })} ${dt.getFullYear()}`;
+  return `${fmt(s)} - ${fmt(e)}`;
+}
+
+/** SS: 4 blocks of 5 school days (Sun–Thu) from invoice start_date. */
+export function computeSchoolWeekWindows(anchorISO, totalWeeks = 4) {
+  if (!anchorISO) {
+    return Array.from({ length: totalWeeks }, (_, i) => ({
+      weekNumber: i + 1,
+      startISO: null,
+      endISO: null,
+      dates: [],
+      label: "(upcoming)",
+    }));
+  }
+  const schoolDays = [];
+  let d = parseISO(anchorISO);
+  let guard = 0;
+  while (schoolDays.length < totalWeeks * 5 && guard < 400) {
+    if (isSchoolDay(d)) schoolDays.push(toISO(d));
+    d = addDays(d, 1);
+    guard += 1;
+  }
+  const weeks = [];
+  for (let w = 0; w < totalWeeks; w++) {
+    const chunk = schoolDays.slice(w * 5, w * 5 + 5);
+    weeks.push({
+      weekNumber: w + 1,
+      startISO: chunk[0] || null,
+      endISO: chunk[chunk.length - 1] || null,
+      dates: chunk,
+      label: chunk.length ? fmtWeekRange(chunk[0], chunk[chunk.length - 1]) : "(upcoming)",
+    });
+  }
+  return weeks;
+}
+
+export function groupSessionsBySchoolWeeks(sessions, anchorISO, totalWeeks = 4) {
+  const windows = computeSchoolWeekWindows(anchorISO, totalWeeks);
+  const sorted = [...(sessions || [])].sort((a, b) =>
+    String(a.session_date).localeCompare(String(b.session_date))
+  );
+  return windows.map(w => ({
+    ...w,
+    sessions: sorted.filter(s => w.dates.includes(String(s.session_date).slice(0, 10))),
+  }));
+}
+
+/** HS totals for ONE invoice only — Completed + Cancelled count toward used hours. */
+export function computeHsInvoiceTotals(sessions, packageSize) {
+  const pkg = parseFloat(packageSize) || 24;
+  const billable = (sessions || []).filter(s => s.status === "Completed" || s.status === "Cancelled");
+  const hoursUsed = billable.reduce((sum, s) => sum + (parseFloat(s.hours) || 0), 0);
+  const hoursDelivered = (sessions || [])
+    .filter(s => s.status === "Completed")
+    .reduce((sum, s) => sum + (parseFloat(s.hours) || 0), 0);
+  const hoursRemaining = Math.max(0, Math.round((pkg - hoursUsed) * 100) / 100);
+  const noServiceCount = (sessions || []).filter(s => s.status === "No Service").length;
+  const completedCount = (sessions || []).filter(s => s.status === "Completed").length;
+  const noShowCount = (sessions || []).filter(s => s.status === "No Show").length;
+  return {
+    hoursUsed,
+    hoursRemaining,
+    hoursDelivered,
+    pkg,
+    noServiceCount,
+    completedCount,
+    noShowCount,
+    totalSessions: (sessions || []).length,
+  };
+}
+
+export function computeSsWeekSummary(sessions, anchorISO, totalWeeks = 4) {
+  const groups = groupSessionsBySchoolWeeks(sessions, anchorISO, totalWeeks);
+  return groups.map(w => {
+    const attended = w.sessions.filter(s => s.status === "Completed").length;
+    const schoolDays = w.dates.length || 5;
+    let weekStatus = "Not started";
+    if (w.sessions.length > 0) {
+      if (attended >= Math.min(5, schoolDays)) weekStatus = "Completed";
+      else weekStatus = "In Progress";
+    }
+    return { ...w, attended, schoolDays, weekStatus };
+  });
+}
+
+export function mapPkgStatusToCard(status) {
+  if (status === "critical") return "urgent";
+  if (status === "low") return "warning";
+  return "ok";
+}
+
 export function isSchoolService(serviceType) {
   if (!serviceType) return false;
   const s = String(serviceType).trim().toLowerCase();
@@ -207,7 +313,7 @@ export function countServiceInvoices(invoices, code) {
   return (invoices || []).filter(i => invoiceMatchesServiceType(i, code)).length;
 }
 
-/** Tab enable/disable + legacy flags for invoice sheet HS/SS buttons. */
+/** Tab enable/disable from client profile only (not invoice existence). */
 export function resolveServiceTabState(client, allInvoices) {
   const clientType = normalizeClientServiceType(client?.service_type);
   const profileServices = getServicesFromType(client?.service_type);
@@ -217,9 +323,6 @@ export function resolveServiceTabState(client, allInvoices) {
   const profileHasSS = profileServices.includes("SS");
   const showToggle = clientType !== "AVC";
 
-  const hsClickable = profileHasHS || hsCount > 0;
-  const ssClickable = profileHasSS || ssCount > 0;
-
   return {
     clientType,
     profileServices,
@@ -228,12 +331,12 @@ export function resolveServiceTabState(client, allInvoices) {
     ssCount,
     profileHasHS,
     profileHasSS,
-    hsClickable,
-    ssClickable,
-    hsLegacy: !profileHasHS && hsCount > 0,
-    ssLegacy: !profileHasSS && ssCount > 0,
-    hsDisabled: !hsClickable,
-    ssDisabled: !ssClickable,
+    hsClickable: profileHasHS,
+    ssClickable: profileHasSS,
+    hsLegacy: false,
+    ssLegacy: false,
+    hsDisabled: !profileHasHS,
+    ssDisabled: !profileHasSS,
   };
 }
 
@@ -320,6 +423,81 @@ export function groupSessionsByWeeks(sessions, anchorISO, cycleWeeks = 4) {
   return groups;
 }
 
+export function enrichClientFromPackageStatus(client, packageRows) {
+  const rows = (packageRows || []).filter(r => r.client_id === client.id);
+  const clientType = normalizeClientServiceType(client.service_type);
+  const serviceDisplay = formatServiceTypeDisplay(client.service_type) || "—";
+
+  const hs = rows.find(r => r.service_type === "HS");
+  const ss = rows.find(r => r.service_type === "SS");
+  let primary = hs;
+  if (clientType === "SS") primary = ss || hs;
+  else if (clientType === "HS+SS") primary = hs || ss;
+  else if (clientType === "HS") primary = hs || ss;
+
+  if (!primary || primary.status === "none") {
+    const isWeeks = clientType === "SS";
+    return {
+      ...client,
+      billing_mode: isWeeks ? "weeks" : "hours",
+      serviceDisplay,
+      status: "ok",
+      used: 0,
+      pkg: isWeeks ? 4 : (client.package_hours || 24),
+      rem: isWeeks ? 4 : (client.package_hours || 24),
+      pct: 0,
+      weeksDone: 0,
+      currentWeek: 1,
+      cycleWeeks: 4,
+      weeksRem: 4,
+      pkgRows: rows,
+    };
+  }
+
+  const status = mapPkgStatusToCard(primary.status);
+
+  if (primary.service_type === "HS" || primary.unit === "hours") {
+    const pkg = primary.package_size ?? 24;
+    const used = primary.used ?? 0;
+    const rem = primary.remaining ?? 0;
+    return {
+      ...client,
+      billing_mode: "hours",
+      serviceDisplay,
+      used,
+      pkg,
+      rem,
+      pct: pkg > 0 ? Math.min(100, Math.round((used / pkg) * 100)) : 0,
+      status,
+      weeksDone: 0,
+      currentWeek: 0,
+      cycleWeeks: 0,
+      weeksRem: 0,
+      pkgRows: rows,
+    };
+  }
+
+  const cycleWeeks = primary.total_weeks ?? 4;
+  const weeksDone = primary.used ?? 0;
+  const weeksRem = primary.remaining ?? 0;
+  return {
+    ...client,
+    billing_mode: "weeks",
+    serviceDisplay,
+    weeksDone,
+    currentWeek: primary.current_week ?? 1,
+    cycleWeeks,
+    weeksRem,
+    pct: cycleWeeks > 0 ? Math.min(100, Math.round((weeksDone / cycleWeeks) * 100)) : 0,
+    status,
+    used: 0,
+    pkg: 0,
+    rem: 0,
+    pkgRows: rows,
+  };
+}
+
+/** @deprecated Use enrichClientFromPackageStatus — sums hours across all invoices. */
 export function enrichClientBilling(client, sessions) {
   const mode = resolveClientBillingMode(client, null);
   const cycleWeeks = client.cycle_weeks || 4;

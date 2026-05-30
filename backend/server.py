@@ -1198,6 +1198,47 @@ async def seed_apr_progress_reports(_=Depends(admin_only)):
     }
 
 
+class DeleteClientSessionsIn(BaseModel):
+    file_no: str
+
+
+@api.get("/admin/client-lookup/{file_no}")
+async def admin_lookup_client_by_file_no(file_no: str, _=Depends(admin_only)):
+    """Preview client name and session/invoice counts before bulk delete."""
+    client = await _find_client_by_file_no(file_no)
+    if not client:
+        raise HTTPException(status_code=404, detail=f"Client file_no {file_no} not found")
+    cid = client["id"]
+    sessions_count = await db.sessions.count_documents({"client_id": cid})
+    invoices_count = await db.invoices.count_documents({"client_id": cid})
+    return {
+        "client_id": cid,
+        "file_no": client.get("file_no"),
+        "name": client.get("name"),
+        "sessions_count": sessions_count,
+        "invoices_count": invoices_count,
+    }
+
+
+@api.post("/admin/delete-client-sessions-invoices")
+async def admin_delete_client_sessions_invoices(body: DeleteClientSessionsIn, _=Depends(admin_only)):
+    """Delete ALL sessions and invoices for one client (by file_no). Client record is kept."""
+    client = await _find_client_by_file_no(body.file_no)
+    if not client:
+        raise HTTPException(status_code=404, detail=f"Client file_no {body.file_no} not found")
+    cid = client["id"]
+    s_result = await db.sessions.delete_many({"client_id": cid})
+    i_result = await db.invoices.delete_many({"client_id": cid})
+    return {
+        "client_id": cid,
+        "client_name": client.get("name"),
+        "file_no": client.get("file_no"),
+        "sessions_deleted": s_result.deleted_count,
+        "invoices_deleted": i_result.deleted_count,
+        "message": f"Deleted {s_result.deleted_count} sessions and {i_result.deleted_count} invoices for {client.get('name')}",
+    }
+
+
 # ------------------- Invoices (per client; manual numbers) -------------------
 @api.get("/clients/{cid}/invoices")
 async def list_invoices(cid: str, service_type: Optional[str] = None, user=Depends(get_current_user)):
@@ -1259,20 +1300,72 @@ def _client_service_codes(client: dict, invoices: list) -> list:
     return sorted(codes)
 
 
-def _weeks_done_for_invoice(sessions: list, anchor_iso: str, total_weeks: int) -> int:
-    if not anchor_iso or total_weeks <= 0:
-        return 0
+def _is_school_day(d: datetime) -> bool:
+    """Sun–Thu are school days (Python weekday: Mon=0 … Sun=6)."""
+    return d.weekday() in (6, 0, 1, 2, 3)
+
+
+def _collect_school_days(from_date: datetime, count: int) -> list:
+    out = []
+    d = from_date
+    guard = 0
+    while len(out) < count and guard < 400:
+        if _is_school_day(d):
+            out.append(d.strftime("%Y-%m-%d"))
+        d += timedelta(days=1)
+        guard += 1
+    return out
+
+
+def _school_week_windows(anchor_iso: str, total_weeks: int = 4) -> list:
+    if not anchor_iso:
+        return []
     try:
         anchor = datetime.fromisoformat(str(anchor_iso)[:10])
     except Exception:
+        return []
+    school_days = _collect_school_days(anchor, int(total_weeks) * 5)
+    windows = []
+    for k in range(int(total_weeks)):
+        chunk = school_days[k * 5:(k + 1) * 5]
+        windows.append({
+            "week_number": k + 1,
+            "dates": chunk,
+            "start": chunk[0] if chunk else None,
+            "end": chunk[-1] if chunk else None,
+        })
+    return windows
+
+
+def _school_week_for_date(date_iso: str, anchor_iso: str, total_weeks: int = 4) -> Optional[int]:
+    if not date_iso or not anchor_iso:
+        return None
+    d = str(date_iso)[:10]
+    for w in _school_week_windows(anchor_iso, total_weeks):
+        if d in w["dates"]:
+            return w["week_number"]
+    return None
+
+
+def _day_name_from_date(date_iso: str) -> str:
+    try:
+        return datetime.fromisoformat(str(date_iso)[:10]).strftime("%a")
+    except Exception:
+        return ""
+
+
+def _weeks_done_for_invoice(sessions: list, anchor_iso: str, total_weeks: int) -> int:
+    """Count completed school weeks (5 Sun–Thu blocks from invoice start)."""
+    if not anchor_iso or total_weeks <= 0:
         return 0
+    windows = _school_week_windows(anchor_iso, total_weeks)
     completed = [s for s in sessions if s.get("status") == "Completed" and s.get("session_date")]
     done = 0
-    for k in range(int(total_weeks)):
-        start = anchor + timedelta(days=7 * k)
-        end = start + timedelta(days=7)
-        start_s, end_s = start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
-        if any(start_s <= s["session_date"] < end_s for s in completed):
+    for w in windows:
+        if not w["dates"]:
+            continue
+        attended = sum(1 for s in completed if str(s["session_date"])[:10] in w["dates"])
+        if attended > 0:
             done += 1
     return done
 
@@ -1359,54 +1452,32 @@ def _compute_package_status_row(client: dict, service_code: str, invoices: list,
             "label": label,
         }
 
-    # SS
-    completed = [s for s in inv_sessions if s.get("status") == "Completed"]
-    completed_count = len(completed)
-    if pkg <= 12:
-        total_weeks = int(pkg)
-        anchor = inv.get("start_date") or client.get("cycle_start_date") or now_iso()[:10]
-        weeks_done = _weeks_done_for_invoice(inv_sessions, anchor, total_weeks)
-        remaining_w = max(0, total_weeks - weeks_done)
-        current_w = min(total_weeks, weeks_done + 1) if weeks_done < total_weeks else total_weeks
-        level = _package_status_level_ss_weeks(remaining_w)
-        if inv.get("is_closed"):
-            level = "expired"
-        if remaining_w <= 1 and remaining_w > 0:
-            label = "Last week!"
-        else:
-            label = f"Wk {current_w} of {total_weeks}"
-        return {
-            **base,
-            "invoice_id": inv["id"],
-            "invoice_number": inv.get("invoice_number"),
-            "package_size": total_weeks,
-            "used": weeks_done,
-            "remaining": remaining_w,
-            "remaining_pct": round((remaining_w / total_weeks) * 100, 1) if total_weeks else 0,
-            "status": level,
-            "unit": "weeks",
-            "label": label,
-            "current_week": current_w,
-            "total_weeks": total_weeks,
-        }
-
-    used = completed_count
-    remaining = round(pkg - used, 1)
-    pct = round((remaining / pkg) * 100, 1) if pkg > 0 else 0
-    level = _package_status_level_ss_sessions(remaining, pkg)
+    # SS — always 4 school weeks per invoice
+    total_weeks = 4
+    anchor = inv.get("start_date") or client.get("cycle_start_date") or now_iso()[:10]
+    weeks_done = _weeks_done_for_invoice(inv_sessions, anchor, total_weeks)
+    remaining_w = max(0, total_weeks - weeks_done)
+    current_w = min(total_weeks, weeks_done + 1) if weeks_done < total_weeks else total_weeks
+    level = _package_status_level_ss_weeks(remaining_w)
     if inv.get("is_closed"):
         level = "expired"
+    if remaining_w <= 1 and remaining_w > 0:
+        label = "Last week!"
+    else:
+        label = f"Wk {current_w} of {total_weeks}"
     return {
         **base,
         "invoice_id": inv["id"],
         "invoice_number": inv.get("invoice_number"),
-        "package_size": pkg,
-        "used": used,
-        "remaining": remaining,
-        "remaining_pct": pct,
+        "package_size": total_weeks,
+        "used": weeks_done,
+        "remaining": remaining_w,
+        "remaining_pct": round((remaining_w / total_weeks) * 100, 1) if total_weeks else 0,
         "status": level,
-        "unit": "sessions",
-        "label": f"{int(remaining)} sessions left",
+        "unit": "weeks",
+        "label": label,
+        "current_week": current_w,
+        "total_weeks": total_weeks,
     }
 
 
@@ -1460,6 +1531,10 @@ async def get_client_package_status(cid: str, user=Depends(get_current_user)):
 @api.post("/clients/{cid}/invoices")
 async def create_invoice(cid: str, payload: InvoiceIn, user=Depends(admin_only)):
     inv_id = str(uuid.uuid4())
+    st = _normalize_service_type(payload.service_type)
+    pkg_size = payload.package_size
+    if st == "SS" and (pkg_size is None or pkg_size > 12):
+        pkg_size = 4
     doc = {
         "id": inv_id,
         "client_id": cid,
@@ -1468,7 +1543,7 @@ async def create_invoice(cid: str, payload: InvoiceIn, user=Depends(admin_only))
         "amount": payload.amount,
         "period_from": payload.period_from,
         "period_to": payload.period_to,
-        "package_size": payload.package_size,
+        "package_size": pkg_size,
         "payment_status": payload.payment_status or "pending",
         "start_date": payload.start_date or now_iso()[:10],
         "service_type": _normalize_service_type(payload.service_type),
@@ -1503,6 +1578,13 @@ async def update_invoice(iid: str, payload: InvoiceIn, _=Depends(admin_only)):
 
 @api.delete("/invoices/{iid}")
 async def delete_invoice(iid: str, _=Depends(admin_only)):
+    inv = await db.invoices.find_one({"id": iid}, {"_id": 0, "id": 1, "invoice_number": 1})
+    if inv:
+        inv_num = (inv.get("invoice_number") or "").strip()
+        q = {"invoice_id": iid}
+        if inv_num:
+            q = {"$or": [{"invoice_id": iid}, {"source_invoice": inv_num}]}
+        await db.sessions.delete_many(q)
     await db.invoices.delete_one({"id": iid})
     return {"ok": True}
 
@@ -2067,16 +2149,20 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
             if sync_key in existing_sync or key in existing_key:
                 sessions_skipped += 1
                 continue
+            inv_st = _normalize_service_type(inv_doc.get("service_type") or header_info.get("service_type"))
             sess_doc = {
                 "id": str(uuid.uuid4()),
                 "client_id": cid,
                 "session_date": date_iso,
+                "day_name": _day_name_from_date(date_iso),
                 "start_time": start_t or None,
                 "end_time": end_t or None,
-                "hours": hours_f or 0.0,
+                "hours": hours_f if inv_st != "SS" else None,
                 "status": status_norm,
                 "therapist_ids": ther_ids,
                 "note": note_val or None,
+                "service_type": inv_st,
+                "week_number": None,
                 "source": origin,
                 "source_invoice": inv_num,
                 "invoice_id": inv_doc.get("id"),
@@ -2107,6 +2193,26 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
         if st:
             await db.invoices.update_one({"id": inv_doc["id"]}, {"$set": {"service_type": st}})
             inv_doc["service_type"] = st
+            # SS package is always 4 weeks
+            if st == "SS":
+                await db.invoices.update_one({"id": inv_doc["id"]}, {"$set": {"package_size": 4}})
+                inv_doc["package_size"] = 4
+
+        # Stamp service_type, day_name, week_number on all sessions for this invoice
+        anchor = earliest or inv_doc.get("start_date")
+        inv_sessions = await db.sessions.find(
+            {"client_id": cid, "$or": [{"invoice_id": inv_doc["id"]}, {"source_invoice": inv_num}]},
+            {"_id": 0, "id": 1, "session_date": 1},
+        ).to_list(2000)
+        for s in inv_sessions:
+            sd = str(s.get("session_date") or "")[:10]
+            patch = {"day_name": _day_name_from_date(sd), "service_type": st}
+            if st == "SS":
+                patch["week_number"] = _school_week_for_date(sd, anchor, 4)
+                patch["hours"] = None
+            elif st == "HS":
+                patch["week_number"] = None
+            await db.sessions.update_one({"id": s["id"]}, {"$set": patch})
 
     return {
         "matched_sheets": matched_sheets,
@@ -2172,20 +2278,29 @@ async def create_session(payload: SessionIn, user=Depends(get_current_user)):
     if payload.status in ("Cancelled", "No Show"):
         await _notify_admins("cancel_alert", f"Session {payload.status}: {cname}",
                              f"On {payload.session_date} ({user.get('name')})")
-    # Low-hours alert
+    # Low-hours alert — scoped to last open HS invoice only
     if client:
-        used = await db.sessions.aggregate([
-            {"$match": {"client_id": payload.client_id, "status": "Completed"}},
-            {"$group": {"_id": None, "total": {"$sum": "$hours"}}}
-        ]).to_list(1)
-        used_h = used[0]["total"] if used else 0
-        rem = (client.get("package_hours") or 24) - used_h
-        if 0 < rem <= 4:
-            await _notify_admins("low_hours", f"⚠️ {cname} has only {rem}h left",
-                                 f"Pkg {client.get('package_hours')}h, used {used_h}h. Consider package renewal.")
-        elif rem <= 0:
-            await _notify_admins("low_hours", f"🔴 {cname} package exhausted",
-                                 f"Used {used_h}h of {client.get('package_hours')}h.")
+        invs = await db.invoices.find({"client_id": payload.client_id}, {"_id": 0}).to_list(200)
+        open_hs = _last_open_invoice(invs, "HS")
+        if open_hs and payload.status == "Completed":
+            inv_sessions = await db.sessions.find(
+                {"client_id": payload.client_id}, {"_id": 0}
+            ).to_list(5000)
+            matched = _sessions_for_invoice(open_hs, inv_sessions)
+            used_h = sum(
+                float(s.get("hours") or 0)
+                for s in matched
+                if s.get("status") in ("Completed", "Cancelled")
+            )
+            pkg_h = float(open_hs.get("package_size") or client.get("package_hours") or 24)
+            rem = pkg_h - used_h
+            inv_label = open_hs.get("invoice_number") or "invoice"
+            if 0 < rem <= 4:
+                await _notify_admins("low_hours", f"⚠️ {cname} has only {rem}h left ({inv_label})",
+                                     f"Pkg {pkg_h}h, used {used_h}h on {inv_label}. Consider package renewal.")
+            elif rem <= 0:
+                await _notify_admins("low_hours", f"🔴 {cname} package exhausted ({inv_label})",
+                                     f"Used {used_h}h of {pkg_h}h on {inv_label}.")
     return doc
 
 @api.put("/sessions/{sid}")
