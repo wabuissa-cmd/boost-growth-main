@@ -10,7 +10,7 @@ export const SERVICE_CELL_COLORS = {
   SUPERVISION: { background: "#E8F0E8", borderColor: "#A8C0A8", color: "#4A6B4A" },
   OBSERVATION: { background: "#F4EDE3", borderColor: "#D5BFA0", color: "#6B5430" },
   AVC: { background: "#FFEAE0", borderColor: "#F0B89F", color: "#7A4123" },
-  LEAVE: { background: "#ECECEC", borderColor: "#B0B0B0", color: "#555555" },
+  LEAVE: { background: "#D9EAD3", borderColor: "#B6D7A8", color: "#3D5C3A" },
   BREAK: { background: "#F5F5DC", borderColor: "#C9C09A", color: "#6B6038" },
 };
 
@@ -52,10 +52,13 @@ export function getCellStyle(cell, clients = []) {
   if (cell.state === "cancel_child") {
     return { background: "#FCE0E8", color: "#8B3A55", borderColor: "#E8A4BD" };
   }
+  const code = cell.service_code;
+  if (code === "LEAVE" && SERVICE_CELL_COLORS.LEAVE) {
+    return { ...SERVICE_CELL_COLORS.LEAVE };
+  }
   if (cell.color) {
     return { background: cell.color, borderColor: cell.color, color: readable(cell.color) };
   }
-  const code = cell.service_code;
   if (META_SERVICE_CODES.has(code) || (!cell.child_name && code && SERVICE_CELL_COLORS[code])) {
     const s = SERVICE_CELL_COLORS[code];
     if (s) return { ...s };
@@ -91,6 +94,14 @@ export function isSlotSelectable(therapistId, day, timeSlot, cellMap, coveredSet
 }
 
 /** Find cell occupying a slot (including merged span). */
+/** Therapists excluded from schedule grid (still in admin/clients). */
+export const SCHEDULE_HIDDEN_NAME_TOKENS = ["jenan", "walaa", "bodoor", "bodour", "diora", "asma"];
+
+export function isHiddenFromSchedule(name) {
+  const n = (name || "").toLowerCase();
+  return SCHEDULE_HIDDEN_NAME_TOKENS.some(t => n.includes(t));
+}
+
 export function findCellAt(therapistId, day, timeSlot, cellMap, cells) {
   const key = `${therapistId}_${day}_${timeSlot}`;
   if (cellMap[key]) return cellMap[key];

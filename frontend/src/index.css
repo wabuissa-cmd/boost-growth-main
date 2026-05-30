@@ -188,7 +188,7 @@ main, .page-enter { min-width: 0; }
 .evt-supervision { background: #E8F0E8; border-color: #A8C0A8; color: #4A6B4A; }
 .evt-observation { background: #F4EDE3; border-color: #D5BFA0; color: #6B5430; }
 .evt-avc     { background: #FFEAE0; border-color: #F0B89F; color: #7A4123; }
-.evt-leave   { background: #ECECEC; border-color: #B0B0B0; color: #555; font-style: italic; }
+.evt-leave   { background: #D9EAD3; border-color: #B6D7A8; color: #3D5C3A; font-style: italic; }
 .evt-break   { background: #F5F5DC; border-color: #C9C09A; color: #6B6038; font-style: italic; }
 .cell-cancel-therapist {
     background: var(--yellow-cancel) !important;

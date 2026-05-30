@@ -2771,14 +2771,11 @@ THERAPIST_SEED = [
     {"name": "Ms. Shatha", "color": "#5C8B7E", "email": "shatha@boostgrowthsa.com"},
     {"name": "Ms. Alhanouf", "color": "#B89968", "email": "alhanouf@boostgrowthsa.com"},
     {"name": "Ms. Waad", "color": "#7B96B5", "email": "waad@boostgrowthsa.com"},
-    {"name": "Ms. Bodoor", "color": "#A8745E", "email": "bodoor@boostgrowthsa.com"},
     {"name": "Ms. Fatimah", "color": "#6B9080", "email": "fatimah@boostgrowthsa.com"},
     {"name": "Ms. Shrooq", "color": "#D49A60", "email": "shrooq@boostgrowthsa.com"},
     {"name": "Ms. Abeer", "color": "#8B7BA8", "email": "abeer@boostgrowthsa.com"},
     {"name": "Ms. Najla", "color": "#7BA890", "email": "najla@boostgrowthsa.com"},
-    {"name": "Ms. Walaa", "color": "#C28E6A", "email": "walaa@boostgrowthsa.com"},
     {"name": "Ms. Asma", "color": "#6A7F9B", "email": "asma@boostgrowthsa.com"},
-    {"name": "Ms. Jenan", "color": "#A38B5F", "email": "jenan@boostgrowthsa.com"},
 ]
 
 CLIENT_SEED = [

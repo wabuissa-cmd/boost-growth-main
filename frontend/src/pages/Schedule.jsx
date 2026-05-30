@@ -3,7 +3,7 @@ import api, { DAYS_EN, DAYS_SHORT, TIME_SLOTS, SERVICE_CODES, startOfWeek, addDa
 import {
   getCellStyle, META_SERVICE_CODES, MERGE_QUICK,
   SERVICE_CELL_COLORS, buildSlotRange, isSlotSelectable, slotIndex,
-  findCellAt,
+  findCellAt, isHiddenFromSchedule,
 } from "../scheduleUtils";
 import { useAuth } from "../auth";
 import {
@@ -196,7 +196,7 @@ export default function Schedule() {
   }, [cells]);
 
   const visibleTherapists = useMemo(() => {
-    let list = therapists;
+    let list = therapists.filter(t => !isHiddenFromSchedule(t.name));
     if (search) list = list.filter(t => t.name.toLowerCase().includes(search.toLowerCase()));
     return list;
   }, [therapists, search]);
@@ -269,7 +269,7 @@ export default function Schedule() {
   const bulkFill = async (mode) => {
     if (!panelForm) return;
     const { therapist_id, day, time_slot } = panelForm;
-    const leaveColor = SERVICE_CELL_COLORS.LEAVE.background;
+    const leaveColor = SERVICE_CELL_COLORS.LEAVE.background; // light green #D9EAD3
     const clearDay = async (d) => {
       for (const ts of TIME_SLOTS) await deleteAtSlot(therapist_id, d, ts);
     };
@@ -716,7 +716,7 @@ export default function Schedule() {
 
       <div className="card p-3 mb-4 flex items-center flex-wrap gap-3 text-xs">
         <div className="font-bold flex items-center gap-1" style={{ color: "#5C6853" }}><Info size={14} /> Legend:</div>
-        {SERVICE_CODES.slice(0, 7).map(s => (<span key={s.id} className={`pill ${s.cls}`}>{s.short}</span>))}
+        {SERVICE_CODES.map(s => (<span key={s.id} className={`pill ${s.cls}`}>{s.short}</span>))}
         <span className="pill" style={{ background: "#FFF4C4", color: "#6B5218", border: "1px solid #E8C572" }}>✕ Therapist Cancel</span>
         <span className="pill" style={{ background: "#FCE0E8", color: "#8B3A55", border: "1px solid #E8A4BD" }}>✕ Client Cancel</span>
         <span className="ml-auto text-[11px]" style={{ color: "#8B9E7A" }}>Each child = unique color · {clients.length} clients</span>
