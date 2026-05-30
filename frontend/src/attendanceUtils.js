@@ -284,8 +284,17 @@ export function inferDefaultServiceType(allInvoices, client, user, sessions) {
 }
 
 export function pickLatestOpenInvoice(invoiceList) {
-  const open = (invoiceList || []).filter(i => !i.is_closed);
-  return open[0] || (invoiceList || [])[0] || null;
+  const sorted = [...(invoiceList || [])].sort((a, b) => {
+    const da = a.start_date || a.created_at || "";
+    const db = b.start_date || b.created_at || "";
+    return String(db).localeCompare(String(da));
+  });
+  const open = sorted.filter(i => !i.is_closed);
+  return open[0] || sorted[0] || null;
+}
+
+export function hasOpenInvoice(invoiceList) {
+  return (invoiceList || []).some(i => !i.is_closed);
 }
 
 export function groupSessionsByWeeks(sessions, anchorISO, cycleWeeks = 4) {

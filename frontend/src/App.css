@@ -1,1 +1,9 @@
 /* component layer */
+
+@keyframes pkg-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(139, 58, 85, 0.35); }
+  50% { opacity: 0.88; box-shadow: 0 0 0 4px rgba(139, 58, 85, 0.12); }
+}
+.pkg-badge-critical {
+  animation: pkg-pulse 1.6s ease-in-out infinite;
+}

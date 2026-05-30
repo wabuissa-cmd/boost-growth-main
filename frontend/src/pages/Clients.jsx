@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "../api";
 import { useAuth } from "../auth";
 import { Plus, PencilSimple, Trash, MagnifyingGlass, MapPin, User, Phone, Hash, ArrowSquareOut } from "@phosphor-icons/react";
+import { PackageStatusBadge } from "../components/PackageStatusBadge";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -16,6 +18,8 @@ export default function Clients() {
   const [search, setSearch] = useState("");
   const [panelClient, setPanelClient] = useState(null); // { client, section }
   const [prSummaries, setPrSummaries] = useState({});
+  const [pkgByClient, setPkgByClient] = useState({});
+  const navigate = useNavigate();
 
   const refreshPrSummaries = () => {
     api.get("/progress-reports/summary").then(r => setPrSummaries(r.data || {})).catch(() => {});
@@ -36,6 +40,14 @@ export default function Clients() {
 
   useEffect(() => {
     refreshPrSummaries();
+    api.get("/clients/package-status").then(r => {
+      const map = {};
+      for (const row of r.data || []) {
+        if (!map[row.client_id]) map[row.client_id] = [];
+        map[row.client_id].push(row);
+      }
+      setPkgByClient(map);
+    }).catch(() => setPkgByClient({}));
   }, [items]);
 
   const save = async () => {
@@ -76,7 +88,15 @@ export default function Clients() {
                   {c.name?.charAt(0)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-bold text-lg truncate" style={{color: "#2C3625"}}>{c.name}</div>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="font-bold text-lg truncate flex-1" style={{color: "#2C3625"}}>{c.name}</div>
+                    <div className="flex flex-col items-end gap-1 shrink-0 max-w-[48%]">
+                      {(pkgByClient[c.id] || []).map(row => (
+                        <PackageStatusBadge key={`${c.id}-${row.service_type}`} row={row} clientId={c.id}
+                          onClick={() => navigate(`/attendance?client=${c.id}&service=${row.service_type}`)} />
+                      ))}
+                    </div>
+                  </div>
                   <div className="text-xs flex items-center gap-1 flex-wrap" style={{color: "#8B9E7A"}}>
                     <Hash size={10}/>{c.file_no || "—"}
                     {c.billing_mode === "weeks" ? (

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { Plus, PencilSimple, Trash, X, UserPlus, Key, EnvelopeSimple, CheckCircle, Warning, Database, SignOut } from "@phosphor-icons/react";
+import PackageStatusOverview from "../components/PackageStatusOverview";
 
 export default function Admin() {
   const { logout } = useAuth();
@@ -161,6 +162,8 @@ export default function Admin() {
           </div>
         )}
       </div>
+
+      <PackageStatusOverview />
 
       <div className="card p-5 mb-5">
         <div className="flex items-center justify-between mb-3">

@@ -1112,6 +1112,255 @@ async def list_invoices(cid: str, service_type: Optional[str] = None, user=Depen
             items = [i for i in items if _normalize_service_type(i.get("service_type")) == code]
     return items
 
+# ------------------- Package status (last open invoice) -------------------
+def _sort_invoices_by_date(invoices: list) -> list:
+    return sorted(
+        invoices,
+        key=lambda i: (i.get("start_date") or i.get("created_at") or ""),
+        reverse=True,
+    )
+
+
+def _last_open_invoice(invoices: list, service_code: str) -> Optional[dict]:
+    for inv in _sort_invoices_by_date(invoices):
+        if inv.get("is_closed"):
+            continue
+        if _normalize_service_type(inv.get("service_type")) == service_code:
+            return inv
+    return None
+
+
+def _sessions_for_invoice(inv: dict, sessions: list) -> list:
+    inv_id = inv.get("id")
+    inv_num = (inv.get("invoice_number") or "").strip()
+    cid = inv.get("client_id")
+    out = []
+    for s in sessions:
+        if s.get("client_id") != cid:
+            continue
+        if s.get("invoice_id") == inv_id:
+            out.append(s)
+        elif inv_num and (s.get("source_invoice") or "").strip() == inv_num:
+            out.append(s)
+    return out
+
+
+def _client_service_codes(client: dict, invoices: list) -> list:
+    codes = set()
+    cst = _normalize_service_type(client.get("service_type"))
+    raw = (client.get("service_type") or "").upper()
+    if cst == "HS" or "HS" in raw:
+        codes.add("HS")
+    if cst == "SS" or "SS" in raw:
+        codes.add("SS")
+    if not codes or cst is None or "HS+SS" in raw or "HS/SS" in raw:
+        codes.update({"HS", "SS"})
+    for inv in invoices:
+        if not inv.get("is_closed"):
+            st = _normalize_service_type(inv.get("service_type"))
+            if st in ("HS", "SS"):
+                codes.add(st)
+    return sorted(codes)
+
+
+def _weeks_done_for_invoice(sessions: list, anchor_iso: str, total_weeks: int) -> int:
+    if not anchor_iso or total_weeks <= 0:
+        return 0
+    try:
+        anchor = datetime.fromisoformat(str(anchor_iso)[:10])
+    except Exception:
+        return 0
+    completed = [s for s in sessions if s.get("status") == "Completed" and s.get("session_date")]
+    done = 0
+    for k in range(int(total_weeks)):
+        start = anchor + timedelta(days=7 * k)
+        end = start + timedelta(days=7)
+        start_s, end_s = start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+        if any(start_s <= s["session_date"] < end_s for s in completed):
+            done += 1
+    return done
+
+
+def _package_status_level_hs(remaining: float, total: float) -> str:
+    if total <= 0 or remaining <= 0:
+        return "expired"
+    pct = (remaining / total) * 100
+    if pct <= 10:
+        return "critical"
+    if pct <= 30:
+        return "low"
+    return "good"
+
+
+def _package_status_level_ss_weeks(remaining_weeks: float) -> str:
+    if remaining_weeks <= 0:
+        return "expired"
+    if remaining_weeks <= 1:
+        return "critical"
+    if remaining_weeks <= 2:
+        return "low"
+    return "good"
+
+
+def _package_status_level_ss_sessions(remaining: float, total: float) -> str:
+    if total <= 0 or remaining <= 0:
+        return "expired"
+    pct = (remaining / total) * 100
+    if pct < 20:
+        return "critical"
+    if pct <= 40:
+        return "low"
+    return "good"
+
+
+def _compute_package_status_row(client: dict, service_code: str, invoices: list, sessions: list) -> dict:
+    inv = _last_open_invoice(invoices, service_code)
+    base = {
+        "client_id": client["id"],
+        "client_name": client.get("name") or "",
+        "file_no": client.get("file_no"),
+        "service_type": service_code,
+        "invoice_id": None,
+        "invoice_number": None,
+        "package_size": None,
+        "used": 0,
+        "remaining": 0,
+        "remaining_pct": 0,
+        "status": "none",
+        "unit": "hours" if service_code == "HS" else "weeks",
+        "label": "No open invoice",
+        "current_week": None,
+        "total_weeks": None,
+    }
+    if not inv:
+        return base
+
+    inv_sessions = _sessions_for_invoice(inv, sessions)
+    pkg = float(inv.get("package_size") or (24 if service_code == "HS" else 4))
+
+    if service_code == "HS":
+        used = sum(
+            float(s.get("hours") or 0)
+            for s in inv_sessions
+            if s.get("status") in ("Completed", "Cancelled")
+        )
+        remaining = round(pkg - used, 2)
+        pct = round((remaining / pkg) * 100, 1) if pkg > 0 else 0
+        level = _package_status_level_hs(remaining, pkg)
+        if inv.get("is_closed"):
+            level = "expired"
+        label = f"{int(pkg) if pkg == int(pkg) else pkg}h · {remaining}h left"
+        return {
+            **base,
+            "invoice_id": inv["id"],
+            "invoice_number": inv.get("invoice_number"),
+            "package_size": pkg,
+            "used": round(used, 2),
+            "remaining": remaining,
+            "remaining_pct": pct,
+            "status": level,
+            "unit": "hours",
+            "label": label,
+        }
+
+    # SS
+    completed = [s for s in inv_sessions if s.get("status") == "Completed"]
+    completed_count = len(completed)
+    if pkg <= 12:
+        total_weeks = int(pkg)
+        anchor = inv.get("start_date") or client.get("cycle_start_date") or now_iso()[:10]
+        weeks_done = _weeks_done_for_invoice(inv_sessions, anchor, total_weeks)
+        remaining_w = max(0, total_weeks - weeks_done)
+        current_w = min(total_weeks, weeks_done + 1) if weeks_done < total_weeks else total_weeks
+        level = _package_status_level_ss_weeks(remaining_w)
+        if inv.get("is_closed"):
+            level = "expired"
+        if remaining_w <= 1 and remaining_w > 0:
+            label = "Last week!"
+        else:
+            label = f"Wk {current_w} of {total_weeks}"
+        return {
+            **base,
+            "invoice_id": inv["id"],
+            "invoice_number": inv.get("invoice_number"),
+            "package_size": total_weeks,
+            "used": weeks_done,
+            "remaining": remaining_w,
+            "remaining_pct": round((remaining_w / total_weeks) * 100, 1) if total_weeks else 0,
+            "status": level,
+            "unit": "weeks",
+            "label": label,
+            "current_week": current_w,
+            "total_weeks": total_weeks,
+        }
+
+    used = completed_count
+    remaining = round(pkg - used, 1)
+    pct = round((remaining / pkg) * 100, 1) if pkg > 0 else 0
+    level = _package_status_level_ss_sessions(remaining, pkg)
+    if inv.get("is_closed"):
+        level = "expired"
+    return {
+        **base,
+        "invoice_id": inv["id"],
+        "invoice_number": inv.get("invoice_number"),
+        "package_size": pkg,
+        "used": used,
+        "remaining": remaining,
+        "remaining_pct": pct,
+        "status": level,
+        "unit": "sessions",
+        "label": f"{int(remaining)} sessions left",
+    }
+
+
+def _package_status_for_client(client: dict, invoices: list, sessions: list) -> list:
+    client_invs = [i for i in invoices if i.get("client_id") == client["id"]]
+    client_sess = [s for s in sessions if s.get("client_id") == client["id"]]
+    codes = _client_service_codes(client, client_invs)
+    return [_compute_package_status_row(client, code, client_invs, client_sess) for code in codes]
+
+
+@api.get("/clients/package-status")
+async def list_clients_package_status(user=Depends(get_current_user)):
+    clients = await db.clients.find(
+        {"status": {"$ne": "Inactive"}}, {"_id": 0}
+    ).sort("name", 1).to_list(500)
+    if user.get("role") != "admin":
+        uid = user["id"]
+        clients = [
+            c for c in clients
+            if c.get("main_therapist_id") == uid or uid in (c.get("co_therapist_ids") or [])
+        ]
+    invoices = await db.invoices.find({}, {"_id": 0}).to_list(5000)
+    client_ids = {c["id"] for c in clients}
+    sessions = await db.sessions.find(
+        {"client_id": {"$in": list(client_ids)}}, {"_id": 0}
+    ).to_list(20000) if client_ids else []
+    rows = []
+    for c in clients:
+        rows.extend(_package_status_for_client(c, invoices, sessions))
+    order = {"critical": 0, "expired": 1, "low": 2, "good": 3, "none": 4}
+    rows.sort(key=lambda r: (order.get(r["status"], 9), r.get("client_name") or ""))
+    return rows
+
+
+@api.get("/clients/{cid}/package-status")
+async def get_client_package_status(cid: str, user=Depends(get_current_user)):
+    client = await db.clients.find_one({"id": cid}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if user.get("role") != "admin":
+        uid = user["id"]
+        if client.get("main_therapist_id") != uid and uid not in (client.get("co_therapist_ids") or []):
+            fn = str(client.get("file_no") or "").strip()
+            if not (fn and _is_supervisor_for_file(user, fn)):
+                raise HTTPException(status_code=403, detail="Forbidden")
+    invoices = await db.invoices.find({"client_id": cid}, {"_id": 0}).to_list(500)
+    sessions = await db.sessions.find({"client_id": cid}, {"_id": 0}).to_list(5000)
+    return _package_status_for_client(client, invoices, sessions)
+
+
 @api.post("/clients/{cid}/invoices")
 async def create_invoice(cid: str, payload: InvoiceIn, user=Depends(admin_only)):
     inv_id = str(uuid.uuid4())

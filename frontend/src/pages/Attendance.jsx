@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, Fragment, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import api from "../api";
 import { useAuth } from "../auth";
 import {
@@ -16,8 +17,9 @@ import {
   fmtDate, dayShort, WEEK_ROW_BG,
   normalizeServiceTypeCode, inferDefaultServiceType,
   pickLatestOpenInvoice, computeSsTotals, ssSessionDayValue,
-  resolveServiceTabState,
+  resolveServiceTabState, hasOpenInvoice,
 } from "../attendanceUtils";
+import { PackageAlertBanner } from "../components/PackageStatusBadge";
 
 const SUPERVISOR_CLIENTS = {
   msMaha: ["035", "037", "038", "040", "041", "042", "047", "052", "054", "060", "063", "065", "070"],
@@ -138,6 +140,10 @@ export default function Attendance() {
   const [editingSess, setEditingSess] = useState(null);
   const [historyFor, setHistoryFor] = useState(null);
   const [sheetMode, setSheetMode] = useState("invoice");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepClientId = searchParams.get("client");
+  const deepService = searchParams.get("service");
+  const deepNewInvoice = searchParams.get("newInvoice") === "1";
 
   const load = useCallback(async () => {
     const [c, t, s] = await Promise.all([
@@ -148,6 +154,20 @@ export default function Attendance() {
     setClients(c.data); setTherapists(t.data); setSessions(s.data);
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!deepClientId || !clients.length) return;
+    const c = clients.find(x => x.id === deepClientId);
+    if (c) {
+      setHistoryFor(c);
+      setSheetMode("invoice");
+    }
+  }, [deepClientId, clients]);
+
+  const closeHistory = () => {
+    setHistoryFor(null);
+    if (deepClientId) setSearchParams({});
+  };
 
   const enriched = useMemo(() => clients.map(c => enrichClientBilling(c, sessions)), [clients, sessions]);
 
@@ -324,10 +344,12 @@ export default function Attendance() {
       {historyFor && sheetMode === "invoice" && (
         <HistoryModal client={historyFor} sessions={sessions.filter(s => s.client_id === historyFor.id)}
                       therapists={therapists} isAdmin={isAdmin} user={user} currentUserId={user?.id}
-                      onClose={() => setHistoryFor(null)}
+                      onClose={closeHistory}
                       onEdit={(s) => { setEditingSess(s); }}
                       onDeleted={() => load()}
-                      onClientUpdated={() => load()}/>
+                      onClientUpdated={() => load()}
+                      initialService={deepService}
+                      autoNewInvoice={deepNewInvoice}/>
       )}
 
       {editingSess && (
@@ -610,7 +632,7 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
   );
 }
 
-function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUserId, onClose, onEdit, onDeleted, onClientUpdated }) {
+function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUserId, onClose, onEdit, onDeleted, onClientUpdated, initialService, autoNewInvoice }) {
   const [closed, setClosed] = useState(false);
   const [closureDate, setClosureDate] = useState("");
   // Invoice + package management state
@@ -631,8 +653,32 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   const [exportOpen, setExportOpen] = useState(false);
   const [newInvMenuOpen, setNewInvMenuOpen] = useState(false);
   const [localSessions, setLocalSessions] = useState(sessions);
+  const [pkgStatuses, setPkgStatuses] = useState([]);
   const invoicesInitialized = useRef(false);
   const prevServiceFilter = useRef(serviceTypeFilter);
+  const autoNewInvDone = useRef(false);
+
+  useEffect(() => {
+    api.get(`/clients/${client.id}/package-status`).then(r => setPkgStatuses(r.data || [])).catch(() => setPkgStatuses([]));
+  }, [client.id]);
+
+  const currentPkgStatus = useMemo(
+    () => pkgStatuses.find(s => s.service_type === serviceTypeFilter),
+    [pkgStatuses, serviceTypeFilter]
+  );
+
+  useEffect(() => {
+    if (initialService && (initialService === "HS" || initialService === "SS")) {
+      setServiceTypeFilter(initialService);
+    }
+  }, [client.id, initialService]);
+
+  useEffect(() => {
+    if (autoNewInvoice && isAdmin && !autoNewInvDone.current) {
+      autoNewInvDone.current = true;
+      setShowNewInvModal(true);
+    }
+  }, [autoNewInvoice, isAdmin]);
 
   const findT = id => therapists.find(t => t.id === id);
   const tabState = useMemo(() => resolveServiceTabState(client, allInvoices), [client, allInvoices]);
@@ -881,6 +927,11 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
     setExportOpen(false);
   };
 
+  const showNoOpenWarning = useMemo(() => {
+    const forType = allInvoices.filter(i => normalizeServiceTypeCode(i.service_type) === serviceTypeFilter);
+    return forType.length > 0 && !hasOpenInvoice(forType);
+  }, [allInvoices, serviceTypeFilter]);
+
   const fmtDateLocal = fmtDate;
   const dayShortLocal = dayShort;
   const sortedInvoiceSessions = [...cycleSessions].sort((a, b) => new Date(a.session_date) - new Date(b.session_date));
@@ -972,6 +1023,22 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
             <button onClick={onClose} className="btn btn-ghost p-2"><X size={20}/></button>
           </div>
         </div>
+
+        <PackageAlertBanner
+          row={currentPkgStatus}
+          onNewInvoice={isAdmin ? () => setShowNewInvModal(true) : undefined}
+          onViewDetails={() => setShowInvoiceDetails(true)}
+        />
+
+        {showNoOpenWarning && (
+          <div className="mx-5 mt-2 px-3 py-2 rounded-lg border text-xs no-print flex items-center justify-between gap-2 flex-wrap"
+            style={{ background: "#F5F5F5", borderColor: "#E0E0E0", color: "#5C6853" }}>
+            <span>⚫ No open {serviceTypeFilter} invoice — showing most recent closed invoice.</span>
+            {isAdmin && (
+              <button type="button" onClick={() => setShowNewInvModal(true)} className="btn btn-primary text-xs">Create New Invoice</button>
+            )}
+          </div>
+        )}
 
         {/* Compact invoice summary line */}
         {selectedInvoice && (
