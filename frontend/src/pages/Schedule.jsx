@@ -1,27 +1,21 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import api, { DAYS_EN, DAYS_SHORT, TIME_SLOTS, SERVICE_CODES, startOfWeek, addDays, toISODate, formatDateRange } from "../api";
-import { readable } from "../childColors";
 import {
-  getCellStyle, META_SERVICE_CODES, MERGE_QUICK, SCHEDULE_COLOR_SWATCHES,
+  getCellStyle, META_SERVICE_CODES, MERGE_QUICK,
   SERVICE_CELL_COLORS, buildSlotRange, isSlotSelectable, slotIndex,
-  resolveClientScheduleColor,
+  findCellAt,
 } from "../scheduleUtils";
 import { useAuth } from "../auth";
 import {
   CaretLeft, CaretRight, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
   MagnifyingGlassPlus, MagnifyingGlassMinus, Printer, Info, GridFour,
-  CopySimple, Table, CalendarBlank, ArrowLeft, ArrowRight, ArrowsMerge
+  CopySimple, Table, CalendarBlank
 } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
-  ModalBtnPrimary, ModalBtnSecondary, ModalBtnDanger,
+  ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
-
-const STATES = [
-  { id: "normal", label: "Normal", swatch: "#E5EBE1" },
-  { id: "cancel_therapist", label: "Therapist Cancel", swatch: "#FFF4C4" },
-  { id: "cancel_child", label: "Client Cancel", swatch: "#FCE0E8" },
-];
+import ScheduleCellPanel from "../components/ScheduleCellPanel";
 
 function CellContent({ cell, sc }) {
   if (!cell) return null;
@@ -83,8 +77,9 @@ export default function Schedule() {
   const [clients, setClients] = useState([]);
   const [leaves, setLeaves] = useState([]);
   const [search, setSearch] = useState("");
-  const [edit, setEdit] = useState(null);
-  const [ctxMenu, setCtxMenu] = useState(null);
+  const [panelForm, setPanelForm] = useState(null);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelSaving, setPanelSaving] = useState(false);
   const [notify, setNotify] = useState(null);
   const [notifyReceipts, setNotifyReceipts] = useState([]);
   const [zoom, setZoom] = useState(() => {
@@ -97,10 +92,8 @@ export default function Schedule() {
   const [dupClear, setDupClear] = useState(false);
   const [clipboard, setClipboard] = useState(null);  // copied cell content
   const [weekStatus, setWeekStatus] = useState("published");
-  const [selection, setSelection] = useState(null); // { therapist_id, day, slots: string[] }
+  const [selection, setSelection] = useState(null);
   const [selectAnchor, setSelectAnchor] = useState(null);
-  const [mergeModal, setMergeModal] = useState(null);
-  const [colorPicker, setColorPicker] = useState(null);
   const [mergeForm, setMergeForm] = useState({ label: "", color: "#E5EBE1", quick: "MEETING" });
   const [colorForm, setColorForm] = useState("#A2C4C9");
 
@@ -143,23 +136,21 @@ export default function Schedule() {
   };
 
   useEffect(() => {
-    const close = () => setCtxMenu(null);
-    if (ctxMenu) document.addEventListener("click", close);
-    return () => document.removeEventListener("click", close);
-  }, [ctxMenu]);
-
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") setClipboard(null); };
-    if (clipboard) window.addEventListener("keydown", onKey);
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        if (panelOpen) { setPanelOpen(false); setPanelForm(null); }
+        setClipboard(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [clipboard]);
+  }, [panelOpen]);
 
-  // Auto-scroll to top when opening edit/notify modals (so they're always centered in viewport)
   useEffect(() => {
-    if (edit || notify || showDup) {
+    if (panelOpen || notify || showDup) {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
-  }, [edit, notify, showDup]);
+  }, [panelOpen, notify, showDup]);
 
   const cellMap = useMemo(() => {
     const m = {};
@@ -247,9 +238,89 @@ export default function Schedule() {
     setSelection({ ...selection, slots: [...new Set(newSlots)].sort((a, b) => slotIndex(a, TIME_SLOTS) - slotIndex(b, TIME_SLOTS)) });
   };
 
-  const openEditForSlot = (therapist_id, day, time_slot, existing) => {
-    setEdit(existing ? { ...existing }
-      : { therapist_id, day, time_slot, service_code: "SS", child_name: "", state: "normal", week_start: weekStartISO, color: null, duration: 1 });
+  const openPanel = (therapist_id, day, time_slot, existing) => {
+    const form = existing ? { ...existing } : {
+      therapist_id, day, time_slot,
+      service_code: "SS", child_name: "", state: "normal",
+      week_start: weekStartISO, color: null, duration: 1,
+    };
+    setPanelForm(form);
+    setSelection({ therapist_id, day, slots: [time_slot] });
+    setSelectAnchor({ therapist_id, day, time_slot });
+    setMergeForm({
+      label: existing?.note || "",
+      color: existing?.color || SERVICE_CELL_COLORS[existing?.service_code]?.background || "#F1ECF7",
+      quick: existing?.service_code || "MEETING",
+    });
+    const client = existing?.child_name
+      ? clients.find(c => existing.child_name.trim() === c.name || existing.child_name.startsWith(c.name + " "))
+      : null;
+    setColorForm(client?.schedule_color || client?.color || existing?.color || "#A2C4C9");
+    setPanelOpen(true);
+  };
+
+  const closePanel = () => { setPanelOpen(false); setPanelForm(null); clearSelection(); };
+
+  const deleteAtSlot = async (therapist_id, day, time_slot) => {
+    const cell = findCellAt(therapist_id, day, time_slot, cellMap, cells);
+    if (cell?.id) await api.delete(`/schedule/${cell.id}`);
+  };
+
+  const bulkFill = async (mode) => {
+    if (!panelForm) return;
+    const { therapist_id, day, time_slot } = panelForm;
+    const leaveColor = SERVICE_CELL_COLORS.LEAVE.background;
+    const clearDay = async (d) => {
+      for (const ts of TIME_SLOTS) await deleteAtSlot(therapist_id, d, ts);
+    };
+
+    if (mode === "leave_day") {
+      if (!window.confirm(`Apply Leave for full ${DAYS_EN[day]} (all hours)?`)) return;
+      await clearDay(day);
+      await api.post("/schedule", {
+        therapist_id, day, time_slot: TIME_SLOTS[0], duration: TIME_SLOTS.length,
+        week_start: weekStartISO, service_code: "LEAVE", note: "Leave",
+        state: "normal", color: leaveColor, child_name: null,
+      });
+    } else if (mode === "leave_week_slot") {
+      if (!window.confirm(`Apply Leave for ${time_slot} every day this week?`)) return;
+      for (let d = 0; d < 5; d++) {
+        await deleteAtSlot(therapist_id, d, time_slot);
+        await api.post("/schedule", {
+          therapist_id, day: d, time_slot, duration: 1,
+          week_start: weekStartISO, service_code: "LEAVE", note: "Leave",
+          state: "normal", color: leaveColor, child_name: null,
+        });
+      }
+    } else if (mode === "leave_week") {
+      if (!window.confirm("Apply Leave for the entire week (all days, all hours)?")) return;
+      for (let d = 0; d < 5; d++) {
+        await clearDay(d);
+        await api.post("/schedule", {
+          therapist_id, day: d, time_slot: TIME_SLOTS[0], duration: TIME_SLOTS.length,
+          week_start: weekStartISO, service_code: "LEAVE", note: "Leave",
+          state: "normal", color: leaveColor, child_name: null,
+        });
+      }
+    } else if (mode === "available_day") {
+      if (!window.confirm(`Mark full ${DAYS_EN[day]} as Available?`)) return;
+      await clearDay(day);
+      for (const ts of TIME_SLOTS) {
+        await api.post("/schedule", {
+          therapist_id, day, time_slot: ts, duration: 1,
+          week_start: weekStartISO, service_code: "SS", note: "Available",
+          state: "available", color: "#FFFFFF", child_name: null,
+        });
+      }
+    } else if (mode === "clear_day") {
+      if (!window.confirm(`Clear all cells for ${DAYS_EN[day]}?`)) return;
+      await clearDay(day);
+    } else if (mode === "clear_week_slot") {
+      if (!window.confirm(`Clear ${time_slot} for all days this week?`)) return;
+      for (let d = 0; d < 5; d++) await deleteAtSlot(therapist_id, d, time_slot);
+    }
+    await load();
+    closePanel();
   };
 
   const handleCellClick = (e, therapist_id, day, time_slot, existing) => {
@@ -269,88 +340,42 @@ export default function Schedule() {
       api.post("/schedule", payload).then(load);
       return;
     }
-    if (existing) {
-      clearSelection();
-      openEditForSlot(therapist_id, day, time_slot, existing);
-      return;
-    }
-    if (e?.shiftKey && selectAnchor && selectAnchor.therapist_id === therapist_id && selectAnchor.day === day) {
+    if (e?.shiftKey && panelOpen && selectAnchor
+        && selectAnchor.therapist_id === therapist_id && selectAnchor.day === day) {
       const range = buildSlotRange(selectAnchor.time_slot, time_slot, TIME_SLOTS);
       const valid = range.filter(ts => isSlotSelectable(therapist_id, day, ts, cellMap, coveredSet));
-      if (valid.length) {
-        setSelection({ therapist_id, day, slots: valid });
-      }
+      if (valid.length) setSelection({ therapist_id, day, slots: valid });
       return;
     }
-    setSelectAnchor({ therapist_id, day, time_slot });
-    setSelection({ therapist_id, day, slots: [time_slot] });
-  };
-
-  const handleCellDoubleClick = (e, therapist_id, day, time_slot, existing) => {
-    if (e) e.stopPropagation();
-    if (!isAdmin || existing) return;
-    clearSelection();
-    openEditForSlot(therapist_id, day, time_slot, null);
-  };
-
-  const markAvailable = async (therapist_id, day, time_slot, existing) => {
-    if (existing?.id) await api.delete(`/schedule/${existing.id}`);
-    await api.post("/schedule", {
-      therapist_id, day, time_slot, week_start: weekStartISO,
-      service_code: "SS", child_name: null, note: "Available",
-      state: "available", color: "#FFFFFF", duration: 1,
-    });
-    setCtxMenu(null);
-    clearSelection();
-    load();
-  };
-
-  const markAvailableSelection = async () => {
-    if (!selection) return;
-    for (const ts of selection.slots) {
-      const key = `${selection.therapist_id}_${selection.day}_${ts}`;
-      const ex = cellMap[key];
-      if (ex?.id) await api.delete(`/schedule/${ex.id}`);
-      await api.post("/schedule", {
-        therapist_id: selection.therapist_id, day: selection.day, time_slot: ts,
-        week_start: weekStartISO, service_code: "SS", child_name: null, note: "Available",
-        state: "available", color: "#FFFFFF", duration: 1,
-      });
-    }
-    setMergeModal(null);
-    clearSelection();
-    load();
-  };
-
-  const openMergeModal = (fromSelection) => {
-    const sel = fromSelection || selection;
-    if (!sel || sel.slots.length < 1) return;
-    setMergeForm({ label: "", color: "#F1ECF7", quick: "MEETING" });
-    setMergeModal({ ...sel });
-    setCtxMenu(null);
+    openPanel(therapist_id, day, time_slot, existing);
   };
 
   const applyMerge = async () => {
-    if (!mergeModal) return;
-    const slots = [...mergeModal.slots].sort((a, b) => slotIndex(a, TIME_SLOTS) - slotIndex(b, TIME_SLOTS));
+    const sel = selection || (panelForm ? { therapist_id: panelForm.therapist_id, day: panelForm.day, slots: [panelForm.time_slot] } : null);
+    if (!sel?.slots?.length) return;
+    const slots = [...sel.slots].sort((a, b) => slotIndex(a, TIME_SLOTS) - slotIndex(b, TIME_SLOTS));
     const start = slots[0];
     const duration = slots.length;
     const quick = mergeForm.quick;
     if (quick === "AVAILABLE") {
-      setSelection(mergeModal);
-      await markAvailableSelection();
-      setMergeModal(null);
+      for (const ts of slots) {
+        await deleteAtSlot(sel.therapist_id, sel.day, ts);
+        await api.post("/schedule", {
+          therapist_id: sel.therapist_id, day: sel.day, time_slot: ts,
+          week_start: weekStartISO, service_code: "SS", note: "Available",
+          state: "available", color: "#FFFFFF", child_name: null, duration: 1,
+        });
+      }
+      await load();
+      closePanel();
       return;
     }
     const service_code = quick || "MEETING";
     const color = mergeForm.color || SERVICE_CELL_COLORS[service_code]?.background || "#F1ECF7";
-    for (const ts of slots) {
-      const ex = cellMap[`${mergeModal.therapist_id}_${mergeModal.day}_${ts}`];
-      if (ex?.id) await api.delete(`/schedule/${ex.id}`);
-    }
+    for (const ts of slots) await deleteAtSlot(sel.therapist_id, sel.day, ts);
     await api.post("/schedule", {
-      therapist_id: mergeModal.therapist_id,
-      day: mergeModal.day,
+      therapist_id: sel.therapist_id,
+      day: sel.day,
       time_slot: start,
       week_start: weekStartISO,
       service_code,
@@ -361,78 +386,56 @@ export default function Schedule() {
       color,
       duration,
     });
-    setMergeModal(null);
-    clearSelection();
-    load();
+    await load();
+    closePanel();
   };
 
-  const unmergeCell = async (cell) => {
-    if (!cell?.id) return;
-    await api.put(`/schedule/${cell.id}`, { ...cell, duration: 1 });
-    setCtxMenu(null);
-    load();
-  };
-
-  const openEditMerge = (cell) => {
-    setMergeForm({
-      label: cell.note || "",
-      color: cell.color || SERVICE_CELL_COLORS[cell.service_code]?.background || "#F1ECF7",
-      quick: cell.service_code || "MEETING",
+  const markAvailableCurrent = async () => {
+    if (!panelForm) return;
+    await deleteAtSlot(panelForm.therapist_id, panelForm.day, panelForm.time_slot);
+    await api.post("/schedule", {
+      therapist_id: panelForm.therapist_id,
+      day: panelForm.day,
+      time_slot: panelForm.time_slot,
+      week_start: weekStartISO,
+      service_code: "SS", child_name: null, note: "Available",
+      state: "available", color: "#FFFFFF", duration: 1,
     });
-    setMergeModal({
-      therapist_id: cell.therapist_id,
-      day: cell.day,
-      slots: [cell.time_slot],
-      editId: cell.id,
-      editCell: cell,
-    });
-    setCtxMenu(null);
+    await load();
+    closePanel();
   };
 
-  const saveEditMerge = async () => {
-    if (!mergeModal?.editId) return applyMerge();
-    const cell = mergeModal.editCell;
-    const quick = mergeForm.quick;
-    const payload = {
-      ...cell,
-      service_code: quick === "AVAILABLE" ? "SS" : (quick || cell.service_code),
-      note: mergeForm.label || cell.note,
-      color: quick === "AVAILABLE" ? "#FFFFFF" : (mergeForm.color || cell.color),
-      state: quick === "AVAILABLE" ? "available" : (cell.state === "available" ? "normal" : cell.state),
-      child_name: quick === "AVAILABLE" ? null : cell.child_name,
-    };
-    await api.put(`/schedule/${mergeModal.editId}`, payload);
-    setMergeModal(null);
-    load();
-  };
-
-  const openClientColorPicker = (cell) => {
-    const client = clients.find(c => cell.child_name && (c.name === cell.child_name.trim() || cell.child_name.startsWith(c.name + " ")));
-    const current = client?.schedule_color || client?.color || cell.color || "#A2C4C9";
-    setColorForm(current);
-    setColorPicker({ cell, client });
-    setCtxMenu(null);
+  const unmergeCell = async () => {
+    if (!panelForm?.id) return;
+    await api.put(`/schedule/${panelForm.id}`, { ...panelForm, duration: 1 });
+    await load();
+    setPanelForm(f => ({ ...f, duration: 1 }));
   };
 
   const saveClientColor = async () => {
-    if (!colorPicker?.client) {
-      if (colorPicker?.cell?.id) {
-        await api.put(`/schedule/${colorPicker.cell.id}`, { ...colorPicker.cell, color: colorForm });
+    if (!panelForm) return;
+    const client = panelForm.child_name
+      ? clients.find(c => panelForm.child_name.trim() === c.name || panelForm.child_name.startsWith(c.name + " "))
+      : null;
+    if (!client) {
+      if (panelForm.id) {
+        await api.put(`/schedule/${panelForm.id}`, { ...panelForm, color: colorForm });
+        setPanelForm(f => ({ ...f, color: colorForm }));
       }
-      setColorPicker(null);
-      load();
+      await load();
       return;
     }
-    await api.put(`/clients/${colorPicker.client.id}/schedule-color`, { color: colorForm });
-    setColorPicker(null);
-    load();
+    await api.put(`/clients/${client.id}/schedule-color`, { color: colorForm });
+    await load();
   };
 
   const resetClientColor = async () => {
-    if (!colorPicker?.client) return;
-    await api.put(`/clients/${colorPicker.client.id}/schedule-color`, { color: null });
-    setColorPicker(null);
-    load();
+    const client = panelForm?.child_name
+      ? clients.find(c => panelForm.child_name.trim() === c.name || panelForm.child_name.startsWith(c.name + " "))
+      : null;
+    if (!client) return;
+    await api.put(`/clients/${client.id}/schedule-color`, { color: null });
+    await load();
   };
 
   const copyCell = (cell) => {
@@ -472,10 +475,17 @@ export default function Schedule() {
   };
 
   const save = async () => {
-    const payload = { ...edit, week_start: weekStartISO };
-    if (edit.id) await api.put(`/schedule/${edit.id}`, payload);
-    else await api.post("/schedule", payload);
-    setEdit(null); load();
+    if (!panelForm) return;
+    setPanelSaving(true);
+    try {
+      const payload = { ...panelForm, week_start: weekStartISO };
+      if (panelForm.id) await api.put(`/schedule/${panelForm.id}`, payload);
+      else await api.post("/schedule", payload);
+      await load();
+      closePanel();
+    } finally {
+      setPanelSaving(false);
+    }
   };
   const remove = async (id) => { await api.delete(`/schedule/${id}`); load(); };
   const sendNotify = async () => {
@@ -497,23 +507,19 @@ export default function Schedule() {
   const setState = async (cell, state) => {
     if (state === "cancel_therapist" || state === "cancel_child") {
       openNotify(cell, state);
-      setCtxMenu(null);
+      closePanel();
       return;
     }
     await api.put(`/schedule/${cell.id}`, { ...cell, state });
-    setCtxMenu(null); load();
+    await load();
+    setPanelForm(f => f ? { ...f, state } : f);
   };
 
   const onCtx = (e, cell, therapist_id, day, time_slot) => {
     if (!isAdmin) return;
-    e.preventDefault(); e.stopPropagation();
-    if (!cell && therapist_id != null) {
-      if (!selection || selection.therapist_id !== therapist_id || selection.day !== day) {
-        setSelectAnchor({ therapist_id, day, time_slot });
-        setSelection({ therapist_id, day, slots: [time_slot] });
-      }
-    }
-    setCtxMenu({ x: e.clientX, y: e.clientY, cell, therapist_id, day, time_slot });
+    e.preventDefault();
+    e.stopPropagation();
+    openPanel(therapist_id, day, time_slot, cell);
   };
 
   // === SHEET VIEW === (matches Google Sheet: # | Therapist | Day | 10 time slots)
@@ -580,7 +586,6 @@ export default function Schedule() {
                         className={cellClassName(cell, isAdmin, leaveInfo, isSelected(t.id, di, ts))}
                         style={getCellStyle(cell, clients)}
                         onClick={(e) => handleCellClick(e, t.id, di, ts, cell)}
-                        onDoubleClick={(e) => handleCellDoubleClick(e, t.id, di, ts, cell)}
                         onContextMenu={(e) => onCtx(e, cell, t.id, di, ts)}
                       >
                         {cell && <CellContent cell={cell} sc={sc} />}
@@ -645,7 +650,6 @@ export default function Schedule() {
                       style={getCellStyle(cell, clients)}
                       data-testid={`cell-${therapist.id}-${di}-${ts}`}
                       onClick={(e) => handleCellClick(e, therapist.id, di, ts, cell)}
-                      onDoubleClick={(e) => handleCellDoubleClick(e, therapist.id, di, ts, cell)}
                       onContextMenu={(e) => onCtx(e, cell, therapist.id, di, ts)}>
                       {cell && <CellContent cell={cell} sc={sc} />}
                     </td>
@@ -663,12 +667,13 @@ export default function Schedule() {
   // === MASTER VIEW removed (was "By Day"). Keeping renderTherapistBlock + renderSheet only. ===
 
   return (
-    <div>
+    <div className="relative">
+        <div className={`transition-all ${panelOpen && isAdmin ? "lg:mr-[420px]" : ""}`}>
       <div className="flex items-start flex-wrap gap-3 mb-5">
         <div className="flex-1 min-w-[240px]">
           <h1 className="font-display text-3xl font-semibold" style={{ color: "#2C3625" }}>Weekly Schedule</h1>
           <div className="text-sm" style={{ color: "#5C6853" }}>
-            {isAdmin ? "Click empty cells to select · Shift+click range · Double-click to add session · Right-click for actions." : "Your weekly schedule (read-only)"}
+            {isAdmin ? "Click any cell to open the editor panel · Shift+click to select a time range." : "Your weekly schedule (read-only)"}
           </div>
         </div>
         <div className="flex items-center gap-1.5 card p-1.5">
@@ -760,276 +765,33 @@ export default function Schedule() {
         )}
       </div>
 
-      {/* Edit Modal */}
-      {edit && (
-        <ModalBase
-          title={edit.id ? "Edit Session" : "Add Session"}
-          subtitle={edit.id ? "Update session details or send notifications" : "Add a new session to the schedule"}
-          onClose={() => setEdit(null)}
-          size="md"
-          footer={
-            <>
-              {edit.id && isAdmin && (
-                <>
-                  <ModalBtnSecondary
-                    data-testid="cell-cancel-therapist-btn"
-                    onClick={() => { setState(edit, "cancel_therapist"); setEdit(null); }}
-                    style={{ borderColor: "#E8C572", color: "#6B5218" }}
-                  >
-                    🟡 Cancel (Therapist)
-                  </ModalBtnSecondary>
-                  <ModalBtnSecondary
-                    data-testid="cell-cancel-child-btn"
-                    onClick={() => { setState(edit, "cancel_child"); setEdit(null); }}
-                    style={{ borderColor: "#E8A4BD", color: "#8B3A55" }}
-                  >
-                    🩷 Cancel (Client)
-                  </ModalBtnSecondary>
-                </>
-              )}
-              {edit.id && (
-                <ModalBtnDanger data-testid="cell-delete-btn" onClick={() => { remove(edit.id); setEdit(null); }}>
-                  <Trash size={16} className="inline mr-1" /> Delete
-                </ModalBtnDanger>
-              )}
-              {edit.id && edit.state !== "normal" && (
-                <ModalBtnSecondary onClick={() => { openNotify(edit); setEdit(null); }}>
-                  <BellRinging size={16} className="inline mr-1" /> Notify
-                </ModalBtnSecondary>
-              )}
-              <ModalBtnSecondary onClick={() => setEdit(null)}>Cancel</ModalBtnSecondary>
-              <ModalBtnPrimary data-testid="cell-save-btn" onClick={save}>Save</ModalBtnPrimary>
-            </>
-          }
-        >
-          <FormSection title="Session Details">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormField label="Therapist">
-                <input
-                  className="modal-input"
-                  readOnly
-                  value={therapists.find(t => t.id === edit.therapist_id)?.name || ""}
-                />
-              </FormField>
-              <FormField label="Day">
-                <input className="modal-input" readOnly value={DAYS_EN[edit.day] || ""} />
-              </FormField>
-              <FormField label="Time From" hint="Default slot from the schedule grid">
-                <input className="modal-input" readOnly value={edit.time_slot || ""} />
-              </FormField>
-              <FormField label="Time To" hint="Custom range or duration below">
-                <input
-                  className="modal-input"
-                  placeholder="2:30-4:30"
-                  value={edit.custom_time || ""}
-                  onChange={e => setEdit({ ...edit, custom_time: e.target.value })}
-                />
-              </FormField>
-            </div>
-            <FormField label="Duration (slots)">
-              <select
-                className="modal-input"
-                value={edit.duration || 1}
-                onChange={e => setEdit({ ...edit, duration: parseInt(e.target.value) })}
-              >
-                <option value={1}>1 slot (1 hour)</option>
-                <option value={2}>2 slots (merge 2 hours)</option>
-                <option value={3}>3 slots (merge 3 hours)</option>
-                <option value={4}>4 slots (merge 4 hours)</option>
-              </select>
-            </FormField>
-            <FormField label="Note">
-              <input
-                className="modal-input"
-                value={edit.note || ""}
-                onChange={e => setEdit({ ...edit, note: e.target.value })}
-              />
-            </FormField>
-          </FormSection>
-
-          {!["LEAVE", "BREAK", "AVC"].includes(edit.service_code) && (
-            <FormSection title="Client">
-              <FormField
-                label="Client name"
-                hint="Select from list or type a custom name (e.g. Amani (2:30-4:30))"
-              >
-                <input
-                  data-testid="cell-child-input"
-                  className="modal-input"
-                  list="clients-list"
-                  value={edit.child_name || ""}
-                  onChange={e => setEdit({ ...edit, child_name: e.target.value, color: null })}
-                  placeholder="Type or select client name..."
-                />
-                <datalist id="clients-list">{clients.map(c => <option key={c.id} value={c.name} />)}</datalist>
-              </FormField>
-              {edit.child_name && (
-                <div className="text-xs flex items-center gap-2" style={{ color: "#5C6853" }}>
-                  Auto-color:{" "}
-                  <span
-                    className="w-5 h-5 rounded border border-[#E8E4DE] inline-block"
-                    style={{ background: edit.color || resolveClientScheduleColor(edit.child_name, clients) || "#E5EBE1" }}
-                  />
-                  <button type="button" onClick={() => setEdit({ ...edit, color: null })} className="text-[11px] underline">
-                    use child default
-                  </button>
-                </div>
-              )}
-            </FormSection>
-          )}
-
-          <FormSection title="Service">
-            <div className="grid grid-cols-3 gap-2">
-              {SERVICE_CODES.map(s => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => setEdit({ ...edit, service_code: s.id })}
-                  className={`pill ${s.cls} justify-center py-2 ${edit.service_code === s.id ? "ring-2 ring-[#7A8A6A]" : ""}`}
-                >
-                  {s.short}
-                </button>
-              ))}
-            </div>
-          </FormSection>
-
-          {edit.id && (
-            <FormSection title="Status">
-              <div className="flex gap-2 flex-wrap">
-                {STATES.map(s => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => setEdit({ ...edit, state: s.id })}
-                    className={`pill ${edit.state === s.id ? "ring-2 ring-[#7A8A6A]" : ""}`}
-                    style={{ background: s.swatch, color: "#2C3625", border: `1px solid ${s.swatch}` }}
-                  >
-                    {s.id !== "normal" && "✕ "}{s.label}
-                  </button>
-                ))}
-              </div>
-            </FormSection>
-          )}
-        </ModalBase>
-      )}
-
-      {ctxMenu && (
-        <div className="fixed card p-1 z-50 min-w-52" style={{ top: ctxMenu.y, left: ctxMenu.x }} onClick={e => e.stopPropagation()}>
-          {ctxMenu.cell ? (
-            <>
-              <button type="button" onClick={() => { openEditForSlot(ctxMenu.cell.therapist_id, ctxMenu.cell.day, ctxMenu.cell.time_slot, ctxMenu.cell); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm">Edit</button>
-              <button type="button" data-testid="copy-cell-btn" onClick={() => { copyCell(ctxMenu.cell); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm" style={{ color: "#7A8A6A" }}><Copy size={14} weight="duotone" /> Copy cell</button>
-              {ctxMenu.cell.child_name && (
-                <button type="button" onClick={() => openClientColorPicker(ctxMenu.cell)} className="btn btn-ghost w-full justify-start text-sm">🎨 Change Client Color</button>
-              )}
-              {(ctxMenu.cell.duration || 1) > 1 && (
-                <>
-                  <button type="button" onClick={() => openEditMerge(ctxMenu.cell)} className="btn btn-ghost w-full justify-start text-sm">Edit Merge</button>
-                  <button type="button" onClick={() => { unmergeCell(ctxMenu.cell); }} className="btn btn-ghost w-full justify-start text-sm">Unmerge</button>
-                </>
-              )}
-              <div className="divider my-1" />
-              <button type="button" onClick={() => setState(ctxMenu.cell, "cancel_child")} className="btn btn-ghost w-full justify-start text-sm" style={{ color: "#8B3A55" }}>🩷 Mark Client Cancel</button>
-              <button type="button" onClick={() => setState(ctxMenu.cell, "cancel_therapist")} className="btn btn-ghost w-full justify-start text-sm" style={{ color: "#8B6918" }}>🟡 Mark Therapist Cancel</button>
-              <button type="button" onClick={() => setState(ctxMenu.cell, "normal")} className="btn btn-ghost w-full justify-start text-sm">✓ Mark Normal</button>
-              <button type="button" onClick={() => markAvailable(ctxMenu.cell.therapist_id, ctxMenu.cell.day, ctxMenu.cell.time_slot, ctxMenu.cell)} className="btn btn-ghost w-full justify-start text-sm">⬜ Mark as Available</button>
-              <div className="divider my-1" />
-              <button type="button" onClick={() => { openNotify(ctxMenu.cell); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm"><BellRinging size={14} /> Notify Therapist</button>
-              <button type="button" onClick={() => { remove(ctxMenu.cell.id); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm text-red-700"><Trash size={14} /> Delete</button>
-            </>
-          ) : (
-            <>
-              <button type="button" onClick={() => { openEditForSlot(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.time_slot, null); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm">Add Session</button>
-              <button type="button" onClick={() => markAvailable(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.time_slot, cellMap[`${ctxMenu.therapist_id}_${ctxMenu.day}_${ctxMenu.time_slot}`])} className="btn btn-ghost w-full justify-start text-sm">⬜ Mark as Available</button>
-              {selection && selection.slots.length >= 1 && (
-                <button type="button" onClick={() => openMergeModal()} className="btn btn-ghost w-full justify-start text-sm"><ArrowsMerge size={14} /> Merge Cells ({selection.slots.length})</button>
-              )}
-              <button type="button" onClick={() => { clearSelection(); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm text-xs opacity-70">Clear selection</button>
-            </>
-          )}
-        </div>
-      )}
-
-      {selection && selection.slots.length >= 1 && isAdmin && (
-        <div className="fixed z-40 card px-3 py-2 flex items-center gap-2 flex-wrap shadow-lg no-print" style={{ bottom: 24, left: "50%", transform: "translateX(-50%)" }}>
-          <span className="text-xs font-bold" style={{ color: "#374151" }}>{selection.slots.length} cell{selection.slots.length > 1 ? "s" : ""} selected</span>
-          <button type="button" onClick={() => extendSelectionDir("left")} className="btn btn-ghost p-1.5" title="Extend left"><ArrowLeft size={16} /></button>
-          <button type="button" onClick={() => extendSelectionDir("right")} className="btn btn-ghost p-1.5" title="Extend right"><ArrowRight size={16} /></button>
-          <span className="text-[10px]" style={{ color: "#9CA3AF" }}>Shift+click range</span>
-          {selection.slots.length >= 1 && (
-            <button type="button" onClick={() => openMergeModal()} className="btn btn-primary text-xs py-1.5"><ArrowsMerge size={14} /> Merge</button>
-          )}
-          <button type="button" onClick={clearSelection} className="btn btn-outline text-xs py-1.5">Clear</button>
-        </div>
-      )}
-
-      {mergeModal && (
-        <ModalBase
-          title={mergeModal.editId ? "Edit Merge" : "Merge Cells"}
-          subtitle={`${mergeModal.slots.length} slot(s) · ${DAYS_EN[mergeModal.day]}`}
-          onClose={() => setMergeModal(null)}
-          size="sm"
-          footer={
-            <>
-              <ModalBtnSecondary onClick={() => setMergeModal(null)}>Cancel</ModalBtnSecondary>
-              <ModalBtnPrimary onClick={mergeModal.editId ? saveEditMerge : applyMerge}>Merge & Apply</ModalBtnPrimary>
-            </>
-          }
-        >
-          <FormSection title="Label">
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {MERGE_QUICK.map(q => (
-                <button key={q.id} type="button" onClick={() => setMergeForm(f => ({ ...f, quick: q.id, label: q.label }))}
-                  className={`pill text-xs px-2 py-1 ${mergeForm.quick === q.id ? "ring-2 ring-[#5C8A47]" : ""}`}>
-                  {q.label}
-                </button>
-              ))}
-            </div>
-            <FormField label="Custom label">
-              <input className="modal-input" value={mergeForm.label} onChange={e => setMergeForm(f => ({ ...f, label: e.target.value }))} placeholder="Optional custom text..." />
-            </FormField>
-          </FormSection>
-          <FormSection title="Color">
-            <div className="flex flex-wrap gap-2 mb-2">
-              {Object.entries(SERVICE_CELL_COLORS).map(([k, v]) => (
-                <button key={k} type="button" title={k} onClick={() => setMergeForm(f => ({ ...f, color: v.background }))}
-                  className="w-8 h-8 rounded-lg border-2" style={{ background: v.background, borderColor: mergeForm.color === v.background ? "#5C8A47" : v.borderColor }} />
-              ))}
-            </div>
-            <input type="color" className="w-full h-10 rounded-lg cursor-pointer" value={mergeForm.color} onChange={e => setMergeForm(f => ({ ...f, color: e.target.value }))} />
-          </FormSection>
-        </ModalBase>
-      )}
-
-      {colorPicker && (
-        <ModalBase
-          title="Change Client Color"
-          subtitle={colorPicker.cell?.child_name || ""}
-          onClose={() => setColorPicker(null)}
-          size="sm"
-          footer={
-            <>
-              {colorPicker.client && (
-                <ModalBtnSecondary onClick={resetClientColor}>Reset to default</ModalBtnSecondary>
-              )}
-              <ModalBtnSecondary onClick={() => setColorPicker(null)}>Cancel</ModalBtnSecondary>
-              <ModalBtnPrimary onClick={saveClientColor}>Apply</ModalBtnPrimary>
-            </>
-          }
-        >
-          <div className="grid grid-cols-8 gap-2 mb-4">
-            {SCHEDULE_COLOR_SWATCHES.map(c => (
-              <button key={c} type="button" onClick={() => setColorForm(c)}
-                className="w-8 h-8 rounded-lg border-2" style={{ background: c, borderColor: colorForm === c ? "#5C8A47" : "#DDD8D0" }} />
-            ))}
-          </div>
-          <FormField label="Custom color">
-            <input type="color" className="modal-input h-10 p-1" value={colorForm} onChange={e => setColorForm(e.target.value)} />
-          </FormField>
-          {!colorPicker.client && (
-            <p className="text-xs" style={{ color: "#9CA3AF" }}>Client not found in database — color will apply to this cell only.</p>
-          )}
-        </ModalBase>
+      {panelOpen && panelForm && (
+        <ScheduleCellPanel
+          form={panelForm}
+          setForm={setPanelForm}
+          onClose={closePanel}
+          onSave={save}
+          therapists={therapists}
+          clients={clients}
+          selection={selection}
+          onExtendSelection={extendSelectionDir}
+          onClearSelection={clearSelection}
+          onApplyMerge={applyMerge}
+          mergeForm={mergeForm}
+          setMergeForm={setMergeForm}
+          colorForm={colorForm}
+          setColorForm={setColorForm}
+          onSaveClientColor={saveClientColor}
+          onResetClientColor={resetClientColor}
+          onBulkFill={bulkFill}
+          onMarkAvailable={markAvailableCurrent}
+          onSetState={(state) => setState(panelForm, state)}
+          onNotify={() => { if (panelForm?.id) openNotify(panelForm); }}
+          onDelete={async () => { if (panelForm?.id) { await remove(panelForm.id); closePanel(); } }}
+          onCopy={() => { if (panelForm?.id) copyCell(panelForm); }}
+          onUnmerge={unmergeCell}
+          saving={panelSaving}
+        />
       )}
 
       {notify && (
@@ -1181,6 +943,7 @@ export default function Schedule() {
           </FormSection>
         </ModalBase>
       )}
+    </div>
     </div>
   );
 }

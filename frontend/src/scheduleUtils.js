@@ -1,4 +1,5 @@
 import { getChildColor, readable } from "./childColors";
+import { TIME_SLOTS } from "./api";
 
 /** Legend colors — must match .evt-* in index.css */
 export const SERVICE_CELL_COLORS = {
@@ -87,4 +88,19 @@ export function isSlotSelectable(therapistId, day, timeSlot, cellMap, coveredSet
   if (coveredSet.has(key)) return false;
   if (cellMap[key]) return false;
   return true;
+}
+
+/** Find cell occupying a slot (including merged span). */
+export function findCellAt(therapistId, day, timeSlot, cellMap, cells) {
+  const key = `${therapistId}_${day}_${timeSlot}`;
+  if (cellMap[key]) return cellMap[key];
+  const idx = slotIndex(timeSlot, TIME_SLOTS);
+  if (idx < 0) return null;
+  return cells.find(c => {
+    if (c.therapist_id !== therapistId || c.day !== day) return false;
+    const start = slotIndex(c.time_slot, TIME_SLOTS);
+    if (start < 0) return false;
+    const dur = c.duration || 1;
+    return start <= idx && start + dur > idx;
+  }) || null;
 }
