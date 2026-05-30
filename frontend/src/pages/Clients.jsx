@@ -545,8 +545,10 @@ function ProgressReportsList({ clientId, fileNo, client, isAdmin, embedded }) {
   const [items, setItems]    = useState([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding]  = useState(false);
-  const [draft, setDraft]    = useState({ title: "", report_date: "", notes: "" });
+  const [draft, setDraft]    = useState({ title: "", report_date: "", notes: "", url: "" });
   const [draftFile, setDraftFile] = useState(null);
+  const [editingLinkId, setEditingLinkId] = useState(null);
+  const [linkDraft, setLinkDraft] = useState("");
   const [busy, setBusy]      = useState(null);
 
   const isSupervisor = () => {
@@ -568,6 +570,7 @@ function ProgressReportsList({ clientId, fileNo, client, isAdmin, embedded }) {
   const canReviewed = isAdmin || isSupervisor();
   const canResolved = isAdmin || isSupervisor();
   const canDeleteFile = isAdmin || isSupervisor() || isAssigned();
+  const canEditLink   = canUploaded;
 
   const load = async () => {
     setLoading(true);
@@ -610,6 +613,18 @@ function ProgressReportsList({ clientId, fileNo, client, isAdmin, embedded }) {
     } finally { setBusy(null); }
   };
 
+  const saveDriveLink = async (rid, url) => {
+    setBusy(rid + "link");
+    try {
+      await api.put(`/progress-reports/${rid}/link`, { url: (url || "").trim() || null });
+      setEditingLinkId(null);
+      setLinkDraft("");
+      await load();
+    } catch (e) {
+      alert("Failed: " + (e.response?.data?.detail || e.message));
+    } finally { setBusy(null); }
+  };
+
   const addReport = async () => {
     if (!draft.title.trim()) { alert("Please enter a report title"); return; }
     setBusy("add");
@@ -620,7 +635,7 @@ function ProgressReportsList({ clientId, fileNo, client, isAdmin, embedded }) {
       if (draftFile && data?.id) {
         await uploadFile(data.id, draftFile);
       }
-      setDraft({ title: "", report_date: "", notes: "" });
+      setDraft({ title: "", report_date: "", notes: "", url: "" });
       setDraftFile(null);
       setAdding(false);
       await load();
@@ -722,6 +737,8 @@ function ProgressReportsList({ clientId, fileNo, client, isAdmin, embedded }) {
                 onChange={e => setDraftFile(e.target.files?.[0] || null)} />
             </label>
           </div>
+          <input className="input text-xs w-full" placeholder="Google Drive link — Word file for editing (optional)"
+            value={draft.url} onChange={e => setDraft({ ...draft, url: e.target.value })} />
           <input className="input text-xs w-full" placeholder="Notes (optional)"
             value={draft.notes} onChange={e => setDraft({ ...draft, notes: e.target.value })} />
           <div className="flex justify-end gap-2 pt-1">
@@ -789,13 +806,6 @@ function ProgressReportsList({ clientId, fileNo, client, isAdmin, embedded }) {
                       }} />
                   </label>
                 ) : null}
-                {r.url && (
-                  <a href={r.url} target="_blank" rel="noreferrer"
-                    className="text-[10px] px-1.5 py-0.5 rounded border underline"
-                    style={{ color: "#3D5C3A", borderColor: "#C4D4B8" }}>
-                    Drive ↗
-                  </a>
-                )}
                 {(isAdmin || isSupervisor()) && (
                   <button onClick={() => removeReport(r.id)} disabled={busy === r.id}
                     className="text-[11px] px-1.5 py-0.5 rounded border ml-1"
@@ -816,6 +826,50 @@ function ProgressReportsList({ clientId, fileNo, client, isAdmin, embedded }) {
               <StepBadge rid={r.id} step="resolved" label="Resolved"
                 value={r.resolved} enabled={canResolved}
                 by={r.resolved_by} at={r.resolved_at} />
+            </div>
+
+            <div className="mt-2 pt-2 border-t space-y-1.5" style={{ borderColor: "#F0EDE9" }}>
+              <div className="text-[10px] font-bold" style={{ color: "#5C6853" }}>
+                Word file (Drive link for editing)
+              </div>
+              {editingLinkId === r.id ? (
+                <div className="flex gap-1.5 flex-wrap">
+                  <input
+                    className="input text-xs flex-1 min-w-[200px]"
+                    placeholder="https://drive.google.com/file/d/..."
+                    value={linkDraft}
+                    onChange={e => setLinkDraft(e.target.value)}
+                    autoFocus
+                  />
+                  <button type="button" onClick={() => saveDriveLink(r.id, linkDraft)} disabled={busy === r.id + "link"}
+                    className="text-xs px-2 py-1 rounded-lg font-bold" style={{ background: "#3D5C3A", color: "white" }}>
+                    {busy === r.id + "link" ? "…" : "Save"}
+                  </button>
+                  <button type="button" onClick={() => { setEditingLinkId(null); setLinkDraft(""); }}
+                    className="text-xs px-2 py-1 rounded-lg border" style={{ borderColor: "#E8E4DE", color: "#6B7280" }}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {r.url ? (
+                    <a href={r.url} target="_blank" rel="noreferrer"
+                      className="text-[10px] px-1.5 py-0.5 rounded border underline flex items-center gap-1"
+                      style={{ color: "#3D5C3A", borderColor: "#C4D4B8" }}>
+                      Open in Drive ↗ <ArrowSquareOut size={10} />
+                    </a>
+                  ) : (
+                    <span className="text-[10px]" style={{ color: "#9CA3AF" }}>— no Drive link —</span>
+                  )}
+                  {canEditLink && (
+                    <button type="button" onClick={() => { setEditingLinkId(r.id); setLinkDraft(r.url || ""); }}
+                      className="text-[10px] px-1.5 py-0.5 rounded border"
+                      style={{ color: "#5C6853", borderColor: "#DDD8D0" }}>
+                      {r.url ? "Edit link" : "Add link"}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {(r.uploaded_by || r.reviewed_by || r.resolved_by) && (

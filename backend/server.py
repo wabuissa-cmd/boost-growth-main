@@ -831,6 +831,9 @@ class ProgressStepsIn(BaseModel):
     resolved_by: Optional[str] = None
     resolved_at: Optional[str] = None
 
+class ProgressReportLinkIn(BaseModel):
+    url: Optional[str] = None
+
 SUPERVISOR_CLIENT_FILES = {
     "msMaha": ["035", "037", "038", "040", "041", "042", "047", "052", "054", "060", "063", "065", "070"],
     "msFahda": ["009", "011", "018", "023", "024", "027", "030", "034", "061", "062", "068", "072", "079"],
@@ -962,6 +965,21 @@ async def set_progress_report_status(rid: str, payload: ProgressStatusIn, _=Depe
         raise HTTPException(status_code=400, detail=f"Status must be one of {sorted(PROGRESS_STATUSES)}")
     await db.progress_reports.update_one({"id": rid}, {"$set": {"status": status, "updated_at": now_iso()}})
     return await db.progress_reports.find_one({"id": rid}, {"_id": 0})
+
+@api.put("/progress-reports/{rid}/link")
+async def update_progress_report_link(rid: str, payload: ProgressReportLinkIn, user=Depends(get_current_user)):
+    """Save a Google Drive link to the Word/doc file for editing."""
+    report = await db.progress_reports.find_one({"id": rid}, {"_id": 0})
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if not await _can_access_progress_report(user, report):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    url = (payload.url or "").strip() or None
+    await db.progress_reports.update_one(
+        {"id": rid}, {"$set": {"url": url, "updated_at": now_iso()}}
+    )
+    return await db.progress_reports.find_one({"id": rid}, {"_id": 0})
+
 
 @api.put("/progress-reports/{rid}/steps")
 async def update_progress_report_steps(rid: str, payload: ProgressStepsIn, user=Depends(get_current_user)):
