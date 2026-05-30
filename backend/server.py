@@ -152,6 +152,7 @@ class ClientIn(BaseModel):
     locations: Optional[List[LocationIn]] = []
     color: Optional[str] = None
     drive_url: Optional[str] = None
+    schedule_color: Optional[str] = None  # custom color for all schedule cells for this client
     # Optional client status & service type & attachment URLs (Change 4)
     status: Optional[str] = "Active"                  # Active / Inactive
     service_type: Optional[str] = None                # HS / SS / HS+SS / AVC
@@ -777,6 +778,25 @@ async def update_client(cid: str, payload: ClientIn, _=Depends(admin_only)):
     data["locations"] = [l for l in (data.get("locations") or [])]
     await db.clients.update_one({"id": cid}, {"$set": data})
     return await db.clients.find_one({"id": cid}, {"_id": 0})
+
+class ClientScheduleColorIn(BaseModel):
+    color: Optional[str] = None
+
+@api.put("/clients/{cid}/schedule-color")
+async def update_client_schedule_color(cid: str, body: ClientScheduleColorIn, _=Depends(admin_only)):
+    """Set schedule_color on client and propagate to all schedule cells with matching child_name."""
+    client = await db.clients.find_one({"id": cid}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    color = body.color
+    await db.clients.update_one({"id": cid}, {"$set": {"schedule_color": color}})
+    name = (client.get("name") or "").strip()
+    if name:
+        await db.schedule_cells.update_many(
+            {"child_name": {"$regex": f"^{re.escape(name)}($|\\s)"}},
+            {"$set": {"color": color}},
+        )
+    return {"ok": True, "schedule_color": color, "client_id": cid}
 
 @api.delete("/clients/{cid}")
 async def delete_client(cid: str, _=Depends(admin_only)):
@@ -2393,6 +2413,69 @@ SCHEDULE_TIME_SLOTS = [
 SCHEDULE_DAYS_MAP = {"sunday": 0, "monday": 1, "tuesday": 2, "wednesday": 3, "thursday": 4}
 
 
+def _parse_hm_to_minutes(hm: str, ref_ampm: str = "AM") -> Optional[int]:
+    """Parse '8:30', '1:30', etc. to minutes from midnight."""
+    hm = (hm or "").strip().upper()
+    if not hm:
+        return None
+    ampm = ref_ampm.upper()
+    m = re.match(r"^(\d{1,2}):(\d{2})\s*(AM|PM)?$", hm, re.I)
+    if not m:
+        return None
+    h, mi = int(m.group(1)), int(m.group(2))
+    if m.group(3):
+        ampm = m.group(3).upper()
+    elif h < 8 and ref_ampm == "PM":
+        ampm = "PM"
+    if ampm == "PM" and h != 12:
+        h += 12
+    if ampm == "AM" and h == 12:
+        h = 0
+    return h * 60 + mi
+
+
+def _slot_bounds_minutes(time_slot: str):
+    """Return (start_min, end_min) for a canonical time slot string."""
+    parts = (time_slot or "").split(" - ")
+    if len(parts) != 2:
+        return None, None
+    start_ref = "AM" if "AM" in parts[0].upper() else "PM"
+    s = _parse_hm_to_minutes(parts[0].strip(), start_ref)
+    e = _parse_hm_to_minutes(parts[1].strip(), "PM" if "PM" in parts[1].upper() else start_ref)
+    return s, e
+
+
+def _duration_from_custom(time_slot: str, custom: str, time_slots: list) -> int:
+    """How many consecutive time_slots a session spans based on custom time range."""
+    if not custom or not str(custom).strip():
+        return 1
+    txt = str(custom).strip()
+    m = re.search(r"([\d]{1,2}:[\d]{2})\s*[-–]\s*([\d]{1,2}:[\d]{2})", txt)
+    if not m:
+        return 1
+    start_idx = time_slots.index(time_slot) if time_slot in time_slots else -1
+    if start_idx < 0:
+        return 1
+    _, slot_end_ref = (time_slot.split(" - ") + ["AM"])[:2]
+    ref = "PM" if "PM" in slot_end_ref.upper() else "AM"
+    start_m = _parse_hm_to_minutes(m.group(1), ref)
+    end_m = _parse_hm_to_minutes(m.group(2), "PM")
+    if start_m is None or end_m is None:
+        return 1
+    if end_m <= start_m:
+        end_m += 12 * 60
+    count = 0
+    for i in range(start_idx, len(time_slots)):
+        s, e = _slot_bounds_minutes(time_slots[i])
+        if s is None:
+            continue
+        if s < end_m and e > start_m:
+            count += 1
+        elif s >= end_m:
+            break
+    return max(1, count)
+
+
 def _parse_schedule_cell_text(txt: str):
     """Returns (service_code, child_name, custom_time, note) or None."""
     if not txt or not str(txt).strip():
@@ -2512,7 +2595,10 @@ async def _import_schedule_grid(grid: List[List[str]], week_start: str, t_by_nam
                 day_label = (r[2] if len(r) > 2 else "").lower()
                 day_idx = SCHEDULE_DAYS_MAP.get(day_label)
                 if day_idx is not None and current_t_id:
+                    skip_until = -1
                     for slot_idx, ts in enumerate(time_slots):
+                        if slot_idx <= skip_until:
+                            continue
                         col_idx = 3 + slot_idx
                         if col_idx >= len(r):
                             break
@@ -2525,6 +2611,14 @@ async def _import_schedule_grid(grid: List[List[str]], week_start: str, t_by_nam
                                 if slot_idx < len(SCHEDULE_TIME_SLOTS)
                                 else ts
                             )
+                            duration = _duration_from_custom(canonical_ts, custom, time_slots)
+                            if duration > 1:
+                                skip_until = slot_idx + duration - 1
+                            cell_color = None
+                            if child:
+                                cl = await db.clients.find_one({"name": child}, {"_id": 0, "schedule_color": 1, "color": 1})
+                                if cl:
+                                    cell_color = cl.get("schedule_color") or cl.get("color")
                             await db.schedule_cells.insert_one({
                                 "id": str(uuid.uuid4()),
                                 "therapist_id": current_t_id,
@@ -2535,8 +2629,8 @@ async def _import_schedule_grid(grid: List[List[str]], week_start: str, t_by_nam
                                 "note": note,
                                 "custom_time": custom,
                                 "state": "normal",
-                                "color": None,
-                                "duration": 1,
+                                "color": cell_color,
+                                "duration": duration,
                                 "week_start": week_start,
                                 "created_at": now_iso(),
                             })

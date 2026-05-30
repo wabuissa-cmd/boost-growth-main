@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import api, { DAYS_EN, DAYS_SHORT, TIME_SLOTS, SERVICE_CODES, startOfWeek, addDays, toISODate, formatDateRange } from "../api";
-import { getChildColor, readable } from "../childColors";
+import { readable } from "../childColors";
+import {
+  getCellStyle, META_SERVICE_CODES, MERGE_QUICK, SCHEDULE_COLOR_SWATCHES,
+  SERVICE_CELL_COLORS, buildSlotRange, isSlotSelectable, slotIndex,
+  resolveClientScheduleColor,
+} from "../scheduleUtils";
 import { useAuth } from "../auth";
 import {
   CaretLeft, CaretRight, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
   MagnifyingGlassPlus, MagnifyingGlassMinus, Printer, Info, GridFour,
-  CopySimple, Table, CalendarBlank
+  CopySimple, Table, CalendarBlank, ArrowLeft, ArrowRight, ArrowsMerge
 } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
@@ -18,26 +23,51 @@ const STATES = [
   { id: "cancel_child", label: "Client Cancel", swatch: "#FCE0E8" },
 ];
 
-function cellStyle(cell) {
-  if (!cell) return {};
-  if (cell.state === "cancel_therapist") return { background: "#FFF4C4", color: "#6B5218", borderColor: "#E8C572" };
-  if (cell.state === "cancel_child") return { background: "#FCE0E8", color: "#8B3A55", borderColor: "#E8A4BD" };
-  const childColor = cell.color || (cell.child_name ? getChildColor(cell.child_name) : null);
-  if (childColor) return { background: childColor, borderColor: childColor, color: readable(childColor) };
-  return {};
-}
-
 function CellContent({ cell, sc }) {
   if (!cell) return null;
-  const isMeta = ["LEAVE", "BREAK", "AVC"].includes(cell.service_code);
+  if (cell.state === "available") {
+    return <div className="text-[10px] font-semibold opacity-70">Available</div>;
+  }
+  const isMeta = META_SERVICE_CODES.has(cell.service_code) || !cell.child_name;
+  const label = cell.note && isMeta ? cell.note : null;
   return (
     <div className="leading-tight text-center w-full flex flex-col items-center justify-center">
       <div className="font-bold text-[11px] text-center w-full">
-        {isMeta ? (cell.note || sc?.short) : (<>{sc?.short || cell.service_code}{cell.child_name && <> | {cell.child_name}</>}</>)}
+        {label || (isMeta ? (cell.note || sc?.short) : (
+          <>{sc?.short || cell.service_code}{cell.child_name && <> | {cell.child_name}</>}</>
+        ))}
       </div>
       {cell.custom_time && <div className="text-[9px] opacity-80 text-center w-full">({cell.custom_time})</div>}
     </div>
   );
+}
+
+function cellClassName(cell, isAdmin, leaveInfo, selected) {
+  const parts = ["sheet-td sheet-slot"];
+  if (cell) {
+    parts.push("has-event");
+    if (cell.state === "available") parts.push("cell-available");
+  } else {
+    parts.push("cell-empty");
+  }
+  if (isAdmin) parts.push("editable");
+  if (leaveInfo) parts.push("on-leave-cell");
+  if (selected) parts.push("cell-selected");
+  return parts.join(" ");
+}
+
+function cellClassNameBlock(cell, isAdmin, leaveInfo, selected) {
+  const parts = ["cell-base"];
+  if (cell) {
+    parts.push("has-event");
+    if (cell.state === "available") parts.push("cell-available");
+  } else {
+    parts.push("cell-empty");
+  }
+  if (isAdmin) parts.push("editable");
+  if (leaveInfo) parts.push("on-leave-cell");
+  if (selected) parts.push("cell-selected");
+  return parts.join(" ");
 }
 
 export default function Schedule() {
@@ -67,6 +97,12 @@ export default function Schedule() {
   const [dupClear, setDupClear] = useState(false);
   const [clipboard, setClipboard] = useState(null);  // copied cell content
   const [weekStatus, setWeekStatus] = useState("published");
+  const [selection, setSelection] = useState(null); // { therapist_id, day, slots: string[] }
+  const [selectAnchor, setSelectAnchor] = useState(null);
+  const [mergeModal, setMergeModal] = useState(null);
+  const [colorPicker, setColorPicker] = useState(null);
+  const [mergeForm, setMergeForm] = useState({ label: "", color: "#E5EBE1", quick: "MEETING" });
+  const [colorForm, setColorForm] = useState("#A2C4C9");
 
   const weekStartISO = toISODate(weekStart);
 
@@ -182,10 +218,43 @@ export default function Schedule() {
     return visibleTherapists;
   }, [visibleTherapists, isAdmin, user?.id]);
 
+  const isSelected = (therapist_id, day, time_slot) => {
+    if (!selection) return false;
+    return selection.therapist_id === therapist_id && selection.day === day && selection.slots.includes(time_slot);
+  };
+
+  const clearSelection = () => { setSelection(null); setSelectAnchor(null); };
+
+  const extendSelectionDir = (dir) => {
+    if (!selection) return;
+    const indices = selection.slots.map(s => slotIndex(s, TIME_SLOTS)).sort((a, b) => a - b);
+    const lo = indices[0];
+    const hi = indices[indices.length - 1];
+    let newSlots = [...selection.slots];
+    if (dir === "right") {
+      const next = hi + 1;
+      if (next >= TIME_SLOTS.length) return;
+      const ts = TIME_SLOTS[next];
+      if (!isSlotSelectable(selection.therapist_id, selection.day, ts, cellMap, coveredSet)) return;
+      newSlots.push(ts);
+    } else if (dir === "left") {
+      const prev = lo - 1;
+      if (prev < 0) return;
+      const ts = TIME_SLOTS[prev];
+      if (!isSlotSelectable(selection.therapist_id, selection.day, ts, cellMap, coveredSet)) return;
+      newSlots.unshift(ts);
+    }
+    setSelection({ ...selection, slots: [...new Set(newSlots)].sort((a, b) => slotIndex(a, TIME_SLOTS) - slotIndex(b, TIME_SLOTS)) });
+  };
+
+  const openEditForSlot = (therapist_id, day, time_slot, existing) => {
+    setEdit(existing ? { ...existing }
+      : { therapist_id, day, time_slot, service_code: "SS", child_name: "", state: "normal", week_start: weekStartISO, color: null, duration: 1 });
+  };
+
   const handleCellClick = (e, therapist_id, day, time_slot, existing) => {
     if (e) e.stopPropagation();
     if (!isAdmin) return;
-    // If clipboard is set and the target slot is empty, paste it
     if (clipboard && !existing) {
       const payload = {
         therapist_id, day, time_slot, week_start: weekStartISO,
@@ -200,8 +269,170 @@ export default function Schedule() {
       api.post("/schedule", payload).then(load);
       return;
     }
-    setEdit(existing ? { ...existing }
-      : { therapist_id, day, time_slot, service_code: "SS", child_name: "", state: "normal", week_start: weekStartISO, color: null });
+    if (existing) {
+      clearSelection();
+      openEditForSlot(therapist_id, day, time_slot, existing);
+      return;
+    }
+    if (e?.shiftKey && selectAnchor && selectAnchor.therapist_id === therapist_id && selectAnchor.day === day) {
+      const range = buildSlotRange(selectAnchor.time_slot, time_slot, TIME_SLOTS);
+      const valid = range.filter(ts => isSlotSelectable(therapist_id, day, ts, cellMap, coveredSet));
+      if (valid.length) {
+        setSelection({ therapist_id, day, slots: valid });
+      }
+      return;
+    }
+    setSelectAnchor({ therapist_id, day, time_slot });
+    setSelection({ therapist_id, day, slots: [time_slot] });
+  };
+
+  const handleCellDoubleClick = (e, therapist_id, day, time_slot, existing) => {
+    if (e) e.stopPropagation();
+    if (!isAdmin || existing) return;
+    clearSelection();
+    openEditForSlot(therapist_id, day, time_slot, null);
+  };
+
+  const markAvailable = async (therapist_id, day, time_slot, existing) => {
+    if (existing?.id) await api.delete(`/schedule/${existing.id}`);
+    await api.post("/schedule", {
+      therapist_id, day, time_slot, week_start: weekStartISO,
+      service_code: "SS", child_name: null, note: "Available",
+      state: "available", color: "#FFFFFF", duration: 1,
+    });
+    setCtxMenu(null);
+    clearSelection();
+    load();
+  };
+
+  const markAvailableSelection = async () => {
+    if (!selection) return;
+    for (const ts of selection.slots) {
+      const key = `${selection.therapist_id}_${selection.day}_${ts}`;
+      const ex = cellMap[key];
+      if (ex?.id) await api.delete(`/schedule/${ex.id}`);
+      await api.post("/schedule", {
+        therapist_id: selection.therapist_id, day: selection.day, time_slot: ts,
+        week_start: weekStartISO, service_code: "SS", child_name: null, note: "Available",
+        state: "available", color: "#FFFFFF", duration: 1,
+      });
+    }
+    setMergeModal(null);
+    clearSelection();
+    load();
+  };
+
+  const openMergeModal = (fromSelection) => {
+    const sel = fromSelection || selection;
+    if (!sel || sel.slots.length < 1) return;
+    setMergeForm({ label: "", color: "#F1ECF7", quick: "MEETING" });
+    setMergeModal({ ...sel });
+    setCtxMenu(null);
+  };
+
+  const applyMerge = async () => {
+    if (!mergeModal) return;
+    const slots = [...mergeModal.slots].sort((a, b) => slotIndex(a, TIME_SLOTS) - slotIndex(b, TIME_SLOTS));
+    const start = slots[0];
+    const duration = slots.length;
+    const quick = mergeForm.quick;
+    if (quick === "AVAILABLE") {
+      setSelection(mergeModal);
+      await markAvailableSelection();
+      setMergeModal(null);
+      return;
+    }
+    const service_code = quick || "MEETING";
+    const color = mergeForm.color || SERVICE_CELL_COLORS[service_code]?.background || "#F1ECF7";
+    for (const ts of slots) {
+      const ex = cellMap[`${mergeModal.therapist_id}_${mergeModal.day}_${ts}`];
+      if (ex?.id) await api.delete(`/schedule/${ex.id}`);
+    }
+    await api.post("/schedule", {
+      therapist_id: mergeModal.therapist_id,
+      day: mergeModal.day,
+      time_slot: start,
+      week_start: weekStartISO,
+      service_code,
+      child_name: null,
+      note: mergeForm.label || MERGE_QUICK.find(q => q.id === quick)?.label || service_code,
+      custom_time: null,
+      state: "normal",
+      color,
+      duration,
+    });
+    setMergeModal(null);
+    clearSelection();
+    load();
+  };
+
+  const unmergeCell = async (cell) => {
+    if (!cell?.id) return;
+    await api.put(`/schedule/${cell.id}`, { ...cell, duration: 1 });
+    setCtxMenu(null);
+    load();
+  };
+
+  const openEditMerge = (cell) => {
+    setMergeForm({
+      label: cell.note || "",
+      color: cell.color || SERVICE_CELL_COLORS[cell.service_code]?.background || "#F1ECF7",
+      quick: cell.service_code || "MEETING",
+    });
+    setMergeModal({
+      therapist_id: cell.therapist_id,
+      day: cell.day,
+      slots: [cell.time_slot],
+      editId: cell.id,
+      editCell: cell,
+    });
+    setCtxMenu(null);
+  };
+
+  const saveEditMerge = async () => {
+    if (!mergeModal?.editId) return applyMerge();
+    const cell = mergeModal.editCell;
+    const quick = mergeForm.quick;
+    const payload = {
+      ...cell,
+      service_code: quick === "AVAILABLE" ? "SS" : (quick || cell.service_code),
+      note: mergeForm.label || cell.note,
+      color: quick === "AVAILABLE" ? "#FFFFFF" : (mergeForm.color || cell.color),
+      state: quick === "AVAILABLE" ? "available" : (cell.state === "available" ? "normal" : cell.state),
+      child_name: quick === "AVAILABLE" ? null : cell.child_name,
+    };
+    await api.put(`/schedule/${mergeModal.editId}`, payload);
+    setMergeModal(null);
+    load();
+  };
+
+  const openClientColorPicker = (cell) => {
+    const client = clients.find(c => cell.child_name && (c.name === cell.child_name.trim() || cell.child_name.startsWith(c.name + " ")));
+    const current = client?.schedule_color || client?.color || cell.color || "#A2C4C9";
+    setColorForm(current);
+    setColorPicker({ cell, client });
+    setCtxMenu(null);
+  };
+
+  const saveClientColor = async () => {
+    if (!colorPicker?.client) {
+      if (colorPicker?.cell?.id) {
+        await api.put(`/schedule/${colorPicker.cell.id}`, { ...colorPicker.cell, color: colorForm });
+      }
+      setColorPicker(null);
+      load();
+      return;
+    }
+    await api.put(`/clients/${colorPicker.client.id}/schedule-color`, { color: colorForm });
+    setColorPicker(null);
+    load();
+  };
+
+  const resetClientColor = async () => {
+    if (!colorPicker?.client) return;
+    await api.put(`/clients/${colorPicker.client.id}/schedule-color`, { color: null });
+    setColorPicker(null);
+    load();
   };
 
   const copyCell = (cell) => {
@@ -273,10 +504,16 @@ export default function Schedule() {
     setCtxMenu(null); load();
   };
 
-  const onCtx = (e, cell) => {
-    if (!isAdmin || !cell) return;
+  const onCtx = (e, cell, therapist_id, day, time_slot) => {
+    if (!isAdmin) return;
     e.preventDefault(); e.stopPropagation();
-    setCtxMenu({ x: e.clientX, y: e.clientY, cell });
+    if (!cell && therapist_id != null) {
+      if (!selection || selection.therapist_id !== therapist_id || selection.day !== day) {
+        setSelectAnchor({ therapist_id, day, time_slot });
+        setSelection({ therapist_id, day, slots: [time_slot] });
+      }
+    }
+    setCtxMenu({ x: e.clientX, y: e.clientY, cell, therapist_id, day, time_slot });
   };
 
   // === SHEET VIEW === (matches Google Sheet: # | Therapist | Day | 10 time slots)
@@ -340,10 +577,11 @@ export default function Schedule() {
                         key={ts}
                         colSpan={dur}
                         data-testid={`sheet-cell-${t.id}-${di}-${ts}`}
-                        className={`sheet-td sheet-slot ${cell ? 'has-event' : 'cell-empty'} ${isAdmin ? 'editable' : ''} ${leaveInfo ? 'on-leave-cell' : ''}`}
-                        style={cellStyle(cell)}
+                        className={cellClassName(cell, isAdmin, leaveInfo, isSelected(t.id, di, ts))}
+                        style={getCellStyle(cell, clients)}
                         onClick={(e) => handleCellClick(e, t.id, di, ts, cell)}
-                        onContextMenu={(e) => onCtx(e, cell)}
+                        onDoubleClick={(e) => handleCellDoubleClick(e, t.id, di, ts, cell)}
+                        onContextMenu={(e) => onCtx(e, cell, t.id, di, ts)}
                       >
                         {cell && <CellContent cell={cell} sc={sc} />}
                       </td>
@@ -402,12 +640,13 @@ export default function Schedule() {
                   const sc = SERVICE_CODES.find(s => s.id === cell?.service_code);
                   const dur = cell?.duration || 1;
                   return (
-                    <td key={ts} className={`cell-base ${cell ? 'has-event' : 'cell-empty'} ${isAdmin ? 'editable' : ''} ${leaveInfo ? 'on-leave-cell' : ''}`}
+                    <td key={ts} className={cellClassNameBlock(cell, isAdmin, leaveInfo, isSelected(therapist.id, di, ts))}
                       colSpan={dur}
-                      style={cellStyle(cell)}
+                      style={getCellStyle(cell, clients)}
                       data-testid={`cell-${therapist.id}-${di}-${ts}`}
                       onClick={(e) => handleCellClick(e, therapist.id, di, ts, cell)}
-                      onContextMenu={(e) => onCtx(e, cell)}>
+                      onDoubleClick={(e) => handleCellDoubleClick(e, therapist.id, di, ts, cell)}
+                      onContextMenu={(e) => onCtx(e, cell, therapist.id, di, ts)}>
                       {cell && <CellContent cell={cell} sc={sc} />}
                     </td>
                   );
@@ -429,7 +668,7 @@ export default function Schedule() {
         <div className="flex-1 min-w-[240px]">
           <h1 className="font-display text-3xl font-semibold" style={{ color: "#2C3625" }}>Weekly Schedule</h1>
           <div className="text-sm" style={{ color: "#5C6853" }}>
-            {isAdmin ? "Click any cell to add/edit. Right-click for quick actions (cancel / notify)." : "Your weekly schedule (read-only)"}
+            {isAdmin ? "Click empty cells to select · Shift+click range · Double-click to add session · Right-click for actions." : "Your weekly schedule (read-only)"}
           </div>
         </div>
         <div className="flex items-center gap-1.5 card p-1.5">
@@ -629,7 +868,7 @@ export default function Schedule() {
                   Auto-color:{" "}
                   <span
                     className="w-5 h-5 rounded border border-[#E8E4DE] inline-block"
-                    style={{ background: edit.color || getChildColor(edit.child_name) || "#E5EBE1" }}
+                    style={{ background: edit.color || resolveClientScheduleColor(edit.child_name, clients) || "#E5EBE1" }}
                   />
                   <button type="button" onClick={() => setEdit({ ...edit, color: null })} className="text-[11px] underline">
                     use child default
@@ -675,17 +914,122 @@ export default function Schedule() {
       )}
 
       {ctxMenu && (
-        <div className="fixed card p-1 z-50 min-w-48" style={{ top: ctxMenu.y, left: ctxMenu.x }} onClick={e => e.stopPropagation()}>
-          <button onClick={() => { handleCellClick(null, ctxMenu.cell.therapist_id, ctxMenu.cell.day, ctxMenu.cell.time_slot, ctxMenu.cell); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm">Edit</button>
-          <button data-testid="copy-cell-btn" onClick={() => { copyCell(ctxMenu.cell); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm" style={{ color: "#7A8A6A" }}><Copy size={14} weight="duotone" /> Copy cell</button>
-          <div className="divider my-1" />
-          <button onClick={() => setState(ctxMenu.cell, "cancel_child")} className="btn btn-ghost w-full justify-start text-sm" style={{ color: "#8B3A55" }}>🩷 Mark Client Cancel</button>
-          <button onClick={() => setState(ctxMenu.cell, "cancel_therapist")} className="btn btn-ghost w-full justify-start text-sm" style={{ color: "#8B6918" }}>🟡 Mark Therapist Cancel</button>
-          <button onClick={() => setState(ctxMenu.cell, "normal")} className="btn btn-ghost w-full justify-start text-sm">✓ Mark Normal</button>
-          <div className="divider my-1" />
-          <button onClick={() => { openNotify(ctxMenu.cell); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm"><BellRinging size={14} /> Notify Therapist</button>
-          <button onClick={() => { remove(ctxMenu.cell.id); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm text-red-700"><Trash size={14} /> Delete</button>
+        <div className="fixed card p-1 z-50 min-w-52" style={{ top: ctxMenu.y, left: ctxMenu.x }} onClick={e => e.stopPropagation()}>
+          {ctxMenu.cell ? (
+            <>
+              <button type="button" onClick={() => { openEditForSlot(ctxMenu.cell.therapist_id, ctxMenu.cell.day, ctxMenu.cell.time_slot, ctxMenu.cell); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm">Edit</button>
+              <button type="button" data-testid="copy-cell-btn" onClick={() => { copyCell(ctxMenu.cell); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm" style={{ color: "#7A8A6A" }}><Copy size={14} weight="duotone" /> Copy cell</button>
+              {ctxMenu.cell.child_name && (
+                <button type="button" onClick={() => openClientColorPicker(ctxMenu.cell)} className="btn btn-ghost w-full justify-start text-sm">🎨 Change Client Color</button>
+              )}
+              {(ctxMenu.cell.duration || 1) > 1 && (
+                <>
+                  <button type="button" onClick={() => openEditMerge(ctxMenu.cell)} className="btn btn-ghost w-full justify-start text-sm">Edit Merge</button>
+                  <button type="button" onClick={() => { unmergeCell(ctxMenu.cell); }} className="btn btn-ghost w-full justify-start text-sm">Unmerge</button>
+                </>
+              )}
+              <div className="divider my-1" />
+              <button type="button" onClick={() => setState(ctxMenu.cell, "cancel_child")} className="btn btn-ghost w-full justify-start text-sm" style={{ color: "#8B3A55" }}>🩷 Mark Client Cancel</button>
+              <button type="button" onClick={() => setState(ctxMenu.cell, "cancel_therapist")} className="btn btn-ghost w-full justify-start text-sm" style={{ color: "#8B6918" }}>🟡 Mark Therapist Cancel</button>
+              <button type="button" onClick={() => setState(ctxMenu.cell, "normal")} className="btn btn-ghost w-full justify-start text-sm">✓ Mark Normal</button>
+              <button type="button" onClick={() => markAvailable(ctxMenu.cell.therapist_id, ctxMenu.cell.day, ctxMenu.cell.time_slot, ctxMenu.cell)} className="btn btn-ghost w-full justify-start text-sm">⬜ Mark as Available</button>
+              <div className="divider my-1" />
+              <button type="button" onClick={() => { openNotify(ctxMenu.cell); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm"><BellRinging size={14} /> Notify Therapist</button>
+              <button type="button" onClick={() => { remove(ctxMenu.cell.id); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm text-red-700"><Trash size={14} /> Delete</button>
+            </>
+          ) : (
+            <>
+              <button type="button" onClick={() => { openEditForSlot(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.time_slot, null); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm">Add Session</button>
+              <button type="button" onClick={() => markAvailable(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.time_slot, cellMap[`${ctxMenu.therapist_id}_${ctxMenu.day}_${ctxMenu.time_slot}`])} className="btn btn-ghost w-full justify-start text-sm">⬜ Mark as Available</button>
+              {selection && selection.slots.length >= 1 && (
+                <button type="button" onClick={() => openMergeModal()} className="btn btn-ghost w-full justify-start text-sm"><ArrowsMerge size={14} /> Merge Cells ({selection.slots.length})</button>
+              )}
+              <button type="button" onClick={() => { clearSelection(); setCtxMenu(null); }} className="btn btn-ghost w-full justify-start text-sm text-xs opacity-70">Clear selection</button>
+            </>
+          )}
         </div>
+      )}
+
+      {selection && selection.slots.length >= 1 && isAdmin && (
+        <div className="fixed z-40 card px-3 py-2 flex items-center gap-2 flex-wrap shadow-lg no-print" style={{ bottom: 24, left: "50%", transform: "translateX(-50%)" }}>
+          <span className="text-xs font-bold" style={{ color: "#374151" }}>{selection.slots.length} cell{selection.slots.length > 1 ? "s" : ""} selected</span>
+          <button type="button" onClick={() => extendSelectionDir("left")} className="btn btn-ghost p-1.5" title="Extend left"><ArrowLeft size={16} /></button>
+          <button type="button" onClick={() => extendSelectionDir("right")} className="btn btn-ghost p-1.5" title="Extend right"><ArrowRight size={16} /></button>
+          <span className="text-[10px]" style={{ color: "#9CA3AF" }}>Shift+click range</span>
+          {selection.slots.length >= 1 && (
+            <button type="button" onClick={() => openMergeModal()} className="btn btn-primary text-xs py-1.5"><ArrowsMerge size={14} /> Merge</button>
+          )}
+          <button type="button" onClick={clearSelection} className="btn btn-outline text-xs py-1.5">Clear</button>
+        </div>
+      )}
+
+      {mergeModal && (
+        <ModalBase
+          title={mergeModal.editId ? "Edit Merge" : "Merge Cells"}
+          subtitle={`${mergeModal.slots.length} slot(s) · ${DAYS_EN[mergeModal.day]}`}
+          onClose={() => setMergeModal(null)}
+          size="sm"
+          footer={
+            <>
+              <ModalBtnSecondary onClick={() => setMergeModal(null)}>Cancel</ModalBtnSecondary>
+              <ModalBtnPrimary onClick={mergeModal.editId ? saveEditMerge : applyMerge}>Merge & Apply</ModalBtnPrimary>
+            </>
+          }
+        >
+          <FormSection title="Label">
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {MERGE_QUICK.map(q => (
+                <button key={q.id} type="button" onClick={() => setMergeForm(f => ({ ...f, quick: q.id, label: q.label }))}
+                  className={`pill text-xs px-2 py-1 ${mergeForm.quick === q.id ? "ring-2 ring-[#5C8A47]" : ""}`}>
+                  {q.label}
+                </button>
+              ))}
+            </div>
+            <FormField label="Custom label">
+              <input className="modal-input" value={mergeForm.label} onChange={e => setMergeForm(f => ({ ...f, label: e.target.value }))} placeholder="Optional custom text..." />
+            </FormField>
+          </FormSection>
+          <FormSection title="Color">
+            <div className="flex flex-wrap gap-2 mb-2">
+              {Object.entries(SERVICE_CELL_COLORS).map(([k, v]) => (
+                <button key={k} type="button" title={k} onClick={() => setMergeForm(f => ({ ...f, color: v.background }))}
+                  className="w-8 h-8 rounded-lg border-2" style={{ background: v.background, borderColor: mergeForm.color === v.background ? "#5C8A47" : v.borderColor }} />
+              ))}
+            </div>
+            <input type="color" className="w-full h-10 rounded-lg cursor-pointer" value={mergeForm.color} onChange={e => setMergeForm(f => ({ ...f, color: e.target.value }))} />
+          </FormSection>
+        </ModalBase>
+      )}
+
+      {colorPicker && (
+        <ModalBase
+          title="Change Client Color"
+          subtitle={colorPicker.cell?.child_name || ""}
+          onClose={() => setColorPicker(null)}
+          size="sm"
+          footer={
+            <>
+              {colorPicker.client && (
+                <ModalBtnSecondary onClick={resetClientColor}>Reset to default</ModalBtnSecondary>
+              )}
+              <ModalBtnSecondary onClick={() => setColorPicker(null)}>Cancel</ModalBtnSecondary>
+              <ModalBtnPrimary onClick={saveClientColor}>Apply</ModalBtnPrimary>
+            </>
+          }
+        >
+          <div className="grid grid-cols-8 gap-2 mb-4">
+            {SCHEDULE_COLOR_SWATCHES.map(c => (
+              <button key={c} type="button" onClick={() => setColorForm(c)}
+                className="w-8 h-8 rounded-lg border-2" style={{ background: c, borderColor: colorForm === c ? "#5C8A47" : "#DDD8D0" }} />
+            ))}
+          </div>
+          <FormField label="Custom color">
+            <input type="color" className="modal-input h-10 p-1" value={colorForm} onChange={e => setColorForm(e.target.value)} />
+          </FormField>
+          {!colorPicker.client && (
+            <p className="text-xs" style={{ color: "#9CA3AF" }}>Client not found in database — color will apply to this cell only.</p>
+          )}
+        </ModalBase>
       )}
 
       {notify && (

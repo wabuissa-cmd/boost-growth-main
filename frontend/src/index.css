@@ -166,6 +166,11 @@ main, .page-enter { min-width: 0; }
 .cell-base.on-leave-cell > *, .sched-sheet .sheet-slot.on-leave-cell > * { position: relative; z-index: 2; }
 .cell-base:hover { background: rgba(229, 235, 225, 0.5); }
 .cell-empty:hover { box-shadow: inset 0 0 0 2px var(--brand); }
+.cell-selected { outline: 3px solid #3B82F6 !important; outline-offset: -3px; z-index: 3; }
+.cell-base.cell-available, .sched-sheet .sheet-slot.cell-available {
+    background: #FFFFFF !important;
+    color: #5C6853;
+}
 .cell-event {
     border-radius: 0.4rem;
     padding: 0.3rem 0.5rem;
@@ -222,12 +227,17 @@ main, .page-enter { min-width: 0; }
     transition: background 140ms ease, transform 140ms ease;
 }
 .sched-sheet .sheet-slot.has-event {
-    background: white;
+    /* background from inline cellStyle — do not force white */
     text-align: center !important;
     vertical-align: middle !important;
     font-weight: 700;
     border-radius: 4px;
     box-shadow: inset 0 0 0 1px rgba(0,0,0,0.04);
+}
+.sched-sheet .sheet-slot.cell-available {
+    background: #FFFFFF !important;
+    color: #5C6853;
+    font-style: italic;
 }
 .sched-sheet .sheet-slot.has-event > * { margin: 0 auto; text-align: center; }
 .sched-sheet .sheet-idx {
