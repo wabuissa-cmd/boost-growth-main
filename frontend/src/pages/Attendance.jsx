@@ -11,7 +11,7 @@ import {
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
 import {
-  enrichClientBilling, resolveClientBillingMode, serviceTypeLabel,
+  enrichClientBilling, resolveClientBillingMode, formatServiceTypeDisplay,
   resolveCycleAnchor, computeWeeksProgress, groupSessionsByWeeks,
   fmtDate, dayShort, WEEK_ROW_BG,
 } from "../attendanceUtils";
@@ -166,7 +166,7 @@ export default function Attendance() {
                         color: c.billing_mode === "weeks" ? "#2C5035" : "#6B5430",
                         border: c.billing_mode === "weeks" ? "1px solid #B6D7A8" : "1px solid #E0CDB0",
                       }}>
-                        {c.serviceLabel?.ar} · {c.serviceLabel?.en}
+                        {c.serviceDisplay}
                       </span>
                     </div>
                     <div className="text-xs mt-0.5" style={{color: "#8B9E7A"}}>
@@ -581,28 +581,34 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   const counted = completed + noShows;
 
   const billingMode = useMemo(
-    () => resolveClientBillingMode(client, selectedInvoice),
+    () => resolveClientBillingMode(client, selectedInvoice || null),
     [client, selectedInvoice]
   );
   const isSchool = billingMode === "weeks";
-  const serviceLabel = useMemo(
-    () => serviceTypeLabel(selectedInvoice?.service_type || client.service_type, billingMode),
-    [selectedInvoice, client.service_type, billingMode]
+  const serviceDisplay = useMemo(
+    () => formatServiceTypeDisplay(selectedInvoice?.service_type) || "—",
+    [selectedInvoice?.service_type]
   );
   const cycleWeeks = client.cycle_weeks || 4;
-  const cycleAnchor = useMemo(
-    () => resolveCycleAnchor(client, selectedInvoice, cycleSessions),
+  const adminWeekAnchor = useMemo(
+    () => (selectedInvoice ? resolveCycleAnchor(client, selectedInvoice, cycleSessions) : null),
     [client, selectedInvoice, cycleSessions]
   );
+  const cycleAnchor = useMemo(
+    () => (isSchool && adminWeekAnchor ? adminWeekAnchor : null),
+    [isSchool, adminWeekAnchor]
+  );
   const weekProgress = useMemo(
-    () => computeWeeksProgress(cycleSessions, cycleAnchor, cycleWeeks),
-    [cycleSessions, cycleAnchor, cycleWeeks]
+    () => (isSchool && cycleAnchor ? computeWeeksProgress(cycleSessions, cycleAnchor, cycleWeeks) : null),
+    [isSchool, cycleSessions, cycleAnchor, cycleWeeks]
   );
   const weekGroups = useMemo(
-    () => groupSessionsByWeeks(cycleSessions, cycleAnchor, cycleWeeks),
-    [cycleSessions, cycleAnchor, cycleWeeks]
+    () => (isAdmin && !isSchool && selectedInvoice && adminWeekAnchor
+      ? groupSessionsByWeeks(cycleSessions, adminWeekAnchor, cycleWeeks)
+      : null),
+    [isAdmin, isSchool, selectedInvoice, adminWeekAnchor, cycleSessions, cycleWeeks]
   );
-  const showWeekDividers = !isSchool;
+  const showAdminWeekGuides = !!(weekGroups && weekGroups.length);
 
   // Load existing invoices for this client
   useEffect(() => {
@@ -778,7 +784,11 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                       className="select text-xs" style={{maxWidth: 220}}>
                 <option value="">All Invoices</option>
                 {invoices.map(inv => (
-                  <option key={inv.id} value={inv.id}>{inv.invoice_number}{inv.is_closed ? " (Closed)" : ""}</option>
+                  <option key={inv.id} value={inv.id}>
+                    {inv.invoice_number}
+                    {inv.service_type ? ` · ${formatServiceTypeDisplay(inv.service_type) || inv.service_type}` : ""}
+                    {inv.is_closed ? " (Closed)" : ""}
+                  </option>
                 ))}
               </select>
             ) : (
@@ -843,22 +853,21 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
         {selectedInvoice && (
           <div className="px-5 py-2 flex items-center gap-2 text-xs no-print border-b border-[#E8E4DE] flex-wrap" style={{background: "#FAFAF7"}}>
             <span className="font-bold" style={{color: "#2C3625"}}>{selectedInvoice.invoice_number}</span>
-            <span className="pill text-[10px] font-bold" style={{
-              background: isSchool ? "#E0EBD8" : "#F4EDE3",
-              color: isSchool ? "#2C5035" : "#6B5430",
-            }}>
-              {serviceLabel.ar} · {serviceLabel.en}
-            </span>
+            {selectedInvoice && serviceDisplay !== "—" && (
+              <span className="pill text-[10px] font-bold" style={{
+                background: isSchool ? "#E0EBD8" : "#F4EDE3",
+                color: isSchool ? "#2C5035" : "#6B5430",
+              }}>
+                {serviceDisplay}
+              </span>
+            )}
             <span className="pill text-[10px]" style={{background: closed ? "#F8EBE7" : "#E5EBE1", color: closed ? "#8A3F27" : "#3D4F35"}}>
               {closed ? "Closed" : "Open"}
             </span>
-            {isSchool ? (
+            {isSchool && weekProgress ? (
               <span style={{color: "#5C6853"}}>Week {weekProgress.currentWeek}/{cycleWeeks} · {weekProgress.weeksDone} completed</span>
             ) : (
-              <>
-                <span style={{color: "#5C6853"}}>{rem.toFixed(1)}h remaining</span>
-                <span style={{color: "#8B9E7A"}}>· Week {weekProgress.currentWeek}/{cycleWeeks}</span>
-              </>
+              <span style={{color: "#5C6853"}}>{rem.toFixed(1)}h remaining</span>
             )}
             <button onClick={() => setShowInvoiceDetails(true)} className="btn btn-ghost text-[11px] py-0 px-2">ⓘ Details</button>
             {isAdmin && (
@@ -925,13 +934,13 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               <div className="md:col-span-2">
                 <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>SERVICE TYPE</div>
                 <div className="font-bold text-lg mt-0.5" style={{color: isSchool ? "#2C5035" : "#6B5430"}}>
-                  {serviceLabel.ar} — {serviceLabel.en}
+                  {serviceDisplay}
                 </div>
-                <div className="text-[11px] mt-0.5" style={{color: "#8B9E7A"}}>
-                  {isSchool
-                    ? `4-week billing cycle · Week ${weekProgress.currentWeek} of ${cycleWeeks}`
-                    : `Hours package · Week ${weekProgress.currentWeek} of ${cycleWeeks} (visual guide)`}
-                </div>
+                {isSchool && weekProgress && (
+                  <div className="text-[11px] mt-0.5" style={{color: "#8B9E7A"}}>
+                    4-week cycle · Week {weekProgress.currentWeek} of {cycleWeeks}
+                  </div>
+                )}
               </div>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-3 border-t border-[#E8E4DE]">
@@ -939,7 +948,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                 <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}># PAID SESH.</div>
                 <div className="font-bold" style={{color: "#2C3625"}}>{counted}</div>
               </div>
-              {isSchool ? (
+              {isSchool && weekProgress ? (
                 <>
                   <div>
                     <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>WEEKS COMPLETED</div>
@@ -967,8 +976,8 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                     <div className="font-bold" style={{color: rem <= 4 ? "#C97B5C" : "#2C3625"}}>{rem.toFixed(1)}h</div>
                   </div>
                   <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>CURRENT WEEK</div>
-                    <div className="font-bold" style={{color: "#2C3625"}}>Week {weekProgress.currentWeek} / {cycleWeeks}</div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>HOURS USED</div>
+                    <div className="font-bold" style={{color: "#2C3625"}}>{used.toFixed(1)}h</div>
                   </div>
                 </>
               )}
@@ -995,15 +1004,9 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                 </tr>
               </thead>
               <tbody>
-                {showWeekDividers ? (
+                {showAdminWeekGuides ? (
                   weekGroups.map((group, gi) => (
                     <Fragment key={`wg-${group.weekNumber}-${gi}`}>
-                      <tr key={`week-h-${group.weekNumber}`} style={{ background: WEEK_ROW_BG[(group.weekNumber - 1) % WEEK_ROW_BG.length] }}>
-                        <td colSpan={8} className="px-2 py-2 font-bold text-[11px]" style={{ color: "#2C3625", borderTop: gi > 0 ? "3px solid #5C6853" : undefined }}>
-                          Week {group.weekNumber}{group.extra ? "+" : ""} · {group.label || `${fmtDateLocal(group.startISO)} → ${fmtDateLocal(group.endISO)}`}
-                          {group.sessions.length === 0 && <span className="font-normal ml-2 opacity-70">— no sessions yet</span>}
-                        </td>
-                      </tr>
                       {group.sessions.map(s => (
                         <SessionTableRow
                           key={s.id}
@@ -1018,15 +1021,17 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                           rowBg={WEEK_ROW_BG[(group.weekNumber - 1) % WEEK_ROW_BG.length]}
                         />
                       ))}
-                      {!group.extra && group.weekNumber < cycleWeeks && (
-                        <tr key={`week-end-${group.weekNumber}`}>
+                      {!group.extra && group.weekNumber <= cycleWeeks && (
+                        <tr key={`week-end-${group.weekNumber}`} className="no-print">
                           <td colSpan={8} className="px-2 py-1.5 text-[10px] font-bold text-center" style={{
                             background: "#F0EDE9",
                             color: "#5C6853",
-                            borderTop: "2px solid #7A8A6A",
-                            borderBottom: "2px solid #7A8A6A",
+                            borderTop: "3px solid #5C6853",
                           }}>
-                            — Week {group.weekNumber} ended · Week {group.weekNumber + 1} starts {fmtDateLocal(weekGroups[group.weekNumber]?.startISO || group.endISO)} —
+                            Week {group.weekNumber}: {group.label}
+                            {group.weekNumber < cycleWeeks && (
+                              <> · Next week starts {fmtDateLocal(weekGroups[group.weekNumber]?.startISO || group.endISO)}</>
+                            )}
                           </td>
                         </tr>
                       )}
@@ -1065,7 +1070,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>TOTAL COUNTED SESSIONS</div>
               <div className="font-display text-2xl" style={{color: "#2C3625"}}>{counted}</div>
             </div>
-            {isSchool ? (
+            {isSchool && weekProgress ? (
               <div>
                 <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>WEEKS REMAINING</div>
                 <div className="font-display text-2xl" style={{color: weekProgress.weeksRem <= 1 ? "#C97B5C" : "#3D4F35"}}>
@@ -1280,8 +1285,8 @@ function NewInvoiceModal({ client, defaultPackage, onCancel, onCreate }) {
                 else setSize(defaultPackage);
               }}
             >
-              <option value="Home Session">Home Session (HS) — منزلية · hours package</option>
-              <option value="School Support">School Support (SS) — مدرسية · 4-week cycle</option>
+              <option value="Home Session">Home Session (HS)</option>
+              <option value="School Support">School Support (SS)</option>
             </select>
           </FormField>
           <FormField

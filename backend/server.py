@@ -1137,11 +1137,31 @@ def _parse_invoice_header(ws) -> dict:
                 info["close_date"] = _normalize_date(m.group(1))
             except Exception:
                 pass
-    # Service type
-    if "school support" in flat or "school" in flat:
-        info["service_type"] = "School Support"
-    elif "home session" in flat or "home" in flat:
-        info["service_type"] = "Home Session"
+    # Service type — read explicit cells first (Boost Growth row 2, col G)
+    for row in rows:
+        for cell in row:
+            cu = (cell or "").strip().upper()
+            if cu in ("SS", "HS"):
+                info["service_type"] = "School Support" if cu == "SS" else "Home Session"
+                break
+            cl = (cell or "").strip().lower()
+            if cl == "school support":
+                info["service_type"] = "School Support"
+                break
+            if cl == "home session":
+                info["service_type"] = "Home Session"
+                break
+        if info.get("service_type"):
+            break
+    if not info.get("service_type"):
+        if _re_top.search(r"school\s*support", flat):
+            info["service_type"] = "School Support"
+        elif _re_top.search(r"home\s*session", flat):
+            info["service_type"] = "Home Session"
+        elif _re_top.search(r"(?<![a-z])ss(?![a-z])", flat):
+            info["service_type"] = "School Support"
+        elif _re_top.search(r"(?<![a-z])hs(?![a-z])", flat):
+            info["service_type"] = "Home Session"
     # Package size — look for "Paid SESH" or "# Paid"
     m = _re_top.search(r"paid\s+sesh[^0-9]*([\d.]+)", flat)
     if m:

@@ -28,39 +28,57 @@ export function dayShort(iso) {
 
 export function isSchoolService(serviceType) {
   if (!serviceType) return false;
-  const s = String(serviceType).toLowerCase();
-  if (s.includes("school")) return true;
+  const s = String(serviceType).trim().toLowerCase();
   if (s === "ss") return true;
-  if (s.includes("ss") && !s.includes("hs")) return true;
+  if (s === "school support") return true;
+  if (s.includes("school support")) return true;
+  if (/^ss[\s/+]|[\s/+]ss$|[\s/+]ss[\s/+]/.test(s)) return true;
   return false;
 }
 
 export function isHomeService(serviceType) {
   if (!serviceType) return false;
-  const s = String(serviceType).toLowerCase();
-  if (s.includes("home")) return true;
+  const s = String(serviceType).trim().toLowerCase();
   if (s === "hs") return true;
-  if (s.includes("hs") && !s.includes("ss")) return true;
+  if (s === "home session") return true;
+  if (s.includes("home session")) return true;
+  if (/^hs[\s/+]|[\s/+]hs$|[\s/+]hs[\s/+]/.test(s)) return true;
   return false;
 }
 
-export function resolveClientBillingMode(client, invoice) {
-  if (invoice?.service_type) {
-    if (isSchoolService(invoice.service_type)) return "weeks";
-    if (isHomeService(invoice.service_type)) return "hours";
+/** Display label: HS, SS, Home Session, School Support, or HS+SS — never Arabic. */
+export function formatServiceTypeDisplay(serviceType) {
+  if (!serviceType) return null;
+  const raw = String(serviceType).trim();
+  const s = raw.toLowerCase();
+  if (s === "ss" || s === "school support") return s === "ss" ? "SS" : "School Support";
+  if (s === "hs" || s === "home session") return s === "hs" ? "HS" : "Home Session";
+  if (isSchoolService(raw) && !isHomeService(raw)) {
+    return s.includes("school support") ? "School Support" : "SS";
   }
-  if (client?.billing_mode === "weeks") return "weeks";
-  const st = client?.service_type || "";
-  if (st === "SS") return "weeks";
-  return client?.billing_mode || "hours";
+  if (isHomeService(raw) && !isSchoolService(raw)) {
+    return s.includes("home session") ? "Home Session" : "HS";
+  }
+  if (isHomeService(raw) && isSchoolService(raw)) {
+    return raw.replace(/\s*\/\s*/g, " + ").replace(/\+/g, " + ");
+  }
+  return raw;
 }
 
-export function serviceTypeLabel(serviceType, billingMode) {
-  const school = billingMode === "weeks" || isSchoolService(serviceType);
-  if (school) {
-    return { en: "School Support (SS)", ar: "مدرسية", school: true };
+/** Billing mode: invoice service_type wins; never infer school from dual HS+SS client profile. */
+export function resolveClientBillingMode(client, invoice) {
+  if (invoice) {
+    const invSt = invoice.service_type;
+    if (invSt) {
+      if (isSchoolService(invSt)) return "weeks";
+      if (isHomeService(invSt)) return "hours";
+    }
+    return "hours";
   }
-  return { en: "Home Session (HS)", ar: "منزلية", school: false };
+  if (client?.billing_mode === "weeks") return "weeks";
+  const cst = client?.service_type || "";
+  if (cst === "SS") return "weeks";
+  return "hours";
 }
 
 export function resolveCycleAnchor(client, invoice, sessions) {
@@ -116,7 +134,6 @@ export function computeWeeksProgress(sessions, anchorISO, cycleWeeks = 4) {
   };
 }
 
-/** Urgent when week 3 is done and entering week 4 (last week of cycle). */
 export function getWeeksUrgentStatus(weeksDone, cycleWeeks) {
   if (weeksDone >= cycleWeeks) return "urgent";
   if (weeksDone >= cycleWeeks - 1) return "urgent";
@@ -158,6 +175,7 @@ export function groupSessionsByWeeks(sessions, anchorISO, cycleWeeks = 4) {
 export function enrichClientBilling(client, sessions) {
   const mode = resolveClientBillingMode(client, null);
   const cycleWeeks = client.cycle_weeks || 4;
+  const serviceDisplay = formatServiceTypeDisplay(client.service_type) || "—";
 
   if (mode === "weeks") {
     const resetAt = client.package_reset_at;
@@ -172,7 +190,7 @@ export function enrichClientBilling(client, sessions) {
     return {
       ...client,
       billing_mode: "weeks",
-      serviceLabel: serviceTypeLabel(client.service_type, "weeks"),
+      serviceDisplay,
       weeksDone: prog.weeksDone,
       currentWeek: prog.currentWeek,
       cycleWeeks,
@@ -194,7 +212,7 @@ export function enrichClientBilling(client, sessions) {
   return {
     ...client,
     billing_mode: "hours",
-    serviceLabel: serviceTypeLabel(client.service_type, "hours"),
+    serviceDisplay,
     used,
     pkg,
     rem,
