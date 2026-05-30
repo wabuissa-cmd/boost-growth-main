@@ -14,7 +14,7 @@ export default function Admin() {
   });
   const [editEmail, setEditEmail] = useState(false);
   const [emailForm, setEmailForm] = useState({
-    resend_api_key: "", from_email: "", email_provider: "auto",
+    resend_api_key: "", brevo_api_key: "", from_email: "", email_provider: "brevo",
     smtp_host: "smtp.gmail.com", smtp_port: 587, smtp_user: "", smtp_password: "",
   });
   const [emailQueue, setEmailQueue] = useState([]);
@@ -48,8 +48,9 @@ export default function Admin() {
     setEmailQueue(q.data);
     setEmailForm({
       resend_api_key: "",
-      from_email: e.data?.from_email || "Boost Growth <hr@boostgrowthsa.com>",
-      email_provider: e.data?.provider || "auto",
+      brevo_api_key: "",
+      from_email: e.data?.from_email || "Boost Growth <admin@boostgrowthsa.com>",
+      email_provider: e.data?.provider || "brevo",
       smtp_host: e.data?.smtp_host || "smtp.gmail.com",
       smtp_port: e.data?.smtp_port || 587,
       smtp_user: e.data?.smtp_user || "",
@@ -61,6 +62,7 @@ export default function Admin() {
   const saveEmail = async () => {
     const payload = {};
     if (emailForm.resend_api_key) payload.resend_api_key = emailForm.resend_api_key;
+    if (emailForm.brevo_api_key) payload.brevo_api_key = emailForm.brevo_api_key;
     if (emailForm.from_email) payload.from_email = emailForm.from_email;
     if (emailForm.email_provider) payload.email_provider = emailForm.email_provider;
     if (emailForm.smtp_host) payload.smtp_host = emailForm.smtp_host;
@@ -78,7 +80,7 @@ export default function Admin() {
 
   const sendTest = async () => {
     if (!testTo) return;
-    if (!emailSettings.smtp_configured && !emailSettings.resend_configured) {
+    if (!emailSettings.smtp_configured && !emailSettings.resend_configured && !emailSettings.brevo_configured) {
       alert("⚠️ لازم تضغطين Save Settings أولاً قبل Send Test");
       return;
     }
@@ -448,7 +450,7 @@ export default function Admin() {
             <EnvelopeSimple size={20} weight="duotone" style={{ color: "#7A8A6A" }} />
             <div className="font-bold" style={{ color: "#2C3625" }}>Email Notifications</div>
             {emailSettings.configured
-              ? <span className="pill text-[10px] px-2 py-0.5" style={{ background: "#E5EBE1", color: "#3D4F35" }}><CheckCircle size={11} weight="fill" /> {emailSettings.active_provider === "smtp" ? "Gmail/SMTP" : emailSettings.active_provider === "resend" ? "Resend" : "Configured"}</span>
+              ? <span className="pill text-[10px] px-2 py-0.5" style={{ background: "#E5EBE1", color: "#3D4F35" }}><CheckCircle size={11} weight="fill" /> {emailSettings.active_provider === "brevo" ? "Brevo" : emailSettings.active_provider === "smtp" ? "Gmail/SMTP" : emailSettings.active_provider === "resend" ? "Resend" : "Configured"}</span>
               : <span className="pill text-[10px] px-2 py-0.5" style={{ background: "#FAF0D1", color: "#6B5218" }}><Warning size={11} weight="fill" /> Not configured</span>}
           </div>
           <button data-testid="edit-email-settings-btn" onClick={() => setEditEmail(s => !s)} className="btn btn-outline text-xs">
@@ -457,20 +459,24 @@ export default function Admin() {
         </div>
 
         <div className="text-xs mb-3 px-3 py-3 rounded-lg" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
-          <strong>✅ الطريقة الأسهل (موصى بها): Gmail / Google Workspace</strong>
-          <p className="mt-1.5">إذا عندكم إيميل <code>hr@boostgrowthsa.com</code> على Google — ما تحتاجين Resend ولا DNS. فقط App Password:</p>
+          <strong>✅ الطريقة الموصى بها: Brevo (تشتغل على Railway — بدون DNS)</strong>
+          <p className="mt-1.5">Gmail SMTP <strong>ما يشتغل</strong> على سيرفر Railway (خطأ 101). Brevo يرسل عبر الإنترنت العادي — أسهل من Resend:</p>
           <ol className="list-decimal pr-5 mt-2 space-y-1">
-            <li>افتحي <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" className="underline font-bold">Google App Passwords</a> (لازم 2-Step Verification مفعّل)</li>
-            <li>أنشئي App Password جديد → انسخي الرمز (16 حرف)</li>
-            <li>Configure → Provider: <strong>Gmail (SMTP)</strong></li>
-            <li>SMTP User: <code>hr@boostgrowthsa.com</code> · Password: الرمز · From: <code>Boost Growth &lt;hr@boostgrowthsa.com&gt;</code></li>
-            <li>Save → Send Test → أي إيميل (إيميلك أو إيميل الأخصائي)</li>
+            <li>سجّلي في <a href="https://app.brevo.com/account/register" target="_blank" rel="noreferrer" className="underline font-bold">brevo.com</a> (مجاني — 300 إيميل/يوم)</li>
+            <li>Senders → Add Sender → <code>admin@boostgrowthsa.com</code></li>
+            <li>افتحي إيميل admin@ واضغطي <strong>Verify</strong> (رابط تأكيد — بدون DNS)</li>
+            <li>SMTP &amp; API → Create API Key → انسخي المفتاح</li>
+            <li>Configure → Provider: <strong>Brevo</strong> → الصق المفتاح → From: <code>Boost Growth &lt;admin@boostgrowthsa.com&gt;</code></li>
+            <li><strong>Save Settings</strong> → Send Test</li>
           </ol>
         </div>
 
+        <div className="text-xs mb-3 px-3 py-2 rounded-lg" style={{ background: "#FCE0E8", color: "#8B3A55" }}>
+          <strong>❌ Gmail SMTP على Railway:</strong> السيرفر يمنع smtp.gmail.com — لو ظهر <code>Network is unreachable</code> هذا طبيعي. استخدمي Brevo فوق.
+        </div>
+
         <div className="text-xs mb-3 px-3 py-2 rounded-lg" style={{ background: "#FAF0D1", color: "#6B5218" }}>
-          <strong>⚠️ Resend (بديل) — ليش ما ضبط معك؟</strong>
-          <p className="mt-1">بدون تفعيل الدومين في <a href="https://resend.com/domains" target="_blank" rel="noreferrer" className="underline">resend.com/domains</a>، Resend يرسل <em>فقط</em> لإيميل حسابك المسجّل في Resend — مو لإيميل الأخصائيين. لإرسال لأي شخص لازم تضيفين DNS records لـ <code>boostgrowthsa.com</code>.</p>
+          <strong>Resend (اختياري):</strong> يحتاج DNS للدومين — تجاهليه إذا ما تبغين.
         </div>
 
         {editEmail ? (
@@ -478,16 +484,22 @@ export default function Admin() {
             <div className="col-span-2">
               <label className="label">Provider</label>
               <select className="input" value={emailForm.email_provider} onChange={e => setEmailForm({ ...emailForm, email_provider: e.target.value })}>
-                <option value="auto">Auto — Gmail first, then Resend</option>
-                <option value="smtp">Gmail / SMTP only</option>
+                <option value="brevo">Brevo (موصى به — Railway)</option>
+                <option value="auto">Auto — Brevo ثم Resend</option>
                 <option value="resend">Resend only</option>
+                <option value="smtp">Gmail / SMTP (ما يشتغل على Railway)</option>
               </select>
             </div>
             <div className="col-span-2">
               <label className="label">From Email</label>
-              <input className="input" placeholder="Boost Growth <hr@boostgrowthsa.com>" value={emailForm.from_email} onChange={e => setEmailForm({ ...emailForm, from_email: e.target.value })} />
+              <input className="input" placeholder="Boost Growth <admin@boostgrowthsa.com>" value={emailForm.from_email} onChange={e => setEmailForm({ ...emailForm, from_email: e.target.value })} />
             </div>
-            <div className="col-span-2 text-[11px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>GMAIL / SMTP</div>
+            <div className="col-span-2 text-[11px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>BREVO (موصى به)</div>
+            <div className="col-span-2">
+              <label className="label">Brevo API Key</label>
+              <input data-testid="brevo-key-input" className="input" type="password" placeholder="xkeysib-..." value={emailForm.brevo_api_key} onChange={e => setEmailForm({ ...emailForm, brevo_api_key: e.target.value })} />
+            </div>
+            <div className="col-span-2 text-[11px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>GMAIL / SMTP (لا يعمل على Railway)</div>
             <div>
               <label className="label">SMTP Host</label>
               <input className="input" value={emailForm.smtp_host} onChange={e => setEmailForm({ ...emailForm, smtp_host: e.target.value })} />
@@ -522,6 +534,7 @@ export default function Admin() {
             <div><span style={{ color: "#8B9E7A" }}>Active:</span> <span style={{ color: "#2C3625" }}>{emailSettings.active_provider || "none"}</span></div>
             <div><span style={{ color: "#8B9E7A" }}>From:</span> <span style={{ color: "#2C3625" }}>{emailSettings.from_email}</span></div>
             <div><span style={{ color: "#8B9E7A" }}>SMTP:</span> <span style={{ color: "#2C3625" }}>{emailSettings.smtp_configured ? `✓ ${emailSettings.smtp_user}` : "—"}</span></div>
+            <div><span style={{ color: "#8B9E7A" }}>Brevo:</span> <span className="font-mono" style={{ color: "#2C3625" }}>{emailSettings.brevo_key_preview || "—"}</span></div>
             <div><span style={{ color: "#8B9E7A" }}>Resend:</span> <span className="font-mono" style={{ color: "#2C3625" }}>{emailSettings.key_preview || "—"}</span></div>
           </div>
         )}

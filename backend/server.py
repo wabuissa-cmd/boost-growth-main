@@ -2765,12 +2765,13 @@ async def export_sessions_excel(cid: str, user=Depends(get_current_user)):
 # ------------------- Email Settings (admin) -------------------
 class EmailSettingsIn(BaseModel):
     resend_api_key: Optional[str] = None
+    brevo_api_key: Optional[str] = None
     from_email: Optional[str] = None
     smtp_host: Optional[str] = None
     smtp_port: Optional[int] = None
     smtp_user: Optional[str] = None
     smtp_password: Optional[str] = None
-    email_provider: Optional[str] = None  # auto | smtp | resend
+    email_provider: Optional[str] = None  # auto | brevo | resend | smtp
 
 def _apply_email_settings(doc: dict) -> None:
     """Load persisted email settings into process env."""
@@ -2778,6 +2779,8 @@ def _apply_email_settings(doc: dict) -> None:
         return
     if doc.get("resend_api_key"):
         os.environ["RESEND_API_KEY"] = doc["resend_api_key"]
+    if doc.get("brevo_api_key"):
+        os.environ["BREVO_API_KEY"] = doc["brevo_api_key"]
     if doc.get("from_email"):
         os.environ["EMAIL_FROM"] = doc["from_email"]
     if doc.get("smtp_host"):
@@ -2788,24 +2791,34 @@ def _apply_email_settings(doc: dict) -> None:
         os.environ["SMTP_USER"] = doc["smtp_user"]
     if doc.get("smtp_password"):
         os.environ["SMTP_PASSWORD"] = str(doc["smtp_password"]).replace(" ", "")
+    if doc.get("email_provider"):
+        os.environ["EMAIL_PROVIDER"] = doc["email_provider"]
 
 async def _reload_email_settings_from_db() -> None:
     doc = await db.settings.find_one({"key": "email"}, {"_id": 0})
     _apply_email_settings(doc or {})
 
+def _parse_from_address() -> tuple:
+    raw = _email_from_address()
+    if "<" in raw and ">" in raw:
+        name = raw.split("<")[0].strip().strip('"').strip() or "Boost Growth"
+        email = raw.split("<")[-1].split(">")[0].strip()
+        return name, email
+    return "Boost Growth", raw.strip()
+
 def _smtp_error_hint(err: str) -> str:
     e = (err or "").lower()
+    if "101" in e or "network is unreachable" in e or "network unreachable" in e:
+        return "Gmail SMTP محجوب على Railway (مو خطأ منك). استخدمي Brevo — الخيار الأخضر فوق (بدون DNS)."
     if "535" in e or "username and password not accepted" in e:
-        return "Gmail رفض الدخول: تأكدي من App Password (16 حرف بدون مسافات) — مو كلمة مرور الحساب. ولازم تضغطي Save Settings قبل Send Test."
+        return "Gmail رفض الدخول: تأكدي من App Password (16 حرف بدون مسافات)."
     if "534" in e:
         return "Google Workspace قد يكون موقف SMTP — تواصلي مع مدير حساب Google للمنشأة."
     if "550" in e or "relay" in e:
         return "Gmail ما يسمح بالإرسال من هذا العنوان — خلي From Email نفس SMTP User."
     if "connection" in e or "timed out" in e:
-        return "تعذر الاتصال بـ smtp.gmail.com — جربي مرة ثانية أو تحققي من الشبكة."
+        return "تعذر الاتصال بـ SMTP — على Railway استخدمي Brevo بدلاً من Gmail."
     return ""
-    if doc.get("email_provider"):
-        os.environ["EMAIL_PROVIDER"] = doc["email_provider"]
 
 def _email_from_address() -> str:
     return os.environ.get("EMAIL_FROM") or "Boost Growth <hr@boostgrowthsa.com>"
@@ -2815,6 +2828,47 @@ def _smtp_configured() -> bool:
 
 def _resend_configured() -> bool:
     return bool(os.environ.get("RESEND_API_KEY"))
+
+def _brevo_configured() -> bool:
+    return bool(os.environ.get("BREVO_API_KEY"))
+
+async def _send_via_brevo(to: str, subject: str, body: str) -> str:
+    api_key = os.environ.get("BREVO_API_KEY")
+    if not api_key:
+        raise ValueError("Brevo API key not configured")
+    name, email = _parse_from_address()
+    import httpx
+    async with httpx.AsyncClient(timeout=30) as cli:
+        r = await cli.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={"api-key": api_key, "Content-Type": "application/json", "accept": "application/json"},
+            json={
+                "sender": {"name": name, "email": email},
+                "to": [{"email": to}],
+                "subject": subject,
+                "htmlContent": f"<p>{body.replace(chr(10), '<br/>')}</p>",
+                "textContent": body,
+            },
+        )
+        if r.status_code in (200, 201, 202):
+            return r.json().get("messageId") or "ok"
+        raise ValueError(r.text[:500])
+
+async def _send_via_resend(to: str, subject: str, body: str) -> str:
+    api_key = os.environ.get("RESEND_API_KEY")
+    if not api_key:
+        raise ValueError("Resend API key not configured")
+    import httpx
+    async with httpx.AsyncClient(timeout=30) as cli:
+        r = await cli.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"from": _email_from_address(), "to": [to], "subject": subject,
+                  "html": f"<p>{body.replace(chr(10), '<br/>')}</p>"},
+        )
+        if r.status_code in (200, 202):
+            return r.json().get("id") or "ok"
+        raise ValueError(r.text[:500])
 
 def _send_via_smtp_sync(to: str, subject: str, body: str) -> None:
     import smtplib
@@ -2859,8 +2913,8 @@ async def email_test_send(payload: dict, _=Depends(admin_only)):
     to = (payload.get("to") or "").strip()
     if not to:
         raise HTTPException(status_code=400, detail="Recipient email required")
-    if not _smtp_configured() and not _resend_configured():
-        raise HTTPException(status_code=400, detail="No email provider configured. Save Gmail SMTP settings first (Save Settings button).")
+    if not _smtp_configured() and not _resend_configured() and not _brevo_configured():
+        raise HTTPException(status_code=400, detail="No email provider configured. Save Brevo or Resend API key first.")
     result = await _send_email_stub(to,
         "Boost Growth — Test Email",
         "This is a test email from your Boost Growth Portal.\n\nIf you received this, email notifications are working correctly.\n\n— Boost Growth Portal")
@@ -2874,28 +2928,35 @@ async def email_test_send(payload: dict, _=Depends(admin_only)):
 async def get_email_settings(_=Depends(admin_only)):
     doc = await db.settings.find_one({"key": "email"}, {"_id": 0}) or {}
     has_resend = bool(doc.get("resend_api_key") or os.environ.get("RESEND_API_KEY"))
+    has_brevo = bool(doc.get("brevo_api_key") or os.environ.get("BREVO_API_KEY"))
     has_smtp = bool(doc.get("smtp_user") and doc.get("smtp_password"))
     provider = doc.get("email_provider") or os.environ.get("EMAIL_PROVIDER") or "auto"
     active = "none"
-    if provider == "smtp" and has_smtp:
+    if provider == "brevo" and has_brevo:
+        active = "brevo"
+    elif provider == "smtp" and has_smtp:
         active = "smtp"
     elif provider == "resend" and has_resend:
         active = "resend"
-    elif has_smtp:
-        active = "smtp"
+    elif has_brevo:
+        active = "brevo"
     elif has_resend:
         active = "resend"
+    elif has_smtp:
+        active = "smtp"
     return {
-        "configured": has_smtp or has_resend,
+        "configured": has_smtp or has_resend or has_brevo,
         "provider": provider,
         "active_provider": active,
         "smtp_configured": has_smtp,
         "resend_configured": has_resend,
-        "from_email": doc.get("from_email") or os.environ.get("EMAIL_FROM") or "Boost Growth <hr@boostgrowthsa.com>",
+        "brevo_configured": has_brevo,
+        "from_email": doc.get("from_email") or os.environ.get("EMAIL_FROM") or "Boost Growth <admin@boostgrowthsa.com>",
         "smtp_host": doc.get("smtp_host") or os.environ.get("SMTP_HOST") or "smtp.gmail.com",
         "smtp_port": doc.get("smtp_port") or int(os.environ.get("SMTP_PORT") or "587"),
         "smtp_user": doc.get("smtp_user") or os.environ.get("SMTP_USER") or "",
         "key_preview": (doc.get("resend_api_key") or "")[:8] + "..." if doc.get("resend_api_key") else None,
+        "brevo_key_preview": (doc.get("brevo_api_key") or "")[:12] + "..." if doc.get("brevo_api_key") else None,
     }
 
 @api.post("/admin/email-settings")
@@ -2907,6 +2968,11 @@ async def save_email_settings(payload: EmailSettingsIn, _=Depends(admin_only)):
             raise HTTPException(status_code=400,
                 detail=f"Invalid Resend API key. Keys start with 're_' and are 30+ chars. You provided {len(key)} chars.")
         update["resend_api_key"] = key
+    if payload.brevo_api_key and payload.brevo_api_key.strip():
+        key = payload.brevo_api_key.strip()
+        if len(key) < 20:
+            raise HTTPException(status_code=400, detail="Invalid Brevo API key (too short).")
+        update["brevo_api_key"] = key
     if payload.from_email and payload.from_email.strip():
         update["from_email"] = payload.from_email.strip()
     if payload.smtp_host and payload.smtp_host.strip():
@@ -2917,7 +2983,7 @@ async def save_email_settings(payload: EmailSettingsIn, _=Depends(admin_only)):
         update["smtp_user"] = payload.smtp_user.strip()
     if payload.smtp_password and payload.smtp_password.strip():
         update["smtp_password"] = payload.smtp_password.strip().replace(" ", "")
-    if payload.email_provider and payload.email_provider.strip() in ("auto", "smtp", "resend"):
+    if payload.email_provider and payload.email_provider.strip() in ("auto", "brevo", "smtp", "resend"):
         update["email_provider"] = payload.email_provider.strip()
     if not update:
         raise HTTPException(status_code=400, detail="No fields")
@@ -3373,54 +3439,63 @@ async def admin_repair_session_invoices(_=Depends(admin_only)):
 
 # ------------------- Cancel-Notify (in-app + queued email) -------------------
 async def _send_email_stub(to: str, subject: str, body: str) -> dict:
-    """Send email via SMTP (preferred) or Resend. Logs all attempts to email_queue."""
+    """Send email via Brevo/Resend (HTTPS) or SMTP. Logs all attempts to email_queue."""
     await _reload_email_settings_from_db()
     provider_pref = os.environ.get("EMAIL_PROVIDER", "auto")
-    use_smtp = provider_pref == "smtp" or (provider_pref == "auto" and _smtp_configured())
-    use_resend = provider_pref == "resend" or (provider_pref == "auto" and not use_smtp and _resend_configured())
 
+    def pick_provider():
+        if provider_pref == "brevo":
+            return "brevo" if _brevo_configured() else None
+        if provider_pref == "resend":
+            return "resend" if _resend_configured() else None
+        if provider_pref == "smtp":
+            return "smtp" if _smtp_configured() else None
+        # auto — HTTPS first (works on Railway); SMTP last
+        if _brevo_configured():
+            return "brevo"
+        if _resend_configured():
+            return "resend"
+        if _smtp_configured():
+            return "smtp"
+        return None
+
+    chosen = pick_provider()
     queue_doc = {
         "id": str(uuid.uuid4()),
         "to": to, "subject": subject, "body": body,
-        "status": "queued", "provider": "none",
+        "status": "queued", "provider": chosen or "none",
         "created_at": now_iso(),
     }
 
-    if use_smtp:
-        queue_doc["provider"] = "smtp"
-        try:
+    if not chosen:
+        queue_doc["status"] = "queued_no_key"
+        queue_doc["error"] = "No email provider configured. Add Brevo API key in Admin."
+        logger.info(f"Email queued (no provider): to={to} subject={subject}")
+        await db.email_queue.insert_one(queue_doc)
+        queue_doc.pop("_id", None)
+        return queue_doc
+
+    try:
+        if chosen == "brevo":
+            pid = await _send_via_brevo(to, subject, body)
+            queue_doc["status"] = "sent"
+            queue_doc["provider_id"] = pid
+        elif chosen == "resend":
+            pid = await _send_via_resend(to, subject, body)
+            queue_doc["status"] = "sent"
+            queue_doc["provider_id"] = pid
+        else:
             await asyncio.to_thread(_send_via_smtp_sync, to, subject, body)
             queue_doc["status"] = "sent"
-        except Exception as e:
-            queue_doc["status"] = "failed"
-            queue_doc["error"] = str(e)[:500]
-            hint = _smtp_error_hint(str(e))
-            if hint:
-                queue_doc["hint_ar"] = hint
-            logger.warning(f"SMTP send failed to {to}: {e}")
-    elif use_resend:
-        api_key = os.environ.get("RESEND_API_KEY")
-        queue_doc["provider"] = "resend"
-        try:
-            import httpx
-            async with httpx.AsyncClient() as cli:
-                r = await cli.post("https://api.resend.com/emails",
-                                   headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                                   json={"from": _email_from_address(),
-                                         "to": [to], "subject": subject, "html": f"<p>{body.replace(chr(10),'<br/>')}</p>"})
-                if r.status_code in (200, 202):
-                    queue_doc["status"] = "sent"
-                    queue_doc["provider_id"] = r.json().get("id")
-                else:
-                    queue_doc["status"] = "failed"
-                    queue_doc["error"] = r.text[:500]
-        except Exception as e:
-            queue_doc["status"] = "failed"
-            queue_doc["error"] = str(e)[:500]
-    else:
-        queue_doc["status"] = "queued_no_key"
-        queue_doc["error"] = "No email provider configured (SMTP or Resend API key)"
-        logger.info(f"Email queued (no provider): to={to} subject={subject}")
+    except Exception as e:
+        queue_doc["status"] = "failed"
+        queue_doc["error"] = str(e)[:500]
+        hint = _smtp_error_hint(str(e))
+        if hint:
+            queue_doc["hint_ar"] = hint
+        elif "sender" in str(e).lower() or "not verified" in str(e).lower():
+            queue_doc["hint_ar"] = "فعّلي إيميل المرسل في Brevo: Senders → admin@boostgrowthsa.com → Verify (رابط في الإيميل)."
+        logger.warning(f"Email send failed ({chosen}) to {to}: {e}")
 
     await db.email_queue.insert_one(queue_doc)
     queue_doc.pop("_id", None)
