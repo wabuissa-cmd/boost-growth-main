@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { Plus, PencilSimple, Trash, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Calendar, Package } from "@phosphor-icons/react";
+import {
+  ModalBase, FormSection, FormField,
+  ModalBtnPrimary, ModalBtnSecondary,
+} from "../components/Modal";
 
 const STATUS_MAP = {
   pending:    { label: "Pending",     cls: "bg-[#FAF0D1] text-[#6B5218] border-[#E6C983]", icon: <Hourglass size={14} weight="duotone"/>, color: "#E6C983" },
@@ -151,143 +155,181 @@ export default function Requests() {
 
       {/* New Request Modal — multi-step */}
       {edit && (
-        <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={() => setEdit(null)}>
-          <div className="card p-6 w-full max-w-xl modal-card" onClick={e=>e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <div>
-                <div className="font-display text-2xl" style={{color: "#2C3625"}}>New Request</div>
-                <div className="text-sm" style={{color: "#5C6853"}}>Step {step} of 3 · {step===1 ? "Choose type" : step===2 ? "Provide details" : "Review & submit"}</div>
-              </div>
-              <button onClick={() => setEdit(null)} className="btn btn-ghost p-2"><X size={18}/></button>
-            </div>
-
-            {/* Progress bar */}
-            <div className="flex gap-1 mb-5">
-              {[1,2,3].map(i => <div key={i} className="flex-1 h-1.5 rounded-full transition-all" style={{background: i <= step ? "#7A8A6A" : "#E8E4DE"}}/>)}
-            </div>
-
-            {step === 1 && (
-              <div>
-                <label className="label">Request Type</label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
-                  {TYPES.map(t => (
-                    <button key={t.id} type="button" onClick={() => setEdit({...edit, request_type: t.id})}
-                            className={`p-4 rounded-xl border-2 text-left flex items-center gap-3 transition-all hover:bg-[#E5EBE1]/30 ${edit.request_type === t.id ? "border-[#7A8A6A] bg-[#E5EBE1]" : "border-[#E8E4DE]"}`}>
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{background: `${t.color}25`, color: t.color}}>{t.icon}</div>
-                      <div className="font-bold" style={{color: "#2C3625"}}>{t.label}</div>
-                    </button>
-                  ))}
-                </div>
-                <label className="label">Priority</label>
-                <div className="flex gap-2 mb-4 flex-wrap">
-                  {PRIORITIES.map(p => (
-                    <button key={p.id} type="button" onClick={() => setEdit({...edit, priority: p.id})}
-                            className={`pill border-2 ${edit.priority === p.id ? "bg-[#E5EBE1]" : ""}`}
-                            style={{borderColor: edit.priority === p.id ? p.color : "#E8E4DE", color: p.color}}>
-                      <Lightning size={12} weight={edit.priority === p.id ? "fill" : "regular"}/> {p.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex justify-end">
-                  <button onClick={() => setStep(2)} className="btn btn-primary">Next →</button>
-                </div>
-              </div>
-            )}
-
-            {step === 2 && (
-              <div>
-                <label className="label">Title</label>
-                <input data-testid="req-title" className="input mb-3" value={edit.title} onChange={e=>setEdit({...edit, title: e.target.value})} placeholder="Brief title..."/>
-
-                {edit.request_type === "leave" && (
-                  <div className="grid grid-cols-2 gap-3 mb-3">
-                    <div>
-                      <label className="label">From</label>
-                      <input type="date" className="input" value={edit.date_from || ""} onChange={e=>setEdit({...edit, date_from: e.target.value})}/>
-                    </div>
-                    <div>
-                      <label className="label">To</label>
-                      <input type="date" className="input" value={edit.date_to || ""} onChange={e=>setEdit({...edit, date_to: e.target.value})}/>
-                    </div>
-                  </div>
-                )}
-
-                {edit.request_type === "schedule_change" && (
-                  <div className="mb-3">
-                    <label className="label">Date Affected</label>
-                    <input type="date" className="input" value={edit.date_from || ""} onChange={e=>setEdit({...edit, date_from: e.target.value})}/>
-                  </div>
-                )}
-
-                {edit.request_type === "reward" && (
-                  <div className="mb-3">
-                    <label className="label">Reward Type</label>
-                    <select className="select" value={edit.reward_type || ""} onChange={e=>setEdit({...edit, reward_type: e.target.value})}>
-                      <option value="">— Select —</option>
-                      {REWARD_TYPES.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
-                    </select>
-                  </div>
-                )}
-
-                <label className="label">Description</label>
-                <textarea data-testid="req-description" className="textarea mb-3" rows={4} value={edit.description} onChange={e=>setEdit({...edit, description: e.target.value})} placeholder="Provide details..."/>
-
-                <label className="label">Additional Notes (optional)</label>
-                <textarea className="textarea mb-4" rows={2} value={edit.extra_notes || ""} onChange={e=>setEdit({...edit, extra_notes: e.target.value})}/>
-
-                <div className="flex justify-between">
-                  <button onClick={() => setStep(1)} className="btn btn-outline">← Back</button>
-                  <button onClick={() => setStep(3)} disabled={!edit.title} className="btn btn-primary disabled:opacity-50">Review →</button>
-                </div>
-              </div>
-            )}
-
-            {step === 3 && (
-              <div>
-                <div className="bg-[#F6F4F0] rounded-xl p-4 mb-4 space-y-2 text-sm">
-                  <div className="flex justify-between"><span style={{color: "#8B9E7A"}}>Type:</span><strong>{TYPES.find(t=>t.id===edit.request_type)?.label}</strong></div>
-                  <div className="flex justify-between"><span style={{color: "#8B9E7A"}}>Priority:</span><strong>{PRIORITIES.find(p=>p.id===edit.priority)?.label}</strong></div>
-                  <div className="flex justify-between"><span style={{color: "#8B9E7A"}}>Title:</span><strong>{edit.title}</strong></div>
-                  {edit.date_from && <div className="flex justify-between"><span style={{color: "#8B9E7A"}}>Date:</span><strong>{edit.date_from} {edit.date_to && `→ ${edit.date_to}`}</strong></div>}
-                  {edit.reward_type && <div className="flex justify-between"><span style={{color: "#8B9E7A"}}>Reward:</span><strong>{REWARD_TYPES.find(r=>r.id===edit.reward_type)?.label}</strong></div>}
-                  {edit.description && <div><div style={{color: "#8B9E7A"}}>Description:</div><div className="whitespace-pre-wrap mt-1">{edit.description}</div></div>}
-                </div>
-                <div className="flex justify-between">
-                  <button onClick={() => setStep(2)} className="btn btn-outline">← Back</button>
-                  <button data-testid="req-submit-btn" onClick={submitNew} className="btn btn-primary">Submit Request 🌱</button>
-                </div>
-              </div>
-            )}
+        <ModalBase
+          title="New Request"
+          subtitle={`Step ${step} of 3 · ${step === 1 ? "Choose type" : step === 2 ? "Provide details" : "Review & submit"}`}
+          onClose={() => setEdit(null)}
+          size="md"
+          footer={
+            step === 1 ? (
+              <ModalBtnPrimary type="button" onClick={() => setStep(2)}>Next →</ModalBtnPrimary>
+            ) : step === 2 ? (
+              <>
+                <ModalBtnSecondary type="button" onClick={() => setStep(1)}>← Back</ModalBtnSecondary>
+                <ModalBtnPrimary type="button" onClick={() => setStep(3)} disabled={!edit.title}>Review →</ModalBtnPrimary>
+              </>
+            ) : (
+              <>
+                <ModalBtnSecondary type="button" onClick={() => setStep(2)}>← Back</ModalBtnSecondary>
+                <ModalBtnPrimary data-testid="req-submit-btn" type="button" onClick={submitNew}>Submit Request 🌱</ModalBtnPrimary>
+              </>
+            )
+          }
+        >
+          <div className="flex gap-1 -mt-2 mb-4">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="flex-1 h-1.5 rounded-full transition-all" style={{ background: i <= step ? "#5C8A47" : "#EDE9E3" }} />
+            ))}
           </div>
-        </div>
+
+          {step === 1 && (
+            <FormSection title="Request Details">
+              <FormField label="Request type">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {TYPES.map(t => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setEdit({ ...edit, request_type: t.id })}
+                      className={`p-4 rounded-xl border-2 text-left flex items-center gap-3 transition-all hover:bg-[#E5EBE1]/30 ${edit.request_type === t.id ? "border-[#5C8A47] bg-[#E5EBE1]" : ""}`}
+                      style={{ borderColor: edit.request_type === t.id ? "#5C8A47" : "#DDD8D0" }}
+                    >
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `${t.color}25`, color: t.color }}>{t.icon}</div>
+                      <div className="font-bold text-sm" style={{ color: "#1C2617" }}>{t.label}</div>
+                    </button>
+                  ))}
+                </div>
+              </FormField>
+              <FormField label="Priority">
+                <div className="flex gap-2 flex-wrap">
+                  {PRIORITIES.map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setEdit({ ...edit, priority: p.id })}
+                      className={`pill border-2 ${edit.priority === p.id ? "bg-[#E5EBE1]" : ""}`}
+                      style={{ borderColor: edit.priority === p.id ? p.color : "#DDD8D0", color: p.color }}
+                    >
+                      <Lightning size={12} weight={edit.priority === p.id ? "fill" : "regular"} /> {p.label}
+                    </button>
+                  ))}
+                </div>
+              </FormField>
+            </FormSection>
+          )}
+
+          {step === 2 && (
+            <FormSection title="Request Details">
+              <FormField label="Subject" required>
+                <input data-testid="req-title" className="modal-input" value={edit.title} onChange={e => setEdit({ ...edit, title: e.target.value })} placeholder="Brief title..." />
+              </FormField>
+
+              {edit.request_type === "leave" && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <FormField label="From">
+                    <input type="date" className="modal-input" value={edit.date_from || ""} onChange={e => setEdit({ ...edit, date_from: e.target.value })} />
+                  </FormField>
+                  <FormField label="To">
+                    <input type="date" className="modal-input" value={edit.date_to || ""} onChange={e => setEdit({ ...edit, date_to: e.target.value })} />
+                  </FormField>
+                </div>
+              )}
+
+              {edit.request_type === "schedule_change" && (
+                <FormField label="Date affected">
+                  <input type="date" className="modal-input" value={edit.date_from || ""} onChange={e => setEdit({ ...edit, date_from: e.target.value })} />
+                </FormField>
+              )}
+
+              {edit.request_type === "reward" && (
+                <FormField label="Reward type">
+                  <select className="modal-input" value={edit.reward_type || ""} onChange={e => setEdit({ ...edit, reward_type: e.target.value })}>
+                    <option value="">— Select —</option>
+                    {REWARD_TYPES.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+                  </select>
+                </FormField>
+              )}
+
+              <FormField label="Description">
+                <textarea data-testid="req-description" className="modal-input" rows={4} value={edit.description} onChange={e => setEdit({ ...edit, description: e.target.value })} placeholder="Provide details..." />
+              </FormField>
+
+              <FormField label="Additional notes" hint="Optional">
+                <textarea className="modal-input" rows={2} value={edit.extra_notes || ""} onChange={e => setEdit({ ...edit, extra_notes: e.target.value })} />
+              </FormField>
+            </FormSection>
+          )}
+
+          {step === 3 && (
+            <FormSection title="Review">
+              <div className="rounded-xl p-4 space-y-2 text-sm" style={{ background: "#F5F2ED" }}>
+                <div className="flex justify-between"><span style={{ color: "#9CA3AF" }}>Type:</span><strong>{TYPES.find(t => t.id === edit.request_type)?.label}</strong></div>
+                <div className="flex justify-between"><span style={{ color: "#9CA3AF" }}>Priority:</span><strong>{PRIORITIES.find(p => p.id === edit.priority)?.label}</strong></div>
+                <div className="flex justify-between"><span style={{ color: "#9CA3AF" }}>Title:</span><strong>{edit.title}</strong></div>
+                {edit.date_from && <div className="flex justify-between"><span style={{ color: "#9CA3AF" }}>Date:</span><strong>{edit.date_from} {edit.date_to && `→ ${edit.date_to}`}</strong></div>}
+                {edit.reward_type && <div className="flex justify-between"><span style={{ color: "#9CA3AF" }}>Reward:</span><strong>{REWARD_TYPES.find(r => r.id === edit.reward_type)?.label}</strong></div>}
+                {edit.description && <div><div style={{ color: "#9CA3AF" }}>Description:</div><div className="whitespace-pre-wrap mt-1">{edit.description}</div></div>}
+              </div>
+            </FormSection>
+          )}
+        </ModalBase>
       )}
 
       {/* Update status (admin) */}
       {statusEdit && (
-        <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={() => setStatusEdit(null)}>
-          <div className="card p-6 w-full max-w-md modal-card" onClick={e=>e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-3">
-              <div className="font-display text-2xl">Update Status</div>
-              <button onClick={() => setStatusEdit(null)} className="btn btn-ghost p-2"><X size={18}/></button>
-            </div>
-            <div className="text-sm mb-3" style={{color: "#5C6853"}}>The therapist will be auto-notified.</div>
-            <label className="label">New Status</label>
-            <div className="grid grid-cols-1 gap-2 mb-3">
+        <ModalBase
+          title={statusEdit.title || "Update Request"}
+          subtitle={`${STATUS_MAP[statusEdit.status]?.label || statusEdit.status} · ${statusEdit.created_at ? new Date(statusEdit.created_at).toLocaleDateString("en-US") : ""}`}
+          onClose={() => setStatusEdit(null)}
+          size="md"
+          footer={
+            <>
+              <ModalBtnSecondary type="button" onClick={() => setStatusEdit(null)}>Cancel</ModalBtnSecondary>
+              <ModalBtnPrimary data-testid="status-save-btn" type="button" onClick={updateStatus}>Save & Notify</ModalBtnPrimary>
+            </>
+          }
+        >
+          <p className="text-sm -mt-2 mb-2" style={{ color: "#5C6853" }}>The therapist will be auto-notified.</p>
+
+          <FormSection title="Request Details">
+            {statusEdit.description && (
+              <div className="text-sm rounded-xl p-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
+                <div className="text-xs font-semibold mb-1" style={{ color: "#9CA3AF" }}>Description</div>
+                <div style={{ color: "#1C2617" }}>{statusEdit.description}</div>
+              </div>
+            )}
+            {statusEdit.timeline?.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-xs font-bold uppercase tracking-widest" style={{ color: "#5C6853" }}>History</div>
+                {statusEdit.timeline.map((ev, i) => (
+                  <div key={i} className="text-xs py-2 border-b last:border-0" style={{ borderColor: "#EDE9E3" }}>
+                    <span className="font-bold" style={{ color: "#1C2617" }}>{ev.event}</span>
+                    <span style={{ color: "#9CA3AF" }}> · {ev.by} · {new Date(ev.at).toLocaleString("en-US")}</span>
+                    {ev.note && <div className="italic mt-0.5" style={{ color: "#5C6853" }}>"{ev.note}"</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </FormSection>
+
+          <FormSection title="Status">
+            <div className="grid grid-cols-1 gap-2">
               {Object.entries(STATUS_MAP).map(([k, v]) => (
-                <button key={k} onClick={() => setStatusEdit({...statusEdit, status: k})}
-                        className={`pill border-2 justify-start py-2 ${statusEdit.status === k ? "ring-2 ring-[#7A8A6A]" : ""} ${v.cls}`}>
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setStatusEdit({ ...statusEdit, status: k })}
+                  className={`pill border-2 justify-start py-2 ${statusEdit.status === k ? "ring-2 ring-[#5C8A47]" : ""} ${v.cls}`}
+                >
                   {v.icon} {v.label}
                 </button>
               ))}
             </div>
-            <label className="label">Response / Note (optional)</label>
-            <textarea className="textarea mb-4" rows={3} value={statusEdit.admin_note || ""} onChange={e=>setStatusEdit({...statusEdit, admin_note: e.target.value})}/>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setStatusEdit(null)} className="btn btn-outline">Cancel</button>
-              <button data-testid="status-save-btn" onClick={updateStatus} className="btn btn-primary">Save & Notify</button>
-            </div>
-          </div>
-        </div>
+            <FormField label="Response / note" hint="Optional">
+              <textarea className="modal-input" rows={3} value={statusEdit.admin_note || ""} onChange={e => setStatusEdit({ ...statusEdit, admin_note: e.target.value })} />
+            </FormField>
+          </FormSection>
+        </ModalBase>
       )}
     </div>
   );

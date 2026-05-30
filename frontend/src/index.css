@@ -392,3 +392,33 @@ main, .page-enter { min-width: 0; }
     height: 4px; border-top-left-radius: 1rem; border-top-right-radius: 1rem;
     margin: -1px -1px 0 -1px;
 }
+
+/* Unified modal form inputs */
+.modal-input {
+    width: 100%;
+    border-radius: 12px;
+    border: 1.5px solid #DDD8D0;
+    padding: 10px 16px;
+    font-size: 14px;
+    background: #FAFAF7;
+    color: #1C2617;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.modal-input:focus {
+    border-color: #5C8A47;
+    box-shadow: 0 0 0 3px rgba(92, 138, 71, 0.12);
+}
+.modal-input::placeholder {
+    color: #B8C0AC;
+}
+select.modal-input {
+    cursor: pointer;
+}
+textarea.modal-input {
+    resize: vertical;
+    min-height: 80px;
+}
+.modal-input-error {
+    border-color: #FCA5A5;
+}

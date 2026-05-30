@@ -4,6 +4,10 @@ import { useAuth } from "../auth";
 import {
   Plus, X, Trash, PencilSimple, Airplane, Calendar, CheckCircle, Clock, XCircle, ArrowsClockwise
 } from "@phosphor-icons/react";
+import {
+  ModalBase, FormSection, FormField,
+  ModalBtnPrimary, ModalBtnSecondary,
+} from "../components/Modal";
 
 const STATUS = {
   pending: { label: "Approval Waiting", color: "#D4A64A", bg: "#FAF0D1", icon: <Clock size={14} weight="fill"/> },
@@ -249,25 +253,30 @@ export default function Leaves() {
       </div>
 
       {edit && (
-        <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={() => setEdit(null)}>
-          <div className="card p-6 w-full max-w-lg modal-card max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <div className="font-display text-2xl">{edit.id ? "Edit Leave" : (isAdmin ? "New Leave" : "Request Leave")}</div>
-              <button onClick={() => setEdit(null)} className="btn btn-ghost p-2"><X size={18} /></button>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              {isAdmin && (
-                <div className="col-span-2">
-                  <label className="label">Therapist</label>
-                  <select data-testid="leave-therapist-select" className="select" value={edit.therapist_id} onChange={e => setEdit({ ...edit, therapist_id: e.target.value })}>
-                    <option value="">— Select —</option>
-                    {therapists.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                  </select>
-                </div>
-              )}
-              <div>
-                <label className="label">Type</label>
-                <select className="select" value={edit.leave_type} onChange={e => setEdit({ ...edit, leave_type: e.target.value })}>
+        <ModalBase
+          title={edit.id ? "Edit Leave" : "Request Leave"}
+          subtitle={edit.id && isAdmin ? "Review or update this leave request" : "Submit a leave or time-off request"}
+          onClose={() => setEdit(null)}
+          size="md"
+          footer={
+            <>
+              <ModalBtnSecondary type="button" onClick={() => setEdit(null)}>Cancel</ModalBtnSecondary>
+              <ModalBtnPrimary data-testid="leave-save-btn" type="button" onClick={save}>Save</ModalBtnPrimary>
+            </>
+          }
+        >
+          <FormSection title="Leave Details">
+            {isAdmin && (
+              <FormField label="Therapist">
+                <select data-testid="leave-therapist-select" className="modal-input" value={edit.therapist_id} onChange={e => setEdit({ ...edit, therapist_id: e.target.value })}>
+                  <option value="">— Select —</option>
+                  {therapists.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </FormField>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField label="Type">
+                <select className="modal-input" value={edit.leave_type} onChange={e => setEdit({ ...edit, leave_type: e.target.value })}>
                   <option value="Annual">Annual Leave</option>
                   <option value="Sickleave">Sick Leave</option>
                   <option value="Unpaid">Unpaid Leave</option>
@@ -276,42 +285,35 @@ export default function Leaves() {
                   <option value="Exam">Exam</option>
                   <option value="Emergency">Emergency</option>
                 </select>
-              </div>
-              <div>
-                <label className="label">Status</label>
-                <select className="select" value={edit.status} onChange={e => setEdit({ ...edit, status: e.target.value })} disabled={!isAdmin && edit.id}>
+              </FormField>
+              <FormField label="Status">
+                <select className="modal-input" value={edit.status} onChange={e => setEdit({ ...edit, status: e.target.value })} disabled={!isAdmin && edit.id}>
                   {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                 </select>
-              </div>
-              <div>
-                <label className="label">Start Date</label>
-                <input data-testid="leave-start-input" type="date" className="input" value={edit.start_date} onChange={e => setEdit({ ...edit, start_date: e.target.value })} />
-              </div>
-              <div>
-                <label className="label">End Date</label>
-                <input data-testid="leave-end-input" type="date" className="input" value={edit.end_date} onChange={e => setEdit({ ...edit, end_date: e.target.value })} />
-              </div>
-              <div className="col-span-2">
-                <label className="label">Days (auto-calculated, editable)</label>
-                <input type="number" step="0.5" min="0.5" className="input" value={edit.days} onChange={e => setEdit({ ...edit, days: parseFloat(e.target.value) || 0 })} />
-              </div>
-              <div className="col-span-2">
-                <label className="label">Notes</label>
-                <textarea className="textarea" rows={3} value={edit.notes || ""} onChange={e => setEdit({ ...edit, notes: e.target.value })} />
-              </div>
-              {isAdmin && (
-                <div className="col-span-2">
-                  <label className="label">Admin Note</label>
-                  <textarea className="textarea" rows={2} placeholder="Reason for approval/rejection..." value={edit.admin_note || ""} onChange={e => setEdit({ ...edit, admin_note: e.target.value })} />
-                </div>
-              )}
+              </FormField>
+              <FormField label="Date from">
+                <input data-testid="leave-start-input" type="date" className="modal-input" value={edit.start_date} onChange={e => setEdit({ ...edit, start_date: e.target.value })} />
+              </FormField>
+              <FormField label="Date to">
+                <input data-testid="leave-end-input" type="date" className="modal-input" value={edit.end_date} onChange={e => setEdit({ ...edit, end_date: e.target.value })} />
+              </FormField>
             </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <button onClick={() => setEdit(null)} className="btn btn-outline">Cancel</button>
-              <button data-testid="leave-save-btn" onClick={save} className="btn btn-primary">Save</button>
-            </div>
-          </div>
-        </div>
+            <FormField label="Days" hint="Auto-calculated, editable">
+              <input type="number" step="0.5" min="0.5" className="modal-input" value={edit.days} onChange={e => setEdit({ ...edit, days: parseFloat(e.target.value) || 0 })} />
+            </FormField>
+          </FormSection>
+
+          <FormSection title="Reason">
+            <FormField label="Notes">
+              <textarea className="modal-input" rows={3} value={edit.notes || ""} onChange={e => setEdit({ ...edit, notes: e.target.value })} />
+            </FormField>
+            {isAdmin && (
+              <FormField label="Admin note" hint="Reason for approval/rejection">
+                <textarea className="modal-input" rows={2} placeholder="Reason for approval/rejection..." value={edit.admin_note || ""} onChange={e => setEdit({ ...edit, admin_note: e.target.value })} />
+              </FormField>
+            )}
+          </FormSection>
+        </ModalBase>
       )}
     </div>
   );

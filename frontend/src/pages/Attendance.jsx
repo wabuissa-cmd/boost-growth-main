@@ -6,6 +6,10 @@ import {
   CheckCircle, Prohibit, Warning, XCircle, Clock, MapPin, Printer, FileXls,
   Receipt, ArrowsCounterClockwise, CalendarBlank, CaretDown
 } from "@phosphor-icons/react";
+import {
+  ModalBase, FormSection, FormField,
+  ModalBtnPrimary, ModalBtnSecondary,
+} from "../components/Modal";
 
 const SUPERVISOR_CLIENTS = {
   msMaha: ["035", "037", "038", "040", "041", "042", "047", "052", "054", "060", "063", "065", "070"],
@@ -204,25 +208,32 @@ export default function Attendance() {
 
       {/* Picker modal */}
       {logFor === "__pick__" && (
-        <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={() => setLogFor(null)}>
-          <div className="card p-6 w-full max-w-md modal-card" onClick={e=>e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-3">
-              <div className="font-display text-2xl">Select Client</div>
-              <button onClick={() => setLogFor(null)} className="btn btn-ghost p-2"><X size={18}/></button>
-            </div>
-            <div className="max-h-96 overflow-y-auto flex flex-col gap-2">
-              {enriched.map(c => (
-                <button key={c.id} onClick={() => setLogFor(c)} className="text-left p-3 rounded-xl border border-[#E8E4DE] hover:bg-[#E5EBE1] flex items-center gap-3 transition">
-                  <div className="w-9 h-9 rounded-lg flex items-center justify-center font-bold" style={{background: c.color || "#E5EBE1"}}>{c.name.charAt(0)}</div>
-                  <div className="flex-1">
-                    <div className="font-bold text-sm" style={{color: "#2C3625"}}>{c.name}</div>
-                    <div className="text-[11px]" style={{color: "#8B9E7A"}}>#{c.file_no} · {c.rem}/{c.pkg}h left</div>
-                  </div>
-                </button>
-              ))}
-            </div>
+        <ModalBase
+          title="Select Client"
+          subtitle="Choose a client to log a session"
+          onClose={() => setLogFor(null)}
+          size="sm"
+        >
+          <div className="max-h-96 overflow-y-auto flex flex-col gap-2 -mt-2">
+            {enriched.map(c => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setLogFor(c)}
+                className="text-left p-3 rounded-xl border flex items-center gap-3 transition hover:bg-[#E5EBE1]"
+                style={{ borderColor: "#DDD8D0" }}
+              >
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center font-bold" style={{ background: c.color || "#E5EBE1" }}>
+                  {c.name.charAt(0)}
+                </div>
+                <div className="flex-1">
+                  <div className="font-bold text-sm" style={{ color: "#1C2617" }}>{c.name}</div>
+                  <div className="text-[11px]" style={{ color: "#8B9E7A" }}>#{c.file_no} · {c.rem}/{c.pkg}h left</div>
+                </div>
+              </button>
+            ))}
           </div>
-        </div>
+        </ModalBase>
       )}
 
       {/* Log Session form */}
@@ -285,84 +296,139 @@ function LogSessionForm({ client, therapists, currentUser, onClose, onSaved, ses
     setForm(f => ({...f, therapist_ids: f.therapist_ids.includes(id) ? f.therapist_ids.filter(x => x !== id) : [...f.therapist_ids, id]}));
   };
 
-  return (
-    <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={onClose}>
-      <form onSubmit={submit} className="card p-6 w-full max-w-lg modal-card max-h-[90vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <div className="font-display text-2xl" style={{color: "#2C3625"}}>{session ? "Edit Session" : "Log Session"}</div>
-            <div className="text-sm" style={{color: "#5C6853"}}>{client?.name} <span className="text-xs">#{client?.file_no}</span></div>
-          </div>
-          <button type="button" onClick={onClose} className="btn btn-ghost p-2"><X size={18}/></button>
-        </div>
+  const formId = session ? "edit-session-form" : "log-session-form";
 
-        {client?.locations?.length > 0 && (
-          <>
-            <label className="label">Service Type</label>
-            <select data-testid="sess-location" className="select mb-3" value={form.location} onChange={e=>setForm({...form, location: e.target.value})}>
-              {client.locations.map((l, i) => <option key={i} value={l.address}>{l.service} | {l.address}</option>)}
-            </select>
-          </>
+  return (
+    <ModalBase
+      title={session ? "Edit Session Record" : "Log Session"}
+      subtitle={session ? "Correct session details" : "Record a completed session"}
+      onClose={onClose}
+      size="md"
+      footer={
+        <>
+          <ModalBtnSecondary type="button" onClick={onClose}>Cancel</ModalBtnSecondary>
+          <ModalBtnPrimary data-testid="sess-save" type="submit" form={formId}>
+            {session ? "Save changes" : "Log Session"}
+          </ModalBtnPrimary>
+        </>
+      }
+    >
+      <form id={formId} onSubmit={submit}>
+        {client && (
+          <p className="text-sm -mt-2 mb-2" style={{ color: "#8B9E7A" }}>
+            {client.name} <span className="text-xs">#{client.file_no}</span>
+          </p>
         )}
 
-        <label className="label">Status</label>
-        <div className="grid grid-cols-2 gap-2 mb-4">
-          {STATUS_OPTS.map(s => (
-            <button key={s.id} type="button" onClick={() => setForm({...form, status: s.id})}
-                    className={`p-4 rounded-xl border-2 flex flex-col items-center gap-1 transition-all ${form.status === s.id ? "ring-2 ring-[#7A8A6A]" : ""}`}
-                    style={{background: s.bg, borderColor: form.status === s.id ? "#7A8A6A" : s.bg, color: s.color}}>
-              {s.icon}
-              <div className="font-bold text-sm">{s.label}</div>
-            </button>
-          ))}
-        </div>
+        <FormSection title="Session">
+          {client?.locations?.length > 0 && (
+            <FormField label="Service type / location">
+              <select
+                data-testid="sess-location"
+                className="modal-input"
+                value={form.location}
+                onChange={e => setForm({ ...form, location: e.target.value })}
+              >
+                {client.locations.map((l, i) => (
+                  <option key={i} value={l.address}>{l.service} | {l.address}</option>
+                ))}
+              </select>
+            </FormField>
+          )}
 
-        <div className="grid grid-cols-3 gap-3 mb-3">
-          <div>
-            <label className="label">Date</label>
-            <input data-testid="sess-date" type="date" className="input" required value={form.session_date} onChange={e=>setForm({...form, session_date: e.target.value})}/>
+          <FormField label="Status">
+            <div className="grid grid-cols-2 gap-2">
+              {STATUS_OPTS.map(s => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setForm({ ...form, status: s.id })}
+                  className={`p-4 rounded-xl border-2 flex flex-col items-center gap-1 transition-all ${form.status === s.id ? "ring-2 ring-[#7A8A6A]" : ""}`}
+                  style={{ background: s.bg, borderColor: form.status === s.id ? "#7A8A6A" : s.bg, color: s.color }}
+                >
+                  {s.icon}
+                  <div className="font-bold text-sm">{s.label}</div>
+                </button>
+              ))}
+            </div>
+          </FormField>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <FormField label="Date" required>
+              <input
+                data-testid="sess-date"
+                type="date"
+                className="modal-input"
+                required
+                value={form.session_date}
+                onChange={e => setForm({ ...form, session_date: e.target.value })}
+              />
+            </FormField>
+            <FormField label="Time from">
+              <input
+                type="time"
+                className="modal-input"
+                value={form.start_time}
+                onChange={e => setForm({ ...form, start_time: e.target.value })}
+              />
+            </FormField>
+            <FormField label="Time to">
+              <input
+                type="time"
+                className="modal-input"
+                value={form.end_time}
+                onChange={e => setForm({ ...form, end_time: e.target.value })}
+              />
+            </FormField>
           </div>
-          <div>
-            <label className="label">Start</label>
-            <input type="time" className="input" value={form.start_time} onChange={e=>setForm({...form, start_time: e.target.value})}/>
-          </div>
-          <div>
-            <label className="label">End</label>
-            <input type="time" className="input" value={form.end_time} onChange={e=>setForm({...form, end_time: e.target.value})}/>
-          </div>
-        </div>
-        <div className="text-xs mb-3" style={{color: "#8B9E7A"}}>
-          <Clock size={12} className="inline mr-1"/> Calculated: <strong>{computeHours(form.start_time, form.end_time)}h</strong>
-        </div>
+          <p className="text-xs" style={{ color: "#8B9E7A" }}>
+            <Clock size={12} className="inline mr-1" />
+            Hours: <strong>{computeHours(form.start_time, form.end_time)}h</strong>
+          </p>
+        </FormSection>
 
-        <label className="label">Therapist(s) {currentUser?.role === "therapist" && <span className="text-[10px] font-normal" style={{color: "#8B9E7A"}}>(your name added automatically)</span>}</label>
-        <div className="flex flex-wrap gap-2 mb-2">
-          {form.therapist_ids.map(id => {
-            const t = therapists.find(t => t.id === id);
-            if (!t) return null;
-            return (
-              <span key={id} className="pill px-3 py-1.5 text-xs" style={{background: t.color, color: "white"}}>
-                {t.name} <button type="button" onClick={() => toggleT(id)} className="ml-1 opacity-80 hover:opacity-100">✕</button>
-              </span>
-            );
-          })}
-        </div>
-        <select className="select mb-3" value="" onChange={e => { if (e.target.value) toggleT(e.target.value); e.target.value = ""; }}>
-          <option value="">+ Add co-therapist...</option>
-          {therapists.filter(t => !form.therapist_ids.includes(t.id)).map(t => (
-            <option key={t.id} value={t.id}>{t.name}</option>
-          ))}
-        </select>
+        <FormSection title="Therapist">
+          <FormField
+            label="Therapist(s)"
+            hint={currentUser?.role === "therapist" ? "Your name is added automatically" : undefined}
+          >
+            <div className="flex flex-wrap gap-2 mb-2">
+              {form.therapist_ids.map(id => {
+                const t = therapists.find(t => t.id === id);
+                if (!t) return null;
+                return (
+                  <span key={id} className="pill px-3 py-1.5 text-xs" style={{ background: t.color, color: "white" }}>
+                    {t.name}{" "}
+                    <button type="button" onClick={() => toggleT(id)} className="ml-1 opacity-80 hover:opacity-100">✕</button>
+                  </span>
+                );
+              })}
+            </div>
+            <select
+              className="modal-input"
+              value=""
+              onChange={e => { if (e.target.value) toggleT(e.target.value); e.target.value = ""; }}
+            >
+              <option value="">+ Add co-therapist...</option>
+              {therapists.filter(t => !form.therapist_ids.includes(t.id)).map(t => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          </FormField>
+        </FormSection>
 
-        <label className="label">Note (optional)</label>
-        <textarea className="textarea mb-4" rows={3} value={form.note || ""} onChange={e=>setForm({...form, note: e.target.value})}/>
-
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="btn btn-outline">Cancel</button>
-          <button data-testid="sess-save" type="submit" className="btn btn-primary">{session ? "Save changes" : "Log Session"}</button>
-        </div>
+        <FormSection title="Notes">
+          <FormField label="Note" hint="Optional">
+            <textarea
+              className="modal-input"
+              rows={3}
+              value={form.note || ""}
+              onChange={e => setForm({ ...form, note: e.target.value })}
+            />
+          </FormField>
+        </FormSection>
       </form>
-    </div>
+    </ModalBase>
   );
 }
 
@@ -699,9 +765,26 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                   <Plus size={14}/> New Invoice <CaretDown size={12}/>
                 </button>
                 {newInvMenuOpen && (
-                  <div className="absolute right-0 mt-1 card p-1 z-50 min-w-[200px] shadow-lg">
-                    <button onClick={() => { setShowNewInvModal(true); setNewInvMenuOpen(false); }} className="btn btn-ghost w-full justify-start text-xs">New Invoice</button>
-                    <button onClick={() => { setShowResetConfirm(true); setNewInvMenuOpen(false); }} className="btn btn-ghost w-full justify-start text-xs">Start New Package</button>
+                  <div
+                    className="absolute right-0 mt-1 z-50 min-w-[200px] shadow-lg rounded-xl border overflow-hidden"
+                    style={{ background: "#FFFFFF", borderColor: "#EDE9E3" }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => { setShowNewInvModal(true); setNewInvMenuOpen(false); }}
+                      className="w-full text-left px-4 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] transition"
+                      style={{ color: "#374151" }}
+                    >
+                      New Invoice
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setShowResetConfirm(true); setNewInvMenuOpen(false); }}
+                      className="w-full text-left px-4 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] transition border-t"
+                      style={{ color: "#374151", borderColor: "#EDE9E3" }}
+                    >
+                      Start New Package
+                    </button>
                   </div>
                 )}
               </div>
@@ -876,46 +959,114 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
 
         {/* Invoice Details popup */}
         {showInvoiceDetails && selectedInvoice && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60]" onClick={() => setShowInvoiceDetails(false)}>
-            <div className="card p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
-              <div className="flex justify-between items-center mb-3">
-                <div className="font-display text-xl" style={{ color: "#2C3625" }}>Invoice Details</div>
-                <button onClick={() => setShowInvoiceDetails(false)} className="btn btn-ghost p-2"><X size={18}/></button>
+          <ModalBase
+            title="Invoice Details"
+            subtitle="Current package and billing information"
+            onClose={() => setShowInvoiceDetails(false)}
+            size="sm"
+            elevated
+            footer={
+              isAdmin ? (
+                <>
+                  <ModalBtnSecondary type="button" onClick={() => setShowInvoiceDetails(false)}>Close</ModalBtnSecondary>
+                  <ModalBtnPrimary
+                    data-testid="save-pkg-btn"
+                    type="button"
+                    onClick={() => { savePackageInfo(); setShowInvoiceDetails(false); }}
+                    disabled={savingClient}
+                  >
+                    {savingClient ? "Saving..." : "Save"}
+                  </ModalBtnPrimary>
+                </>
+              ) : (
+                <ModalBtnSecondary type="button" onClick={() => setShowInvoiceDetails(false)}>Close</ModalBtnSecondary>
+              )
+            }
+          >
+            <FormSection title="Invoice">
+              <FormField label="Invoice number">
+                <input
+                  className="modal-input"
+                  readOnly
+                  value={invoiceNumber || selectedInvoice.invoice_number || ""}
+                />
+              </FormField>
+              <div>
+                <span className="text-xs font-semibold block mb-1.5" style={{ color: "#374151" }}>Status</span>
+                <span
+                  className="inline-block pill text-xs px-2 py-1"
+                  style={{ background: closed ? "#F8EBE7" : "#E5EBE1", color: closed ? "#8A3F27" : "#3D4F35" }}
+                >
+                  {closed ? "Closed" : "Open"}
+                </span>
               </div>
-              <div className="space-y-3 text-sm">
-                <div><span style={{ color: "#8B9E7A" }}>Invoice #</span> <strong>{invoiceNumber || selectedInvoice.invoice_number}</strong></div>
-                <div>
-                  <span className="pill text-xs" style={{ background: closed ? "#F8EBE7" : "#E5EBE1", color: closed ? "#8A3F27" : "#3D4F35" }}>
-                    {closed ? "Closed" : "Open"}
-                  </span>
-                </div>
-                {selectedInvoice.start_date && <div><span style={{ color: "#8B9E7A" }}>Start Date</span> {fmtDate(selectedInvoice.start_date)}</div>}
-                <div><span style={{ color: "#8B9E7A" }}>Package</span> {packageSize || selectedInvoice.package_size || pkg}h</div>
-                <div><span style={{ color: "#8B9E7A" }}>Hours Used</span> {used.toFixed(1)}h</div>
-                <div><span style={{ color: "#8B9E7A" }}>Hours Remaining</span> {rem.toFixed(1)}h</div>
-                {isAdmin && (
-                  <>
-                    <div>
-                      <label className="label text-[10px]">Payment</label>
-                      <select data-testid="pay-status-select" className="select text-xs w-full" value={paymentStatus} onChange={e => setPaymentStatus(e.target.value)}>
-                        <option value="pending">Pending</option>
-                        <option value="complete">Paid</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="label text-[10px]">Package End Date</label>
-                      <input data-testid="pkg-end-input" type="date" className="input text-xs w-full" value={packageEndDate} onChange={e => setPackageEndDate(e.target.value)}/>
-                    </div>
-                    <button data-testid="save-pkg-btn" onClick={() => { savePackageInfo(); setShowInvoiceDetails(false); }} disabled={savingClient}
-                            className="btn btn-primary w-full text-xs">{savingClient ? "Saving..." : "Save"}</button>
-                  </>
-                )}
-                {!isAdmin && (
-                  <div><span style={{ color: "#8B9E7A" }}>Payment</span> {paymentStatus === "complete" ? "Paid" : "Pending"}</div>
-                )}
+              {selectedInvoice.start_date && (
+                <FormField label="Start date">
+                  <input className="modal-input" readOnly value={fmtDate(selectedInvoice.start_date)} />
+                </FormField>
+              )}
+            </FormSection>
+
+            <FormSection title="Package">
+              <FormField label="Package size">
+                <input
+                  className="modal-input"
+                  readOnly
+                  value={`${packageSize || selectedInvoice.package_size || pkg}h`}
+                />
+              </FormField>
+              <FormField label="Hours used">
+                <input className="modal-input" readOnly value={`${used.toFixed(1)}h`} />
+              </FormField>
+              <FormField label="Hours remaining">
+                <input className="modal-input" readOnly value={`${rem.toFixed(1)}h`} />
+              </FormField>
+              <div className="h-2 rounded-lg overflow-hidden" style={{ background: "#EDE9E3" }}>
+                <div
+                  className="h-full rounded-lg transition-all"
+                  style={{
+                    width: `${Math.min(100, ((used / (packageSize || selectedInvoice.package_size || pkg || 1)) * 100))}%`,
+                    background: rem <= 4 ? "#C97B5C" : "#5C8A47",
+                  }}
+                />
               </div>
-            </div>
-          </div>
+            </FormSection>
+
+            <FormSection title="Payment">
+              {isAdmin ? (
+                <>
+                  <FormField label="Payment status">
+                    <select
+                      data-testid="pay-status-select"
+                      className="modal-input"
+                      value={paymentStatus}
+                      onChange={e => setPaymentStatus(e.target.value)}
+                    >
+                      <option value="pending">Pending</option>
+                      <option value="complete">Paid</option>
+                    </select>
+                  </FormField>
+                  <FormField label="Package end date">
+                    <input
+                      data-testid="pkg-end-input"
+                      type="date"
+                      className="modal-input"
+                      value={packageEndDate}
+                      onChange={e => setPackageEndDate(e.target.value)}
+                    />
+                  </FormField>
+                </>
+              ) : (
+                <FormField label="Payment status">
+                  <input
+                    className="modal-input"
+                    readOnly
+                    value={paymentStatus === "complete" ? "Paid" : "Pending"}
+                  />
+                </FormField>
+              )}
+            </FormSection>
+          </ModalBase>
         )}
 
         {/* New Invoice modal */}
@@ -927,21 +1078,26 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
 
         {/* Reset confirmation dialog */}
         {showResetConfirm && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60]" onClick={() => setShowResetConfirm(false)}>
-            <div className="card p-6 w-full max-w-md" onClick={e=>e.stopPropagation()}>
-              <div className="font-display text-xl mb-2" style={{color: "#2C3625"}}>Start a new package cycle?</div>
-              <p className="text-sm mb-3" style={{color: "#5C6853"}}>
-                This will reset <strong>{client.name}'s</strong> used-hours counter to <strong>0</strong> and start a new cycle.
-                Past sessions are <strong>kept</strong> in the database but will no longer count against the new cycle.
-              </p>
-              <div className="flex justify-end gap-2">
-                <button onClick={() => setShowResetConfirm(false)} className="btn btn-outline">Cancel</button>
-                <button data-testid="confirm-reset-btn" onClick={performReset} className="btn btn-primary" style={{background: "#7A8A6A"}}>
+          <ModalBase
+            title="Start a new package cycle?"
+            subtitle={`Reset used-hours counter for ${client.name}`}
+            onClose={() => setShowResetConfirm(false)}
+            size="sm"
+            elevated
+            footer={
+              <>
+                <ModalBtnSecondary type="button" onClick={() => setShowResetConfirm(false)}>Cancel</ModalBtnSecondary>
+                <ModalBtnPrimary data-testid="confirm-reset-btn" type="button" onClick={performReset}>
                   Yes, start new cycle
-                </button>
-              </div>
-            </div>
-          </div>
+                </ModalBtnPrimary>
+              </>
+            }
+          >
+            <p className="text-sm" style={{ color: "#5C6853" }}>
+              This will reset <strong>{client.name}'s</strong> used-hours counter to <strong>0</strong> and start a new cycle.
+              Past sessions are <strong>kept</strong> in the database but will no longer count against the new cycle.
+            </p>
+          </ModalBase>
         )}
       </div>
     </div>
@@ -954,29 +1110,60 @@ function NewInvoiceModal({ client, defaultPackage, onCancel, onCreate }) {
   const [serviceType, setServiceType] = useState("Home Session");
   const submit = (e) => { e.preventDefault(); onCreate(num, size, serviceType); };
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60]" onClick={onCancel}>
-      <form onSubmit={submit} className="card p-6 w-full max-w-md" onClick={e=>e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-3">
-          <div className="font-display text-xl" style={{color: "#2C3625"}}>New Invoice</div>
-          <button type="button" onClick={onCancel} className="btn btn-ghost p-2"><X size={18}/></button>
-        </div>
-        <p className="text-xs mb-4" style={{color: "#8B9E7A"}}>Create a fresh invoice tab for <strong>{client.name}</strong>. The new sheet starts empty.</p>
-        <label className="label">Invoice Number (manual)</label>
-        <input data-testid="new-inv-num" className="input mb-3" placeholder="e.g. INV0490"
-               required autoFocus value={num} onChange={e => setNum(e.target.value)}/>
-        <label className="label">Service Type</label>
-        <select data-testid="new-inv-service" className="select mb-3" value={serviceType} onChange={e => setServiceType(e.target.value)}>
-          <option value="Home Session">Home Session</option>
-          <option value="School Support">School Support</option>
-        </select>
-        <label className="label">Package Size (sessions or hours)</label>
-        <input data-testid="new-inv-size" type="number" min="0" step="0.5" className="input mb-4"
-               required value={size} onChange={e => setSize(e.target.value)}/>
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onCancel} className="btn btn-outline">Cancel</button>
-          <button data-testid="confirm-new-inv" type="submit" className="btn btn-primary">Create Invoice</button>
-        </div>
+    <ModalBase
+      title="New Invoice"
+      subtitle={`Create a fresh invoice for ${client.name}`}
+      onClose={onCancel}
+      size="sm"
+      elevated
+      footer={
+        <>
+          <ModalBtnSecondary type="button" onClick={onCancel}>Cancel</ModalBtnSecondary>
+          <ModalBtnPrimary data-testid="confirm-new-inv" type="submit" form="new-invoice-form">Create Invoice</ModalBtnPrimary>
+        </>
+      }
+    >
+      <form id="new-invoice-form" onSubmit={submit}>
+        <p className="text-xs -mt-2 mb-4" style={{ color: "#9CA3AF" }}>
+          The new sheet starts empty.
+        </p>
+        <FormSection title="Invoice Details">
+          <FormField label="Invoice number" required hint="Manual entry, e.g. INV0490">
+            <input
+              data-testid="new-inv-num"
+              className="modal-input"
+              placeholder="e.g. INV0490"
+              required
+              autoFocus
+              value={num}
+              onChange={e => setNum(e.target.value)}
+            />
+          </FormField>
+          <FormField label="Service type">
+            <select
+              data-testid="new-inv-service"
+              className="modal-input"
+              value={serviceType}
+              onChange={e => setServiceType(e.target.value)}
+            >
+              <option value="Home Session">Home Session</option>
+              <option value="School Support">School Support</option>
+            </select>
+          </FormField>
+          <FormField label="Package size" required hint="Sessions or hours">
+            <input
+              data-testid="new-inv-size"
+              type="number"
+              min="0"
+              step="0.5"
+              className="modal-input"
+              required
+              value={size}
+              onChange={e => setSize(e.target.value)}
+            />
+          </FormField>
+        </FormSection>
       </form>
-    </div>
+    </ModalBase>
   );
 }

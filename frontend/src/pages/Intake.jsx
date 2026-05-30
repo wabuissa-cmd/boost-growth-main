@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { Plus, X, Trash, PencilSimple, Star, Phone, MapPin } from "@phosphor-icons/react";
+import {
+  ModalBase, FormSection, FormField,
+  ModalBtnPrimary, ModalBtnSecondary,
+} from "../components/Modal";
 
 const STATUS = { new: "New", contacted: "Contacted", scheduled: "Scheduled", completed: "Completed" };
 const STATUS_COLORS = {
@@ -162,63 +166,107 @@ export default function Intake() {
       </div>
 
       {edit && (
-        <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={() => setEdit(null)}>
-          <div className="card p-6 w-full max-w-2xl modal-card max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <div className="font-display text-2xl">{edit.intake_type === "pre" ? "Pre-Intake" : "Post-Intake"} {edit.id ? "Edit" : "Entry"}</div>
-              <button onClick={() => setEdit(null)} className="btn btn-ghost p-2"><X size={18} /></button>
+        <ModalBase
+          title={edit.id ? "Edit Case" : "New Intake Case"}
+          subtitle="Pre-intake or post-intake waiting list entry"
+          onClose={() => setEdit(null)}
+          size="lg"
+          footer={
+            <>
+              <ModalBtnSecondary type="button" onClick={() => setEdit(null)}>Cancel</ModalBtnSecondary>
+              <ModalBtnPrimary data-testid="intake-save-btn" type="button" onClick={save}>Save</ModalBtnPrimary>
+            </>
+          }
+        >
+          <p className="text-xs -mt-2 mb-2 font-semibold" style={{ color: "#8B9E7A" }}>
+            {edit.intake_type === "pre" ? "Pre-Intake" : "Post-Intake"}
+          </p>
+
+          <FormSection title="Child Information">
+            <FormField label="Child name" required>
+              <input data-testid="intake-name-input" className="modal-input" value={edit.child_name} onChange={e => setEdit({ ...edit, child_name: e.target.value })} />
+            </FormField>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField label="Age / year of birth">
+                <input className="modal-input" value={edit.age || ""} onChange={e => setEdit({ ...edit, age: e.target.value })} />
+              </FormField>
+              <FormField label="Intake date">
+                <input type="date" className="modal-input" value={edit.intake_date || ""} onChange={e => setEdit({ ...edit, intake_date: e.target.value })} />
+              </FormField>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2 flex items-center gap-2">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={edit.priority || false} onChange={e => setEdit({ ...edit, priority: e.target.checked })} />
-                  <span className="flex items-center gap-1 font-bold" style={{ color: "#D4A64A" }}><Star size={16} weight="fill" /> Priority Client</span>
-                </label>
-              </div>
-              <div className="col-span-2"><label className="label">Child Name *</label><input data-testid="intake-name-input" className="input" value={edit.child_name} onChange={e => setEdit({ ...edit, child_name: e.target.value })} /></div>
-              <div>
-                <label className="label">Service</label>
-                <select className="select" value={edit.service || "HS"} onChange={e => setEdit({ ...edit, service: e.target.value })}>
+            <FormField label="Diagnosis" hint="ASD / ADHD / Speech delay / NA">
+              <input className="modal-input" placeholder="ASD / ADHD / Speech delay / NA" value={edit.diagnosis || ""} onChange={e => setEdit({ ...edit, diagnosis: e.target.value })} />
+            </FormField>
+            {edit.intake_type === "post" && (
+              <FormField label="Language" hint="English / Arabic">
+                <input className="modal-input" placeholder="English / Arabic" value={edit.language || ""} onChange={e => setEdit({ ...edit, language: e.target.value })} />
+              </FormField>
+            )}
+          </FormSection>
+
+          <FormSection title="Contact & Location">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField label="Phone">
+                <input className="modal-input" value={edit.phone || ""} onChange={e => setEdit({ ...edit, phone: e.target.value })} />
+              </FormField>
+              <FormField label="Parent name">
+                <input className="modal-input" value={edit.parent_name || ""} onChange={e => setEdit({ ...edit, parent_name: e.target.value })} />
+              </FormField>
+              <FormField label="District / address">
+                <input className="modal-input" value={edit.district || ""} onChange={e => setEdit({ ...edit, district: e.target.value })} />
+              </FormField>
+            </div>
+          </FormSection>
+
+          <FormSection title="Service Request">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField label="Service type">
+                <select className="modal-input" value={edit.service || "HS"} onChange={e => setEdit({ ...edit, service: e.target.value })}>
                   <option value="HS">HS</option>
                   <option value="SS">SS</option>
                   <option value="HS / SS">HS / SS</option>
                   <option value="SS / HS">SS / HS</option>
                   <option value="ABA">ABA</option>
                 </select>
-              </div>
-              <div><label className="label">Phone</label><input className="input" value={edit.phone || ""} onChange={e => setEdit({ ...edit, phone: e.target.value })} /></div>
-              <div><label className="label">District / Address</label><input className="input" value={edit.district || ""} onChange={e => setEdit({ ...edit, district: e.target.value })} /></div>
-              <div><label className="label">Age / Year of Birth</label><input className="input" value={edit.age || ""} onChange={e => setEdit({ ...edit, age: e.target.value })} /></div>
+              </FormField>
               {edit.intake_type === "pre" ? (
-                <div>
-                  <label className="label">Time Preference</label>
-                  <select className="select" value={edit.time_pref || ""} onChange={e => setEdit({ ...edit, time_pref: e.target.value })}>
+                <FormField label="Preferred timing">
+                  <select className="modal-input" value={edit.time_pref || ""} onChange={e => setEdit({ ...edit, time_pref: e.target.value })}>
                     <option value="">—</option>
                     <option value="Morning">Morning</option>
                     <option value="Evening">Evening</option>
                     <option value="Any">Any</option>
                   </select>
-                </div>
+                </FormField>
               ) : (
-                <div><label className="label">Language</label><input className="input" placeholder="English / Arabic" value={edit.language || ""} onChange={e => setEdit({ ...edit, language: e.target.value })} /></div>
+                <FormField label="Status">
+                  <select className="modal-input" value={edit.status || "new"} onChange={e => setEdit({ ...edit, status: e.target.value })}>
+                    {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  </select>
+                </FormField>
               )}
-              <div><label className="label">Parent Name</label><input className="input" value={edit.parent_name || ""} onChange={e => setEdit({ ...edit, parent_name: e.target.value })} /></div>
-              <div><label className="label">Intake Date</label><input type="date" className="input" value={edit.intake_date || ""} onChange={e => setEdit({ ...edit, intake_date: e.target.value })} /></div>
-              <div className="col-span-2"><label className="label">Diagnosis</label><input className="input" placeholder="ASD / ADHD / Speech delay / NA" value={edit.diagnosis || ""} onChange={e => setEdit({ ...edit, diagnosis: e.target.value })} /></div>
-              <div className="col-span-2">
-                <label className="label">Status</label>
-                <select className="select" value={edit.status || "new"} onChange={e => setEdit({ ...edit, status: e.target.value })}>
+            </div>
+            {edit.intake_type === "pre" && (
+              <FormField label="Status">
+                <select className="modal-input" value={edit.status || "new"} onChange={e => setEdit({ ...edit, status: e.target.value })}>
                   {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </select>
-              </div>
-              <div className="col-span-2"><label className="label">Notes</label><textarea className="textarea" rows={3} value={edit.notes || ""} onChange={e => setEdit({ ...edit, notes: e.target.value })} /></div>
-            </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <button onClick={() => setEdit(null)} className="btn btn-outline">Cancel</button>
-              <button data-testid="intake-save-btn" onClick={save} className="btn btn-primary">Save</button>
-            </div>
-          </div>
-        </div>
+              </FormField>
+            )}
+          </FormSection>
+
+          <FormSection title="Notes">
+            <label className="flex items-center gap-2 cursor-pointer mb-4">
+              <input type="checkbox" checked={edit.priority || false} onChange={e => setEdit({ ...edit, priority: e.target.checked })} />
+              <span className="flex items-center gap-1 font-bold text-sm" style={{ color: "#D4A64A" }}>
+                <Star size={16} weight="fill" /> Priority client
+              </span>
+            </label>
+            <FormField label="Additional notes">
+              <textarea className="modal-input" rows={3} value={edit.notes || ""} onChange={e => setEdit({ ...edit, notes: e.target.value })} />
+            </FormField>
+          </FormSection>
+        </ModalBase>
       )}
     </div>
   );

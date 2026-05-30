@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { Plus, PencilSimple, Trash, X, MagnifyingGlass, MapPin, User, Phone, Hash, ClipboardText, ChartLine, IdentificationCard, ArrowSquareOut } from "@phosphor-icons/react";
+import {
+  ModalBase, FormSection, FormField,
+  ModalBtnPrimary, ModalBtnSecondary,
+} from "../components/Modal";
 
 export default function Clients() {
   const { user } = useAuth();
@@ -134,110 +138,132 @@ export default function Clients() {
       )}
 
       {edit && (
-        <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={() => setEdit(null)}>
-          <div className="card p-6 w-full max-w-2xl modal-card max-h-[90vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <div className="font-display text-2xl">{edit.id ? "Edit Client" : "New Client"}</div>
-              <button onClick={() => setEdit(null)} className="btn btn-ghost p-2"><X size={18}/></button>
+        <ModalBase
+          title={edit.id ? "Edit Client" : "Add New Client"}
+          subtitle="Client profile and service information"
+          onClose={() => setEdit(null)}
+          size="lg"
+          footer={
+            <>
+              <ModalBtnSecondary type="button" onClick={() => setEdit(null)}>Cancel</ModalBtnSecondary>
+              <ModalBtnPrimary data-testid="client-save-btn" type="button" onClick={save}>Save</ModalBtnPrimary>
+            </>
+          }
+        >
+          <FormSection title="Personal Information">
+            <FormField label="Full name" required>
+              <input data-testid="client-name-input" className="modal-input" required value={edit.name} onChange={e => setEdit({ ...edit, name: e.target.value })} />
+            </FormField>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField label="File number">
+                <input className="modal-input" value={edit.file_no || ""} onChange={e => setEdit({ ...edit, file_no: e.target.value })} placeholder="009" />
+              </FormField>
+              <FormField label="Age">
+                <input className="modal-input" value={edit.age || ""} onChange={e => setEdit({ ...edit, age: e.target.value })} />
+              </FormField>
+              <FormField label="Parent name">
+                <input className="modal-input" value={edit.parent_name || ""} onChange={e => setEdit({ ...edit, parent_name: e.target.value })} />
+              </FormField>
+              <FormField label="Parent phone">
+                <input className="modal-input" value={edit.parent_phone || ""} onChange={e => setEdit({ ...edit, parent_phone: e.target.value })} />
+              </FormField>
+              <FormField label="Color">
+                <div className="flex items-center gap-2">
+                  <input type="color" value={edit.color || "#A2C4C9"} onChange={e => setEdit({ ...edit, color: e.target.value })} className="w-10 h-10 rounded-lg border" style={{ borderColor: "#DDD8D0" }} />
+                  <span className="text-xs" style={{ color: "#9CA3AF" }}>{edit.color}</span>
+                </div>
+              </FormField>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2"><label className="label">Full Name</label><input data-testid="client-name-input" className="input" required value={edit.name} onChange={e=>setEdit({...edit, name: e.target.value})}/></div>
-              <div><label className="label">File #</label><input className="input" value={edit.file_no || ""} onChange={e=>setEdit({...edit, file_no: e.target.value})} placeholder="009"/></div>
-              <div><label className="label">Billing Mode</label>
-                <select className="select" value={edit.billing_mode || "hours"} onChange={e=>setEdit({...edit, billing_mode: e.target.value})} data-testid="billing-mode-select">
-                  <option value="hours">Hours-based (Home Sessions)</option>
-                  <option value="weeks">Weeks-based (School Service · 4-week cycle)</option>
-                </select>
-              </div>
-              {(edit.billing_mode || "hours") === "hours" ? (
-                <div><label className="label">Package (hours)</label><input type="number" className="input" value={edit.package_hours || 24} onChange={e=>setEdit({...edit, package_hours: parseFloat(e.target.value) || 24})}/></div>
-              ) : (
-                <>
-                  <div><label className="label">Cycle Length (weeks)</label><input type="number" min="1" max="12" className="input" value={edit.cycle_weeks || 4} onChange={e=>setEdit({...edit, cycle_weeks: parseInt(e.target.value) || 4})}/></div>
-                  <div className="col-span-2"><label className="label">Cycle Start Date (Sunday of first billing week)</label><input type="date" className="input" value={edit.cycle_start_date || ""} onChange={e=>setEdit({...edit, cycle_start_date: e.target.value})}/></div>
-                </>
-              )}
-              <div>
-                <label className="label">Color</label>
-                <div className="flex items-center gap-2"><input type="color" value={edit.color || "#A2C4C9"} onChange={e=>setEdit({...edit, color: e.target.value})} className="w-10 h-10 rounded-lg border border-[#E8E4DE]"/><span className="text-xs" style={{color: "#8B9E7A"}}>{edit.color}</span></div>
-              </div>
-              <div>
-                <label className="label">Supervisor</label>
-                <input className="input" value={edit.supervisor || ""} onChange={e=>setEdit({...edit, supervisor: e.target.value})}/>
-              </div>
-              <div>
-                <label className="label">Age</label>
-                <input className="input" value={edit.age || ""} onChange={e=>setEdit({...edit, age: e.target.value})}/>
-              </div>
-              <div>
-                <label className="label">Parent Name</label>
-                <input className="input" value={edit.parent_name || ""} onChange={e=>setEdit({...edit, parent_name: e.target.value})}/>
-              </div>
-              <div>
-                <label className="label">Parent Phone</label>
-                <input className="input" value={edit.parent_phone || ""} onChange={e=>setEdit({...edit, parent_phone: e.target.value})}/>
-              </div>
-              <div className="col-span-2">
-                <label className="label">Main Therapist</label>
-                <select className="select" value={edit.main_therapist_id || ""} onChange={e=>setEdit({...edit, main_therapist_id: e.target.value || null})}>
-                  <option value="">— None —</option>
-                  {therapists.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-              </div>
-              <div className="col-span-2">
-                <label className="label">Co-Therapists (multi)</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {therapists.map(t => {
-                    const sel = (edit.co_therapist_ids || []).includes(t.id);
-                    return (
-                      <button key={t.id} type="button" onClick={() => setEdit({...edit, co_therapist_ids: sel ? edit.co_therapist_ids.filter(x=>x!==t.id) : [...(edit.co_therapist_ids||[]), t.id]})}
-                              className={`pill text-xs px-2 py-1 ${sel ? "bg-[#7A8A6A] text-white" : "bg-white border border-[#E8E4DE]"}`}>
-                        {t.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div className="col-span-2">
-                <label className="label">Locations (Service + Address)</label>
-                <div className="space-y-2">
-                  {(edit.locations || []).map((l, i) => (
-                    <div key={i} className="flex gap-2">
-                      <select className="select w-24" value={l.service} onChange={e => { const ll = [...edit.locations]; ll[i] = {...ll[i], service: e.target.value}; setEdit({...edit, locations: ll}); }}>
-                        <option value="HS">HS</option><option value="SS">SS</option><option value="OS">OS</option>
-                      </select>
-                      <input className="input flex-1" placeholder="Address" value={l.address} onChange={e => { const ll = [...edit.locations]; ll[i] = {...ll[i], address: e.target.value}; setEdit({...edit, locations: ll}); }}/>
-                      <button type="button" onClick={() => setEdit({...edit, locations: edit.locations.filter((_,j)=>j!==i)})} className="btn btn-ghost p-2 text-red-700"><Trash size={14}/></button>
-                    </div>
-                  ))}
-                  <button type="button" onClick={() => setEdit({...edit, locations: [...(edit.locations||[]), {service:"HS", address:""}]})} className="btn btn-outline text-xs"><Plus size={14}/> Add location</button>
-                </div>
-              </div>
-              <div>
-                <label className="label">Status</label>
-                <select data-testid="client-status-select" className="select" value={edit.status || "Active"} onChange={e=>setEdit({...edit, status: e.target.value})}>
-                  <option value="Active">Active</option>
-                  <option value="Inactive">Inactive</option>
-                </select>
-              </div>
-              <div>
-                <label className="label">Service Type</label>
-                <select data-testid="client-service-type-select" className="select" value={edit.service_type || ""} onChange={e=>setEdit({...edit, service_type: e.target.value || null})}>
+          </FormSection>
+
+          <FormSection title="Service Details">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField label="Service type">
+                <select data-testid="client-service-type-select" className="modal-input" value={edit.service_type || ""} onChange={e => setEdit({ ...edit, service_type: e.target.value || null })}>
                   <option value="">—</option>
                   <option value="HS">HS (Home Session)</option>
                   <option value="SS">SS (School Support)</option>
                   <option value="HS+SS">HS + SS</option>
                   <option value="AVC">AVC</option>
                 </select>
+              </FormField>
+              <FormField label="Status">
+                <select data-testid="client-status-select" className="modal-input" value={edit.status || "Active"} onChange={e => setEdit({ ...edit, status: e.target.value })}>
+                  <option value="Active">Active</option>
+                  <option value="Inactive">Inactive</option>
+                </select>
+              </FormField>
+              <FormField label="Billing mode">
+                <select className="modal-input" value={edit.billing_mode || "hours"} onChange={e => setEdit({ ...edit, billing_mode: e.target.value })} data-testid="billing-mode-select">
+                  <option value="hours">Hours-based (Home Sessions)</option>
+                  <option value="weeks">Weeks-based (School Service · 4-week cycle)</option>
+                </select>
+              </FormField>
+              {(edit.billing_mode || "hours") === "hours" ? (
+                <FormField label="Package hours">
+                  <input type="number" className="modal-input" value={edit.package_hours || 24} onChange={e => setEdit({ ...edit, package_hours: parseFloat(e.target.value) || 24 })} />
+                </FormField>
+              ) : (
+                <>
+                  <FormField label="Cycle length (weeks)">
+                    <input type="number" min="1" max="12" className="modal-input" value={edit.cycle_weeks || 4} onChange={e => setEdit({ ...edit, cycle_weeks: parseInt(e.target.value) || 4 })} />
+                  </FormField>
+                  <FormField label="Cycle start date" hint="Sunday of first billing week">
+                    <input type="date" className="modal-input" value={edit.cycle_start_date || ""} onChange={e => setEdit({ ...edit, cycle_start_date: e.target.value })} />
+                  </FormField>
+                </>
+              )}
+            </div>
+            <FormField label="Notes">
+              <textarea className="modal-input" rows={2} value={edit.notes || ""} onChange={e => setEdit({ ...edit, notes: e.target.value })} />
+            </FormField>
+          </FormSection>
+
+          <FormSection title="Team Assignment">
+            <FormField label="Main therapist">
+              <select className="modal-input" value={edit.main_therapist_id || ""} onChange={e => setEdit({ ...edit, main_therapist_id: e.target.value || null })}>
+                <option value="">— None —</option>
+                {therapists.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Co-therapists">
+              <div className="flex flex-wrap gap-1.5">
+                {therapists.map(t => {
+                  const sel = (edit.co_therapist_ids || []).includes(t.id);
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setEdit({ ...edit, co_therapist_ids: sel ? edit.co_therapist_ids.filter(x => x !== t.id) : [...(edit.co_therapist_ids || []), t.id] })}
+                      className={`pill text-xs px-2 py-1 ${sel ? "bg-[#7A8A6A] text-white" : "bg-white border"}`}
+                      style={!sel ? { borderColor: "#DDD8D0" } : undefined}
+                    >
+                      {t.name}
+                    </button>
+                  );
+                })}
               </div>
-              <div className="col-span-2"><label className="label">Notes</label><textarea className="textarea" rows={2} value={edit.notes || ""} onChange={e=>setEdit({...edit, notes: e.target.value})}/></div>
+            </FormField>
+            <FormField label="Supervisor">
+              <input className="modal-input" value={edit.supervisor || ""} onChange={e => setEdit({ ...edit, supervisor: e.target.value })} />
+            </FormField>
+          </FormSection>
+
+          <FormSection title="Location">
+            <div className="space-y-2">
+              {(edit.locations || []).map((l, i) => (
+                <div key={i} className="flex gap-2">
+                  <select className="modal-input w-24 flex-shrink-0" value={l.service} onChange={e => { const ll = [...edit.locations]; ll[i] = { ...ll[i], service: e.target.value }; setEdit({ ...edit, locations: ll }); }}>
+                    <option value="HS">HS</option><option value="SS">SS</option><option value="OS">OS</option>
+                  </select>
+                  <input className="modal-input flex-1" placeholder="Address" value={l.address} onChange={e => { const ll = [...edit.locations]; ll[i] = { ...ll[i], address: e.target.value }; setEdit({ ...edit, locations: ll }); }} />
+                  <button type="button" onClick={() => setEdit({ ...edit, locations: edit.locations.filter((_, j) => j !== i) })} className="btn btn-ghost p-2 text-red-700"><Trash size={14} /></button>
+                </div>
+              ))}
+              <button type="button" onClick={() => setEdit({ ...edit, locations: [...(edit.locations || []), { service: "HS", address: "" }] })} className="btn btn-outline text-xs"><Plus size={14} /> Add location</button>
             </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <button onClick={() => setEdit(null)} className="btn btn-outline">Cancel</button>
-              <button data-testid="client-save-btn" onClick={save} className="btn btn-primary">Save</button>
-            </div>
-          </div>
-        </div>
+          </FormSection>
+        </ModalBase>
       )}
     </div>
   );
@@ -341,97 +367,110 @@ function ClientDetailsModal({ client, therapists, onClose, isAdmin, onSaved }) {
     } finally { setSaving(false); }
   };
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
-      <div className="card p-0 w-full max-w-xl modal-card max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-start justify-between p-5 border-b border-[#E8E4DE]">
-          <div>
-            <div className="font-display text-2xl" style={{color: "#2C3625"}}>{client.name}</div>
-            <div className="text-xs flex items-center gap-2" style={{color: "#8B9E7A"}}>
-              <span>File #{client.file_no || "—"}</span>
-              {client.service_type && <span className="pill text-[10px] px-1.5 py-0.5" style={{background: "#E5EBE1", color: "#3D4F35"}}>{client.service_type}</span>}
-              <span className="pill text-[10px] px-1.5 py-0.5" style={{background: client.status === "Inactive" ? "#F8EBE7" : "#E5EBE1", color: client.status === "Inactive" ? "#8A3F27" : "#3D4F35"}}>{client.status || "Active"}</span>
-            </div>
-          </div>
-          <button onClick={onClose} className="btn btn-ghost p-2"><X size={18}/></button>
-        </div>
-        <div className="flex gap-1 px-5 pt-3 border-b border-[#E8E4DE]">
-          <button data-testid="tab-info" onClick={() => setTab("info")} className={`px-3 py-2 text-sm font-bold ${tab === "info" ? "border-b-2" : "opacity-60"}`} style={{borderColor: "#7A8A6A", color: tab === "info" ? "#2C3625" : "#8B9E7A"}}>Info</button>
-          <button data-testid="tab-attachments" onClick={() => setTab("attachments")} className={`px-3 py-2 text-sm font-bold ${tab === "attachments" ? "border-b-2" : "opacity-60"}`} style={{borderColor: "#7A8A6A", color: tab === "attachments" ? "#2C3625" : "#8B9E7A"}}>Attachments</button>
-        </div>
-        <div className="p-5 overflow-y-auto flex-1">
-          {tab === "info" && (
-            <dl className="grid grid-cols-3 gap-y-2 text-sm">
-              <dt className="opacity-70">Main therapist</dt>
-              <dd className="col-span-2 font-medium">{findT(client.main_therapist_id)?.name || <span className="opacity-50">Not assigned</span>}</dd>
-              <dt className="opacity-70">Co therapists</dt>
-              <dd className="col-span-2 font-medium">{client.co_therapist_ids?.length ? client.co_therapist_ids.map(id => findT(id)?.name).filter(Boolean).join(", ") : <span className="opacity-50">—</span>}</dd>
-              <dt className="opacity-70">Supervisor</dt>
-              <dd className="col-span-2 font-medium">{client.supervisor || <span className="opacity-50">—</span>}</dd>
-              <dt className="opacity-70">Program</dt>
-              <dd className="col-span-2 font-medium">{client.billing_mode === "weeks" ? `${client.cycle_weeks || 4}-week cycle (school)` : `${client.package_hours || 24}h package`}</dd>
-              <dt className="opacity-70">Service Type</dt>
-              <dd className="col-span-2 font-medium">{client.service_type || <span className="opacity-50">—</span>}</dd>
-              <dt className="opacity-70">Parent name</dt>
-              <dd className="col-span-2 font-medium">{client.parent_name || <span className="opacity-50">—</span>}</dd>
-              <dt className="opacity-70">Parent phone</dt>
-              <dd className="col-span-2 font-medium">{client.parent_phone || <span className="opacity-50">—</span>}</dd>
-              <dt className="opacity-70">Age</dt>
-              <dd className="col-span-2 font-medium">{client.age || <span className="opacity-50">—</span>}</dd>
-              <dt className="opacity-70">Locations</dt>
-              <dd className="col-span-2 font-medium">
-                {client.locations?.length ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {client.locations.map((loc, i) => (
-                      <span key={i} className="pill text-[10px] px-2 py-1" style={{background: "#F0E9D8", color: "#2C3625"}}>
-                        <strong>{loc.service}</strong> · {loc.address}
-                      </span>
-                    ))}
-                  </div>
-                ) : <span className="opacity-50">—</span>}
-              </dd>
-              <dt className="opacity-70">Notes</dt>
-              <dd className="col-span-2">{client.notes || <span className="opacity-50">—</span>}</dd>
-            </dl>
-          )}
-          {tab === "attachments" && (
-            <div className="space-y-3">
-              {[
-                { key: "intake_file_url", label: "Intake File", hint: "Paste a Google Drive link to the intake document" },
-                { key: "attendance_sheet_url", label: "Attendance Sheet", hint: "Paste the Google Sheets URL inside the client's 'Attendance Sheets' Drive folder (used by Sync from Drive)" },
-                { key: "progress_reports_url", label: "Progress Reports Folder", hint: "Paste the Drive folder link for this client's Progress Reports" },
-                { key: "case_summary_url", label: "Case Summary (ملخص الحالة)", hint: "Paste the Drive folder or document link" },
-              ].map(f => (
-                <div key={f.key} className="p-3 rounded-xl border" style={{borderColor: "#E8E4DE"}}>
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="text-sm font-bold" style={{color: "#2C3625"}}>{f.label}</div>
-                    {att[f.key] && (
-                      <a href={att[f.key]} target="_blank" rel="noreferrer" className="text-[11px] underline" style={{color: "#7A8A6A"}}>
-                        <ArrowSquareOut size={12} className="inline"/> Open
-                      </a>
-                    )}
-                  </div>
-                  <div className="text-[10px] mb-2" style={{color: "#8B9E7A"}}>{f.hint}</div>
-                  {isAdmin ? (
-                    <input data-testid={`att-${f.key}`} className="input text-xs" placeholder="https://drive.google.com/..."
-                           value={att[f.key]} onChange={e => setAtt(s => ({ ...s, [f.key]: e.target.value }))}/>
-                  ) : (
-                    <div className="text-xs truncate" style={{color: att[f.key] ? "#2C3625" : "#8B9E7A"}}>{att[f.key] || "— not provided —"}</div>
-                  )}
-                </div>
-              ))}
-              {isAdmin && (
-                <div className="flex justify-end pt-1">
-                  <button data-testid="save-attachments-btn" onClick={saveAttachments} disabled={saving} className="btn btn-primary text-sm">
-                    {saving ? <span className="spinner"/> : "Save Links"}
-                  </button>
-                </div>
-              )}
-              <ProgressReportsList clientId={client.id} fileNo={client.file_no} isAdmin={isAdmin}/>
-            </div>
-          )}
-        </div>
+    <ModalBase
+      title={client.name}
+      subtitle={`File #${client.file_no || "—"} · ${client.status || "Active"}`}
+      onClose={onClose}
+      size="lg"
+      footer={
+        tab === "attachments" && isAdmin ? (
+          <ModalBtnPrimary data-testid="save-attachments-btn" type="button" onClick={saveAttachments} disabled={saving}>
+            {saving ? <span className="spinner" /> : "Save Links"}
+          </ModalBtnPrimary>
+        ) : (
+          <ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>
+        )
+      }
+    >
+      <div className="flex gap-1 -mt-2 mb-4 border-b" style={{ borderColor: "#EDE9E3" }}>
+        <button
+          data-testid="tab-info"
+          type="button"
+          onClick={() => setTab("info")}
+          className={`px-3 py-2 text-sm font-bold ${tab === "info" ? "border-b-2" : "opacity-60"}`}
+          style={{ borderColor: "#5C8A47", color: tab === "info" ? "#1C2617" : "#9CA3AF" }}
+        >
+          Info
+        </button>
+        <button
+          data-testid="tab-attachments"
+          type="button"
+          onClick={() => setTab("attachments")}
+          className={`px-3 py-2 text-sm font-bold ${tab === "attachments" ? "border-b-2" : "opacity-60"}`}
+          style={{ borderColor: "#5C8A47", color: tab === "attachments" ? "#1C2617" : "#9CA3AF" }}
+        >
+          Attachments
+        </button>
       </div>
-    </div>
+      {tab === "info" && (
+        <dl className="grid grid-cols-3 gap-y-3 text-sm">
+          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Main therapist</dt>
+          <dd className="col-span-2 font-medium" style={{ color: "#1C2617" }}>{findT(client.main_therapist_id)?.name || <span className="opacity-50">Not assigned</span>}</dd>
+          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Co therapists</dt>
+          <dd className="col-span-2 font-medium" style={{ color: "#1C2617" }}>{client.co_therapist_ids?.length ? client.co_therapist_ids.map(id => findT(id)?.name).filter(Boolean).join(", ") : <span className="opacity-50">—</span>}</dd>
+          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Supervisor</dt>
+          <dd className="col-span-2 font-medium" style={{ color: "#1C2617" }}>{client.supervisor || <span className="opacity-50">—</span>}</dd>
+          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Program</dt>
+          <dd className="col-span-2 font-medium" style={{ color: "#1C2617" }}>{client.billing_mode === "weeks" ? `${client.cycle_weeks || 4}-week cycle (school)` : `${client.package_hours || 24}h package`}</dd>
+          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Service type</dt>
+          <dd className="col-span-2 font-medium" style={{ color: "#1C2617" }}>{client.service_type || <span className="opacity-50">—</span>}</dd>
+          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Parent name</dt>
+          <dd className="col-span-2 font-medium" style={{ color: "#1C2617" }}>{client.parent_name || <span className="opacity-50">—</span>}</dd>
+          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Parent phone</dt>
+          <dd className="col-span-2 font-medium" style={{ color: "#1C2617" }}>{client.parent_phone || <span className="opacity-50">—</span>}</dd>
+          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Age</dt>
+          <dd className="col-span-2 font-medium" style={{ color: "#1C2617" }}>{client.age || <span className="opacity-50">—</span>}</dd>
+          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Locations</dt>
+          <dd className="col-span-2 font-medium" style={{ color: "#1C2617" }}>
+            {client.locations?.length ? (
+              <div className="flex flex-wrap gap-1.5">
+                {client.locations.map((loc, i) => (
+                  <span key={i} className="pill text-[10px] px-2 py-1" style={{ background: "#F0E9D8", color: "#2C3625" }}>
+                    <strong>{loc.service}</strong> · {loc.address}
+                  </span>
+                ))}
+              </div>
+            ) : <span className="opacity-50">—</span>}
+          </dd>
+          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Notes</dt>
+          <dd className="col-span-2" style={{ color: "#1C2617" }}>{client.notes || <span className="opacity-50">—</span>}</dd>
+        </dl>
+      )}
+      {tab === "attachments" && (
+        <div className="space-y-3">
+          {[
+            { key: "intake_file_url", label: "Intake File", hint: "Paste a Google Drive link to the intake document" },
+            { key: "attendance_sheet_url", label: "Attendance Sheet", hint: "Paste the Google Sheets URL inside the client's 'Attendance Sheets' Drive folder (used by Sync from Drive)" },
+            { key: "progress_reports_url", label: "Progress Reports Folder", hint: "Paste the Drive folder link for this client's Progress Reports" },
+            { key: "case_summary_url", label: "Case Summary (ملخص الحالة)", hint: "Paste the Drive folder or document link" },
+          ].map(f => (
+            <div key={f.key} className="p-3 rounded-xl border" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-sm font-bold" style={{ color: "#1C2617" }}>{f.label}</div>
+                {att[f.key] && (
+                  <a href={att[f.key]} target="_blank" rel="noreferrer" className="text-[11px] underline" style={{ color: "#5C8A47" }}>
+                    <ArrowSquareOut size={12} className="inline" /> Open
+                  </a>
+                )}
+              </div>
+              <div className="text-[10px] mb-2" style={{ color: "#9CA3AF" }}>{f.hint}</div>
+              {isAdmin ? (
+                <input
+                  data-testid={`att-${f.key}`}
+                  className="modal-input text-xs"
+                  placeholder="https://drive.google.com/..."
+                  value={att[f.key]}
+                  onChange={e => setAtt(s => ({ ...s, [f.key]: e.target.value }))}
+                />
+              ) : (
+                <div className="text-xs truncate" style={{ color: att[f.key] ? "#1C2617" : "#9CA3AF" }}>{att[f.key] || "— not provided —"}</div>
+              )}
+            </div>
+          ))}
+          <ProgressReportsList clientId={client.id} fileNo={client.file_no} isAdmin={isAdmin} />
+        </div>
+      )}
+    </ModalBase>
   );
 }
 

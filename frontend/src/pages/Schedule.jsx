@@ -7,6 +7,10 @@ import {
   MagnifyingGlassPlus, MagnifyingGlassMinus, Printer, Info, GridFour,
   CopySimple, Table, CalendarBlank
 } from "@phosphor-icons/react";
+import {
+  ModalBase, FormSection, FormField,
+  ModalBtnPrimary, ModalBtnSecondary, ModalBtnDanger,
+} from "../components/Modal";
 
 const STATES = [
   { id: "normal", label: "Normal", swatch: "#E5EBE1" },
@@ -519,92 +523,155 @@ export default function Schedule() {
 
       {/* Edit Modal */}
       {edit && (
-        <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={() => setEdit(null)}>
-          <div className="card p-6 w-full max-w-lg modal-card" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <div className="font-display text-2xl" style={{ color: "#2C3625" }}>{edit.id ? "Edit Session" : "New Session"}</div>
-                <div className="text-sm" style={{ color: "#5C6853" }}>{therapists.find(t => t.id === edit.therapist_id)?.name} · {DAYS_EN[edit.day]} · {edit.time_slot}</div>
-              </div>
-              <button onClick={() => setEdit(null)} className="btn btn-ghost p-2"><X size={18} /></button>
-            </div>
-
-            <label className="label">Service</label>
-            <div className="grid grid-cols-3 gap-2 mb-3">
-              {SERVICE_CODES.map(s => (
-                <button key={s.id} type="button" onClick={() => setEdit({ ...edit, service_code: s.id })}
-                  className={`pill ${s.cls} justify-center py-2 ${edit.service_code === s.id ? "ring-2 ring-[#7A8A6A]" : ""}`}>{s.short}</button>
-              ))}
-            </div>
-
-            {!["LEAVE", "BREAK", "AVC"].includes(edit.service_code) && (
-              <>
-                <label className="label">Child / Subject</label>
-                <input data-testid="cell-child-input" className="input mb-1" list="clients-list" value={edit.child_name || ""} onChange={e => setEdit({ ...edit, child_name: e.target.value, color: null })} placeholder="Type or select client name..." />
-                <datalist id="clients-list">{clients.map(c => <option key={c.id} value={c.name} />)}</datalist>
-                <div className="text-[11px] mb-3" style={{ color: "#8B9E7A" }}>Select from list or type a custom name (e.g. Amani (2:30-4:30))</div>
-                {edit.child_name && (
-                  <div className="text-xs flex items-center gap-2 mb-3" style={{ color: "#5C6853" }}>
-                    Auto-color: <span className="w-5 h-5 rounded border border-[#E8E4DE] inline-block" style={{ background: edit.color || getChildColor(edit.child_name) || "#E5EBE1" }} />
-                    <button type="button" onClick={() => setEdit({ ...edit, color: null })} className="text-[11px] underline">use child default</button>
-                  </div>
-                )}
-              </>
-            )}
-
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <div>
-                <label className="label">Custom Time</label>
-                <input className="input" placeholder="2:30-4:30" value={edit.custom_time || ""} onChange={e => setEdit({ ...edit, custom_time: e.target.value })} />
-              </div>
-              <div>
-                <label className="label">Duration (slots)</label>
-                <select className="select" value={edit.duration || 1} onChange={e => setEdit({ ...edit, duration: parseInt(e.target.value) })}>
-                  <option value={1}>1 slot (1 hour)</option>
-                  <option value={2}>2 slots (merge 2 hours)</option>
-                  <option value={3}>3 slots (merge 3 hours)</option>
-                  <option value={4}>4 slots (merge 4 hours)</option>
-                </select>
-              </div>
-            </div>
-            <label className="label">Note</label>
-            <input className="input mb-3" value={edit.note || ""} onChange={e => setEdit({ ...edit, note: e.target.value })} />
-
-            {edit.id && (
-              <>
-                <label className="label">State</label>
-                <div className="flex gap-2 mb-4 flex-wrap">
-                  {STATES.map(s => (
-                    <button key={s.id} type="button" onClick={() => setEdit({ ...edit, state: s.id })}
-                      className={`pill ${edit.state === s.id ? "ring-2 ring-[#7A8A6A]" : ""}`}
-                      style={{ background: s.swatch, color: "#2C3625", border: `1px solid ${s.swatch}` }}>
-                      {s.id !== "normal" && "✕ "}{s.label}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-
-            <div className="flex gap-2 justify-end flex-wrap">
+        <ModalBase
+          title={edit.id ? "Edit Session" : "Add Session"}
+          subtitle={edit.id ? "Update session details or send notifications" : "Add a new session to the schedule"}
+          onClose={() => setEdit(null)}
+          size="md"
+          footer={
+            <>
               {edit.id && isAdmin && (
                 <>
-                  <button data-testid="cell-cancel-therapist-btn" onClick={() => { setState(edit, "cancel_therapist"); setEdit(null); }}
-                          className="btn btn-outline" style={{borderColor: "#E8C572", color: "#6B5218"}}>
+                  <ModalBtnSecondary
+                    data-testid="cell-cancel-therapist-btn"
+                    onClick={() => { setState(edit, "cancel_therapist"); setEdit(null); }}
+                    style={{ borderColor: "#E8C572", color: "#6B5218" }}
+                  >
                     🟡 Cancel (Therapist)
-                  </button>
-                  <button data-testid="cell-cancel-child-btn" onClick={() => { setState(edit, "cancel_child"); setEdit(null); }}
-                          className="btn btn-outline" style={{borderColor: "#E8A4BD", color: "#8B3A55"}}>
+                  </ModalBtnSecondary>
+                  <ModalBtnSecondary
+                    data-testid="cell-cancel-child-btn"
+                    onClick={() => { setState(edit, "cancel_child"); setEdit(null); }}
+                    style={{ borderColor: "#E8A4BD", color: "#8B3A55" }}
+                  >
                     🩷 Cancel (Client)
-                  </button>
+                  </ModalBtnSecondary>
                 </>
               )}
-              {edit.id && <button data-testid="cell-delete-btn" onClick={() => { remove(edit.id); setEdit(null); }} className="btn btn-danger"><Trash size={16} /> Delete</button>}
-              {edit.id && edit.state !== "normal" && <button onClick={() => { openNotify(edit); setEdit(null); }} className="btn btn-gold"><BellRinging size={16} /> Notify</button>}
-              <button onClick={() => setEdit(null)} className="btn btn-outline">Cancel</button>
-              <button data-testid="cell-save-btn" onClick={save} className="btn btn-primary">Save</button>
+              {edit.id && (
+                <ModalBtnDanger data-testid="cell-delete-btn" onClick={() => { remove(edit.id); setEdit(null); }}>
+                  <Trash size={16} className="inline mr-1" /> Delete
+                </ModalBtnDanger>
+              )}
+              {edit.id && edit.state !== "normal" && (
+                <ModalBtnSecondary onClick={() => { openNotify(edit); setEdit(null); }}>
+                  <BellRinging size={16} className="inline mr-1" /> Notify
+                </ModalBtnSecondary>
+              )}
+              <ModalBtnSecondary onClick={() => setEdit(null)}>Cancel</ModalBtnSecondary>
+              <ModalBtnPrimary data-testid="cell-save-btn" onClick={save}>Save</ModalBtnPrimary>
+            </>
+          }
+        >
+          <FormSection title="Session Details">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField label="Therapist">
+                <input
+                  className="modal-input"
+                  readOnly
+                  value={therapists.find(t => t.id === edit.therapist_id)?.name || ""}
+                />
+              </FormField>
+              <FormField label="Day">
+                <input className="modal-input" readOnly value={DAYS_EN[edit.day] || ""} />
+              </FormField>
+              <FormField label="Time From" hint="Default slot from the schedule grid">
+                <input className="modal-input" readOnly value={edit.time_slot || ""} />
+              </FormField>
+              <FormField label="Time To" hint="Custom range or duration below">
+                <input
+                  className="modal-input"
+                  placeholder="2:30-4:30"
+                  value={edit.custom_time || ""}
+                  onChange={e => setEdit({ ...edit, custom_time: e.target.value })}
+                />
+              </FormField>
             </div>
-          </div>
-        </div>
+            <FormField label="Duration (slots)">
+              <select
+                className="modal-input"
+                value={edit.duration || 1}
+                onChange={e => setEdit({ ...edit, duration: parseInt(e.target.value) })}
+              >
+                <option value={1}>1 slot (1 hour)</option>
+                <option value={2}>2 slots (merge 2 hours)</option>
+                <option value={3}>3 slots (merge 3 hours)</option>
+                <option value={4}>4 slots (merge 4 hours)</option>
+              </select>
+            </FormField>
+            <FormField label="Note">
+              <input
+                className="modal-input"
+                value={edit.note || ""}
+                onChange={e => setEdit({ ...edit, note: e.target.value })}
+              />
+            </FormField>
+          </FormSection>
+
+          {!["LEAVE", "BREAK", "AVC"].includes(edit.service_code) && (
+            <FormSection title="Client">
+              <FormField
+                label="Client name"
+                hint="Select from list or type a custom name (e.g. Amani (2:30-4:30))"
+              >
+                <input
+                  data-testid="cell-child-input"
+                  className="modal-input"
+                  list="clients-list"
+                  value={edit.child_name || ""}
+                  onChange={e => setEdit({ ...edit, child_name: e.target.value, color: null })}
+                  placeholder="Type or select client name..."
+                />
+                <datalist id="clients-list">{clients.map(c => <option key={c.id} value={c.name} />)}</datalist>
+              </FormField>
+              {edit.child_name && (
+                <div className="text-xs flex items-center gap-2" style={{ color: "#5C6853" }}>
+                  Auto-color:{" "}
+                  <span
+                    className="w-5 h-5 rounded border border-[#E8E4DE] inline-block"
+                    style={{ background: edit.color || getChildColor(edit.child_name) || "#E5EBE1" }}
+                  />
+                  <button type="button" onClick={() => setEdit({ ...edit, color: null })} className="text-[11px] underline">
+                    use child default
+                  </button>
+                </div>
+              )}
+            </FormSection>
+          )}
+
+          <FormSection title="Service">
+            <div className="grid grid-cols-3 gap-2">
+              {SERVICE_CODES.map(s => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setEdit({ ...edit, service_code: s.id })}
+                  className={`pill ${s.cls} justify-center py-2 ${edit.service_code === s.id ? "ring-2 ring-[#7A8A6A]" : ""}`}
+                >
+                  {s.short}
+                </button>
+              ))}
+            </div>
+          </FormSection>
+
+          {edit.id && (
+            <FormSection title="Status">
+              <div className="flex gap-2 flex-wrap">
+                {STATES.map(s => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setEdit({ ...edit, state: s.id })}
+                    className={`pill ${edit.state === s.id ? "ring-2 ring-[#7A8A6A]" : ""}`}
+                    style={{ background: s.swatch, color: "#2C3625", border: `1px solid ${s.swatch}` }}
+                  >
+                    {s.id !== "normal" && "✕ "}{s.label}
+                  </button>
+                ))}
+              </div>
+            </FormSection>
+          )}
+        </ModalBase>
       )}
 
       {ctxMenu && (
@@ -622,106 +689,153 @@ export default function Schedule() {
       )}
 
       {notify && (
-        <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={() => setNotify(null)}>
-          <div className="card p-6 w-full max-w-lg modal-card" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-2">
-              <div>
-                <div className="font-display text-2xl">
-                  {notify.cancelState === "cancel_therapist" ? "Mark Therapist Cancellation" :
-                    notify.cancelState === "cancel_child" ? "Mark Client Cancellation" :
-                      "Notify Therapist"}
-                </div>
-                <div className="text-sm" style={{ color: "#5C6853" }}>
-                  {therapists.find(t => t.id === notify.therapist_id)?.name} · {DAYS_EN[notify.day]} · {notify.time_slot}
-                </div>
-              </div>
-              <button onClick={() => setNotify(null)} className="btn btn-ghost p-2"><X size={18} /></button>
-            </div>
-
-            <label className="label mt-3">Notification message</label>
-            <textarea data-testid="notify-message" className="textarea mb-3" rows={4} placeholder="Notification message..."
-              value={notify.message} onChange={e => setNotify({ ...notify, message: e.target.value })} />
-
-            <div className="rounded-xl border p-3 mb-3" style={{ borderColor: "#E8E4DE", background: "#FAFAF7" }}>
-              <div className="text-[11px] font-bold mb-2" style={{ color: "#5C6853" }}>Recipients</div>
-              <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-                {therapists.map(t => (
-                  <label key={t.id} className="flex items-center gap-1.5 text-xs cursor-pointer pill px-2 py-1" style={{ background: (notify.recipient_ids || []).includes(t.id) ? "#E5EBE1" : "#fff", border: "1px solid #E8E4DE" }}>
-                    <input type="checkbox" checked={(notify.recipient_ids || []).includes(t.id)} onChange={() => toggleRecipient(t.id)} />
-                    {t.name}
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-xl border p-3 mb-3" style={{ borderColor: "#E8E4DE", background: "#FAFAF7" }}>
-              <label className="flex items-center gap-2 cursor-pointer mb-2">
-                <input type="checkbox" checked={notify.send_in_app !== false} onChange={e => setNotify({ ...notify, send_in_app: e.target.checked })} />
-                <span className="text-sm font-bold" style={{ color: "#2C3625" }}>Send in-app notification</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input data-testid="notify-send-email-cb" type="checkbox" checked={!!notify.send_email} onChange={e => setNotify({ ...notify, send_email: e.target.checked })} />
-                <span className="text-sm font-bold flex items-center gap-1" style={{ color: "#2C3625" }}>
-                  <BellRinging size={14} /> Also send email notification
-                </span>
-              </label>
-            </div>
-
-            {notify.cancelState && (
-              <div className="text-xs mb-3 px-3 py-2 rounded-lg" style={{
+        <ModalBase
+          title={
+            notify.cancelState === "cancel_therapist" ? "Mark Therapist Cancellation"
+              : notify.cancelState === "cancel_child" ? "Mark Client Cancellation"
+                : "Send Notification"
+          }
+          subtitle={
+            notify.cancelState
+              ? `${therapists.find(t => t.id === notify.therapist_id)?.name} · ${DAYS_EN[notify.day]} · ${notify.time_slot}`
+              : "Notify one or more therapists about a schedule change"
+          }
+          onClose={() => setNotify(null)}
+          size="md"
+          footer={
+            <>
+              <ModalBtnSecondary onClick={() => setNotify(null)}>Cancel</ModalBtnSecondary>
+              <ModalBtnPrimary data-testid="notify-send-btn" onClick={sendNotify}>
+                <BellRinging size={16} className="inline mr-1" />
+                {notify.cancelState ? "Confirm & Notify" : "Send"}
+              </ModalBtnPrimary>
+            </>
+          }
+        >
+          {notify.cancelState && (
+            <div
+              className="text-xs px-3 py-2 rounded-lg"
+              style={{
                 background: notify.cancelState === "cancel_therapist" ? "#FFF4C4" : "#FCE0E8",
-                color: notify.cancelState === "cancel_therapist" ? "#6B5218" : "#8B3A55"
-              }}>
-                ✕ The session will be marked as <b>{notify.cancelState === "cancel_therapist" ? "Therapist Cancellation" : "Client Cancellation"}</b>.
-              </div>
-            )}
+                color: notify.cancelState === "cancel_therapist" ? "#6B5218" : "#8B3A55",
+              }}
+            >
+              ✕ The session will be marked as{" "}
+              <b>{notify.cancelState === "cancel_therapist" ? "Therapist Cancellation" : "Client Cancellation"}</b>.
+            </div>
+          )}
 
+          <FormSection title="Recipients">
+            <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+              {therapists.map(t => (
+                <label
+                  key={t.id}
+                  className="flex items-center gap-1.5 text-xs cursor-pointer pill px-2 py-1"
+                  style={{
+                    background: (notify.recipient_ids || []).includes(t.id) ? "#E5EBE1" : "#fff",
+                    border: "1px solid #E8E4DE",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={(notify.recipient_ids || []).includes(t.id)}
+                    onChange={() => toggleRecipient(t.id)}
+                  />
+                  {t.name}
+                </label>
+              ))}
+            </div>
+          </FormSection>
+
+          <FormSection title="Message">
+            <textarea
+              data-testid="notify-message"
+              className="modal-input"
+              rows={4}
+              placeholder="Notification message..."
+              value={notify.message}
+              onChange={e => setNotify({ ...notify, message: e.target.value })}
+            />
+          </FormSection>
+
+          <FormSection title="Delivery">
+            <label className="flex items-center gap-2 cursor-pointer mb-3">
+              <input
+                type="checkbox"
+                checked={notify.send_in_app !== false}
+                onChange={e => setNotify({ ...notify, send_in_app: e.target.checked })}
+              />
+              <span className="text-sm font-semibold" style={{ color: "#374151" }}>Send in-app notification</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                data-testid="notify-send-email-cb"
+                type="checkbox"
+                checked={!!notify.send_email}
+                onChange={e => setNotify({ ...notify, send_email: e.target.checked })}
+              />
+              <span className="text-sm font-semibold flex items-center gap-1" style={{ color: "#374151" }}>
+                <BellRinging size={14} /> Also send email notification
+              </span>
+            </label>
             {isAdmin && notifyReceipts.length > 0 && (
-              <div className="rounded-xl border p-3 mb-3 text-xs" style={{ borderColor: "#E8E4DE", background: "#FAFAF7" }}>
-                <div className="font-bold mb-2" style={{ color: "#2C3625" }}>Read receipts</div>
+              <div className="mt-4 rounded-xl border p-3 text-xs" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
+                <div className="font-bold mb-2" style={{ color: "#1C2617" }}>Read receipts</div>
                 {notifyReceipts.map(r => (
                   <div key={r.id} className="flex items-center justify-between py-1 border-b border-[#F0EDE9] last:border-0">
                     <span>{r.therapist_name || r.user_id}</span>
-                    <span style={{ color: r.acknowledged ? "#3D4F35" : "#8B6918" }}>{r.acknowledged ? "✓ Received & Read" : "⏳ Pending"}</span>
+                    <span style={{ color: r.acknowledged ? "#3D4F35" : "#8B6918" }}>
+                      {r.acknowledged ? "✓ Received & Read" : "⏳ Pending"}
+                    </span>
                   </div>
                 ))}
               </div>
             )}
-
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setNotify(null)} className="btn btn-outline">Cancel</button>
-              <button data-testid="notify-send-btn" onClick={sendNotify} className="btn btn-primary">
-                <BellRinging size={16} /> {notify.cancelState ? "Confirm & Notify" : "Send"}
-              </button>
-            </div>
-          </div>
-        </div>
+          </FormSection>
+        </ModalBase>
       )}
 
       {showDup && (
-        <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={() => setShowDup(false)}>
-          <div className="card p-6 w-full max-w-md modal-card" onClick={e => e.stopPropagation()}>
-            <div className="font-display text-2xl mb-2">Duplicate Week</div>
-            <div className="text-sm mb-4" style={{ color: "#5C6853" }}>
-              Copy <strong>{formatDateRange(weekStart)}</strong> to a target week (e.g., next week or any future date).
+        <ModalBase
+          title="Duplicate Week"
+          subtitle={`Copy ${formatDateRange(weekStart)} to a target week`}
+          onClose={() => setShowDup(false)}
+          size="sm"
+          footer={
+            <>
+              <ModalBtnSecondary onClick={() => setShowDup(false)}>Cancel</ModalBtnSecondary>
+              <ModalBtnPrimary data-testid="dup-confirm-btn" onClick={dupWeekToTarget} disabled={!dupTarget}>
+                <CopySimple size={16} className="inline mr-1" /> Duplicate
+              </ModalBtnPrimary>
+            </>
+          }
+        >
+          <FormSection title="Target Week">
+            <FormField label="Target week start (Sunday)">
+              <input
+                type="date"
+                className="modal-input"
+                value={dupTarget || ""}
+                onChange={e => setDupTarget(e.target.value)}
+              />
+            </FormField>
+            <div className="flex gap-2 flex-wrap">
+              <ModalBtnSecondary type="button" className="!px-3 !py-1.5 !text-xs" onClick={() => setDupTarget(toISODate(addDays(weekStart, 7)))}>
+                Next week
+              </ModalBtnSecondary>
+              <ModalBtnSecondary type="button" className="!px-3 !py-1.5 !text-xs" onClick={() => setDupTarget(toISODate(addDays(weekStart, 14)))}>
+                +2 weeks
+              </ModalBtnSecondary>
+              <ModalBtnSecondary type="button" className="!px-3 !py-1.5 !text-xs" onClick={() => setDupTarget(toISODate(addDays(weekStart, 28)))}>
+                +4 weeks
+              </ModalBtnSecondary>
             </div>
-            <label className="label">Target Week Start (Sunday)</label>
-            <input type="date" className="input mb-3" value={dupTarget || ""} onChange={e => setDupTarget(e.target.value)} />
-            <div className="flex gap-2 mb-4">
-              <button type="button" onClick={() => setDupTarget(toISODate(addDays(weekStart, 7)))} className="btn btn-outline text-xs">Next week</button>
-              <button type="button" onClick={() => setDupTarget(toISODate(addDays(weekStart, 14)))} className="btn btn-outline text-xs">+2 weeks</button>
-              <button type="button" onClick={() => setDupTarget(toISODate(addDays(weekStart, 28)))} className="btn btn-outline text-xs">+4 weeks</button>
-            </div>
-            <label className="flex items-center gap-2 mb-4 text-sm cursor-pointer">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input type="checkbox" checked={dupClear} onChange={e => setDupClear(e.target.checked)} />
               <span style={{ color: "#5C6853" }}>Clear target week first (replace existing cells)</span>
             </label>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setShowDup(false)} className="btn btn-outline">Cancel</button>
-              <button data-testid="dup-confirm-btn" onClick={dupWeekToTarget} disabled={!dupTarget} className="btn btn-primary disabled:opacity-50"><CopySimple size={16} /> Duplicate</button>
-            </div>
-          </div>
-        </div>
+          </FormSection>
+        </ModalBase>
       )}
     </div>
   );
