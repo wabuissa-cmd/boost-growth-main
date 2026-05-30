@@ -19,7 +19,7 @@ import ScheduleCellPanel from "../components/ScheduleCellPanel";
 
 function CellContent({ cell, sc }) {
   if (!cell) return null;
-  if (cell.state === "available") {
+  if (cell.state === "available" || cell.service_code === "AVAILABLE") {
     return <div className="text-[10px] font-semibold opacity-70">Available</div>;
   }
   const isMeta = META_SERVICE_CODES.has(cell.service_code) || !cell.child_name;
@@ -40,7 +40,7 @@ function cellClassName(cell, isAdmin, leaveInfo, selected) {
   const parts = ["sheet-td sheet-slot"];
   if (cell) {
     parts.push("has-event");
-    if (cell.state === "available") parts.push("cell-available");
+    if (cell.state === "available" || cell.service_code === "AVAILABLE") parts.push("cell-available");
   } else {
     parts.push("cell-empty");
   }
@@ -54,7 +54,7 @@ function cellClassNameBlock(cell, isAdmin, leaveInfo, selected) {
   const parts = ["cell-base"];
   if (cell) {
     parts.push("has-event");
-    if (cell.state === "available") parts.push("cell-available");
+    if (cell.state === "available" || cell.service_code === "AVAILABLE") parts.push("cell-available");
   } else {
     parts.push("cell-empty");
   }
@@ -96,8 +96,16 @@ export default function Schedule() {
   const [selectAnchor, setSelectAnchor] = useState(null);
   const [mergeForm, setMergeForm] = useState({ label: "", color: "#E5EBE1", quick: "MEETING" });
   const [colorForm, setColorForm] = useState("#A2C4C9");
+  const [ctxMenu, setCtxMenu] = useState(null);
 
   const weekStartISO = toISODate(weekStart);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [ctxMenu]);
 
   const dupWeekToTarget = async () => {
     if (!dupTarget) return;
@@ -266,10 +274,8 @@ export default function Schedule() {
     if (cell?.id) await api.delete(`/schedule/${cell.id}`);
   };
 
-  const bulkFill = async (mode) => {
-    if (!panelForm) return;
-    const { therapist_id, day, time_slot } = panelForm;
-    const leaveColor = SERVICE_CELL_COLORS.LEAVE.background; // light green #D9EAD3
+  const bulkFillAt = async (mode, { therapist_id, day, time_slot }) => {
+    const leaveColor = SERVICE_CELL_COLORS.LEAVE.background;
     const clearDay = async (d) => {
       for (const ts of TIME_SLOTS) await deleteAtSlot(therapist_id, d, ts);
     };
@@ -282,16 +288,6 @@ export default function Schedule() {
         week_start: weekStartISO, service_code: "LEAVE", note: "Leave",
         state: "normal", color: leaveColor, child_name: null,
       });
-    } else if (mode === "leave_week_slot") {
-      if (!window.confirm(`Apply Leave for ${time_slot} every day this week?`)) return;
-      for (let d = 0; d < 5; d++) {
-        await deleteAtSlot(therapist_id, d, time_slot);
-        await api.post("/schedule", {
-          therapist_id, day: d, time_slot, duration: 1,
-          week_start: weekStartISO, service_code: "LEAVE", note: "Leave",
-          state: "normal", color: leaveColor, child_name: null,
-        });
-      }
     } else if (mode === "leave_week") {
       if (!window.confirm("Apply Leave for the entire week (all days, all hours)?")) return;
       for (let d = 0; d < 5; d++) {
@@ -302,24 +298,23 @@ export default function Schedule() {
           state: "normal", color: leaveColor, child_name: null,
         });
       }
-    } else if (mode === "available_day") {
-      if (!window.confirm(`Mark full ${DAYS_EN[day]} as Available?`)) return;
-      await clearDay(day);
-      for (const ts of TIME_SLOTS) {
-        await api.post("/schedule", {
-          therapist_id, day, time_slot: ts, duration: 1,
-          week_start: weekStartISO, service_code: "SS", note: "Available",
-          state: "available", color: "#FFFFFF", child_name: null,
-        });
-      }
-    } else if (mode === "clear_day") {
-      if (!window.confirm(`Clear all cells for ${DAYS_EN[day]}?`)) return;
-      await clearDay(day);
-    } else if (mode === "clear_week_slot") {
-      if (!window.confirm(`Clear ${time_slot} for all days this week?`)) return;
-      for (let d = 0; d < 5; d++) await deleteAtSlot(therapist_id, d, time_slot);
+    } else if (mode === "available") {
+      await deleteAtSlot(therapist_id, day, time_slot);
+      await api.post("/schedule", {
+        therapist_id, day, time_slot, duration: 1,
+        week_start: weekStartISO, service_code: "AVAILABLE", note: "Available",
+        state: "available", color: "#FFFFFF", child_name: null,
+      });
+    } else if (mode === "clear") {
+      await deleteAtSlot(therapist_id, day, time_slot);
     }
     await load();
+    setCtxMenu(null);
+  };
+
+  const bulkFill = async (mode) => {
+    if (!panelForm) return;
+    await bulkFillAt(mode === "available_day" ? "available" : mode, panelForm);
     closePanel();
   };
 
@@ -392,16 +387,7 @@ export default function Schedule() {
 
   const markAvailableCurrent = async () => {
     if (!panelForm) return;
-    await deleteAtSlot(panelForm.therapist_id, panelForm.day, panelForm.time_slot);
-    await api.post("/schedule", {
-      therapist_id: panelForm.therapist_id,
-      day: panelForm.day,
-      time_slot: panelForm.time_slot,
-      week_start: weekStartISO,
-      service_code: "SS", child_name: null, note: "Available",
-      state: "available", color: "#FFFFFF", duration: 1,
-    });
-    await load();
+    await bulkFillAt("available", panelForm);
     closePanel();
   };
 
@@ -479,6 +465,12 @@ export default function Schedule() {
     setPanelSaving(true);
     try {
       const payload = { ...panelForm, week_start: weekStartISO };
+      if (payload.service_code === "AVAILABLE") {
+        payload.state = "available";
+        payload.color = "#FFFFFF";
+        payload.note = payload.note || "Available";
+        payload.child_name = null;
+      }
       if (panelForm.id) await api.put(`/schedule/${panelForm.id}`, payload);
       else await api.post("/schedule", payload);
       await load();
@@ -515,11 +507,32 @@ export default function Schedule() {
     setPanelForm(f => f ? { ...f, state } : f);
   };
 
+  const duplicateSession = async ({ cell, therapist_id, day, time_slot }) => {
+    if (!cell) return;
+    const idx = TIME_SLOTS.indexOf(time_slot);
+    const nextTs = TIME_SLOTS[idx + 1];
+    if (!nextTs) { alert("No adjacent slot available"); return; }
+    if (cellMap[`${therapist_id}_${day}_${nextTs}`]) { alert("Next slot is occupied"); return; }
+    await api.post("/schedule", {
+      therapist_id, day, time_slot: nextTs, week_start: weekStartISO,
+      service_code: cell.service_code, child_name: cell.child_name,
+      custom_time: cell.custom_time, note: cell.note,
+      duration: 1, state: cell.state, color: cell.color,
+    });
+    await load();
+    setCtxMenu(null);
+  };
+
   const onCtx = (e, cell, therapist_id, day, time_slot) => {
     if (!isAdmin) return;
     e.preventDefault();
     e.stopPropagation();
-    openPanel(therapist_id, day, time_slot, cell);
+    setCtxMenu({ x: e.clientX, y: e.clientY, cell, therapist_id, day, time_slot });
+  };
+
+  const ctxAction = (fn) => (e) => {
+    e.stopPropagation();
+    fn();
   };
 
   // === SHEET VIEW === (matches Google Sheet: # | Therapist | Day | 10 time slots)
@@ -673,7 +686,7 @@ export default function Schedule() {
         <div className="flex-1 min-w-[240px]">
           <h1 className="font-display text-3xl font-semibold" style={{ color: "#2C3625" }}>Weekly Schedule</h1>
           <div className="text-sm" style={{ color: "#5C6853" }}>
-            {isAdmin ? "Click any cell to open the editor panel · Shift+click to select a time range." : "Your weekly schedule (read-only)"}
+            {isAdmin ? "Right-click any cell for actions · Click to edit" : "Your weekly schedule (read-only)"}
           </div>
         </div>
         <div className="flex items-center gap-1.5 card p-1.5">
@@ -773,25 +786,67 @@ export default function Schedule() {
           onSave={save}
           therapists={therapists}
           clients={clients}
-          selection={selection}
-          onExtendSelection={extendSelectionDir}
-          onClearSelection={clearSelection}
-          onApplyMerge={applyMerge}
-          mergeForm={mergeForm}
-          setMergeForm={setMergeForm}
-          colorForm={colorForm}
-          setColorForm={setColorForm}
-          onSaveClientColor={saveClientColor}
-          onResetClientColor={resetClientColor}
-          onBulkFill={bulkFill}
-          onMarkAvailable={markAvailableCurrent}
-          onSetState={(state) => setState(panelForm, state)}
-          onNotify={() => { if (panelForm?.id) openNotify(panelForm); }}
-          onDelete={async () => { if (panelForm?.id) { await remove(panelForm.id); closePanel(); } }}
-          onCopy={() => { if (panelForm?.id) copyCell(panelForm); }}
-          onUnmerge={unmergeCell}
           saving={panelSaving}
         />
+      )}
+
+      {ctxMenu && isAdmin && (
+        <div
+          className="fixed z-[70] bg-white rounded-xl shadow-2xl border py-1 min-w-[220px] text-sm"
+          style={{ left: Math.min(ctxMenu.x, window.innerWidth - 240), top: Math.min(ctxMenu.y, window.innerHeight - 360), borderColor: "#E8E4DE" }}
+          onClick={e => e.stopPropagation()}
+          data-testid="schedule-context-menu"
+        >
+          <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "#8B9E7A" }}>Session Options</div>
+          <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
+            onClick={ctxAction(() => { openPanel(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.time_slot, ctxMenu.cell); setCtxMenu(null); })}>
+            {ctxMenu.cell ? "Edit Session" : "Add Session here"}
+          </button>
+          {ctxMenu.cell && (
+            <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
+              onClick={ctxAction(() => duplicateSession(ctxMenu))}>
+              Duplicate Session
+            </button>
+          )}
+          <div className="my-1 border-t" style={{ borderColor: "#EDE9E3" }} />
+          <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "#8B9E7A" }}>Quick Mark</div>
+          <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
+            onClick={ctxAction(() => bulkFillAt("available", ctxMenu))}>
+            Mark as Available
+          </button>
+          <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
+            onClick={ctxAction(() => bulkFillAt("leave_day", ctxMenu))}>
+            Full Day Leave
+          </button>
+          <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
+            onClick={ctxAction(() => bulkFillAt("leave_week", ctxMenu))}>
+            Full Week Leave
+          </button>
+          {ctxMenu.cell && (
+            <>
+              <div className="my-1 border-t" style={{ borderColor: "#EDE9E3" }} />
+              <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "#8B9E7A" }}>Notifications</div>
+              <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
+                onClick={ctxAction(() => { openNotify(ctxMenu.cell); setCtxMenu(null); })}>
+                Notify Therapist
+              </button>
+            </>
+          )}
+          <div className="my-1 border-t" style={{ borderColor: "#EDE9E3" }} />
+          <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "#8B9E7A" }}>Remove</div>
+          <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#FCE0E8]" style={{ color: "#8A3F27" }}
+            onClick={ctxAction(async () => {
+              if (ctxMenu.cell?.id) {
+                if (!window.confirm("Clear this cell?")) return;
+                await remove(ctxMenu.cell.id);
+              } else {
+                await bulkFillAt("clear", ctxMenu);
+              }
+              setCtxMenu(null);
+            })}>
+            Clear Cell
+          </button>
+        </div>
       )}
 
       {notify && (

@@ -637,8 +637,8 @@ async def publish_schedule_week(body: dict, admin=Depends(admin_only)):
         if t.get("email"):
             r = await _send_email_stub(
                 t["email"],
-                f"[Boost Growth] Schedule published — week of {week_start}",
-                f"Hello {t.get('name', '')},\n\nThe schedule for week starting {week_start} has been published. Please log in to view it.\n\n— Boost Growth Portal",
+                f"[Boost Growth] New Schedule Published — Week of {week_start}",
+                f"Dear {t.get('name', '')},\n\nThe schedule for the week of {week_start} has been published.\nPlease review your sessions for the coming week.\n\n— Boost Growth Portal",
             )
             if r.get("status") == "sent":
                 sent += 1
@@ -1236,7 +1236,6 @@ async def admin_lookup_client_by_file_no(file_no: str, _=Depends(admin_only)):
 
 @api.post("/admin/delete-client-sessions-invoices")
 async def admin_delete_client_sessions_invoices(body: DeleteClientSessionsIn, _=Depends(admin_only)):
-    """Delete ALL sessions and invoices for one client (by file_no). Client record is kept."""
     client = await _find_client_by_file_no(body.file_no)
     if not client:
         raise HTTPException(status_code=404, detail=f"Client file_no {body.file_no} not found")
@@ -2254,23 +2253,75 @@ async def reset_package(cid: str, user=Depends(admin_only)):
     return {"ok": True, "package_reset_at": ts}
 
 # ------------------- Sessions (Attendance log) -------------------
+def _sessions_with_day_names(sessions: list) -> list:
+    for s in sessions:
+        if s.get("session_date"):
+            s["day_name"] = _day_name_from_date(s["session_date"])
+    return sessions
+
+
+async def _sessions_for_invoice_query(client_id: str, invoice_id: str) -> list:
+    """Match sessions by invoice_id, source_invoice, or date window fallback."""
+    inv = await db.invoices.find_one({"id": invoice_id}, {"_id": 0})
+    if not inv:
+        return []
+    inv_num = (inv.get("invoice_number") or "").strip()
+    q_or = [{"invoice_id": invoice_id}]
+    if inv_num:
+        q_or.append({"source_invoice": inv_num})
+    items = await db.sessions.find(
+        {"client_id": client_id, "$or": q_or},
+        {"_id": 0},
+    ).sort("session_date", 1).to_list(2000)
+    if items:
+        return items
+    start = (inv.get("start_date") or "")[:10]
+    if not start:
+        return []
+    all_invs = await db.invoices.find({"client_id": client_id}, {"_id": 0}).to_list(200)
+    inv_st = _normalize_service_type(inv.get("service_type"))
+    same_type = [
+        i for i in all_invs
+        if _normalize_service_type(i.get("service_type")) == inv_st or not inv_st
+    ]
+    same_type.sort(key=lambda i: (i.get("start_date") or i.get("created_at") or ""))
+    end = None
+    passed = False
+    for i in same_type:
+        if i.get("id") == invoice_id:
+            passed = True
+            continue
+        if passed:
+            ist = (i.get("start_date") or "")[:10]
+            if ist and ist > start:
+                end = ist
+                break
+    date_q = {"client_id": client_id, "session_date": {"$gte": start}}
+    if end:
+        date_q["session_date"]["$lt"] = end
+    return await db.sessions.find(date_q, {"_id": 0}).sort("session_date", 1).to_list(2000)
+
+
 @api.get("/sessions")
 async def list_sessions(client_id: Optional[str] = None, invoice_id: Optional[str] = None, user=Depends(get_current_user)):
-    q = {}
-    if client_id:
-        q["client_id"] = client_id
-    if invoice_id:
-        inv = await db.invoices.find_one({"id": invoice_id}, {"_id": 0, "invoice_number": 1})
-        if inv:
-            inv_num = (inv.get("invoice_number") or "").strip()
-            q["$or"] = [{"invoice_id": invoice_id}, {"source_invoice": inv_num}]
-        else:
-            q["invoice_id"] = invoice_id
-    items = await db.sessions.find(q, {"_id": 0}).sort("session_date", -1).to_list(2000)
+    if invoice_id and client_id:
+        items = await _sessions_for_invoice_query(client_id, invoice_id)
+    else:
+        q = {}
+        if client_id:
+            q["client_id"] = client_id
+        if invoice_id:
+            inv = await db.invoices.find_one({"id": invoice_id}, {"_id": 0, "invoice_number": 1})
+            if inv:
+                inv_num = (inv.get("invoice_number") or "").strip()
+                q["$or"] = [{"invoice_id": invoice_id}, {"source_invoice": inv_num}]
+            else:
+                q["invoice_id"] = invoice_id
+        items = await db.sessions.find(q, {"_id": 0}).sort("session_date", -1).to_list(2000)
     if user.get("role") == "therapist":
         uid = user["id"]
         items = [s for s in items if uid in (s.get("therapist_ids") or [])]
-    return items
+    return _sessions_with_day_names(items)
 
 @api.post("/sessions")
 async def create_session(payload: SessionIn, user=Depends(get_current_user)):
@@ -2961,8 +3012,9 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, admin=Depend
             if therapist and therapist.get("email"):
                 await _send_email_stub(
                     therapist["email"],
-                    f"[Boost Growth] Leave request {label}",
-                    f"Hello {therapist.get('name', '')},\n\n{msg}\n\n— Boost Growth Portal",
+                    f"[Boost Growth] Leave Request {label}",
+                    f"Dear {therapist.get('name', '')},\n\nYour leave request from {leave.get('start_date')} to "
+                    f"{leave.get('end_date')} has been {label.lower()}.\n\n— Boost Growth Portal",
                 )
     return await db.leaves.find_one({"id": lid}, {"_id": 0})
 
@@ -3132,6 +3184,76 @@ async def verify_leave_document(lid: str, payload: LeaveDocumentVerifyIn, _=Depe
     updated = await db.leaves.find_one({"id": lid}, {"_id": 0})
     return _enrich_leave_document_url(updated)
 
+
+@api.post("/admin/clear-leaves")
+async def admin_clear_all_leaves(_=Depends(admin_only)):
+    """Delete ALL leave records (test data cleanup)."""
+    result = await db.leaves.delete_many({})
+    return {"deleted": result.deleted_count, "message": f"Deleted {result.deleted_count} leave records"}
+
+
+PROGRESS_REPORT_DRIVE_URLS = {
+    "009": "https://docs.google.com/document/d/14c29YPvhWaZirB5Qc-_47qP7Q_04-IOZEhpWk76WiU0/edit",
+    "024": "https://docs.google.com/document/d/1DS4n4WvIB2_lS-XaZD3gSYg8WcDa5k_RYLwAIOsX7Ig/edit",
+    "038": "https://docs.google.com/document/d/1-cxoewBVcbyVXa-XuBziY4OFAD2bfSpYL2_SRK4p2Ik/edit",
+    "040": "https://docs.google.com/document/d/1uPUgFPz944AqlHXFXT3oVOpar6JETzsQQ3a6rd3XTK8/edit",
+    "042": "https://docs.google.com/document/d/14tyu4xNlG4AmzALpjYwuWwKflwqk_buX-i2rsovxKRY/edit",
+    "047": "https://drive.google.com/file/d/1eD8w2NQ5WCRtZrODhX33RHQYGT2jbHvM/view",
+    "063": "https://drive.google.com/file/d/1av1C994LOEuMY2ChsEl0t8QaS5fO3s7m/view",
+    "070": "https://drive.google.com/file/d/1tI5z5vrDDVaApSOAsp4HbkcawcDe42ll/view",
+    "072": "https://docs.google.com/document/d/19UY48orOHqV-ItptNFVxUgRyLgWeWgi8gIy--SmbMHA/edit",
+    "034": "https://drive.google.com/file/d/1DRU9zPhF0fmS7RIOQFJ3FDaH7H7gkfTN/view",
+}
+
+
+@api.post("/admin/migrate-progress-report-urls")
+async def admin_migrate_progress_report_urls(_=Depends(admin_only)):
+    """One-time: set Drive URLs on existing Apr 2026 progress reports by client file_no."""
+    updated = 0
+    missing = []
+    for file_no, url in PROGRESS_REPORT_DRIVE_URLS.items():
+        client = await _find_client_by_file_no(file_no)
+        if not client:
+            missing.append(file_no)
+            continue
+        r = await db.progress_reports.update_many(
+            {"client_id": client["id"], "title": {"$regex": "Apr 2026", "$options": "i"}},
+            {"$set": {"url": url, "updated_at": now_iso()}},
+        )
+        updated += r.modified_count
+    return {"updated": updated, "missing_clients": missing, "message": f"Updated {updated} progress report URLs"}
+
+
+@api.post("/admin/repair-session-invoices")
+async def admin_repair_session_invoices(_=Depends(admin_only)):
+    """Backfill invoice_id on sessions; fix HS service_type for HS-only clients."""
+    invoices = await db.invoices.find({}, {"_id": 0, "id": 1, "client_id": 1, "invoice_number": 1}).to_list(5000)
+    inv_by_num = {}
+    for inv in invoices:
+        num = (inv.get("invoice_number") or "").strip()
+        if num:
+            inv_by_num[f"{inv['client_id']}|{num}"] = inv["id"]
+    sessions = await db.sessions.find({}, {"_id": 0, "id": 1, "client_id": 1, "invoice_id": 1, "source_invoice": 1, "service_type": 1}).to_list(20000)
+    linked = typed = 0
+    clients = {c["id"]: c for c in await db.clients.find({}, {"_id": 0, "id": 1, "service_type": 1}).to_list(500)}
+    for s in sessions:
+        patch = {}
+        if not s.get("invoice_id") and s.get("source_invoice"):
+            key = f"{s['client_id']}|{(s.get('source_invoice') or '').strip()}"
+            if key in inv_by_num:
+                patch["invoice_id"] = inv_by_num[key]
+                linked += 1
+        client = clients.get(s.get("client_id"))
+        if client and _normalize_service_type(client.get("service_type")) == "HS":
+            if _normalize_service_type(s.get("service_type")) != "HS":
+                patch["service_type"] = "HS"
+                patch["week_number"] = None
+                typed += 1
+        if patch:
+            await db.sessions.update_one({"id": s["id"]}, {"$set": patch})
+    return {"invoice_ids_linked": linked, "service_types_fixed": typed}
+
+
 # ------------------- Cancel-Notify (in-app + queued email) -------------------
 async def _send_email_stub(to: str, subject: str, body: str) -> dict:
     """Email send stub. Will integrate with Resend once API key is configured.
@@ -3150,7 +3272,7 @@ async def _send_email_stub(to: str, subject: str, body: str) -> dict:
             async with httpx.AsyncClient() as cli:
                 r = await cli.post("https://api.resend.com/emails",
                                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                                   json={"from": os.environ.get("EMAIL_FROM", "Boost Growth <noreply@boostgrowthsa.com>"),
+                                   json={"from": os.environ.get("EMAIL_FROM", "Boost Growth <hr@boostgrowthsa.com>"),
                                          "to": [to], "subject": subject, "html": f"<p>{body.replace(chr(10),'<br/>')}</p>"})
                 if r.status_code in (200, 202):
                     queue_doc["status"] = "sent"
@@ -3178,9 +3300,9 @@ async def schedule_cancel_notify(payload: CancelNotifyIn, _=Depends(admin_only))
     recipients = payload.recipient_ids or ([cell["therapist_id"]] if cell.get("therapist_id") else [])
     title = "Notice from Admin"
     if payload.state == "cancel_therapist":
-        title = "Session marked as Therapist Cancellation"
+        title = "Session Cancelled"
     elif payload.state == "cancel_child":
-        title = "Session marked as Client Cancellation"
+        title = "Session Cancelled (Client)"
     sent = []
     for rid in recipients:
         if payload.send_in_app:
@@ -3189,22 +3311,43 @@ async def schedule_cancel_notify(payload: CancelNotifyIn, _=Depends(admin_only))
                 schedule_cell_id=payload.cell_id, requires_ack=True,
             )
             sent.append({"user_id": rid, "notification_id": n["id"]})
-        if payload.send_email:
-            therapist = await db.therapists.find_one({"id": rid}, {"_id": 0})
+        therapist = await db.therapists.find_one({"id": rid}, {"_id": 0})
+        send_mail = payload.send_email or payload.state in ("cancel_therapist", "cancel_child")
+        if send_mail:
             recipient = payload.extra_email if len(recipients) == 1 and payload.extra_email else (therapist.get("email") if therapist else None)
             if recipient:
-                subj = f"[Boost Growth] {title}"
-                body_lines = [
-                    f"Hello {therapist.get('name') if therapist else ''},",
-                    "",
-                    payload.message,
-                    "",
-                    f"Cell: {cell.get('service_code')} | {cell.get('child_name') or '—'}",
-                    f"Day: {cell.get('day')} | Time: {cell.get('time_slot')}",
-                    "",
-                    "— Boost Growth Portal",
-                ]
-                await _send_email_stub(recipient, subj, "\n".join(body_lines))
+                client_name = (cell.get("child_name") or "—").strip()
+                week_start = cell.get("week_start") or ""
+                day_idx = cell.get("day")
+                day_label = ""
+                if week_start and day_idx is not None:
+                    try:
+                        d = datetime.fromisoformat(str(week_start)[:10]) + timedelta(days=int(day_idx))
+                        day_label = d.strftime("%d %b %Y")
+                    except Exception:
+                        day_label = str(week_start)
+                if payload.state == "cancel_therapist":
+                    subj = f"Session Cancelled — {client_name} on {day_label or week_start}"
+                    body = (
+                        f"Dear {therapist.get('name', '')},\n\n"
+                        f"The session with {client_name} scheduled on {day_label or week_start} "
+                        f"at {cell.get('time_slot') or '—'} has been cancelled.\n\n"
+                        f"{payload.message}\n\n— Boost Growth Portal"
+                    )
+                else:
+                    subj = f"[Boost Growth] {title}"
+                    body_lines = [
+                        f"Hello {therapist.get('name') if therapist else ''},",
+                        "",
+                        payload.message,
+                        "",
+                        f"Cell: {cell.get('service_code')} | {client_name}",
+                        f"Day: {day_label or cell.get('day')} | Time: {cell.get('time_slot')}",
+                        "",
+                        "— Boost Growth Portal",
+                    ]
+                    body = "\n".join(body_lines)
+                await _send_email_stub(recipient, subj, body)
     return {"ok": True, "sent": sent}
 
 # ------------------- Intake (admin only) -------------------

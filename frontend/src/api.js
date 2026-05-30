@@ -57,6 +57,7 @@ export const SERVICE_CODES = [
   { id: "SUPERVISION", label: "Supervision", short: "Supervision", cls: "evt-supervision" },
   { id: "OBSERVATION", label: "Observation", short: "Observation", cls: "evt-observation" },
   { id: "AVC", label: "AVC", short: "AVC", cls: "evt-avc" },
+  { id: "AVAILABLE", label: "Available", short: "Available", cls: "evt-available" },
   { id: "LEAVE", label: "Leave", short: "Leave", cls: "evt-leave" },
   { id: "BREAK", label: "Break", short: "Break", cls: "evt-break" },
 ];

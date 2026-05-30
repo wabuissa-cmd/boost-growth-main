@@ -43,7 +43,7 @@ export function resolveClientScheduleColor(childName, clients = []) {
 
 export function getCellStyle(cell, clients = []) {
   if (!cell) return {};
-  if (cell.state === "available") {
+  if (cell.state === "available" || cell.service_code === "AVAILABLE") {
     return { background: "#FFFFFF", color: "#5C6853", borderColor: "#DDD8D0" };
   }
   if (cell.state === "cancel_therapist") {

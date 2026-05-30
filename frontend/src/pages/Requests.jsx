@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
-import { Plus, PencilSimple, Trash, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Calendar, Package } from "@phosphor-icons/react";
+import { Plus, PencilSimple, Trash, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Calendar, Package, UploadSimple } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
+import { LEAVE_STATUS, LEAVE_TYPES, diffDays, fmtDateRange } from "../leaveUtils";
 
 const STATUS_MAP = {
   pending:    { label: "Pending",     cls: "bg-[#FAF0D1] text-[#6B5218] border-[#E6C983]", icon: <Hourglass size={14} weight="duotone"/>, color: "#E6C983" },
@@ -37,6 +38,18 @@ const PRIORITIES = [
   { id: "urgent", label: "Urgent", color: "#C97B5C" },
 ];
 
+const LEAVE_FORM_TYPES = [
+  { id: "Annual", label: "Annual" },
+  { id: "Sickleave", label: "Sick" },
+  { id: "Unpaid", label: "Unpaid" },
+  { id: "Permission", label: "Permission" },
+];
+
+function emptyLeaveForm() {
+  const today = new Date().toISOString().slice(0, 10);
+  return { therapist_id: "", start_date: today, end_date: today, days: 1, leave_type: "Annual", notes: "" };
+}
+
 export default function Requests() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -45,9 +58,27 @@ export default function Requests() {
   const [edit, setEdit] = useState(null);
   const [statusEdit, setStatusEdit] = useState(null);
   const [step, setStep] = useState(1);
+  const [therapists, setTherapists] = useState([]);
+  const [recentLeaves, setRecentLeaves] = useState([]);
+  const [leaveModal, setLeaveModal] = useState(null);
+  const [leaveDoc, setLeaveDoc] = useState(null);
+  const [leaveSubmitting, setLeaveSubmitting] = useState(false);
+  const leaveFileRef = useRef(null);
 
   const load = async () => { const { data } = await api.get("/requests"); setItems(data); };
-  useEffect(() => { load(); }, []);
+  const loadLeaves = async () => {
+    const yr = new Date().getFullYear();
+    const { data } = await api.get("/leaves", { params: { year: yr } });
+    const sorted = [...(data || [])].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+    setRecentLeaves(sorted.slice(0, 10));
+  };
+  useEffect(() => {
+    load();
+    if (isAdmin) {
+      api.get("/therapists").then(r => setTherapists(r.data || [])).catch(() => {});
+      loadLeaves();
+    }
+  }, [isAdmin]);
 
   const submitNew = async () => {
     await api.post("/requests", edit);
@@ -59,6 +90,48 @@ export default function Requests() {
   };
   const remove = async (id) => { if (!window.confirm("Delete this request?")) return; await api.delete(`/requests/${id}`); load(); };
 
+  const updateLeaveDates = (form, start, end) => {
+    const days = Math.max(1, diffDays(start, end));
+    return { ...form, start_date: start, end_date: end, days };
+  };
+
+  const submitLeave = async () => {
+    if (!leaveModal?.therapist_id) { alert("Select a therapist"); return; }
+    setLeaveSubmitting(true);
+    try {
+      const payload = {
+        therapist_id: leaveModal.therapist_id,
+        start_date: leaveModal.start_date,
+        end_date: leaveModal.end_date,
+        days: leaveModal.days,
+        leave_type: leaveModal.leave_type,
+        notes: leaveModal.notes || null,
+        status: "pending",
+      };
+      const { data: created } = await api.post("/leaves", payload);
+      if (leaveDoc && created?.id) {
+        const fd = new FormData();
+        fd.append("file", leaveDoc);
+        fd.append("document_type", "other");
+        await api.post(`/leaves/${created.id}/upload-document`, fd, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+      }
+      setLeaveModal(null);
+      setLeaveDoc(null);
+      loadLeaves();
+    } catch (e) {
+      alert("Failed: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setLeaveSubmitting(false);
+    }
+  };
+
+  const setLeaveStatus = async (leave, status) => {
+    await api.put(`/leaves/${leave.id}/status`, { status });
+    loadLeaves();
+  };
+
   const filtered = items.filter(r => filter === "all" || r.status === filter);
 
   return (
@@ -69,6 +142,11 @@ export default function Requests() {
           <div className="text-sm" style={{color: "#5C6853"}}>{isAdmin ? "Manage all team requests" : "Track and submit your requests"}</div>
         </div>
         {!isAdmin && <button data-testid="new-request-btn" onClick={() => { setEdit({ title: "", description: "", request_type: "general", priority: "normal" }); setStep(1); }} className="btn btn-primary"><Plus size={16}/> New Request</button>}
+        {isAdmin && (
+          <button data-testid="submit-leave-btn" onClick={() => setLeaveModal(emptyLeaveForm())} className="btn btn-secondary">
+            <Plus size={16}/> Submit Leave Request
+          </button>
+        )}
       </div>
 
       <div className="flex gap-2 flex-wrap mb-4">
@@ -152,6 +230,101 @@ export default function Requests() {
           );
         })}
       </div>
+
+      {isAdmin && (
+        <div className="mt-10">
+          <h2 className="font-display text-xl font-semibold mb-3" style={{ color: "#2C3625" }}>Recent Leave Requests</h2>
+          <div className="space-y-2">
+            {recentLeaves.length === 0 && (
+              <div className="card p-8 text-center text-sm" style={{ color: "#8B9E7A" }}>No leave requests yet</div>
+            )}
+            {recentLeaves.map(l => {
+              const st = LEAVE_STATUS[l.status] || LEAVE_STATUS.pending;
+              const tp = LEAVE_TYPES[l.leave_type] || { label: l.leave_type, color: "#7A8A6A" };
+              return (
+                <div key={l.id} className="card p-4 flex items-center gap-3 flex-wrap">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className="pill text-xs font-bold" style={{ background: st.bg, color: st.color }}>{st.icon} {st.label}</span>
+                      <span className="pill text-xs" style={{ background: `${tp.color}20`, color: tp.color }}>{tp.label}</span>
+                    </div>
+                    <div className="font-bold" style={{ color: "#2C3625" }}>{l.therapist_name || "Therapist"}</div>
+                    <div className="text-sm flex items-center gap-1 mt-0.5" style={{ color: "#5C6853" }}>
+                      <CalendarBlank size={14}/> {fmtDateRange(l.start_date, l.end_date)} · {l.days} day{l.days !== 1 ? "s" : ""}
+                    </div>
+                    {l.notes && <div className="text-xs mt-1 italic" style={{ color: "#8B9E7A" }}>{l.notes}</div>}
+                  </div>
+                  {l.status === "pending" && (
+                    <div className="flex gap-1 shrink-0">
+                      <button type="button" onClick={() => setLeaveStatus(l, "approved")} className="btn btn-primary text-xs py-1.5">
+                        <CheckCircle size={14}/> Approve
+                      </button>
+                      <button type="button" onClick={() => setLeaveStatus(l, "rejected")} className="btn btn-outline text-xs py-1.5" style={{ color: "#8A3F27" }}>
+                        <XCircle size={14}/> Reject
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Submit Leave Request Modal */}
+      {leaveModal && (
+        <ModalBase
+          title="Submit Leave Request"
+          subtitle="Create a leave request on behalf of a therapist"
+          onClose={() => { setLeaveModal(null); setLeaveDoc(null); }}
+          size="md"
+          footer={
+            <>
+              <ModalBtnSecondary type="button" onClick={() => { setLeaveModal(null); setLeaveDoc(null); }}>Cancel</ModalBtnSecondary>
+              <ModalBtnPrimary type="button" data-testid="leave-submit-btn" onClick={submitLeave} disabled={leaveSubmitting}>
+                {leaveSubmitting ? "Submitting..." : "Submit"}
+              </ModalBtnPrimary>
+            </>
+          }
+        >
+          <FormSection title="Leave details">
+            <FormField label="Therapist" required>
+              <select className="modal-input" value={leaveModal.therapist_id} onChange={e => setLeaveModal({ ...leaveModal, therapist_id: e.target.value })}>
+                <option value="">Select therapist...</option>
+                {therapists.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Type">
+              <select className="modal-input" value={leaveModal.leave_type} onChange={e => setLeaveModal({ ...leaveModal, leave_type: e.target.value })}>
+                {LEAVE_FORM_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+            </FormField>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField label="Date from">
+                <input type="date" className="modal-input" value={leaveModal.start_date}
+                  onChange={e => setLeaveModal(f => updateLeaveDates(f, e.target.value, f.end_date))} />
+              </FormField>
+              <FormField label="Date to">
+                <input type="date" className="modal-input" value={leaveModal.end_date}
+                  onChange={e => setLeaveModal(f => updateLeaveDates(f, f.start_date, e.target.value))} />
+              </FormField>
+            </div>
+            <FormField label="Days">
+              <input className="modal-input bg-[#F5F5F5]" readOnly value={leaveModal.days} />
+            </FormField>
+            <FormField label="Note">
+              <textarea className="modal-input" rows={2} value={leaveModal.notes || ""} onChange={e => setLeaveModal({ ...leaveModal, notes: e.target.value })} />
+            </FormField>
+            <FormField label="Document (optional)">
+              <input ref={leaveFileRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" className="hidden"
+                onChange={e => setLeaveDoc(e.target.files?.[0] || null)} />
+              <button type="button" onClick={() => leaveFileRef.current?.click()} className="btn btn-outline text-sm">
+                <UploadSimple size={16}/> {leaveDoc ? leaveDoc.name : "Upload Document"}
+              </button>
+            </FormField>
+          </FormSection>
+        </ModalBase>
+      )}
 
       {/* New Request Modal — multi-step */}
       {edit && (

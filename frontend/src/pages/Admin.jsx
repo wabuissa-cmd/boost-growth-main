@@ -24,6 +24,12 @@ export default function Admin() {
   const [deletePreview, setDeletePreview] = useState(null);
   const [deleteResult, setDeleteResult] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [clearLeavesResult, setClearLeavesResult] = useState(null);
+  const [clearingLeaves, setClearingLeaves] = useState(false);
+  const [migrateUrlsResult, setMigrateUrlsResult] = useState(null);
+  const [migratingUrls, setMigratingUrls] = useState(false);
+  const [repairSessionsResult, setRepairSessionsResult] = useState(null);
+  const [repairingSessions, setRepairingSessions] = useState(false);
 
   const load = async () => {
     const [t, e, q] = await Promise.all([
@@ -110,6 +116,48 @@ export default function Admin() {
       alert("Seed failed: " + (e.response?.data?.detail || e.message));
     } finally {
       setPrSeeding(false);
+    }
+  };
+
+  const clearAllLeaves = async () => {
+    if (!window.confirm("Delete ALL leave requests from the database?\n\nThis is for clearing test data only.")) return;
+    setClearingLeaves(true);
+    setClearLeavesResult(null);
+    try {
+      const { data } = await api.post("/admin/clear-leaves");
+      setClearLeavesResult(data);
+    } catch (e) {
+      alert("Failed: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setClearingLeaves(false);
+    }
+  };
+
+  const migrateProgressUrls = async () => {
+    if (!window.confirm("Update Drive URLs on existing Apr 2026 progress reports?")) return;
+    setMigratingUrls(true);
+    setMigrateUrlsResult(null);
+    try {
+      const { data } = await api.post("/admin/migrate-progress-report-urls");
+      setMigrateUrlsResult(data);
+    } catch (e) {
+      alert("Failed: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setMigratingUrls(false);
+    }
+  };
+
+  const repairSessionInvoices = async () => {
+    if (!window.confirm("Backfill invoice_id on sessions and fix HS service_type for HS-only clients?")) return;
+    setRepairingSessions(true);
+    setRepairSessionsResult(null);
+    try {
+      const { data } = await api.post("/admin/repair-session-invoices");
+      setRepairSessionsResult(data);
+    } catch (e) {
+      alert("Failed: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setRepairingSessions(false);
     }
   };
 
@@ -234,6 +282,68 @@ export default function Admin() {
             {prSeedResult.missing_clients?.length > 0 && (
               <div style={{ color: "#8B6918" }}>Clients not found: {prSeedResult.missing_clients.join(", ")}</div>
             )}
+          </div>
+        )}
+      </div>
+
+      <div className="card p-5 mb-5" style={{ borderColor: "#D4C4E8", background: "#FAF7FD" }}>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <div className="font-bold" style={{ color: "#2C3625" }}>Update Apr 2026 Report Drive Links</div>
+            <div className="text-xs" style={{ color: "#5C6853" }}>
+              One-time migration — sets Drive URLs on existing Apr 2026 progress reports by client file number.
+            </div>
+          </div>
+          <button type="button" onClick={migrateProgressUrls} disabled={migratingUrls} className="btn btn-secondary text-sm">
+            {migratingUrls ? <span className="spinner" /> : "Migrate Drive URLs"}
+          </button>
+        </div>
+        {migrateUrlsResult && (
+          <div className="mt-3 p-3 rounded-lg text-xs" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+            <strong>{migrateUrlsResult.message}</strong>
+            {migrateUrlsResult.missing_clients?.length > 0 && (
+              <div style={{ color: "#8B6918" }}>Clients not found: {migrateUrlsResult.missing_clients.join(", ")}</div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="card p-5 mb-5" style={{ borderColor: "#C4D4B8", background: "#F5FAF3" }}>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <div className="font-bold" style={{ color: "#2C3625" }}>Repair Session Invoice Links</div>
+            <div className="text-xs" style={{ color: "#5C6853" }}>
+              Backfill missing invoice_id on sessions and set service_type to HS for HS-only clients.
+            </div>
+          </div>
+          <button type="button" onClick={repairSessionInvoices} disabled={repairingSessions} className="btn btn-primary text-sm">
+            {repairingSessions ? <span className="spinner" /> : "Repair Sessions"}
+          </button>
+        </div>
+        {repairSessionsResult && (
+          <div className="mt-3 p-3 rounded-lg text-xs space-y-1" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+            <div><strong>Repair complete</strong></div>
+            <div>Invoice links: {repairSessionsResult.invoice_ids_linked ?? 0} · Service type fixes: {repairSessionsResult.service_types_fixed ?? 0}</div>
+          </div>
+        )}
+      </div>
+
+      <div className="card p-5 mb-5" style={{ borderColor: "#E8C4C4", background: "#FDF5F5" }}>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <div className="font-bold" style={{ color: "#8A3F27" }}>Clear All Leave Requests (Test Data)</div>
+            <div className="text-xs" style={{ color: "#5C6853" }}>
+              Permanently deletes every record in the leaves collection. Use once to clear test data.
+            </div>
+          </div>
+          <button data-testid="clear-leaves-btn" type="button" onClick={clearAllLeaves} disabled={clearingLeaves}
+            className="btn text-sm" style={{ background: "#C97B5C", color: "#fff", borderColor: "#C97B5C" }}>
+            {clearingLeaves ? <span className="spinner" /> : "Clear All Leave Requests"}
+          </button>
+        </div>
+        {clearLeavesResult && (
+          <div className="mt-3 p-3 rounded-lg text-xs" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+            <strong>{clearLeavesResult.message}</strong>
           </div>
         )}
       </div>

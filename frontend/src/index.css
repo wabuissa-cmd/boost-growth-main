@@ -190,6 +190,7 @@ main, .page-enter { min-width: 0; }
 .evt-avc     { background: #FFEAE0; border-color: #F0B89F; color: #7A4123; }
 .evt-leave   { background: #D9EAD3; border-color: #B6D7A8; color: #3D5C3A; font-style: italic; }
 .evt-break   { background: #F5F5DC; border-color: #C9C09A; color: #6B6038; font-style: italic; }
+.evt-available { background: #FFFFFF; border-color: #DDD8D0; color: #5C6853; }
 .cell-cancel-therapist {
     background: var(--yellow-cancel) !important;
     border-color: var(--yellow-cancel-border) !important;
@@ -259,8 +260,8 @@ main, .page-enter { min-width: 0; }
 .sched-sheet .sheet-slot { min-width: 88px; cursor: default; }
 .sched-sheet .sheet-slot.editable { cursor: pointer; }
 .sched-sheet .sheet-slot.editable:hover { outline: 2px solid #7A8A6A; outline-offset: -2px; }
-.sched-sheet .sheet-slot.cell-empty { background: #CFCFCF; }
-.sched-sheet .sheet-slot.cell-empty:hover { background: #E5EBE1; }
+.sched-sheet .sheet-slot.cell-empty { background: #F3F4F6; }
+.sched-sheet .sheet-slot.cell-empty:hover { background: #E5E7EB; }
 .sched-sheet .sheet-slot.has-event:hover { transform: scale(1.02); z-index: 2; }
 .sched-sheet .sheet-slot.copied-source { outline: 2px dashed #C28E6A !important; outline-offset: -2px; animation: copy-pulse 1s ease-in-out infinite; }
 @keyframes copy-pulse { 0%,100% { outline-color: #C28E6A; } 50% { outline-color: #D4A064; } }

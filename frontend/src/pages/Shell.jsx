@@ -31,15 +31,14 @@ export default function Shell() {
     { to: "/clients", icon: <UsersThree size={18} weight="duotone"/>, label: "Clients", testid: "nav-clients" },
   ];
 
-  // Enrollment dropdown (admin only — Intake is admin-only)
-  const enrollmentItems = isAdmin
+  // Referrals dropdown (admin only — Intake)
+  const referralsItems = isAdmin
     ? [{ to: "/intake", label: "Intake", testid: "nav-intake" }]
     : [];
 
-  // Requests dropdown — Requests / Leave Requests / Leave Balance (admin)
+  // Requests dropdown — Requests + Leave Balance (admin)
   const requestsItems = [];
   if (isAdmin) requestsItems.push({ to: "/requests", label: "Requests", testid: "nav-requests" });
-  requestsItems.push({ to: "/leave-requests", label: isAdmin ? "Leave Requests" : "My Leaves", testid: "nav-leave-requests" });
   if (isAdmin) requestsItems.push({ to: "/leave-balance", label: "Leave Balance", testid: "nav-leave-balance" });
 
   // Admin tools (Reports moved here since it doesn't fit Requests)
@@ -79,9 +78,9 @@ export default function Shell() {
                   {l.icon}<span>{l.label}</span>
                 </NavLink>
               ))}
-              {enrollmentItems.length > 0 && (
-                <NavDropdown testid="nav-enrollment" label="Enrollment" icon={<Folder size={18} weight="duotone"/>}
-                             items={enrollmentItems} loc={loc}/>
+              {referralsItems.length > 0 && (
+                <NavDropdown testid="nav-referrals" label="Referrals" icon={<Folder size={18} weight="duotone"/>}
+                             items={referralsItems} loc={loc}/>
               )}
               {requestsItems.length > 0 && (
                 <NavDropdown testid="nav-requests-drop" label="Requests" icon={<ListChecks size={18} weight="duotone"/>}
@@ -162,10 +161,10 @@ export default function Shell() {
                   {l.icon}<span>{l.label}</span>
                 </NavLink>
               ))}
-              {enrollmentItems.length > 0 && (
+              {referralsItems.length > 0 && (
                 <div className="mt-1">
-                  <div className="text-[10px] tracking-widest px-3 mt-2 mb-1" style={{color: "#8B9E7A"}}>ENROLLMENT</div>
-                  {enrollmentItems.map(s => (
+                  <div className="text-[10px] tracking-widest px-3 mt-2 mb-1" style={{color: "#8B9E7A"}}>REFERRALS</div>
+                  {referralsItems.map(s => (
                     <NavLink key={s.to} to={s.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
                       <Folder size={16} weight="duotone"/><span>{s.label}</span>
                     </NavLink>
