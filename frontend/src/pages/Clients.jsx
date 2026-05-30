@@ -742,7 +742,7 @@ function ProgressReportsList({ clientId, fileNo, client, isAdmin, embedded }) {
           <input className="input text-xs w-full" placeholder="Notes (optional)"
             value={draft.notes} onChange={e => setDraft({ ...draft, notes: e.target.value })} />
           <div className="flex justify-end gap-2 pt-1">
-            <button onClick={() => { setAdding(false); setDraft({ title: "", report_date: "", notes: "" }); setDraftFile(null); }}
+            <button onClick={() => { setAdding(false); setDraft({ title: "", report_date: "", notes: "", url: "" }); setDraftFile(null); }}
               className="text-xs px-3 py-1.5 rounded-lg border" style={{ borderColor: "#E8E4DE", color: "#6B7280" }}>
               Cancel
             </button>
