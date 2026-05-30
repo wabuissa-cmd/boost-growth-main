@@ -181,26 +181,106 @@ export function clientHasServiceInvoices(invoices, code) {
   return (invoices || []).some(i => invoiceMatchesServiceType(i, code));
 }
 
-export function inferDefaultServiceType(allInvoices, user, sessions) {
-  const hasHS = clientHasServiceInvoices(allInvoices, "HS");
-  const hasSS = clientHasServiceInvoices(allInvoices, "SS");
+export function normalizeClientServiceType(serviceType) {
+  if (!serviceType) return null;
+  const raw = String(serviceType).trim();
+  const compact = raw.toUpperCase().replace(/\s+/g, "");
+  if (compact === "HS+SS" || compact === "HS/SS" || compact === "HS&SS") return "HS+SS";
+  if (compact === "HS" || compact === "SS" || compact === "AVC") return compact;
+  if (isHomeService(raw) && isSchoolService(raw)) return "HS+SS";
+  if (isSchoolService(raw) && !isHomeService(raw)) return "SS";
+  if (isHomeService(raw) && !isSchoolService(raw)) return "HS";
+  return null;
+}
 
-  if (user?.role === "therapist" && user?.id) {
-    let thHS = 0;
-    let thSS = 0;
-    for (const s of sessions || []) {
-      if (!(s.therapist_ids || []).includes(user.id)) continue;
-      const blob = `${s.status || ""} ${s.note || ""} ${s.location || ""}`;
-      if (/\bss\s*\|/i.test(blob) || /^ss\b/i.test(String(s.status || ""))) thSS += 1;
-      else if (/\bhs\s*\|/i.test(blob) || /^hs\b/i.test(String(s.status || ""))) thHS += 1;
-    }
-    if (thSS > thHS && hasSS) return "SS";
-    if (thHS > thSS && hasHS) return "HS";
+/** Which HS/SS tabs are allowed from client profile (AVC → no HS/SS toggle). */
+export function getServicesFromType(serviceType) {
+  const t = normalizeClientServiceType(serviceType);
+  if (t === "AVC") return ["AVC"];
+  if (t === "HS+SS") return ["HS", "SS"];
+  if (t === "HS") return ["HS"];
+  if (t === "SS") return ["SS"];
+  return ["HS", "SS"];
+}
+
+export function countServiceInvoices(invoices, code) {
+  return (invoices || []).filter(i => invoiceMatchesServiceType(i, code)).length;
+}
+
+/** Tab enable/disable + legacy flags for invoice sheet HS/SS buttons. */
+export function resolveServiceTabState(client, allInvoices) {
+  const clientType = normalizeClientServiceType(client?.service_type);
+  const profileServices = getServicesFromType(client?.service_type);
+  const hsCount = countServiceInvoices(allInvoices, "HS");
+  const ssCount = countServiceInvoices(allInvoices, "SS");
+  const profileHasHS = profileServices.includes("HS");
+  const profileHasSS = profileServices.includes("SS");
+  const showToggle = clientType !== "AVC";
+
+  const hsClickable = profileHasHS || hsCount > 0;
+  const ssClickable = profileHasSS || ssCount > 0;
+
+  return {
+    clientType,
+    profileServices,
+    showToggle,
+    hsCount,
+    ssCount,
+    profileHasHS,
+    profileHasSS,
+    hsClickable,
+    ssClickable,
+    hsLegacy: !profileHasHS && hsCount > 0,
+    ssLegacy: !profileHasSS && ssCount > 0,
+    hsDisabled: !hsClickable,
+    ssDisabled: !ssClickable,
+  };
+}
+
+function pickDefaultByOpenAndRecency(allInvoices, fallback) {
+  const openHS = (allInvoices || []).filter(
+    i => !i.is_closed && normalizeServiceTypeCode(i.service_type) === "HS"
+  );
+  const openSS = (allInvoices || []).filter(
+    i => !i.is_closed && normalizeServiceTypeCode(i.service_type) === "SS"
+  );
+  if (openHS.length && !openSS.length) return "HS";
+  if (openSS.length && !openHS.length) return "SS";
+  if (openHS.length && openSS.length) return "HS";
+
+  const sorted = [...(allInvoices || [])].sort((a, b) => {
+    const da = a.start_date || a.created_at || "";
+    const db = b.start_date || b.created_at || "";
+    return String(db).localeCompare(String(da));
+  });
+  for (const inv of sorted) {
+    const c = normalizeServiceTypeCode(inv.service_type);
+    if (c === "HS" || c === "SS") return c;
+  }
+  return fallback;
+}
+
+export function inferDefaultServiceType(allInvoices, client, user, sessions) {
+  const tab = resolveServiceTabState(client, allInvoices);
+  const { clientType, profileHasHS, profileHasSS } = tab;
+
+  if (clientType === "AVC") return null;
+
+  // Client profile is source of truth for default tab
+  if (clientType === "SS") return "SS";
+  if (clientType === "HS") return "HS";
+
+  if (clientType === "HS+SS") {
+    return pickDefaultByOpenAndRecency(allInvoices, "HS");
   }
 
-  if (hasHS && !hasSS) return "HS";
-  if (hasSS && !hasHS) return "SS";
-  return "HS";
+  // null/empty profile — both tabs available
+  if (tab.hsCount > 0 && tab.ssCount === 0) return "HS";
+  if (tab.ssCount > 0 && tab.hsCount === 0) return "SS";
+  if (tab.hsCount === 0 && tab.ssCount === 0) {
+    return profileHasSS && !profileHasHS ? "SS" : "HS";
+  }
+  return pickDefaultByOpenAndRecency(allInvoices, profileHasHS ? "HS" : "SS");
 }
 
 export function pickLatestOpenInvoice(invoiceList) {

@@ -14,8 +14,9 @@ import {
   enrichClientBilling, resolveClientBillingMode, formatServiceTypeDisplay,
   resolveCycleAnchor, computeWeeksProgress, groupSessionsByWeeks,
   fmtDate, dayShort, WEEK_ROW_BG,
-  normalizeServiceTypeCode, clientHasServiceInvoices, inferDefaultServiceType,
+  normalizeServiceTypeCode, inferDefaultServiceType,
   pickLatestOpenInvoice, computeSsTotals, ssSessionDayValue,
+  resolveServiceTabState,
 } from "../attendanceUtils";
 
 const SUPERVISOR_CLIENTS = {
@@ -44,27 +45,44 @@ function getUsedHours(sessions, clientId, resetAt) {
     .reduce((sum, s) => sum + (parseFloat(s.hours) || 0), 0);
 }
 
-function ServiceTypeToggle({ value, onChange, hasHS, hasSS }) {
+function ServiceTypeToggle({ value, onChange, tabState }) {
   const renderBtn = (code) => {
     const active = value === code;
-    const enabled = code === "HS" ? hasHS : hasSS;
+    const count = code === "HS" ? tabState.hsCount : tabState.ssCount;
+    const legacy = code === "HS" ? tabState.hsLegacy : tabState.ssLegacy;
+    const disabled = code === "HS" ? tabState.hsDisabled : tabState.ssDisabled;
+    if (count > 0) {
+      label = legacy ? `${code} (legacy) (${count})` : `${code} (${count})`;
+    } else if (!disabled) {
+      label = `${code} — No invoices`;
+    } else if (legacy) {
+      label = `${code} (legacy)`;
+    }
+
+    const tooltip = disabled
+      ? `This client does not have ${code === "HS" ? "Home Session (HS)" : "School Support (SS)"} service`
+      : legacy
+        ? `Historical ${code} invoices (client is now ${tabState.clientType || "other"} only)`
+        : undefined;
+
     return (
       <button
         key={code}
         type="button"
         data-testid={`service-type-${code}`}
-        disabled={!enabled}
-        onClick={() => enabled && onChange(code)}
+        disabled={disabled}
+        title={tooltip}
+        onClick={() => !disabled && onChange(code)}
         className="px-3 py-1.5 text-xs font-bold rounded-lg border-2 transition shrink-0"
         style={
           active
             ? { background: "#7A8A6A", color: "#fff", borderColor: "#7A8A6A" }
-            : !enabled
+            : disabled
               ? { background: "#F5F5F5", color: "#A0A0A0", borderColor: "#E0E0E0", opacity: 0.55, cursor: "not-allowed" }
-              : { background: "#fff", color: "#5C6853", borderColor: "#DDD8D0" }
+              : { background: "#fff", color: "#5C6853", borderColor: "#7A8A6A" }
         }
       >
-        {code}
+        {label}
       </button>
     );
   };
@@ -596,7 +614,9 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [packageSize, setPackageSize] = useState(client.package_hours || 24);
   const [allInvoices, setAllInvoices] = useState([]);
-  const [serviceTypeFilter, setServiceTypeFilter] = useState("HS");
+  const [serviceTypeFilter, setServiceTypeFilter] = useState(() =>
+    inferDefaultServiceType([], client, user, sessions) || "HS"
+  );
   const [invoices, setInvoices] = useState([]);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState("");
   const [packageEndDate, setPackageEndDate] = useState(client.package_end_date || "");
@@ -612,8 +632,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   const prevServiceFilter = useRef(serviceTypeFilter);
 
   const findT = id => therapists.find(t => t.id === id);
-  const hasHS = useMemo(() => clientHasServiceInvoices(allInvoices, "HS"), [allInvoices]);
-  const hasSS = useMemo(() => clientHasServiceInvoices(allInvoices, "SS"), [allInvoices]);
+  const tabState = useMemo(() => resolveServiceTabState(client, allInvoices), [client, allInvoices]);
   const isSchool = serviceTypeFilter === "SS";
   const selectedInvoice = invoices.find(i => i.id === selectedInvoiceId);
   const cycleSessions = localSessions;
@@ -658,40 +677,51 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   );
   const showAdminWeekGuides = !!(weekGroups && weekGroups.length);
 
+  // Reset invoice tab when switching clients
+  useEffect(() => {
+    invoicesInitialized.current = false;
+    const def = inferDefaultServiceType([], client, user, sessions) || "HS";
+    setServiceTypeFilter(def);
+    setSelectedInvoiceId("");
+  }, [client.id, client.service_type]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Load all invoices, then apply HS/SS filter
-  const loadInvoices = useCallback(async (typeCode) => {
-    const params = typeCode ? { service_type: typeCode } : {};
-    const r = await api.get(`/clients/${client.id}/invoices`, { params }).catch(() => ({ data: [] }));
+  const loadInvoices = useCallback(async () => {
+    const r = await api.get(`/clients/${client.id}/invoices`).catch(() => ({ data: [] }));
     return r.data || [];
   }, [client.id]);
 
   useEffect(() => {
     loadInvoices().then(list => {
       setAllInvoices(list);
-      if (!invoicesInitialized.current && list.length) {
-        const def = inferDefaultServiceType(list, user, sessions);
+      if (!invoicesInitialized.current) {
         invoicesInitialized.current = true;
+        const def = inferDefaultServiceType(list, client, user, sessions) || "HS";
         setServiceTypeFilter(def);
-        const filtered = list.filter(i => normalizeServiceTypeCode(i.service_type) === def);
+        const filtered = tabState.showToggle
+          ? list.filter(i => normalizeServiceTypeCode(i.service_type) === def)
+          : list;
         const pick = pickLatestOpenInvoice(filtered);
         setSelectedInvoiceId(pick?.id || "");
       }
     }).catch(() => setAllInvoices([]));
-  }, [client.id, loadInvoices, user, sessions]);
+  }, [client.id, client.service_type, loadInvoices]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!allInvoices.length) {
       setInvoices([]);
       return;
     }
-    const filtered = allInvoices.filter(i => normalizeServiceTypeCode(i.service_type) === serviceTypeFilter);
+    const filtered = tabState.showToggle
+      ? allInvoices.filter(i => normalizeServiceTypeCode(i.service_type) === serviceTypeFilter)
+      : allInvoices;
     setInvoices(filtered);
     if (prevServiceFilter.current !== serviceTypeFilter) {
       prevServiceFilter.current = serviceTypeFilter;
       const pick = pickLatestOpenInvoice(filtered);
       setSelectedInvoiceId(pick?.id || "");
     }
-  }, [allInvoices, serviceTypeFilter]);
+  }, [allInvoices, serviceTypeFilter, tabState.showToggle]);
 
   // Re-fetch sessions when invoice filter changes
   useEffect(() => {
@@ -859,12 +889,13 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
         <div className="flex items-center justify-between px-5 py-3 border-b border-[#E8E4DE] no-print flex-wrap gap-2">
           <div className="font-bold text-sm" style={{color: "#2C3625"}}>Invoice Sheet · {client.name}</div>
           <div className="flex gap-2 flex-wrap items-center">
-            <ServiceTypeToggle
-              value={serviceTypeFilter}
-              onChange={setServiceTypeFilter}
-              hasHS={hasHS}
-              hasSS={hasSS}
-            />
+            {tabState.showToggle && (
+              <ServiceTypeToggle
+                value={serviceTypeFilter}
+                onChange={setServiceTypeFilter}
+                tabState={tabState}
+              />
+            )}
             {invoices.length > 0 ? (
               <select data-testid="invoice-dropdown" value={selectedInvoiceId} onChange={e => setSelectedInvoiceId(e.target.value)}
                       className="select text-xs" style={{maxWidth: 220}}>
@@ -875,9 +906,13 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                   </option>
                 ))}
               </select>
-            ) : (
+            ) : tabState.showToggle ? (
               <span className="text-[11px] italic px-2 py-1.5" style={{color: "#8B6918", background: "#FAE8C8", borderRadius: 8}}>
                 No {serviceTypeFilter} invoices
+              </span>
+            ) : (
+              <span className="text-[11px] italic px-2 py-1.5" style={{color: "#8B6918", background: "#FAE8C8", borderRadius: 8}}>
+                No invoices
               </span>
             )}
             {isAdmin && (

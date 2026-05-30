@@ -1241,7 +1241,7 @@ def _session_blob_service_hint(session: dict) -> Optional[str]:
     return None
 
 
-async def _infer_invoice_service_type(inv_id: str, client_id: str, inv_num: str) -> Optional[str]:
+async def _infer_invoice_service_type(inv_id: str, client_id: str, inv_num: str, client: Optional[dict] = None) -> Optional[str]:
     inv_num = (inv_num or "").strip()
     q: dict = {"client_id": client_id, "$or": [{"invoice_id": inv_id}]}
     if inv_num:
@@ -1258,6 +1258,10 @@ async def _infer_invoice_service_type(inv_id: str, client_id: str, inv_num: str)
         return "SS"
     if hs > ss:
         return "HS"
+    if client:
+        cst = _normalize_service_type(client.get("service_type"))
+        if cst in ("HS", "SS"):
+            return cst
     return None
 
 
@@ -1273,7 +1277,8 @@ async def _migrate_invoice_service_types() -> int:
                 migrated += 1
             continue
         inferred = await _infer_invoice_service_type(
-            inv["id"], inv.get("client_id", ""), inv.get("invoice_number", "")
+            inv["id"], inv.get("client_id", ""), inv.get("invoice_number", ""),
+            client=await db.clients.find_one({"id": inv.get("client_id")}, {"_id": 0, "service_type": 1}),
         )
         if inferred:
             await db.invoices.update_one({"id": inv["id"]}, {"$set": {"service_type": inferred}})
@@ -1292,14 +1297,50 @@ THERAPIST_EMAIL_MIGRATIONS = [
 
 
 async def _migrate_therapist_emails() -> int:
+    """Fix therapist emails: rename old→new, then force-sync from MASTER_THERAPISTS by key/name."""
     updated = 0
     for old_email, new_email in THERAPIST_EMAIL_MIGRATIONS:
         old_l = old_email.lower()
         new_l = new_email.lower()
-        r1 = await db.therapists.update_many({"email": {"$regex": f"^{old_l}$", "$options": "i"}}, {"$set": {"email": new_l}})
-        r2 = await db.users.update_many({"email": {"$regex": f"^{old_l}$", "$options": "i"}}, {"$set": {"email": new_l}})
+        r1 = await db.therapists.update_many(
+            {"email": {"$regex": f"^{re.escape(old_l)}$", "$options": "i"}},
+            {"$set": {"email": new_l}},
+        )
+        r2 = await db.users.update_many(
+            {"email": {"$regex": f"^{re.escape(old_l)}$", "$options": "i"}},
+            {"$set": {"email": new_l}},
+        )
         updated += (r1.modified_count or 0) + (r2.modified_count or 0)
-    # Ensure Jenan exists with correct email if referenced in assignments
+
+    existing_ts = await db.therapists.find(
+        {}, {"_id": 0, "id": 1, "name": 1, "key": 1, "email": 1}
+    ).to_list(500)
+
+    for key, first, email, role, leave_balance, join_date in MASTER_THERAPISTS:
+        new_l = email.lower()
+        match = next((t for t in existing_ts if t.get("key") == key), None)
+        if not match:
+            match = next(
+                (t for t in existing_ts if first.lower() in (t.get("name") or "").lower()),
+                None,
+            )
+        if not match:
+            continue
+        tid = match["id"]
+        old_l = (match.get("email") or "").lower()
+        if old_l != new_l:
+            await db.therapists.update_one({"id": tid}, {"$set": {"email": new_l}})
+            updated += 1
+        # users: match by therapist id or any prior email for this person
+        for candidate in {old_l, new_l, *(o.lower() for o, n in THERAPIST_EMAIL_MIGRATIONS if n.lower() == new_l)}:
+            if not candidate:
+                continue
+            r = await db.users.update_many({"email": candidate}, {"$set": {"email": new_l}})
+            updated += r.modified_count or 0
+        r_id = await db.users.update_one({"id": tid}, {"$set": {"email": new_l}})
+        if r_id.modified_count:
+            updated += r_id.modified_count
+
     jenan = await db.therapists.find_one({"email": "jsalmuhaisin@boostgrowthsa.com"}, {"_id": 0, "id": 1})
     if not jenan:
         hit = await db.therapists.find_one({"name": {"$regex": "Jenan", "$options": "i"}}, {"_id": 0, "id": 1})
@@ -1307,6 +1348,13 @@ async def _migrate_therapist_emails() -> int:
             await db.therapists.update_one({"id": hit["id"]}, {"$set": {"email": "jsalmuhaisin@boostgrowthsa.com"}})
             updated += 1
     return updated
+
+
+@api.post("/admin/migrate-therapist-emails")
+async def admin_migrate_therapist_emails(_=Depends(admin_only)):
+    """Manually run therapist email migration (also runs on server startup)."""
+    n = await _migrate_therapist_emails()
+    return {"ok": True, "records_updated": n}
 
 
 _INV_SHEET_RE = _re_top.compile(r"^(copy of\s+)?inv[\s\-_]*\d+", _re_top.IGNORECASE)
@@ -1603,12 +1651,18 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
         if earliest:
             await db.invoices.update_one({"id": inv_doc["id"]}, {"$set": {"start_date": earliest}})
 
-        # Resolve service_type from header, sheet name, or session majority
+        # Resolve service_type from header, sheet sessions, or client profile
         st = _normalize_service_type(header_info.get("service_type") or inv_doc.get("service_type"))
-        if not st and sheet_ss > sheet_hs:
-            st = "SS"
-        elif not st and sheet_hs > sheet_ss:
+        if not st and sheet_hs > sheet_ss:
             st = "HS"
+        elif not st and sheet_ss > sheet_hs:
+            st = "SS"
+        elif not st:
+            client_st = _normalize_service_type(client.get("service_type"))
+            if client_st == "SS":
+                st = "SS"
+            elif client_st == "HS":
+                st = "HS"
         if st and inv_doc.get("service_type") != st:
             await db.invoices.update_one({"id": inv_doc["id"]}, {"$set": {"service_type": st}})
             inv_doc["service_type"] = st
