@@ -78,6 +78,10 @@ export default function Admin() {
 
   const sendTest = async () => {
     if (!testTo) return;
+    if (!emailSettings.smtp_configured && !emailSettings.resend_configured) {
+      alert("⚠️ لازم تضغطين Save Settings أولاً قبل Send Test");
+      return;
+    }
     setTestResult({ status: "sending" });
     try {
       const r = await api.post("/admin/email-test-send", { to: testTo });
@@ -86,6 +90,11 @@ export default function Admin() {
     } catch (e) {
       setTestResult({ status: "failed", error: e.response?.data?.detail || e.message });
     }
+  };
+
+  const saveAndTest = async () => {
+    await saveEmail();
+    if (testTo) sendTest();
   };
 
   const save = async () => {
@@ -500,9 +509,12 @@ export default function Admin() {
               <label className="label">Resend API Key</label>
               <input data-testid="resend-key-input" className="input" type="password" placeholder="re_xxxxxxxxxxx" value={emailForm.resend_api_key} onChange={e => setEmailForm({ ...emailForm, resend_api_key: e.target.value })} />
             </div>
-            <div className="col-span-2 flex justify-end gap-2">
+            <div className="col-span-2 flex justify-end gap-2 flex-wrap">
               <button onClick={() => setEditEmail(false)} className="btn btn-outline">Cancel</button>
               <button data-testid="save-email-settings-btn" onClick={saveEmail} className="btn btn-primary">Save Settings</button>
+              {testTo && (
+                <button type="button" onClick={saveAndTest} className="btn btn-gold text-sm">Save &amp; Send Test</button>
+              )}
             </div>
           </div>
         ) : (
@@ -517,6 +529,9 @@ export default function Admin() {
         {/* Test send */}
         <div className="mt-4 pt-4 border-t" style={{ borderColor: "#E8E4DE" }}>
           <div className="text-[11px] tracking-widest mb-2" style={{ color: "#8B9E7A" }}>SEND A TEST EMAIL</div>
+          <div className="text-xs mb-2 px-2 py-1.5 rounded-lg" style={{ background: "#FAF0D1", color: "#6B5218" }}>
+            ⚠️ <strong>مهم:</strong> بعد تعبئة App Password اضغطي <strong>Save Settings</strong> (أو Save &amp; Send Test) — Send Test لوحده ما يحفظ كلمة المرور.
+          </div>
           <div className="flex gap-2 flex-wrap">
             <input data-testid="test-email-input" className="input flex-1 text-sm" placeholder="recipient@example.com" value={testTo} onChange={e=>setTestTo(e.target.value)} />
             <button data-testid="send-test-email-btn" onClick={sendTest} disabled={!testTo || testResult?.status==="sending"} className="btn btn-primary text-sm disabled:opacity-50">
@@ -534,6 +549,7 @@ export default function Admin() {
                   . تحققي من inbox: <b>{testResult.to}</b> (وشوفي Spam)</>
               ) : (
                 <>❌ <b>فشل:</b> <code>{testResult.error || JSON.stringify(testResult)}</code><br/>
+                {testResult.hint_ar && <span className="block mt-1 font-bold">💡 {testResult.hint_ar}</span>}
                 {(testResult.error || "").includes("testing emails") && <span className="block mt-1">💡 Resend test mode: أرسلي فقط لإيميل حسابك في Resend، أو استخدمي Gmail SMTP.</span>}
                 {(testResult.error || "").includes("not verified") && <span className="block mt-1">💡 الدومين غير مفعّل في Resend — استخدمي Gmail SMTP (أسهل).</span>}
                 {(testResult.error || "").includes("535") && <span className="block mt-1">💡 Gmail: تأكدي من App Password (مو كلمة مرور الحساب العادية).</span>}

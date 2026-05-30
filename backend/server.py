@@ -2787,7 +2787,23 @@ def _apply_email_settings(doc: dict) -> None:
     if doc.get("smtp_user"):
         os.environ["SMTP_USER"] = doc["smtp_user"]
     if doc.get("smtp_password"):
-        os.environ["SMTP_PASSWORD"] = doc["smtp_password"]
+        os.environ["SMTP_PASSWORD"] = str(doc["smtp_password"]).replace(" ", "")
+
+async def _reload_email_settings_from_db() -> None:
+    doc = await db.settings.find_one({"key": "email"}, {"_id": 0})
+    _apply_email_settings(doc or {})
+
+def _smtp_error_hint(err: str) -> str:
+    e = (err or "").lower()
+    if "535" in e or "username and password not accepted" in e:
+        return "Gmail رفض الدخول: تأكدي من App Password (16 حرف بدون مسافات) — مو كلمة مرور الحساب. ولازم تضغطي Save Settings قبل Send Test."
+    if "534" in e:
+        return "Google Workspace قد يكون موقف SMTP — تواصلي مع مدير حساب Google للمنشأة."
+    if "550" in e or "relay" in e:
+        return "Gmail ما يسمح بالإرسال من هذا العنوان — خلي From Email نفس SMTP User."
+    if "connection" in e or "timed out" in e:
+        return "تعذر الاتصال بـ smtp.gmail.com — جربي مرة ثانية أو تحققي من الشبكة."
+    return ""
     if doc.get("email_provider"):
         os.environ["EMAIL_PROVIDER"] = doc["email_provider"]
 
@@ -2811,10 +2827,21 @@ def _send_via_smtp_sync(to: str, subject: str, body: str) -> None:
     password = os.environ.get("SMTP_PASSWORD")
     if not user or not password:
         raise ValueError("SMTP user/password not configured")
+    password = str(password).replace(" ", "")
     from_addr = _email_from_address()
+    # Gmail requires authenticated address to match sender
+    if "<" in from_addr and ">" in from_addr:
+        display_from = from_addr
+        envelope_from = from_addr.split("<")[-1].split(">")[0].strip()
+    else:
+        display_from = user
+        envelope_from = user
+    if envelope_from.lower() != user.lower():
+        display_from = user
+        envelope_from = user
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = from_addr
+    msg["From"] = display_from
     msg["To"] = to
     msg.attach(MIMEText(body, "plain", "utf-8"))
     msg.attach(MIMEText(f"<p>{body.replace(chr(10), '<br/>')}</p>", "html", "utf-8"))
@@ -2823,17 +2850,24 @@ def _send_via_smtp_sync(to: str, subject: str, body: str) -> None:
         server.starttls()
         server.ehlo()
         server.login(user, password)
-        server.sendmail(user, [to], msg.as_string())
+        server.sendmail(envelope_from, [to], msg.as_string())
 
 @api.post("/admin/email-test-send")
 async def email_test_send(payload: dict, _=Depends(admin_only)):
-    """Test send to a target email. Returns clear error if Resend rejects."""
+    """Test send to a target email. Returns clear error if provider rejects."""
+    await _reload_email_settings_from_db()
     to = (payload.get("to") or "").strip()
     if not to:
         raise HTTPException(status_code=400, detail="Recipient email required")
+    if not _smtp_configured() and not _resend_configured():
+        raise HTTPException(status_code=400, detail="No email provider configured. Save Gmail SMTP settings first (Save Settings button).")
     result = await _send_email_stub(to,
         "Boost Growth — Test Email",
         "This is a test email from your Boost Growth Portal.\n\nIf you received this, email notifications are working correctly.\n\n— Boost Growth Portal")
+    if result.get("status") == "failed" and result.get("error"):
+        hint = _smtp_error_hint(result["error"])
+        if hint:
+            result["hint_ar"] = hint
     return result
 
 @api.get("/admin/email-settings")
@@ -2882,7 +2916,7 @@ async def save_email_settings(payload: EmailSettingsIn, _=Depends(admin_only)):
     if payload.smtp_user is not None:
         update["smtp_user"] = payload.smtp_user.strip()
     if payload.smtp_password and payload.smtp_password.strip():
-        update["smtp_password"] = payload.smtp_password.strip()
+        update["smtp_password"] = payload.smtp_password.strip().replace(" ", "")
     if payload.email_provider and payload.email_provider.strip() in ("auto", "smtp", "resend"):
         update["email_provider"] = payload.email_provider.strip()
     if not update:
@@ -3340,6 +3374,7 @@ async def admin_repair_session_invoices(_=Depends(admin_only)):
 # ------------------- Cancel-Notify (in-app + queued email) -------------------
 async def _send_email_stub(to: str, subject: str, body: str) -> dict:
     """Send email via SMTP (preferred) or Resend. Logs all attempts to email_queue."""
+    await _reload_email_settings_from_db()
     provider_pref = os.environ.get("EMAIL_PROVIDER", "auto")
     use_smtp = provider_pref == "smtp" or (provider_pref == "auto" and _smtp_configured())
     use_resend = provider_pref == "resend" or (provider_pref == "auto" and not use_smtp and _resend_configured())
@@ -3359,6 +3394,9 @@ async def _send_email_stub(to: str, subject: str, body: str) -> dict:
         except Exception as e:
             queue_doc["status"] = "failed"
             queue_doc["error"] = str(e)[:500]
+            hint = _smtp_error_hint(str(e))
+            if hint:
+                queue_doc["hint_ar"] = hint
             logger.warning(f"SMTP send failed to {to}: {e}")
     elif use_resend:
         api_key = os.environ.get("RESEND_API_KEY")
