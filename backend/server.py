@@ -1656,11 +1656,10 @@ async def client_billing_progress(cid: str, user=Depends(get_current_user)):
             "remaining": max(0.0, round(pkg - used_h, 1)),
             "percent": min(100, round((used_h / pkg) * 100)) if pkg else 0,
         }
-    # weeks-based
+    # weeks-based — 7-day windows from cycle_start_date anchor (same weekday each week)
     cycle_weeks = int(client.get("cycle_weeks") or 4)
     start_iso = client.get("cycle_start_date")
     if not start_iso:
-        # fallback to earliest completed session
         if completed:
             start_iso = min(s.get("session_date") or "9999" for s in completed)
         else:
@@ -1669,21 +1668,21 @@ async def client_billing_progress(cid: str, user=Depends(get_current_user)):
         start_d = datetime.fromisoformat(start_iso).date()
     except Exception:
         start_d = datetime.now(timezone.utc).date()
-    # Snap to Sunday on/before
-    while start_d.weekday() != 6:
-        start_d = start_d - timedelta(days=1)
-    # Determine completed weeks: each week where >=1 Completed session falls in [start+7k, start+7k+5)
     weeks_done = 0
     week_breakdown = []
     for k in range(cycle_weeks):
         week_start = start_d + timedelta(days=7 * k)
-        week_end = week_start + timedelta(days=5)  # Sun-Fri exclusive
-        in_week = [s for s in completed if s.get("session_date") and week_start.isoformat() <= s.get("session_date") < week_end.isoformat()]
+        week_end = week_start + timedelta(days=7)
+        ws_iso = week_start.isoformat()
+        we_iso = week_end.isoformat()
+        in_week = [s for s in completed if s.get("session_date") and ws_iso <= s.get("session_date") < we_iso]
         has = len(in_week) > 0
-        if has: weeks_done += 1
+        if has:
+            weeks_done += 1
         week_breakdown.append({
             "week_number": k + 1,
-            "week_start": week_start.isoformat(),
+            "week_start": ws_iso,
+            "week_end": we_iso,
             "sessions": len(in_week),
             "completed": has,
         })

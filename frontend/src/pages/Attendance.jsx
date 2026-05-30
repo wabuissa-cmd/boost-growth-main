@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, Fragment } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
 import {
@@ -10,6 +10,11 @@ import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
+import {
+  enrichClientBilling, resolveClientBillingMode, serviceTypeLabel,
+  resolveCycleAnchor, computeWeeksProgress, groupSessionsByWeeks,
+  fmtDate, dayShort, WEEK_ROW_BG,
+} from "../attendanceUtils";
 
 const SUPERVISOR_CLIENTS = {
   msMaha: ["035", "037", "038", "040", "041", "042", "047", "052", "054", "060", "063", "065", "070"],
@@ -36,12 +41,31 @@ function getUsedHours(sessions, clientId, resetAt) {
     .filter(s => !resetAt || (s.session_date && s.session_date >= resetAt.slice(0, 10)))
     .reduce((sum, s) => sum + (parseFloat(s.hours) || 0), 0);
 }
-function getStatus(used, pkg) {
-  const rem = pkg - used;
-  const pct = rem / pkg;
-  if (rem <= 0 || pct <= 0.2 || rem <= 2) return "urgent";
-  if (pct <= 0.35 || rem <= 4) return "warning";
-  return "ok";
+
+function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdit, onDeleted, rowBg }) {
+  const stColor = s.status === "Completed" ? "#3D4F35" :
+    s.status === "Cancelled" ? "#6B5218" :
+    s.status === "No Show" ? "#8A3F27" : "#5C6853";
+  const stBg = s.status === "Completed" ? "#E5EBE1" :
+    s.status === "Cancelled" ? "#FAF0D1" :
+    s.status === "No Show" ? "#F8EBE7" : "#F0EDE9";
+  const tNames = (s.therapist_ids || []).map(id => findT(id)?.name?.replace("Ms. ", "")).filter(Boolean).join(" - ");
+  const canEdit = isAdmin || isSupervisorForClient(user, client.file_no) || (s.therapist_ids || []).includes(currentUserId);
+  return (
+    <tr key={s.id} className="border-t border-[#E8E4DE]" style={{ background: rowBg || undefined }}>
+      <td className="p-2 font-bold">{dayShort(s.session_date)}</td>
+      <td className="p-2 font-bold">{fmtDate(s.session_date)}</td>
+      <td className="p-2"><span className="pill text-[10px] uppercase" style={{ background: stBg, color: stColor }}>{s.status}</span></td>
+      <td className="p-2">{s.start_time && s.end_time ? `${s.start_time} - ${s.end_time}` : "—"}</td>
+      <td className="p-2 font-bold">{s.hours}</td>
+      <td className="p-2">{tNames || "—"}</td>
+      <td className="p-2 italic" style={{ color: "#5C6853" }}>{s.note || ""}</td>
+      <td className="p-2 text-right whitespace-nowrap no-print">
+        {canEdit && <button onClick={() => onEdit(s)} className="btn btn-ghost p-1.5"><PencilSimple size={14}/></button>}
+        {canEdit && <button onClick={async () => { if (window.confirm("Delete?")) { await api.delete(`/sessions/${s.id}`); onDeleted(); } }} className="btn btn-ghost p-1.5 text-red-700"><Trash size={14}/></button>}
+      </td>
+    </tr>
+  );
 }
 
 export default function Attendance() {
@@ -67,31 +91,7 @@ export default function Attendance() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const enriched = useMemo(() => clients.map(c => {
-    if (c.billing_mode === "weeks") {
-      // Weeks-based: compute completed weeks in current cycle
-      const cycleWeeks = c.cycle_weeks || 4;
-      const cycleStart = c.cycle_start_date ? new Date(c.cycle_start_date) : null;
-      const completedSessions = sessions.filter(s => s.client_id === c.id && s.status === "Completed");
-      let weeksDone = 0;
-      if (cycleStart) {
-        for (let k = 0; k < cycleWeeks; k++) {
-          const ws = new Date(cycleStart); ws.setDate(ws.getDate() + 7 * k);
-          const we = new Date(ws); we.setDate(we.getDate() + 5);
-          const wsISO = ws.toISOString().slice(0,10);
-          const weISO = we.toISOString().slice(0,10);
-          if (completedSessions.some(s => s.session_date >= wsISO && s.session_date < weISO)) weeksDone++;
-        }
-      }
-      const pct = Math.round((weeksDone / cycleWeeks) * 100);
-      const status = pct >= 75 ? "urgent" : pct >= 50 ? "warning" : "ok";
-      return { ...c, billing_mode: "weeks", weeksDone, cycleWeeks, weeksRem: cycleWeeks - weeksDone, pct, status, used: 0, pkg: 0, rem: 0 };
-    }
-    const used = getUsedHours(sessions, c.id, c.package_reset_at);
-    const pkg = c.package_hours || 24;
-    const rem = Math.max(0, pkg - used);
-    return { ...c, billing_mode: "hours", used, pkg, rem, pct: Math.min(100, Math.round(used/pkg*100)), status: getStatus(used, pkg) };
-  }), [clients, sessions]);
+  const enriched = useMemo(() => clients.map(c => enrichClientBilling(c, sessions)), [clients, sessions]);
 
   const filtered = useMemo(() => {
     let list = enriched;
@@ -160,9 +160,18 @@ export default function Attendance() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="font-bold text-lg" style={{color: "#2C3625"}}>{c.name} <span className="text-xs font-normal ml-1" style={{color: "#8B9E7A"}}>#{c.file_no}</span></div>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <span className="pill text-[11px] font-bold px-2.5 py-1" style={{
+                        background: c.billing_mode === "weeks" ? "#E0EBD8" : "#F4EDE3",
+                        color: c.billing_mode === "weeks" ? "#2C5035" : "#6B5430",
+                        border: c.billing_mode === "weeks" ? "1px solid #B6D7A8" : "1px solid #E0CDB0",
+                      }}>
+                        {c.serviceLabel?.ar} · {c.serviceLabel?.en}
+                      </span>
+                    </div>
                     <div className="text-xs mt-0.5" style={{color: "#8B9E7A"}}>
                       {c.billing_mode === "weeks" ? (
-                        <>📅 Week {c.weeksDone}/{c.cycleWeeks} · {c.weeksRem} left</>
+                        <>📅 Week {c.currentWeek}/{c.cycleWeeks} · {c.weeksDone} completed · {c.weeksRem} left</>
                       ) : (
                         <>Pkg {c.pkg}h · Used {c.used.toFixed(1)}h</>
                       )} · Main: {findT(c.main_therapist_id)?.name || "—"}
@@ -192,7 +201,7 @@ export default function Attendance() {
                   <div className="h-full rounded-full transition-all" style={{ width: `${c.pct}%`, background: fillColor }}/>
                 </div>
                 <span className="text-xs min-w-[100px] text-right font-bold" style={{color: "#5C6853"}}>
-                  {c.billing_mode === "weeks" ? `${c.weeksRem}/${c.cycleWeeks} weeks left` : `${c.rem}/${c.pkg}h left`}
+                  {c.billing_mode === "weeks" ? `${c.weeksRem}/${c.cycleWeeks} weeks left` : `${c.rem.toFixed(1)}/${c.pkg}h left`}
                 </span>
               </div>
 
@@ -228,7 +237,11 @@ export default function Attendance() {
                 </div>
                 <div className="flex-1">
                   <div className="font-bold text-sm" style={{ color: "#1C2617" }}>{c.name}</div>
-                  <div className="text-[11px]" style={{ color: "#8B9E7A" }}>#{c.file_no} · {c.rem}/{c.pkg}h left</div>
+                  <div className="text-[11px]" style={{ color: "#8B9E7A" }}>
+                    #{c.file_no} · {c.billing_mode === "weeks"
+                      ? `Week ${c.currentWeek}/${c.cycleWeeks}`
+                      : `${c.rem.toFixed(1)}/${c.pkg}h left`}
+                  </div>
                 </div>
               </button>
             ))}
@@ -567,6 +580,30 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   const noShows = cycleSessions.filter(s => s.status === "No Show").length;
   const counted = completed + noShows;
 
+  const billingMode = useMemo(
+    () => resolveClientBillingMode(client, selectedInvoice),
+    [client, selectedInvoice]
+  );
+  const isSchool = billingMode === "weeks";
+  const serviceLabel = useMemo(
+    () => serviceTypeLabel(selectedInvoice?.service_type || client.service_type, billingMode),
+    [selectedInvoice, client.service_type, billingMode]
+  );
+  const cycleWeeks = client.cycle_weeks || 4;
+  const cycleAnchor = useMemo(
+    () => resolveCycleAnchor(client, selectedInvoice, cycleSessions),
+    [client, selectedInvoice, cycleSessions]
+  );
+  const weekProgress = useMemo(
+    () => computeWeeksProgress(cycleSessions, cycleAnchor, cycleWeeks),
+    [cycleSessions, cycleAnchor, cycleWeeks]
+  );
+  const weekGroups = useMemo(
+    () => groupSessionsByWeeks(cycleSessions, cycleAnchor, cycleWeeks),
+    [cycleSessions, cycleAnchor, cycleWeeks]
+  );
+  const showWeekDividers = !isSchool;
+
   // Load existing invoices for this client
   useEffect(() => {
     api.get(`/clients/${client.id}/invoices`).then(r => setInvoices(r.data || [])).catch(() => setInvoices([]));
@@ -725,11 +762,8 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
     setExportOpen(false);
   };
 
-  const fmtDate = (d) => {
-    const dt = new Date(d);
-    return `${dt.getDate()}/${dt.getMonth()+1}/${dt.getFullYear()}`;
-  };
-  const dayShort = (d) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" });
+  const fmtDateLocal = fmtDate;
+  const dayShortLocal = dayShort;
   const sortedInvoiceSessions = [...cycleSessions].sort((a, b) => new Date(a.session_date) - new Date(b.session_date));
 
   return (
@@ -809,10 +843,23 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
         {selectedInvoice && (
           <div className="px-5 py-2 flex items-center gap-2 text-xs no-print border-b border-[#E8E4DE] flex-wrap" style={{background: "#FAFAF7"}}>
             <span className="font-bold" style={{color: "#2C3625"}}>{selectedInvoice.invoice_number}</span>
+            <span className="pill text-[10px] font-bold" style={{
+              background: isSchool ? "#E0EBD8" : "#F4EDE3",
+              color: isSchool ? "#2C5035" : "#6B5430",
+            }}>
+              {serviceLabel.ar} · {serviceLabel.en}
+            </span>
             <span className="pill text-[10px]" style={{background: closed ? "#F8EBE7" : "#E5EBE1", color: closed ? "#8A3F27" : "#3D4F35"}}>
               {closed ? "Closed" : "Open"}
             </span>
-            <span style={{color: "#5C6853"}}>{rem.toFixed(1)}h remaining</span>
+            {isSchool ? (
+              <span style={{color: "#5C6853"}}>Week {weekProgress.currentWeek}/{cycleWeeks} · {weekProgress.weeksDone} completed</span>
+            ) : (
+              <>
+                <span style={{color: "#5C6853"}}>{rem.toFixed(1)}h remaining</span>
+                <span style={{color: "#8B9E7A"}}>· Week {weekProgress.currentWeek}/{cycleWeeks}</span>
+              </>
+            )}
             <button onClick={() => setShowInvoiceDetails(true)} className="btn btn-ghost text-[11px] py-0 px-2">ⓘ Details</button>
             {isAdmin && (
               <button onClick={() => deleteInvoice(selectedInvoice.id)} className="ml-auto text-[11px] underline" style={{color: "#8A3F27"}}>delete</button>
@@ -859,28 +906,72 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               {closed && (
                 <input type="date" value={closureDate} onChange={e=>setClosureDate(e.target.value)} className="text-xs mt-1 border-0 outline-none bg-transparent text-right no-print"/>
               )}
-              {closed && closureDate && <div className="text-xs mt-0.5" style={{color: "#5C6853"}}>Closure: {fmtDate(closureDate)}</div>}
-              {packageEndDate && <div className="text-xs mt-0.5" style={{color: "#5C6853"}}>Pkg ends: {fmtDate(packageEndDate)}</div>}
+              {closed && closureDate && <div className="text-xs mt-0.5" style={{color: "#5C6853"}}>Closure: {fmtDateLocal(closureDate)}</div>}
+              {packageEndDate && <div className="text-xs mt-0.5" style={{color: "#5C6853"}}>Pkg ends: {fmtDateLocal(packageEndDate)}</div>}
             </div>
           </div>
 
           {/* Patient info row */}
-          <div className="px-8 py-4 grid grid-cols-4 gap-4 border-b border-[#E8E4DE] text-sm">
-            <div>
-              <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PATIENT'S NAME</div>
-              <div className="font-bold" style={{color: "#2C3625"}}>{client.name}</div>
+          <div className="px-8 py-4 border-b border-[#E8E4DE] text-sm">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3">
+              <div>
+                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PATIENT'S NAME</div>
+                <div className="font-bold text-base" style={{color: "#2C3625"}}>{client.name}</div>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>FILE NO.</div>
+                <div className="font-bold text-base" style={{color: "#2C3625"}}>{client.file_no || "—"}</div>
+              </div>
+              <div className="md:col-span-2">
+                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>SERVICE TYPE</div>
+                <div className="font-bold text-lg mt-0.5" style={{color: isSchool ? "#2C5035" : "#6B5430"}}>
+                  {serviceLabel.ar} — {serviceLabel.en}
+                </div>
+                <div className="text-[11px] mt-0.5" style={{color: "#8B9E7A"}}>
+                  {isSchool
+                    ? `4-week billing cycle · Week ${weekProgress.currentWeek} of ${cycleWeeks}`
+                    : `Hours package · Week ${weekProgress.currentWeek} of ${cycleWeeks} (visual guide)`}
+                </div>
+              </div>
             </div>
-            <div>
-              <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>FILE NO.</div>
-              <div className="font-bold" style={{color: "#2C3625"}}>{client.file_no || "—"}</div>
-            </div>
-            <div>
-              <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}># PAID SESH.</div>
-              <div className="font-bold" style={{color: "#2C3625"}}>{counted}</div>
-            </div>
-            <div>
-              <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>{pkg}H DAYS</div>
-              <div className="font-bold" style={{color: "#2C3625"}}>{used.toFixed(1)} / {pkg}h</div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-3 border-t border-[#E8E4DE]">
+              <div>
+                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}># PAID SESH.</div>
+                <div className="font-bold" style={{color: "#2C3625"}}>{counted}</div>
+              </div>
+              {isSchool ? (
+                <>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>WEEKS COMPLETED</div>
+                    <div className="font-bold" style={{color: "#2C3625"}}>{weekProgress.weeksDone} / {cycleWeeks}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>CURRENT WEEK</div>
+                    <div className="font-bold" style={{color: weekProgress.currentWeek >= cycleWeeks ? "#C97B5C" : "#2C3625"}}>
+                      Week {weekProgress.currentWeek}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>CYCLE START</div>
+                    <div className="font-bold" style={{color: "#2C3625"}}>{fmtDateLocal(cycleAnchor)}</div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>{pkg}H PACKAGE</div>
+                    <div className="font-bold" style={{color: "#2C3625"}}>{used.toFixed(1)} / {pkg}h</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>HOURS LEFT</div>
+                    <div className="font-bold" style={{color: rem <= 4 ? "#C97B5C" : "#2C3625"}}>{rem.toFixed(1)}h</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>CURRENT WEEK</div>
+                    <div className="font-bold" style={{color: "#2C3625"}}>Week {weekProgress.currentWeek} / {cycleWeeks}</div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -904,37 +995,64 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                 </tr>
               </thead>
               <tbody>
-                {sortedInvoiceSessions.map(s => {
-                    const stColor = s.status === "Completed" ? "#3D4F35" :
-                                    s.status === "Cancelled" ? "#6B5218" :
-                                    s.status === "No Show" ? "#8A3F27" : "#5C6853";
-                    const stBg = s.status === "Completed" ? "#E5EBE1" :
-                                  s.status === "Cancelled" ? "#FAF0D1" :
-                                  s.status === "No Show" ? "#F8EBE7" : "#F0EDE9";
-                    const tNames = (s.therapist_ids || []).map(id => findT(id)?.name?.replace("Ms. ", "")).filter(Boolean).join(" - ");
-                    const canEdit = isAdmin || isSupervisorForClient(user, client.file_no) || (s.therapist_ids || []).includes(currentUserId);
-                    return (
-                      <tr key={s.id} className="border-t border-[#E8E4DE]">
-                        <td className="p-2 font-bold">{dayShort(s.session_date)}</td>
-                        <td className="p-2 font-bold">{fmtDate(s.session_date)}</td>
-                        <td className="p-2"><span className="pill text-[10px] uppercase" style={{background: stBg, color: stColor}}>{s.status}</span></td>
-                        <td className="p-2">{s.start_time && s.end_time ? `${s.start_time} - ${s.end_time}` : "—"}</td>
-                        <td className="p-2 font-bold">{s.hours}</td>
-                        <td className="p-2">{tNames || "—"}</td>
-                        <td className="p-2 italic" style={{color: "#5C6853"}}>{s.note || ""}</td>
-                        <td className="p-2 text-right whitespace-nowrap no-print">
-                          {canEdit && <button onClick={() => onEdit(s)} className="btn btn-ghost p-1.5"><PencilSimple size={14}/></button>}
-                          {canEdit && <button onClick={async () => { if (window.confirm("Delete?")) { await api.delete(`/sessions/${s.id}`); onDeleted(); } }} className="btn btn-ghost p-1.5 text-red-700"><Trash size={14}/></button>}
+                {showWeekDividers ? (
+                  weekGroups.map((group, gi) => (
+                    <Fragment key={`wg-${group.weekNumber}-${gi}`}>
+                      <tr key={`week-h-${group.weekNumber}`} style={{ background: WEEK_ROW_BG[(group.weekNumber - 1) % WEEK_ROW_BG.length] }}>
+                        <td colSpan={8} className="px-2 py-2 font-bold text-[11px]" style={{ color: "#2C3625", borderTop: gi > 0 ? "3px solid #5C6853" : undefined }}>
+                          Week {group.weekNumber}{group.extra ? "+" : ""} · {group.label || `${fmtDateLocal(group.startISO)} → ${fmtDateLocal(group.endISO)}`}
+                          {group.sessions.length === 0 && <span className="font-normal ml-2 opacity-70">— no sessions yet</span>}
                         </td>
                       </tr>
-                    );
-                })}
+                      {group.sessions.map(s => (
+                        <SessionTableRow
+                          key={s.id}
+                          s={s}
+                          findT={findT}
+                          isAdmin={isAdmin}
+                          user={user}
+                          client={client}
+                          currentUserId={currentUserId}
+                          onEdit={onEdit}
+                          onDeleted={onDeleted}
+                          rowBg={WEEK_ROW_BG[(group.weekNumber - 1) % WEEK_ROW_BG.length]}
+                        />
+                      ))}
+                      {!group.extra && group.weekNumber < cycleWeeks && (
+                        <tr key={`week-end-${group.weekNumber}`}>
+                          <td colSpan={8} className="px-2 py-1.5 text-[10px] font-bold text-center" style={{
+                            background: "#F0EDE9",
+                            color: "#5C6853",
+                            borderTop: "2px solid #7A8A6A",
+                            borderBottom: "2px solid #7A8A6A",
+                          }}>
+                            — Week {group.weekNumber} ended · Week {group.weekNumber + 1} starts {fmtDateLocal(weekGroups[group.weekNumber]?.startISO || group.endISO)} —
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  ))
+                ) : (
+                  sortedInvoiceSessions.map(s => (
+                    <SessionTableRow
+                      key={s.id}
+                      s={s}
+                      findT={findT}
+                      isAdmin={isAdmin}
+                      user={user}
+                      client={client}
+                      currentUserId={currentUserId}
+                      onEdit={onEdit}
+                      onDeleted={onDeleted}
+                    />
+                  ))
+                )}
               </tbody>
             </table>
           )}
 
           {/* Footer summary */}
-          <div className="px-8 py-5 border-t-2 grid grid-cols-4 gap-4 text-sm" style={{borderColor: "#7A8A6A", background: "#FAFAF7"}}>
+          <div className="px-8 py-5 border-t-2 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm" style={{borderColor: "#7A8A6A", background: "#FAFAF7"}}>
             <div>
               <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>TOTAL DELIVERED SESSIONS</div>
               <div className="font-display text-2xl" style={{color: "#3D4F35"}}>{completed}</div>
@@ -947,10 +1065,19 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>TOTAL COUNTED SESSIONS</div>
               <div className="font-display text-2xl" style={{color: "#2C3625"}}>{counted}</div>
             </div>
-            <div>
-              <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>HOURS REMAINING</div>
-              <div className="font-display text-2xl" style={{color: rem <= 4 ? "#C97B5C" : "#3D4F35"}}>{rem}h</div>
-            </div>
+            {isSchool ? (
+              <div>
+                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>WEEKS REMAINING</div>
+                <div className="font-display text-2xl" style={{color: weekProgress.weeksRem <= 1 ? "#C97B5C" : "#3D4F35"}}>
+                  {weekProgress.weeksRem} / {cycleWeeks}
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>HOURS REMAINING</div>
+                <div className="font-display text-2xl" style={{color: rem <= 4 ? "#C97B5C" : "#3D4F35"}}>{rem.toFixed(1)}h</div>
+              </div>
+            )}
           </div>
           <div className="px-8 py-3 text-[10px] text-center" style={{color: "#8B9E7A"}}>
             Generated {new Date().toLocaleString('en-US')} · Boost Growth Center · boost-growthsa.com
@@ -1002,7 +1129,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               </div>
               {selectedInvoice.start_date && (
                 <FormField label="Start date">
-                  <input className="modal-input" readOnly value={fmtDate(selectedInvoice.start_date)} />
+                  <input className="modal-input" readOnly value={fmtDateLocal(selectedInvoice.start_date)} />
                 </FormField>
               )}
             </FormSection>
@@ -1105,9 +1232,11 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
 }
 
 function NewInvoiceModal({ client, defaultPackage, onCancel, onCreate }) {
+  const defaultService = client?.service_type === "SS" ? "School Support" : "Home Session";
   const [num, setNum] = useState("");
-  const [size, setSize] = useState(defaultPackage);
-  const [serviceType, setServiceType] = useState("Home Session");
+  const [size, setSize] = useState(defaultService === "School Support" ? (client?.cycle_weeks || 4) : defaultPackage);
+  const [serviceType, setServiceType] = useState(defaultService);
+  const isSchool = serviceType === "School Support";
   const submit = (e) => { e.preventDefault(); onCreate(num, size, serviceType); };
   return (
     <ModalBase
@@ -1139,23 +1268,32 @@ function NewInvoiceModal({ client, defaultPackage, onCancel, onCreate }) {
               onChange={e => setNum(e.target.value)}
             />
           </FormField>
-          <FormField label="Service type">
+          <FormField label="Service type" required>
             <select
               data-testid="new-inv-service"
               className="modal-input"
               value={serviceType}
-              onChange={e => setServiceType(e.target.value)}
+              onChange={e => {
+                const v = e.target.value;
+                setServiceType(v);
+                if (v === "School Support") setSize(client?.cycle_weeks || 4);
+                else setSize(defaultPackage);
+              }}
             >
-              <option value="Home Session">Home Session</option>
-              <option value="School Support">School Support</option>
+              <option value="Home Session">Home Session (HS) — منزلية · hours package</option>
+              <option value="School Support">School Support (SS) — مدرسية · 4-week cycle</option>
             </select>
           </FormField>
-          <FormField label="Package size" required hint="Sessions or hours">
+          <FormField
+            label={isSchool ? "Cycle length (weeks)" : "Package size (hours)"}
+            required
+            hint={isSchool ? "School service bills every 4 weeks, not by hours" : "Total paid hours for this invoice"}
+          >
             <input
               data-testid="new-inv-size"
               type="number"
               min="0"
-              step="0.5"
+              step={isSchool ? "1" : "0.5"}
               className="modal-input"
               required
               value={size}

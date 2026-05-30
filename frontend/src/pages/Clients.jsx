@@ -208,7 +208,7 @@ export default function Clients() {
                   <FormField label="Cycle length (weeks)">
                     <input type="number" min="1" max="12" className="modal-input" value={edit.cycle_weeks || 4} onChange={e => setEdit({ ...edit, cycle_weeks: parseInt(e.target.value) || 4 })} />
                   </FormField>
-                  <FormField label="Cycle start date" hint="Sunday of first billing week">
+                  <FormField label="Cycle start date" hint="First day of week 1 (Sun, Wed, etc.)">
                     <input type="date" className="modal-input" value={edit.cycle_start_date || ""} onChange={e => setEdit({ ...edit, cycle_start_date: e.target.value })} />
                   </FormField>
                 </>
