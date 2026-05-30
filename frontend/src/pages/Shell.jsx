@@ -36,11 +36,11 @@ export default function Shell() {
     ? [{ to: "/intake", label: "Intake", testid: "nav-intake" }]
     : [];
 
-  // Requests dropdown — Requests / Leaves / Therapist Leaves (admin)
+  // Requests dropdown — Requests / Leave Requests / Leave Balance (admin)
   const requestsItems = [];
   if (isAdmin) requestsItems.push({ to: "/requests", label: "Requests", testid: "nav-requests" });
-  requestsItems.push({ to: "/leaves", label: isAdmin ? "Leave Balances" : "My Leaves", testid: "nav-leaves" });
-  if (isAdmin) requestsItems.push({ to: "/therapist-leaves", label: "Leave History", testid: "nav-therapist-leaves" });
+  requestsItems.push({ to: "/leave-requests", label: isAdmin ? "Leave Requests" : "My Leaves", testid: "nav-leave-requests" });
+  if (isAdmin) requestsItems.push({ to: "/leave-balance", label: "Leave Balance", testid: "nav-leave-balance" });
 
   // Admin tools (Reports moved here since it doesn't fit Requests)
   const adminTools = isAdmin ? [

@@ -14,8 +14,8 @@ import Resources from "./pages/Resources";
 import Admin from "./pages/Admin";
 import Reports from "./pages/Reports";
 import ImportPage from "./pages/Import";
-import Leaves from "./pages/Leaves";
-import TherapistLeaves from "./pages/TherapistLeaves";
+import LeaveRequests from "./pages/LeaveRequests";
+import LeaveBalance from "./pages/LeaveBalance";
 import "./App.css";
 
 function Loading() {
@@ -55,8 +55,10 @@ function AppRoutes() {
         <Route path="/reports" element={<AdminOnly><Reports/></AdminOnly>}/>
         <Route path="/import" element={<AdminOnly><ImportPage/></AdminOnly>}/>
         <Route path="/admin" element={<AdminOnly><Admin/></AdminOnly>}/>
-        <Route path="/leaves" element={<Leaves/>}/>
-        <Route path="/therapist-leaves" element={<AdminOnly><TherapistLeaves/></AdminOnly>}/>
+        <Route path="/leave-requests" element={<LeaveRequests/>}/>
+        <Route path="/leave-balance" element={<AdminOnly><LeaveBalance/></AdminOnly>}/>
+        <Route path="/leaves" element={<Navigate to="/leave-requests" replace/>}/>
+        <Route path="/therapist-leaves" element={<Navigate to="/leave-balance" replace/>}/>
       </Route>
       <Route path="*" element={<Navigate to="/home" replace/>}/>
     </Routes>

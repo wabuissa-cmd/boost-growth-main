@@ -253,6 +253,20 @@ class LeaveStatusUpdate(BaseModel):
     status: str
     admin_note: Optional[str] = None
 
+class MarkAbsentIn(BaseModel):
+    cancel_sessions: bool = True
+
+class MarkAbsenceIn(BaseModel):
+    therapist_id: str
+    date_from: str
+    date_to: str
+    leave_type: Optional[str] = "Absence"
+    notes: Optional[str] = None
+    cancel_sessions: bool = True
+
+class LeaveDocumentVerifyIn(BaseModel):
+    verified: bool = True
+
 class CancelNotifyIn(BaseModel):
     cell_id: str
     state: Optional[str] = None           # cancel_therapist / cancel_child (optional)
@@ -2757,6 +2771,83 @@ async def delete_resource(rid: str, _=Depends(admin_only)):
 # ------------------- Leaves / Vacations -------------------
 DEFAULT_ANNUAL_BALANCE = 30  # baseline annual leave per year
 
+LEAVE_DOC_TYPES = {"medical", "appointment", "other"}
+
+
+def _leave_default_fields() -> dict:
+    return {
+        "document_url": None,
+        "document_file_path": None,
+        "document_file_name": None,
+        "document_type": None,
+        "document_verified": False,
+        "schedule_impact": [],
+    }
+
+
+def _schedule_day_index(dt: datetime) -> int:
+    """0=Sun … 6=Sat (matches frontend Schedule)."""
+    return (dt.weekday() + 1) % 7
+
+
+def _week_start_sunday(iso: str) -> str:
+    d = datetime.fromisoformat(str(iso)[:10])
+    sun = d - timedelta(days=_schedule_day_index(d))
+    return sun.strftime("%Y-%m-%d")
+
+
+def _iter_dates_in_range(start_iso: str, end_iso: str):
+    start = datetime.fromisoformat(str(start_iso)[:10])
+    end = datetime.fromisoformat(str(end_iso)[:10])
+    d = start
+    while d <= end:
+        yield d.strftime("%Y-%m-%d"), d
+        d += timedelta(days=1)
+
+
+async def _cancel_schedule_for_therapist(therapist_id: str, start_date: str, end_date: str) -> list:
+    """Mark matching schedule cells as cancel_therapist; return impact list."""
+    impacted = []
+    seen_ids = set()
+    for date_iso, d in _iter_dates_in_range(start_date, end_date):
+        week_start = _week_start_sunday(date_iso)
+        day_idx = _schedule_day_index(d)
+        cells = await db.schedule_cells.find(
+            {
+                "therapist_id": therapist_id,
+                "week_start": week_start,
+                "day": day_idx,
+                "service_code": {"$nin": ["LEAVE", "BREAK", ""]},
+            },
+            {"_id": 0},
+        ).to_list(50)
+        for cell in cells:
+            if not (cell.get("child_name") or "").strip():
+                continue
+            cid = cell.get("id")
+            if cid in seen_ids:
+                continue
+            seen_ids.add(cid)
+            if cell.get("state") != "cancel_therapist":
+                await db.schedule_cells.update_one({"id": cid}, {"$set": {"state": "cancel_therapist"}})
+            impacted.append({
+                "session_id": cid,
+                "date": date_iso,
+                "client_name": (cell.get("child_name") or "—").strip(),
+                "time_slot": cell.get("time_slot"),
+            })
+    return impacted
+
+
+def _enrich_leave_document_url(leave: dict) -> dict:
+    if leave.get("document_file_path"):
+        leave["document_url"] = f"/api/leaves/{leave['id']}/document"
+    else:
+        leave.setdefault("document_url", None)
+    leave.setdefault("document_verified", False)
+    leave.setdefault("schedule_impact", leave.get("schedule_impact") or [])
+    return leave
+
 @api.get("/leaves")
 async def list_leaves(year: Optional[int] = None, user=Depends(get_current_user)):
     q: dict = {}
@@ -2765,17 +2856,16 @@ async def list_leaves(year: Optional[int] = None, user=Depends(get_current_user)
     if user.get("role") != "admin":
         q["therapist_id"] = user["id"]
     items = await db.leaves.find(q, {"_id": 0}).sort("start_date", -1).to_list(2000)
-    # Enrich with therapist name + email for admin
-    if user.get("role") == "admin":
-        therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1, "color": 1}).to_list(100)
-        t_by_id = {t["id"]: t for t in therapists}
-        for it in items:
-            t = t_by_id.get(it.get("therapist_id"))
-            if t:
-                it["therapist_name"] = t.get("name")
-                it["therapist_color"] = t.get("color")
+    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1, "color": 1}).to_list(100)
+    t_by_id = {t["id"]: t for t in therapists}
+    for it in items:
+        t = t_by_id.get(it.get("therapist_id"))
+        if t:
+            it["therapist_name"] = t.get("name")
+            it["therapist_color"] = t.get("color")
+            if user.get("role") == "admin":
                 it["therapist_email"] = t.get("email")
-    return items
+    return [_enrich_leave_document_url(it) for it in items]
 
 @api.get("/leaves/balance")
 async def leaves_balance(year: Optional[int] = None, user=Depends(get_current_user)):
@@ -2783,7 +2873,7 @@ async def leaves_balance(year: Optional[int] = None, user=Depends(get_current_us
     For therapist role: only their own.
     """
     yr = year or datetime.now(timezone.utc).year
-    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "color": 1, "email": 1, "annual_balance": 1, "leave_balance": 1}).to_list(100)
+    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "color": 1, "email": 1, "annual_balance": 1, "leave_balance": 1, "join_date": 1}).to_list(100)
     if user.get("role") != "admin":
         therapists = [t for t in therapists if t["id"] == user["id"]]
     leaves = await db.leaves.find({"start_date": {"$gte": f"{yr}-01-01", "$lte": f"{yr}-12-31"}}, {"_id": 0}).to_list(2000)
@@ -2798,6 +2888,7 @@ async def leaves_balance(year: Optional[int] = None, user=Depends(get_current_us
         remaining = max(0.0, allocated - used_annual)
         out.append({
             "therapist_id": t["id"], "name": t["name"], "color": t.get("color"), "email": t.get("email"),
+            "join_date": t.get("join_date"),
             "year": yr, "allocated": allocated,
             "used_annual": round(used_annual, 1),
             "used_unpaid": round(used_unpaid, 1),
@@ -2813,7 +2904,7 @@ async def create_leave(payload: LeaveIn, user=Depends(get_current_user)):
     if user.get("role") != "admin" and payload.therapist_id != user["id"]:
         raise HTTPException(status_code=403, detail="Therapist can only create own leaves")
     lid = str(uuid.uuid4())
-    doc = {"id": lid, **payload.model_dump(), "created_by": user["id"], "created_at": now_iso()}
+    doc = {"id": lid, **payload.model_dump(), **_leave_default_fields(), "created_by": user["id"], "created_at": now_iso()}
     if user.get("role") != "admin":
         doc["status"] = "pending"  # therapist requests start as pending
     await db.leaves.insert_one(doc)
@@ -2884,6 +2975,162 @@ async def delete_leave(lid: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Forbidden")
     await db.leaves.delete_one({"id": lid})
     return {"ok": True}
+
+
+@api.post("/leaves/mark-absence")
+async def mark_absence_without_request(payload: MarkAbsenceIn, admin=Depends(admin_only)):
+    """Admin: record absence/permission and optionally cancel schedule sessions."""
+    t = await db.therapists.find_one({"id": payload.therapist_id}, {"_id": 0, "id": 1, "name": 1})
+    if not t:
+        raise HTTPException(status_code=404, detail="Therapist not found")
+    days = max(1, (datetime.fromisoformat(payload.date_to[:10]) - datetime.fromisoformat(payload.date_from[:10])).days + 1)
+    lid = str(uuid.uuid4())
+    doc = {
+        "id": lid,
+        "therapist_id": payload.therapist_id,
+        "start_date": payload.date_from[:10],
+        "end_date": payload.date_to[:10],
+        "days": float(days),
+        "leave_type": payload.leave_type or "Absence",
+        "status": "absent",
+        "notes": payload.notes,
+        "admin_note": "Marked absent by admin",
+        **_leave_default_fields(),
+        "created_by": admin["id"],
+        "created_at": now_iso(),
+        "decided_by": admin.get("name") or "Admin",
+        "decided_at": now_iso(),
+    }
+    impact = []
+    if payload.cancel_sessions:
+        impact = await _cancel_schedule_for_therapist(payload.therapist_id, doc["start_date"], doc["end_date"])
+        doc["schedule_impact"] = impact
+    await db.leaves.insert_one(doc)
+    doc.pop("_id", None)
+    return {
+        "leave": _enrich_leave_document_url(doc),
+        "cancelled_sessions_count": len(impact),
+        "sessions": impact,
+        "message": f"Done. {len(impact)} session(s) cancelled for {t.get('name')}",
+    }
+
+
+@api.post("/leaves/{lid}/mark-absent")
+async def mark_leave_absent(lid: str, payload: MarkAbsentIn, admin=Depends(admin_only)):
+    leave = await db.leaves.find_one({"id": lid}, {"_id": 0})
+    if not leave:
+        raise HTTPException(status_code=404, detail="Leave not found")
+    impact = list(leave.get("schedule_impact") or [])
+    if payload.cancel_sessions and leave.get("therapist_id"):
+        new_impact = await _cancel_schedule_for_therapist(
+            leave["therapist_id"], leave["start_date"], leave["end_date"]
+        )
+        existing_ids = {x.get("session_id") for x in impact}
+        for row in new_impact:
+            if row.get("session_id") not in existing_ids:
+                impact.append(row)
+    await db.leaves.update_one({"id": lid}, {"$set": {
+        "status": "absent",
+        "schedule_impact": impact,
+        "decided_by": admin.get("name") or "Admin",
+        "decided_at": now_iso(),
+    }})
+    updated = await db.leaves.find_one({"id": lid}, {"_id": 0})
+    tname = leave.get("therapist_name") or "Therapist"
+    therapists = await db.therapists.find_one({"id": leave.get("therapist_id")}, {"name": 1})
+    if therapists:
+        tname = therapists.get("name") or tname
+    return {
+        "leave": _enrich_leave_document_url(updated),
+        "cancelled_sessions_count": len(impact),
+        "sessions": impact,
+        "message": f"Done. {len(impact)} session(s) cancelled on {leave.get('start_date')} → {leave.get('end_date')} for {tname}",
+    }
+
+
+@api.post("/leaves/{lid}/upload-document")
+async def upload_leave_document(
+    lid: str,
+    file: UploadFile = File(...),
+    document_type: Optional[str] = Form("other"),
+    user=Depends(get_current_user),
+):
+    leave = await db.leaves.find_one({"id": lid}, {"_id": 0})
+    if not leave:
+        raise HTTPException(status_code=404, detail="Leave not found")
+    if user.get("role") != "admin" and leave.get("therapist_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="File required")
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 10MB)")
+    ext = Path(file.filename).suffix.lower() or ".pdf"
+    if ext not in (".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif"):
+        raise HTTPException(status_code=400, detail="PDF or image only")
+    stored = f"leave_{lid}{ext}"
+    save_path = UPLOAD_DIR / stored
+    if leave.get("document_file_path"):
+        old = UPLOAD_DIR / leave["document_file_path"]
+        if old.exists() and old.name != stored:
+            old.unlink()
+    save_path.write_bytes(content)
+    dtype = (document_type or "other").lower()
+    if dtype not in LEAVE_DOC_TYPES:
+        dtype = "other"
+    await db.leaves.update_one({"id": lid}, {"$set": {
+        "document_file_path": stored,
+        "document_file_name": file.filename,
+        "document_type": dtype,
+        "document_verified": False,
+        "document_uploaded_at": now_iso(),
+    }})
+    updated = await db.leaves.find_one({"id": lid}, {"_id": 0})
+    return _enrich_leave_document_url(updated)
+
+
+@api.get("/leaves/{lid}/document")
+async def download_leave_document(lid: str, user=Depends(get_current_user)):
+    leave = await db.leaves.find_one({"id": lid}, {"_id": 0})
+    if not leave or not leave.get("document_file_path"):
+        raise HTTPException(status_code=404, detail="No document")
+    if user.get("role") != "admin" and leave.get("therapist_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    fp = UPLOAD_DIR / leave["document_file_path"]
+    if not fp.exists():
+        raise HTTPException(status_code=404, detail="File missing")
+    return FileResponse(str(fp), filename=leave.get("document_file_name") or leave["document_file_path"])
+
+
+@api.delete("/leaves/{lid}/document")
+async def delete_leave_document(lid: str, user=Depends(get_current_user)):
+    leave = await db.leaves.find_one({"id": lid}, {"_id": 0})
+    if not leave:
+        raise HTTPException(status_code=404, detail="Leave not found")
+    if user.get("role") != "admin" and leave.get("therapist_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if leave.get("document_file_path"):
+        fp = UPLOAD_DIR / leave["document_file_path"]
+        if fp.exists():
+            fp.unlink()
+    await db.leaves.update_one({"id": lid}, {"$set": {
+        "document_file_path": None,
+        "document_file_name": None,
+        "document_type": None,
+        "document_verified": False,
+        "document_uploaded_at": None,
+    }})
+    return {"ok": True}
+
+
+@api.put("/leaves/{lid}/verify-document")
+async def verify_leave_document(lid: str, payload: LeaveDocumentVerifyIn, _=Depends(admin_only)):
+    leave = await db.leaves.find_one({"id": lid}, {"_id": 0})
+    if not leave:
+        raise HTTPException(status_code=404, detail="Leave not found")
+    await db.leaves.update_one({"id": lid}, {"$set": {"document_verified": bool(payload.verified)}})
+    updated = await db.leaves.find_one({"id": lid}, {"_id": 0})
+    return _enrich_leave_document_url(updated)
 
 # ------------------- Cancel-Notify (in-app + queued email) -------------------
 async def _send_email_stub(to: str, subject: str, body: str) -> dict:
