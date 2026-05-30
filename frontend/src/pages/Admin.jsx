@@ -18,6 +18,8 @@ export default function Admin() {
   const [seedConfirm, setSeedConfirm] = useState(false);
   const [seedResult, setSeedResult] = useState(null);
   const [seeding, setSeeding] = useState(false);
+  const [prSeedResult, setPrSeedResult] = useState(null);
+  const [prSeeding, setPrSeeding] = useState(false);
 
   const load = async () => {
     const [t, e, q] = await Promise.all([
@@ -93,6 +95,20 @@ export default function Admin() {
     }
   };
 
+  const seedAprReports = async () => {
+    if (!window.confirm("Seed April 2026 progress reports for all listed clients?\nExisting records (same title + date) will be skipped.")) return;
+    setPrSeeding(true);
+    setPrSeedResult(null);
+    try {
+      const { data } = await api.post("/admin/seed-progress-reports-apr2026");
+      setPrSeedResult(data);
+    } catch (e) {
+      alert("Seed failed: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setPrSeeding(false);
+    }
+  };
+
   const [backingUp, setBackingUp] = useState(false);
   const downloadFullBackup = async () => {
     setBackingUp(true);
@@ -159,6 +175,30 @@ export default function Admin() {
             <div className="p-2 rounded-lg" style={{background: "#E5EBE1", color: "#3D4F35"}}>
               <strong>Clients:</strong> +{seedResult.clients.created.length} created, {seedResult.clients.updated.length} updated
             </div>
+          </div>
+        )}
+      </div>
+
+      <div className="card p-5 mb-5" style={{ borderColor: "#C4D4B8", background: "#F5FAF3" }}>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <div className="font-bold" style={{ color: "#2C3625" }}>Seed Apr 2026 Progress Reports</div>
+            <div className="text-xs" style={{ color: "#5C6853" }}>
+              Import 21 April progress report records with Drive links where available. Statuses stay unchecked — idempotent.
+            </div>
+          </div>
+          <button data-testid="seed-apr-reports-btn" type="button" onClick={seedAprReports} disabled={prSeeding}
+            className="btn btn-primary text-sm">
+            {prSeeding ? <span className="spinner" /> : "Seed Apr 2026 Reports"}
+          </button>
+        </div>
+        {prSeedResult && (
+          <div className="mt-3 p-3 rounded-lg text-xs space-y-1" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+            <div><strong>{prSeedResult.message}</strong></div>
+            <div>Inserted: {prSeedResult.inserted} · Skipped (already exist): {prSeedResult.skipped ?? 0}</div>
+            {prSeedResult.missing_clients?.length > 0 && (
+              <div style={{ color: "#8B6918" }}>Clients not found: {prSeedResult.missing_clients.join(", ")}</div>
+            )}
           </div>
         )}
       </div>

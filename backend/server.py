@@ -1102,6 +1102,102 @@ async def delete_progress_report_file(rid: str, user=Depends(get_current_user)):
     }})
     return {"ok": True}
 
+
+APR2026_PROGRESS_REPORTS = [
+    {"file_no": "009", "title": "009's Progress Report - Apr 2026",
+     "url": "https://docs.google.com/document/d/14c29YPvhWaZirB5Qc-_47qP7Q_04-IOZEhpWk76WiU0/edit"},
+    {"file_no": "040", "title": "40's Progress Report - Apr 2026",
+     "url": "https://docs.google.com/document/d/1uPUgFPz944AqlHXFXT3oVOpar6JETzsQQ3a6rd3XTK8/edit"},
+    {"file_no": "042", "title": "042's Progress Report - Apr 2026",
+     "url": "https://docs.google.com/document/d/14tyu4xNlG4AmzALpjYwuWwKflwqk_buX-i2rsovxKRY/edit"},
+    {"file_no": "047", "title": "047's Progress Report - Apr 2026",
+     "url": "https://drive.google.com/file/d/1eD8w2NQ5WCRtZrODhX33RHQYGT2jbHvM/view"},
+    {"file_no": "070", "title": "070's Progress Report - Apr 2026",
+     "url": "https://drive.google.com/file/d/1tI5z5vrDDVaApSOAsp4HbkcawcDe42ll/view"},
+    {"file_no": "072", "title": "072's Progress Report - Apr 2026",
+     "url": "https://docs.google.com/document/d/19UY48orOHqV-ItptNFVxUgRyLgWeWgi8gIy--SmbMHA/edit"},
+    {"file_no": "024", "title": "Progress Report - Apr 2026", "url": ""},
+    {"file_no": "035", "title": "Progress Report - Apr 2026", "url": ""},
+    {"file_no": "038", "title": "Progress Report - Apr 2026", "url": ""},
+    {"file_no": "041", "title": "Progress Report - Apr 2026", "url": ""},
+    {"file_no": "052", "title": "Progress Report - Apr 2026", "url": ""},
+    {"file_no": "054", "title": "54's Progress Report - Apr 2026", "url": ""},
+    {"file_no": "011", "title": "Progress Report - Apr 2026", "url": ""},
+    {"file_no": "034", "title": "Progress Report - Apr 2026", "url": ""},
+    {"file_no": "060", "title": "Progress Report - Apr 2026", "url": ""},
+    {"file_no": "061", "title": "Progress Report - Apr 2026", "url": ""},
+    {"file_no": "062", "title": "Progress Report - Apr 2026", "url": ""},
+    {"file_no": "063", "title": "Progress Report - Apr 2026", "url": ""},
+    {"file_no": "064", "title": "Progress Report - Apr 2026", "url": ""},
+    {"file_no": "068", "title": "Progress Report - Apr 2026", "url": ""},
+    {"file_no": "027", "title": "Progress Report - Apr 2026", "url": ""},
+]
+
+
+async def _find_client_by_file_no(file_no: str) -> Optional[dict]:
+    raw = str(file_no or "").strip()
+    padded = raw.zfill(3)
+    for candidate in {raw, padded, raw.lstrip("0") or raw}:
+        hit = await db.clients.find_one({"file_no": candidate}, {"_id": 0, "id": 1, "file_no": 1, "name": 1})
+        if hit:
+            return hit
+    return None
+
+
+@api.post("/admin/seed-progress-reports-apr2026")
+async def seed_apr_progress_reports(_=Depends(admin_only)):
+    """Idempotently seed April 2026 progress reports with Drive links where available."""
+    inserted = 0
+    skipped = 0
+    missing = []
+    report_date = "2026-04-30"
+    for item in APR2026_PROGRESS_REPORTS:
+        client = await _find_client_by_file_no(item["file_no"])
+        if not client:
+            missing.append(item["file_no"])
+            continue
+        cid = client["id"]
+        existing = await db.progress_reports.find_one({
+            "client_id": cid,
+            "title": item["title"],
+            "report_date": report_date,
+        })
+        if existing:
+            skipped += 1
+            continue
+        url = (item.get("url") or "").strip() or None
+        await db.progress_reports.insert_one({
+            "id": str(uuid.uuid4()),
+            "client_id": cid,
+            "title": item["title"],
+            "report_date": report_date,
+            "url": url,
+            "notes": "April 2026",
+            "uploaded": False,
+            "uploaded_by": None,
+            "uploaded_at": None,
+            "reviewed": False,
+            "reviewed_by": None,
+            "reviewed_at": None,
+            "resolved": False,
+            "resolved_by": None,
+            "resolved_at": None,
+            "file_name": None,
+            "file_path": None,
+            "file_uploaded_at": None,
+            "created_by": "admin-seed",
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+        })
+        inserted += 1
+    return {
+        "inserted": inserted,
+        "skipped": skipped,
+        "missing_clients": missing,
+        "message": f"Seeded {inserted} progress reports ({skipped} already existed)",
+    }
+
+
 # ------------------- Invoices (per client; manual numbers) -------------------
 @api.get("/clients/{cid}/invoices")
 async def list_invoices(cid: str, service_type: Optional[str] = None, user=Depends(get_current_user)):
