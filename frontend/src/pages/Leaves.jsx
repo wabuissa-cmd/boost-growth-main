@@ -8,6 +8,7 @@ import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
+import LeaveBalanceTable from "../components/LeaveBalanceTable";
 
 const STATUS = {
   pending: { label: "Approval Waiting", color: "#D4A64A", bg: "#FAF0D1", icon: <Clock size={14} weight="fill"/> },
@@ -94,9 +95,6 @@ export default function Leaves() {
   }, [leaves, filterTherapist, filterStatus]);
 
   const myBalance = !isAdmin ? balances.find(b => b.therapist_id === user?.id) : null;
-  const totalAllocated = balances.reduce((a, b) => a + (b.allocated || 0), 0);
-  const totalUsed = balances.reduce((a, b) => a + (b.used_annual || 0), 0);
-  const totalPending = balances.reduce((a, b) => a + (b.pending || 0), 0);
 
   return (
     <div>
@@ -135,43 +133,15 @@ export default function Leaves() {
         </div>
       )}
 
-      {/* Admin: per-therapist balance grid */}
+      {/* Admin: leave balance table only (no summary cards) */}
+      {isAdmin && (
+        <div className="mb-5">
+          <LeaveBalanceTable year={year} onYearChange={setYear} showYearSelect={false} />
+        </div>
+      )}
+
       {isAdmin && (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-            <div className="card p-4"><div className="text-[11px] tracking-widest" style={{ color: "#8B9E7A" }}>TOTAL ALLOCATED</div><div className="text-2xl font-display font-semibold" style={{ color: "#2C3625" }}>{totalAllocated} <span className="text-sm font-normal">days</span></div></div>
-            <div className="card p-4"><div className="text-[11px] tracking-widest" style={{ color: "#8B9E7A" }}>TOTAL USED</div><div className="text-2xl font-display font-semibold" style={{ color: "#3D4F35" }}>{totalUsed.toFixed(1)}</div></div>
-            <div className="card p-4"><div className="text-[11px] tracking-widest" style={{ color: "#8B9E7A" }}>PENDING APPROVAL</div><div className="text-2xl font-display font-semibold" style={{ color: "#D4A64A" }}>{totalPending.toFixed(1)}</div></div>
-            <div className="card p-4"><div className="text-[11px] tracking-widest" style={{ color: "#8B9E7A" }}>TOTAL LEAVES</div><div className="text-2xl font-display font-semibold" style={{ color: "#375568" }}>{leaves.length}</div></div>
-          </div>
-
-          <div className="card p-4 mb-5">
-            <div className="text-[11px] tracking-widest mb-3" style={{ color: "#8B9E7A" }}>BALANCE BY THERAPIST · {year}</div>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-              {balances.map(b => {
-                const pct = b.allocated > 0 ? Math.min(100, (b.used_annual / b.allocated) * 100) : 0;
-                const danger = b.remaining <= 5;
-                return (
-                  <div key={b.therapist_id} className="rounded-xl border p-3" style={{ borderColor: "#E8E4DE", background: "#FAFAF7" }} data-testid={`balance-card-${b.therapist_id}`}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-7 h-7 rounded-full text-white text-[10px] flex items-center justify-center font-bold shrink-0" style={{ background: b.color || "#7A8A6A" }}>{b.name.replace("Ms. ", "").charAt(0)}</div>
-                      <span className="text-sm font-bold flex-1 truncate" style={{ color: "#2C3625" }}>{b.name}</span>
-                      <span className="text-xs font-bold" style={{ color: danger ? "#8B3A55" : "#3D4F35" }}>{b.remaining}/{b.allocated}d</span>
-                    </div>
-                    <div className="h-2 rounded-full" style={{ background: "#E8E4DE" }}>
-                      <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: danger ? "#C97B5C" : "#7A8A6A" }} />
-                    </div>
-                    <div className="text-[10px] mt-1.5 flex items-center gap-2" style={{ color: "#8B9E7A" }}>
-                      <span>Used {b.used_annual}</span>
-                      {b.pending > 0 && <span style={{ color: "#D4A64A" }}>· {b.pending} pending</span>}
-                      {b.used_unpaid > 0 && <span>· {b.used_unpaid} unpaid</span>}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
           {/* Filters */}
           <div className="card p-3 mb-4 flex items-center gap-2 flex-wrap">
             <select className="select text-sm" value={filterTherapist} onChange={e => setFilterTherapist(e.target.value)}>

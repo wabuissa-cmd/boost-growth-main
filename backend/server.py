@@ -461,19 +461,20 @@ MASTER_THERAPISTS = [
     # (key,        first_name_token,  display_email,                    role,        leave_balance, join_date)
     ("msMaha",     "Maha",     "msalthunayan@boostgrowthsa.com",  "therapist", None, None),
     ("msFahda",    "Fahda",    "falghadeeb@boostgrowthsa.com",    "therapist", 19,   None),
-    ("msRazan",    "Razan",    "ralshatri@boostgrowthsa.com",     "therapist", 17,   None),
+    ("msRazan",    "Razan",    "ralshatery@boostgrowthsa.com",    "therapist", 17,   None),
     ("msManal",    "Manal",    "maldosery@boostgrowthsa.com",     "therapist", 7,    None),
     ("msAsma",     "Asma",     "asma@boostgrowthsa.com",          "therapist", None, None),
     ("msHajer",    "Hajer",    "halfulaij@boostgrowthsa.com",     "therapist", 11,   None),
     ("msRahaf",    "Rahaf",    "raljuhani@boostgrowthsa.com",     "therapist", 7,    None),
-    ("msShatha",   "Shatha",   "salhammamy@boostgrowthsa.com",    "therapist", 21,   "2025-04-06"),
-    ("msAlhanouf", "Alhanouf", "aalroman@boostgrowthsa.com",      "therapist", 0,    "2025-07-14"),
+    ("msShatha",   "Shatha",   "shalhammami@boostgrowthsa.com",   "therapist", 21,   "2025-04-06"),
+    ("msAlhanouf", "Alhanouf", "a.alromman@boostgrowthsa.com",    "therapist", 0,    "2025-07-14"),
     ("msWaad",     "Waad",     "walhamed@boostgrowthsa.com",      "therapist", 0,    "2025-08-24"),
     ("msBodoor",   "Bodoor",   "baalkhlifah@boostgrowthsa.com",   "therapist", 28,   "2025-10-21"),
     ("msFatimah",  "Fatimah",  "falkhater@boostgrowthsa.com",     "therapist", 26,   "2025-11-09"),
-    ("msShrooq",   "Shrooq",   "salamri@boostgrowthsa.com",       "therapist", 18,   "2026-02-08"),
-    ("msAbeer",    "Abeer",    "aalshreef@boostgrowthsa.com",     "therapist", 4,    None),
-    ("msNaja",     "Naja",     "naja@boostgrowthsa.com",          "therapist", None, None),
+    ("msShrooq",   "Shrooq",   "shalamri@boostgrowthsa.com",      "therapist", 18,   "2026-02-08"),
+    ("msAbeer",    "Abeer",    "a.alshareef@boostgrowthsa.com",   "therapist", 4,    None),
+    ("msNaja",     "Naja",     "nalhamad@boostgrowthsa.com",      "therapist", None, None),
+    ("msJenan",    "Jenan",    "jsalmuhaisin@boostgrowthsa.com",  "therapist", None, None),
 ]
 
 MASTER_CLIENTS = [
@@ -853,6 +854,9 @@ async def _can_edit_progress_step(user: dict, report_id: str, step: str) -> bool
     if not doc:
         return False
     if step == "uploaded":
+        fn = await _client_file_no(doc["client_id"])
+        if fn and _is_supervisor_for_file(user, fn):
+            return True
         if user.get("role") != "therapist":
             return False
         client = await db.clients.find_one(
@@ -893,13 +897,18 @@ async def get_progress_reports_summary(user=Depends(get_current_user)):
 
 @api.get("/clients/{cid}/progress-reports")
 async def list_progress_reports(cid: str, user=Depends(get_current_user)):
-    # Therapists may only view reports for clients they are assigned to.
     if user.get("role") != "admin":
-        client = await db.clients.find_one({"id": cid}, {"_id": 0, "main_therapist_id": 1, "co_therapist_ids": 1})
+        client = await db.clients.find_one(
+            {"id": cid},
+            {"_id": 0, "main_therapist_id": 1, "co_therapist_ids": 1, "file_no": 1},
+        )
         if not client:
             raise HTTPException(status_code=404, detail="Client not found")
         uid = user["id"]
-        if client.get("main_therapist_id") != uid and uid not in (client.get("co_therapist_ids") or []):
+        assigned = client.get("main_therapist_id") == uid or uid in (client.get("co_therapist_ids") or [])
+        fn = str(client.get("file_no") or "").strip()
+        supervisor = bool(fn and _is_supervisor_for_file(user, fn))
+        if not assigned and not supervisor:
             raise HTTPException(status_code=403, detail="Forbidden")
     return await db.progress_reports.find({"client_id": cid}, {"_id": 0}).sort("created_at", -1).to_list(200)
 
@@ -996,7 +1005,83 @@ async def update_progress_report_steps(rid: str, payload: ProgressStepsIn, user=
 
 @api.delete("/progress-reports/{rid}")
 async def delete_progress_report(rid: str, _=Depends(admin_only)):
+    report = await db.progress_reports.find_one({"id": rid}, {"_id": 0, "file_path": 1})
+    if report and report.get("file_path"):
+        fp = UPLOAD_DIR / report["file_path"]
+        if fp.exists():
+            fp.unlink()
     await db.progress_reports.delete_one({"id": rid})
+    return {"ok": True}
+
+
+async def _can_access_progress_report(user: dict, report: dict) -> bool:
+    if user.get("role") == "admin":
+        return True
+    client = await db.clients.find_one(
+        {"id": report["client_id"]},
+        {"_id": 0, "main_therapist_id": 1, "co_therapist_ids": 1, "file_no": 1},
+    )
+    if not client:
+        return False
+    uid = user["id"]
+    if client.get("main_therapist_id") == uid or uid in (client.get("co_therapist_ids") or []):
+        return True
+    fn = await _client_file_no(report["client_id"])
+    return bool(fn and _is_supervisor_for_file(user, fn))
+
+
+@api.post("/progress-reports/{rid}/file")
+async def upload_progress_report_file(rid: str, file: UploadFile = File(...), user=Depends(get_current_user)):
+    report = await db.progress_reports.find_one({"id": rid}, {"_id": 0})
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if not await _can_access_progress_report(user, report):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="File required")
+    ext = Path(file.filename).suffix or ".pdf"
+    stored = f"pr_{rid}{ext}"
+    save_path = UPLOAD_DIR / stored
+    if report.get("file_path"):
+        old = UPLOAD_DIR / report["file_path"]
+        if old.exists() and old.name != stored:
+            old.unlink()
+    save_path.write_bytes(await file.read())
+    await db.progress_reports.update_one({"id": rid}, {"$set": {
+        "file_path": stored,
+        "file_name": file.filename,
+        "file_uploaded_at": now_iso(),
+    }})
+    return await db.progress_reports.find_one({"id": rid}, {"_id": 0})
+
+
+@api.get("/progress-reports/{rid}/file")
+async def download_progress_report_file(rid: str, user=Depends(get_current_user)):
+    report = await db.progress_reports.find_one({"id": rid}, {"_id": 0})
+    if not report or not report.get("file_path"):
+        raise HTTPException(status_code=404, detail="No file")
+    if not await _can_access_progress_report(user, report):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    fp = UPLOAD_DIR / report["file_path"]
+    if not fp.exists():
+        raise HTTPException(status_code=404, detail="File missing")
+    return FileResponse(str(fp), filename=report.get("file_name") or report["file_path"])
+
+
+@api.delete("/progress-reports/{rid}/file")
+async def delete_progress_report_file(rid: str, user=Depends(get_current_user)):
+    report = await db.progress_reports.find_one({"id": rid}, {"_id": 0})
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if user.get("role") != "admin" and not await _can_access_progress_report(user, report):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if report.get("file_path"):
+        fp = UPLOAD_DIR / report["file_path"]
+        if fp.exists():
+            fp.unlink()
+    await db.progress_reports.update_one({"id": rid}, {"$set": {
+        "file_path": None, "file_name": None, "file_uploaded_at": None,
+    }})
     return {"ok": True}
 
 # ------------------- Invoices (per client; manual numbers) -------------------
@@ -1194,6 +1279,34 @@ async def _migrate_invoice_service_types() -> int:
             await db.invoices.update_one({"id": inv["id"]}, {"$set": {"service_type": inferred}})
             migrated += 1
     return migrated
+
+
+THERAPIST_EMAIL_MIGRATIONS = [
+    ("ralshatri@boostgrowthsa.com", "ralshatery@boostgrowthsa.com"),
+    ("salhammamy@boostgrowthsa.com", "shalhammami@boostgrowthsa.com"),
+    ("aalroman@boostgrowthsa.com", "a.alromman@boostgrowthsa.com"),
+    ("salamri@boostgrowthsa.com", "shalamri@boostgrowthsa.com"),
+    ("aalshreef@boostgrowthsa.com", "a.alshareef@boostgrowthsa.com"),
+    ("naja@boostgrowthsa.com", "nalhamad@boostgrowthsa.com"),
+]
+
+
+async def _migrate_therapist_emails() -> int:
+    updated = 0
+    for old_email, new_email in THERAPIST_EMAIL_MIGRATIONS:
+        old_l = old_email.lower()
+        new_l = new_email.lower()
+        r1 = await db.therapists.update_many({"email": {"$regex": f"^{old_l}$", "$options": "i"}}, {"$set": {"email": new_l}})
+        r2 = await db.users.update_many({"email": {"$regex": f"^{old_l}$", "$options": "i"}}, {"$set": {"email": new_l}})
+        updated += (r1.modified_count or 0) + (r2.modified_count or 0)
+    # Ensure Jenan exists with correct email if referenced in assignments
+    jenan = await db.therapists.find_one({"email": "jsalmuhaisin@boostgrowthsa.com"}, {"_id": 0, "id": 1})
+    if not jenan:
+        hit = await db.therapists.find_one({"name": {"$regex": "Jenan", "$options": "i"}}, {"_id": 0, "id": 1})
+        if hit:
+            await db.therapists.update_one({"id": hit["id"]}, {"$set": {"email": "jsalmuhaisin@boostgrowthsa.com"}})
+            updated += 1
+    return updated
 
 
 _INV_SHEET_RE = _re_top.compile(r"^(copy of\s+)?inv[\s\-_]*\d+", _re_top.IGNORECASE)
@@ -3058,6 +3171,13 @@ async def _run_startup():
                 logger.info(f"Invoice service_type migration: updated {n} invoice(s)")
         except Exception as e:
             logger.warning(f"Invoice service_type migration skipped: {e}")
+
+        try:
+            n = await _migrate_therapist_emails()
+            if n:
+                logger.info(f"Therapist email migration: updated {n} record(s)")
+        except Exception as e:
+            logger.warning(f"Therapist email migration skipped: {e}")
 
         # Load persisted email settings from db.settings into env
         settings_doc = await db.settings.find_one({"key": "email"}, {"_id": 0})

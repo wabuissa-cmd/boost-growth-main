@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
-import { Plus, PencilSimple, Trash, X, MagnifyingGlass, MapPin, User, Phone, Hash, ClipboardText, ChartLine, IdentificationCard, ArrowSquareOut } from "@phosphor-icons/react";
+import { Plus, PencilSimple, Trash, MagnifyingGlass, MapPin, User, Phone, Hash, ArrowSquareOut } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -14,9 +14,19 @@ export default function Clients() {
   const [therapists, setTherapists] = useState([]);
   const [edit, setEdit] = useState(null);
   const [search, setSearch] = useState("");
-  const [previewClient, setPreviewClient] = useState(null);
-  const [detailsClient, setDetailsClient] = useState(null);
+  const [panelClient, setPanelClient] = useState(null); // { client, section }
   const [prSummaries, setPrSummaries] = useState({});
+
+  const refreshPrSummaries = () => {
+    api.get("/progress-reports/summary").then(r => setPrSummaries(r.data || {})).catch(() => {});
+  };
+
+  const openPanel = (client, section) => setPanelClient({ client, section });
+  const closePanel = () => {
+    const wasProgress = panelClient?.section === "progress";
+    setPanelClient(null);
+    if (wasProgress) refreshPrSummaries();
+  };
 
   const load = async () => {
     const [c, t] = await Promise.all([api.get("/clients"), api.get("/therapists").catch(() => ({data:[]}))]);
@@ -25,7 +35,7 @@ export default function Clients() {
   useEffect(() => { load(); }, []);
 
   useEffect(() => {
-    api.get("/progress-reports/summary").then(r => setPrSummaries(r.data || {})).catch(() => {});
+    refreshPrSummaries();
   }, [items]);
 
   const save = async () => {
@@ -104,37 +114,30 @@ export default function Clients() {
                 </div>
               )}
 
-              {/* Action buttons row */}
-              <div className="mt-3 pt-3 border-t border-[#F0EDE9] grid grid-cols-2 gap-1.5">
-                <ClientActionBtn icon="📍" label="Location" testId={`btn-loc-${c.id}`}
-                  available={!!c.locations?.[0]?.address}
-                  href={c.locations?.[0]?.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.locations[0].address)}` : null}
-                  preview={false}/>
-                <ClientActionBtn icon="📋" label="Case Summary" testId={`btn-case-${c.id}`}
-                  available={!!c.drive_url}
-                  href={c.drive_url || null}
-                  preview={true}
-                  onPreview={() => setPreviewClient({ client: c, kind: "case" })}/>
-                <ProgressTracker clientId={c.id} summary={prSummaries[c.id]} onOpen={() => setDetailsClient({ ...c, _openTab: "attachments" })}/>
-                <ClientActionBtn icon="👤" label="Details" testId={`btn-details-${c.id}`}
-                  available={true}
-                  preview={true}
-                  onPreview={() => setDetailsClient(c)}/>
+              {/* Four equal section buttons */}
+              <div className="mt-3 pt-3 border-t border-[#F0EDE9] grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                <SectionBtn icon="📍" label="Location" testId={`btn-loc-${c.id}`} onClick={() => openPanel(c, "location")} />
+                <SectionBtn icon="📎" label="Attachments" testId={`btn-att-${c.id}`} onClick={() => openPanel(c, "attachments")} />
+                <SectionBtn icon="📋" label="Case Details" testId={`btn-details-${c.id}`} onClick={() => openPanel(c, "details")} />
+                <ProgressTracker clientId={c.id} summary={prSummaries[c.id]} onOpen={() => openPanel(c, "progress")} />
               </div>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Embedded preview modal (Drive/Doc) */}
-      {previewClient && (
-        <ClientPreviewModal client={previewClient.client} kind={previewClient.kind} onClose={() => setPreviewClient(null)}/>
+      {panelClient?.section === "location" && (
+        <LocationPanelModal client={panelClient.client} onClose={closePanel} />
       )}
-      {/* Details modal */}
-      {detailsClient && (
-        <ClientDetailsModal client={detailsClient} therapists={therapists} isAdmin={isAdmin}
-          onClose={() => setDetailsClient(null)}
-          onSaved={() => { setDetailsClient(null); load(); }}/>
+      {panelClient?.section === "attachments" && (
+        <AttachmentsPanelModal client={panelClient.client} isAdmin={isAdmin} onClose={closePanel} onSaved={() => { closePanel(); load(); }} />
+      )}
+      {panelClient?.section === "details" && (
+        <CaseDetailsPanelModal client={panelClient.client} therapists={therapists} isAdmin={isAdmin}
+          onClose={closePanel} onSaved={() => { closePanel(); load(); }} />
+      )}
+      {panelClient?.section === "progress" && (
+        <ProgressReportPanelModal client={panelClient.client} isAdmin={isAdmin} onClose={closePanel} />
       )}
 
       {edit && (
@@ -270,86 +273,72 @@ export default function Clients() {
 }
 
 // ----- Helper components for client cards -----
-function ProgressTracker({ clientId, summary, onOpen }) {
+function SectionBtn({ icon, label, onClick, testId }) {
+  return (
+    <button type="button" data-testid={testId} onClick={onClick}
+      className="text-[10px] sm:text-[11px] py-2 px-1.5 rounded-lg border hover:bg-[#F0EDE9] transition text-center min-h-[52px] flex flex-col items-center justify-center gap-0.5"
+      style={{ borderColor: "#E0DCC4", color: "#3D4F35", background: "white" }}>
+      <span className="text-base leading-none">{icon}</span>
+      <span className="font-semibold leading-tight">{label}</span>
+    </button>
+  );
+}
+
+function ProgressTracker({ summary, onOpen }) {
   const s = summary || { uploaded: false, reviewed: false, resolved: false, count: 0 };
   const steps = [
-    { key: "uploaded", label: "Uploaded", color: "#D97706", bg: "#FEF3C7" },
-    { key: "reviewed", label: "Reviewed", color: "#2563EB", bg: "#DBEAFE" },
-    { key: "resolved", label: "Resolved", color: "#16A34A", bg: "#DCFCE7" },
+    { key: "uploaded", label: "Uploaded" },
+    { key: "reviewed", label: "Reviewed" },
+    { key: "resolved", label: "Resolved" },
   ];
   const allDone = s.uploaded && s.reviewed && s.resolved;
+  const lastLine = s.count > 0
+    ? steps.map(st => `${s[st.key] ? "✓" : "○"} ${st.label}`).join(" · ")
+    : "No reports yet";
   return (
     <button type="button" onClick={onOpen}
-      className="text-left py-1.5 px-2 rounded-lg border hover:bg-[#F0EDE9] transition w-full col-span-2"
-      style={{ borderColor: allDone ? "#86EFAC" : "#F0EDE9", background: allDone ? "#F0FDF4" : "white" }}>
-      <div className="text-[10px] font-bold mb-1.5 flex items-center gap-1" style={{ color: "#3D4F35" }}>
-        📊 Progress Report
-        {s.count > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: "#EEF2EB", color: "#5C6853" }}>{s.count} reports</span>}
+      className="text-left py-2 px-1.5 rounded-lg border hover:bg-[#F0EDE9] transition w-full min-h-[52px] flex flex-col justify-center"
+      style={{ borderColor: allDone ? "#86EFAC" : "#E0DCC4", background: allDone ? "#F0FDF4" : "white" }}>
+      <div className="text-[10px] sm:text-[11px] font-bold text-center leading-tight" style={{ color: "#3D4F35" }}>
+        <span className="text-base">📊</span> Progress Report
       </div>
-      <div className="flex gap-1.5">
-        {steps.map(step => (
-          <span key={step.key} className="text-[9px] px-1.5 py-0.5 rounded-md font-bold"
-            style={{ background: s[step.key] ? step.bg : "#F5F5F5", color: s[step.key] ? step.color : "#C0C0C0", border: `1px solid ${s[step.key] ? step.color + "40" : "#E5E5E5"}` }}>
-            {s[step.key] ? "✓" : "○"} {step.label}
-          </span>
-        ))}
+      <div className="text-[9px] text-center mt-0.5 leading-snug" style={{ color: "#5C6853" }}>
+        {s.count > 0 ? `${s.count} report${s.count !== 1 ? "s" : ""} · Last: ${lastLine}` : lastLine}
       </div>
     </button>
   );
 }
 
-function ClientActionBtn({ icon, label, available, href, preview, onPreview, testId }) {
-  if (!available) {
-    return (
-      <button data-testid={testId} disabled className="text-[10px] py-1.5 px-2 rounded-lg border" style={{borderColor: "#F0EDE9", color: "#B8C0AC", background: "#FAFAF7"}}>
-        {icon} {label} <span className="opacity-60">— Not available</span>
-      </button>
-    );
-  }
-  if (preview) {
-    return (
-      <button data-testid={testId} onClick={onPreview} className="text-[11px] py-1.5 px-2 rounded-lg border hover:bg-[#F0EDE9] transition" style={{borderColor: "#E0DCC4", color: "#3D4F35", background: "white"}}>
-        {icon} {label}
-      </button>
-    );
-  }
+function LocationPanelModal({ client, onClose }) {
+  const locs = client.locations || [];
   return (
-    <a data-testid={testId} href={href} target="_blank" rel="noreferrer" className="text-[11px] py-1.5 px-2 rounded-lg border hover:bg-[#F0EDE9] transition flex items-center justify-center gap-1" style={{borderColor: "#E0DCC4", color: "#3D4F35", background: "white"}}>
-      {icon} {label}
-    </a>
+    <ModalBase title="Location" subtitle={`${client.name} · File #${client.file_no || "—"}`} onClose={onClose} size="md"
+      footer={<ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>}>
+      {locs.length === 0 ? (
+        <div className="text-sm py-8 text-center" style={{ color: "#8B9E7A" }}>No locations on file</div>
+      ) : (
+        <div className="space-y-3">
+          {locs.map((l, i) => (
+            <div key={i} className="p-3 rounded-xl border flex items-start gap-3" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
+              <span className="pill text-[10px] py-0.5 px-2 shrink-0" style={{ background: l.service === "SS" ? "#E5EBE1" : "#EAF0F3", color: l.service === "SS" ? "#3D4F35" : "#375568" }}>{l.service}</span>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium" style={{ color: "#2C3625" }}>{l.address || "—"}</div>
+                {l.address && (
+                  <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(l.address)}`}
+                    target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs mt-2 underline" style={{ color: "#5C8A47" }}>
+                    <MapPin size={12} /> Open in Maps ↗
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </ModalBase>
   );
 }
 
-function ClientPreviewModal({ client, kind, onClose }) {
-  const url = client.drive_url;
-  const isDriveFolder = url && url.includes("/folders/");
-  const embedUrl = isDriveFolder
-    ? url.replace("/folders/", "/embeddedfolderview?id=").replace(/\?.*$/, "") + "#grid"
-    : url;
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
-      <div className="card p-0 w-full max-w-5xl modal-card max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-3 border-b border-[#E8E4DE]">
-          <div>
-            <div className="font-bold text-sm" style={{color: "#2C3625"}}>{kind === "case" ? "Case Summary" : "Progress Report"} · {client.name}</div>
-            <div className="text-[11px]" style={{color: "#8B9E7A"}}>Internal preview · Drive folder</div>
-          </div>
-          <div className="flex gap-2">
-            <a href={url} target="_blank" rel="noreferrer" className="btn btn-outline text-xs"><ArrowSquareOut size={14}/> Open externally</a>
-            <button onClick={onClose} className="btn btn-ghost p-2"><X size={18}/></button>
-          </div>
-        </div>
-        <div className="flex-1 bg-[#FAFAF7]">
-          <iframe src={embedUrl} title={`${kind}-${client.id}`} className="w-full h-full" style={{minHeight: 540, border: 0}}/>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ClientDetailsModal({ client, therapists, onClose, isAdmin, onSaved }) {
-  const findT = id => therapists.find(t => t.id === id);
-  const [tab, setTab] = useState(client._openTab || "info"); // info | attachments
+function AttachmentsPanelModal({ client, isAdmin, onClose, onSaved }) {
   const [att, setAtt] = useState({
     intake_file_url: client.intake_file_url || "",
     attendance_sheet_url: client.attendance_sheet_url || client.drive_url || "",
@@ -366,62 +355,106 @@ function ClientDetailsModal({ client, therapists, onClose, isAdmin, onSaved }) {
       alert("Save failed: " + (e.response?.data?.detail || e.message));
     } finally { setSaving(false); }
   };
+  const fields = [
+    { key: "intake_file_url", label: "Intake File", hint: "Google Drive link to the intake document" },
+    { key: "attendance_sheet_url", label: "Attendance Sheet", hint: "Google Sheets URL in the client's Attendance Sheets folder" },
+    { key: "progress_reports_url", label: "Progress Reports Folder", hint: "Drive folder link for Progress Reports" },
+    { key: "case_summary_url", label: "Case Summary (ملخص الحالة)", hint: "Drive folder or document link" },
+  ];
   return (
-    <ModalBase
-      title={client.name}
-      subtitle={`File #${client.file_no || "—"} · ${client.status || "Active"}`}
-      onClose={onClose}
-      size="lg"
+    <ModalBase title="Attachments" subtitle={`${client.name} · Google Drive links`} onClose={onClose} size="lg"
       footer={
-        tab === "attachments" && isAdmin ? (
-          <ModalBtnPrimary data-testid="save-attachments-btn" type="button" onClick={saveAttachments} disabled={saving}>
-            {saving ? <span className="spinner" /> : "Save Links"}
-          </ModalBtnPrimary>
+        isAdmin ? (
+          <>
+            <ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>
+            <ModalBtnPrimary data-testid="save-attachments-btn" type="button" onClick={saveAttachments} disabled={saving}>
+              {saving ? <span className="spinner" /> : "Save Links"}
+            </ModalBtnPrimary>
+          </>
         ) : (
           <ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>
         )
-      }
-    >
-      <div className="flex gap-1 -mt-2 mb-4 border-b" style={{ borderColor: "#EDE9E3" }}>
-        <button
-          data-testid="tab-info"
-          type="button"
-          onClick={() => setTab("info")}
-          className={`px-3 py-2 text-sm font-bold ${tab === "info" ? "border-b-2" : "opacity-60"}`}
-          style={{ borderColor: "#5C8A47", color: tab === "info" ? "#1C2617" : "#9CA3AF" }}
-        >
-          Info
-        </button>
-        <button
-          data-testid="tab-attachments"
-          type="button"
-          onClick={() => setTab("attachments")}
-          className={`px-3 py-2 text-sm font-bold ${tab === "attachments" ? "border-b-2" : "opacity-60"}`}
-          style={{ borderColor: "#5C8A47", color: tab === "attachments" ? "#1C2617" : "#9CA3AF" }}
-        >
-          Attachments
-        </button>
+      }>
+      <div className="space-y-3">
+        {fields.map(f => (
+          <div key={f.key} className="p-3 rounded-xl border" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-sm font-bold" style={{ color: "#1C2617" }}>{f.label}</div>
+              {att[f.key] && (
+                <a href={att[f.key]} target="_blank" rel="noreferrer" className="text-[11px] underline flex items-center gap-1" style={{ color: "#5C8A47" }}>
+                  Open in Drive ↗ <ArrowSquareOut size={12} />
+                </a>
+              )}
+            </div>
+            <div className="text-[10px] mb-2" style={{ color: "#9CA3AF" }}>{f.hint}</div>
+            {isAdmin ? (
+              <input data-testid={`att-${f.key}`} className="modal-input text-xs" placeholder="https://drive.google.com/..."
+                value={att[f.key]} onChange={e => setAtt(s => ({ ...s, [f.key]: e.target.value }))} />
+            ) : (
+              <div className="text-xs truncate" style={{ color: att[f.key] ? "#1C2617" : "#9CA3AF" }}>{att[f.key] || "— not provided —"}</div>
+            )}
+          </div>
+        ))}
       </div>
-      {tab === "info" && (
-        <dl className="grid grid-cols-3 gap-y-3 text-sm">
-          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Main therapist</dt>
-          <dd className="col-span-2 font-medium" style={{ color: "#1C2617" }}>{findT(client.main_therapist_id)?.name || <span className="opacity-50">Not assigned</span>}</dd>
-          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Co therapists</dt>
-          <dd className="col-span-2 font-medium" style={{ color: "#1C2617" }}>{client.co_therapist_ids?.length ? client.co_therapist_ids.map(id => findT(id)?.name).filter(Boolean).join(", ") : <span className="opacity-50">—</span>}</dd>
-          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Supervisor</dt>
-          <dd className="col-span-2 font-medium" style={{ color: "#1C2617" }}>{client.supervisor || <span className="opacity-50">—</span>}</dd>
-          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Program</dt>
-          <dd className="col-span-2 font-medium" style={{ color: "#1C2617" }}>{client.billing_mode === "weeks" ? `${client.cycle_weeks || 4}-week cycle (school)` : `${client.package_hours || 24}h package`}</dd>
-          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Service type</dt>
-          <dd className="col-span-2 font-medium" style={{ color: "#1C2617" }}>{client.service_type || <span className="opacity-50">—</span>}</dd>
-          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Parent name</dt>
-          <dd className="col-span-2 font-medium" style={{ color: "#1C2617" }}>{client.parent_name || <span className="opacity-50">—</span>}</dd>
-          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Parent phone</dt>
-          <dd className="col-span-2 font-medium" style={{ color: "#1C2617" }}>{client.parent_phone || <span className="opacity-50">—</span>}</dd>
-          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Age</dt>
-          <dd className="col-span-2 font-medium" style={{ color: "#1C2617" }}>{client.age || <span className="opacity-50">—</span>}</dd>
-          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Locations</dt>
-          <dd className="col-span-2 font-medium" style={{ color: "#1C2617" }}>
+    </ModalBase>
+  );
+}
+
+function CaseDetailsPanelModal({ client, therapists, isAdmin, onClose, onSaved }) {
+  const findT = id => therapists.find(t => t.id === id);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({
+    ...client,
+    co_therapist_ids: client.co_therapist_ids || [],
+    locations: client.locations || [],
+  });
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.put(`/clients/${client.id}`, form);
+      setEditing(false);
+      onSaved && onSaved();
+    } catch (e) {
+      alert("Save failed: " + (e.response?.data?.detail || e.message));
+    } finally { setSaving(false); }
+  };
+
+  const Field = ({ label, children }) => (
+    <>
+      <dt className="text-xs font-semibold pt-1" style={{ color: "#9CA3AF" }}>{label}</dt>
+      <dd className="col-span-2 pb-2">{children}</dd>
+    </>
+  );
+
+  return (
+    <ModalBase title="Case Details" subtitle={`${client.name} · File #${client.file_no || "—"}`} onClose={onClose} size="lg"
+      footer={
+        editing ? (
+          <>
+            <ModalBtnSecondary type="button" onClick={() => { setEditing(false); setForm({ ...client, co_therapist_ids: client.co_therapist_ids || [], locations: client.locations || [] }); }}>Cancel</ModalBtnSecondary>
+            <ModalBtnPrimary type="button" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</ModalBtnPrimary>
+          </>
+        ) : (
+          <>
+            <ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>
+            {isAdmin && <ModalBtnPrimary type="button" onClick={() => setEditing(true)}><PencilSimple size={14} className="inline mr-1" /> Edit</ModalBtnPrimary>}
+          </>
+        )
+      }>
+      {!editing ? (
+        <dl className="grid grid-cols-3 gap-y-1 text-sm">
+          <Field label="Full name"><span className="font-medium" style={{ color: "#1C2617" }}>{client.name}</span></Field>
+          <Field label="File number"><span className="font-medium" style={{ color: "#1C2617" }}>{client.file_no || "—"}</span></Field>
+          <Field label="Package hours"><span className="font-medium" style={{ color: "#1C2617" }}>{client.billing_mode === "weeks" ? `${client.cycle_weeks || 4}-week cycle` : `${client.package_hours || 24}h`}</span></Field>
+          <Field label="Main therapist"><span className="font-medium" style={{ color: "#1C2617" }}>{findT(client.main_therapist_id)?.name || "—"}</span></Field>
+          <Field label="Co-therapists"><span className="font-medium" style={{ color: "#1C2617" }}>{client.co_therapist_ids?.length ? client.co_therapist_ids.map(id => findT(id)?.name).filter(Boolean).join(", ") : "—"}</span></Field>
+          <Field label="Supervisor"><span className="font-medium" style={{ color: "#1C2617" }}>{client.supervisor || "—"}</span></Field>
+          <Field label="Service type"><span className="font-medium" style={{ color: "#1C2617" }}>{client.service_type || "—"}</span></Field>
+          <Field label="Status"><span className="font-medium" style={{ color: "#1C2617" }}>{client.status || "Active"}</span></Field>
+          <Field label="Age"><span className="font-medium" style={{ color: "#1C2617" }}>{client.age || "—"}</span></Field>
+          <Field label="Locations">
             {client.locations?.length ? (
               <div className="flex flex-wrap gap-1.5">
                 {client.locations.map((loc, i) => (
@@ -430,68 +463,90 @@ function ClientDetailsModal({ client, therapists, onClose, isAdmin, onSaved }) {
                   </span>
                 ))}
               </div>
-            ) : <span className="opacity-50">—</span>}
-          </dd>
-          <dt className="text-xs font-semibold" style={{ color: "#9CA3AF" }}>Notes</dt>
-          <dd className="col-span-2" style={{ color: "#1C2617" }}>{client.notes || <span className="opacity-50">—</span>}</dd>
+            ) : "—"}
+          </Field>
         </dl>
-      )}
-      {tab === "attachments" && (
-        <div className="space-y-3">
-          {[
-            { key: "intake_file_url", label: "Intake File", hint: "Paste a Google Drive link to the intake document" },
-            { key: "attendance_sheet_url", label: "Attendance Sheet", hint: "Paste the Google Sheets URL inside the client's 'Attendance Sheets' Drive folder (used by Sync from Drive)" },
-            { key: "progress_reports_url", label: "Progress Reports Folder", hint: "Paste the Drive folder link for this client's Progress Reports" },
-            { key: "case_summary_url", label: "Case Summary (ملخص الحالة)", hint: "Paste the Drive folder or document link" },
-          ].map(f => (
-            <div key={f.key} className="p-3 rounded-xl border" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
-              <div className="flex items-center justify-between mb-1">
-                <div className="text-sm font-bold" style={{ color: "#1C2617" }}>{f.label}</div>
-                {att[f.key] && (
-                  <a href={att[f.key]} target="_blank" rel="noreferrer" className="text-[11px] underline" style={{ color: "#5C8A47" }}>
-                    <ArrowSquareOut size={12} className="inline" /> Open
-                  </a>
-                )}
-              </div>
-              <div className="text-[10px] mb-2" style={{ color: "#9CA3AF" }}>{f.hint}</div>
-              {isAdmin ? (
-                <input
-                  data-testid={`att-${f.key}`}
-                  className="modal-input text-xs"
-                  placeholder="https://drive.google.com/..."
-                  value={att[f.key]}
-                  onChange={e => setAtt(s => ({ ...s, [f.key]: e.target.value }))}
-                />
-              ) : (
-                <div className="text-xs truncate" style={{ color: att[f.key] ? "#1C2617" : "#9CA3AF" }}>{att[f.key] || "— not provided —"}</div>
-              )}
+      ) : (
+        <div className="space-y-4">
+          <FormField label="Full name"><input className="modal-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></FormField>
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="File number"><input className="modal-input" value={form.file_no || ""} onChange={e => setForm({ ...form, file_no: e.target.value })} /></FormField>
+            <FormField label="Age"><input className="modal-input" value={form.age || ""} onChange={e => setForm({ ...form, age: e.target.value })} /></FormField>
+            <FormField label="Package hours"><input type="number" className="modal-input" value={form.package_hours || 24} onChange={e => setForm({ ...form, package_hours: parseFloat(e.target.value) || 24 })} /></FormField>
+            <FormField label="Service type">
+              <select className="modal-input" value={form.service_type || ""} onChange={e => setForm({ ...form, service_type: e.target.value || null })}>
+                <option value="">—</option>
+                <option value="HS">HS</option><option value="SS">SS</option><option value="HS+SS">HS+SS</option><option value="AVC">AVC</option>
+              </select>
+            </FormField>
+            <FormField label="Status">
+              <select className="modal-input" value={form.status || "Active"} onChange={e => setForm({ ...form, status: e.target.value })}>
+                <option value="Active">Active</option><option value="Inactive">Inactive</option>
+              </select>
+            </FormField>
+            <FormField label="Supervisor"><input className="modal-input" value={form.supervisor || ""} onChange={e => setForm({ ...form, supervisor: e.target.value })} /></FormField>
+          </div>
+          <FormField label="Main therapist">
+            <select className="modal-input" value={form.main_therapist_id || ""} onChange={e => setForm({ ...form, main_therapist_id: e.target.value || null })}>
+              <option value="">— None —</option>
+              {therapists.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </FormField>
+          <FormField label="Co-therapists">
+            <div className="flex flex-wrap gap-1.5">
+              {therapists.map(t => {
+                const sel = (form.co_therapist_ids || []).includes(t.id);
+                return (
+                  <button key={t.id} type="button"
+                    onClick={() => setForm({ ...form, co_therapist_ids: sel ? form.co_therapist_ids.filter(x => x !== t.id) : [...(form.co_therapist_ids || []), t.id] })}
+                    className={`pill text-xs px-2 py-1 ${sel ? "bg-[#7A8A6A] text-white" : "bg-white border"}`}
+                    style={!sel ? { borderColor: "#DDD8D0" } : undefined}>{t.name}</button>
+                );
+              })}
             </div>
-          ))}
-          <ProgressReportsList clientId={client.id} fileNo={client.file_no} isAdmin={isAdmin} />
+          </FormField>
+          <FormField label="Locations">
+            <div className="space-y-2">
+              {(form.locations || []).map((l, i) => (
+                <div key={i} className="flex gap-2">
+                  <select className="modal-input w-24 flex-shrink-0" value={l.service} onChange={e => { const ll = [...form.locations]; ll[i] = { ...ll[i], service: e.target.value }; setForm({ ...form, locations: ll }); }}>
+                    <option value="HS">HS</option><option value="SS">SS</option><option value="OS">OS</option>
+                  </select>
+                  <input className="modal-input flex-1" placeholder="Address" value={l.address} onChange={e => { const ll = [...form.locations]; ll[i] = { ...ll[i], address: e.target.value }; setForm({ ...form, locations: ll }); }} />
+                  <button type="button" onClick={() => setForm({ ...form, locations: form.locations.filter((_, j) => j !== i) })} className="btn btn-ghost p-2 text-red-700"><Trash size={14} /></button>
+                </div>
+              ))}
+              <button type="button" onClick={() => setForm({ ...form, locations: [...(form.locations || []), { service: "HS", address: "" }] })} className="btn btn-outline text-xs"><Plus size={14} /> Add location</button>
+            </div>
+          </FormField>
         </div>
       )}
     </ModalBase>
   );
 }
 
+function ProgressReportPanelModal({ client, isAdmin, onClose }) {
+  return (
+    <ModalBase title="Progress Reports" subtitle={`${client.name} · File #${client.file_no || "—"}`} onClose={onClose} size="lg"
+      footer={<ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>}>
+      <ProgressReportsList clientId={client.id} fileNo={client.file_no} client={client} isAdmin={isAdmin} embedded />
+    </ModalBase>
+  );
+}
 
-const PR_STATUS_META = {
-  uploaded: { label: "Uploaded", bg: "#FAF0D1", color: "#6B5218", border: "#E5C387" },
-  reviewed: { label: "Reviewed", bg: "#E5EAF1", color: "#3A5572", border: "#A8C0D3" },
-  resolved: { label: "Resolved", bg: "#E5EBE1", color: "#3D4F35", border: "#B8C8A8" },
-};
 
 const SUPERVISOR_CLIENTS = {
   msMaha:  ["035","037","038","040","041","042","047","052","054","060","063","065","070"],
   msFahda: ["009","011","018","023","024","027","030","034","061","062","068","072","079"],
 };
 
-function ProgressReportsList({ clientId, fileNo, isAdmin }) {
+function ProgressReportsList({ clientId, fileNo, client, isAdmin, embedded }) {
   const { user } = useAuth();
   const [items, setItems]    = useState([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding]  = useState(false);
-  const [draft, setDraft]    = useState({ title: "", url: "", report_date: "", notes: "" });
+  const [draft, setDraft]    = useState({ title: "", report_date: "", notes: "" });
+  const [draftFile, setDraftFile] = useState(null);
   const [busy, setBusy]      = useState(null);
 
   const isSupervisor = () => {
@@ -502,10 +557,17 @@ function ProgressReportsList({ clientId, fileNo, isAdmin }) {
     return (SUPERVISOR_CLIENTS[key] || []).includes(fn);
   };
 
-  const canAdd      = true;
-  const canUploaded = true;
+  const isAssigned = () => {
+    if (isAdmin) return true;
+    if (!user || !client) return false;
+    return client.main_therapist_id === user.id || (client.co_therapist_ids || []).includes(user.id);
+  };
+
+  const canAdd      = isAdmin || isSupervisor() || isAssigned();
+  const canUploaded = isAdmin || isSupervisor() || isAssigned();
   const canReviewed = isAdmin || isSupervisor();
   const canResolved = isAdmin || isSupervisor();
+  const canDeleteFile = isAdmin || isSupervisor() || isAssigned();
 
   const load = async () => {
     setLoading(true);
@@ -518,14 +580,48 @@ function ProgressReportsList({ clientId, fileNo, isAdmin }) {
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [clientId]);
 
+  const uploadFile = async (rid, file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    await api.post(`/progress-reports/${rid}/file`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+    await load();
+  };
+
+  const downloadFile = async (rid, fileName) => {
+    const res = await api.get(`/progress-reports/${rid}/file`, { responseType: "blob" });
+    const url = window.URL.createObjectURL(new Blob([res.data]));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName || "progress-report.pdf";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const deleteFile = async (rid) => {
+    if (!window.confirm("Delete this file?")) return;
+    setBusy(rid + "file");
+    try {
+      await api.delete(`/progress-reports/${rid}/file`);
+      await load();
+    } catch (e) {
+      alert("Failed: " + (e.response?.data?.detail || e.message));
+    } finally { setBusy(null); }
+  };
+
   const addReport = async () => {
     if (!draft.title.trim()) { alert("Please enter a report title"); return; }
     setBusy("add");
     try {
-      await api.post(`/clients/${clientId}/progress-reports`, {
+      const { data } = await api.post(`/clients/${clientId}/progress-reports`, {
         ...draft, uploaded: false, reviewed: false, resolved: false,
       });
-      setDraft({ title: "", url: "", report_date: "", notes: "" });
+      if (draftFile && data?.id) {
+        await uploadFile(data.id, draftFile);
+      }
+      setDraft({ title: "", report_date: "", notes: "" });
+      setDraftFile(null);
       setAdding(false);
       await load();
     } catch (e) {
@@ -583,20 +679,27 @@ function ProgressReportsList({ clientId, fileNo, isAdmin }) {
   };
 
   return (
-    <div className="p-3 rounded-xl border mt-3" style={{ borderColor: "#E8E4DE" }}>
+    <div className={embedded ? "" : "p-3 rounded-xl border mt-3"} style={embedded ? undefined : { borderColor: "#E8E4DE" }}>
       <div className="flex items-center justify-between mb-3">
-        <div>
-          <div className="text-sm font-bold" style={{ color: "#2C3625" }}>Progress Reports</div>
-          <div className="text-[10px]" style={{ color: "#8B9E7A" }}>
-            {items.length} report{items.length !== 1 ? "s" : ""}
-            {" · "}
-            <span style={{ color: "#D97706" }}>Uploaded</span>
-            {" → "}
-            <span style={{ color: "#2563EB" }}>Reviewed</span>
-            {" → "}
-            <span style={{ color: "#16A34A" }}>Resolved</span>
+        {!embedded && (
+          <div>
+            <div className="text-sm font-bold" style={{ color: "#2C3625" }}>Progress Reports</div>
+            <div className="text-[10px]" style={{ color: "#8B9E7A" }}>
+              {items.length} report{items.length !== 1 ? "s" : ""}
+              {" · "}
+              <span style={{ color: "#D97706" }}>Uploaded</span>
+              {" → "}
+              <span style={{ color: "#2563EB" }}>Reviewed</span>
+              {" → "}
+              <span style={{ color: "#16A34A" }}>Resolved</span>
+            </div>
           </div>
-        </div>
+        )}
+        {embedded && (
+          <div className="text-[10px] flex-1" style={{ color: "#8B9E7A" }}>
+            {items.length} report{items.length !== 1 ? "s" : ""} · click steps to update status
+          </div>
+        )}
         {canAdd && !adding && (
           <button onClick={() => setAdding(true)}
             className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg border font-bold transition hover:bg-[#F0EDE9]"
@@ -610,16 +713,19 @@ function ProgressReportsList({ clientId, fileNo, isAdmin }) {
         <div className="p-3 rounded-lg mb-3 space-y-2 border" style={{ background: "#FAFAF7", borderColor: "#E8E4DE" }}>
           <input className="input text-xs w-full" placeholder="Report title (e.g. Progress Report — Apr 2026)"
             value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} autoFocus />
-          <input className="input text-xs w-full" placeholder="Google Drive link (optional)"
-            value={draft.url} onChange={e => setDraft({ ...draft, url: e.target.value })} />
-          <div className="flex gap-2">
-            <input type="date" className="input text-xs flex-1"
+          <div className="flex gap-2 flex-wrap">
+            <input type="date" className="input text-xs flex-1 min-w-[140px]"
               value={draft.report_date} onChange={e => setDraft({ ...draft, report_date: e.target.value })} />
-            <input className="input text-xs flex-1" placeholder="Notes (optional)"
-              value={draft.notes} onChange={e => setDraft({ ...draft, notes: e.target.value })} />
+            <label className="text-xs px-3 py-2 rounded-lg border cursor-pointer flex items-center gap-1" style={{ borderColor: "#C4D4B8", color: "#3D5C3A", background: "#F5FAF3" }}>
+              📎 {draftFile ? draftFile.name : "Add File (optional)"}
+              <input type="file" accept=".pdf,.doc,.docx,image/*" className="hidden"
+                onChange={e => setDraftFile(e.target.files?.[0] || null)} />
+            </label>
           </div>
+          <input className="input text-xs w-full" placeholder="Notes (optional)"
+            value={draft.notes} onChange={e => setDraft({ ...draft, notes: e.target.value })} />
           <div className="flex justify-end gap-2 pt-1">
-            <button onClick={() => { setAdding(false); setDraft({ title: "", url: "", report_date: "", notes: "" }); }}
+            <button onClick={() => { setAdding(false); setDraft({ title: "", report_date: "", notes: "" }); setDraftFile(null); }}
               className="text-xs px-3 py-1.5 rounded-lg border" style={{ borderColor: "#E8E4DE", color: "#6B7280" }}>
               Cancel
             </button>
@@ -650,12 +756,44 @@ function ProgressReportsList({ clientId, fileNo, isAdmin }) {
                   {r.notes && <span>· {r.notes}</span>}
                 </div>
               </div>
-              <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+              <div className="flex items-center gap-1 ml-2 flex-shrink-0 flex-wrap justify-end">
+                {r.file_path || r.file_name ? (
+                  <>
+                    <button type="button" onClick={() => downloadFile(r.id, r.file_name)}
+                      className="text-[10px] px-1.5 py-0.5 rounded border underline"
+                      style={{ color: "#3D5C3A", borderColor: "#C4D4B8" }}>
+                      📄 {r.file_name || "Download"}
+                    </button>
+                    {r.file_uploaded_at && (
+                      <span className="text-[9px]" style={{ color: "#9CA3AF" }}>
+                        {new Date(r.file_uploaded_at).toLocaleDateString()}
+                      </span>
+                    )}
+                    {canDeleteFile && (
+                      <button type="button" onClick={() => deleteFile(r.id)} disabled={busy === r.id + "file"}
+                        className="text-[10px] px-1 py-0.5 rounded" style={{ color: "#DC2626" }}>Delete file</button>
+                    )}
+                  </>
+                ) : canUploaded ? (
+                  <label className="text-[10px] px-1.5 py-0.5 rounded border cursor-pointer"
+                    style={{ color: "#3D5C3A", borderColor: "#C4D4B8", background: "#F5FAF3" }}>
+                    Add File
+                    <input type="file" accept=".pdf,.doc,.docx,image/*" className="hidden"
+                      onChange={async e => {
+                        const f = e.target.files?.[0];
+                        if (!f) return;
+                        setBusy(r.id + "up");
+                        try { await uploadFile(r.id, f); }
+                        catch (err) { alert("Upload failed: " + (err.response?.data?.detail || err.message)); }
+                        finally { setBusy(null); e.target.value = ""; }
+                      }} />
+                  </label>
+                ) : null}
                 {r.url && (
                   <a href={r.url} target="_blank" rel="noreferrer"
                     className="text-[10px] px-1.5 py-0.5 rounded border underline"
                     style={{ color: "#3D5C3A", borderColor: "#C4D4B8" }}>
-                    Open ↗
+                    Drive ↗
                   </a>
                 )}
                 {(isAdmin || isSupervisor()) && (
