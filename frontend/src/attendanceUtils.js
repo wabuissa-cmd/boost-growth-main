@@ -65,8 +65,10 @@ export function formatServiceTypeDisplay(serviceType) {
   return raw;
 }
 
-/** Billing mode: invoice service_type wins; never infer school from dual HS+SS client profile. */
-export function resolveClientBillingMode(client, invoice) {
+/** Billing mode from invoice filter code or invoice record. */
+export function resolveClientBillingMode(client, invoice, serviceTypeCode) {
+  if (serviceTypeCode === "SS") return "weeks";
+  if (serviceTypeCode === "HS") return "hours";
   if (invoice) {
     const invSt = invoice.service_type;
     if (invSt) {
@@ -147,6 +149,63 @@ export function getHoursUrgentStatus(used, pkg) {
   if (rem <= 0 || pct <= 0.2 || rem <= 2) return "urgent";
   if (pct <= 0.35 || rem <= 4) return "warning";
   return "ok";
+}
+
+export function ssSessionDayValue(session) {
+  if (session.status === "Completed" || session.status === "No Show") return 1;
+  return 0;
+}
+
+export function computeSsTotals(sessions) {
+  const completed = sessions.filter(s => s.status === "Completed").length;
+  const noShows = sessions.filter(s => s.status === "No Show").length;
+  const noService = sessions.filter(s => s.status === "No Service").length;
+  const used = completed + noShows;
+  return { completed, noShows, noService, used, counted: used };
+}
+
+export function normalizeServiceTypeCode(serviceType) {
+  if (!serviceType) return null;
+  if (isSchoolService(serviceType) && !isHomeService(serviceType)) return "SS";
+  if (isHomeService(serviceType) && !isSchoolService(serviceType)) return "HS";
+  const s = String(serviceType).trim().toUpperCase();
+  if (s === "HS" || s === "SS") return s;
+  return null;
+}
+
+export function invoiceMatchesServiceType(invoice, code) {
+  return normalizeServiceTypeCode(invoice?.service_type) === code;
+}
+
+export function clientHasServiceInvoices(invoices, code) {
+  return (invoices || []).some(i => invoiceMatchesServiceType(i, code));
+}
+
+export function inferDefaultServiceType(allInvoices, user, sessions) {
+  const hasHS = clientHasServiceInvoices(allInvoices, "HS");
+  const hasSS = clientHasServiceInvoices(allInvoices, "SS");
+
+  if (user?.role === "therapist" && user?.id) {
+    let thHS = 0;
+    let thSS = 0;
+    for (const s of sessions || []) {
+      if (!(s.therapist_ids || []).includes(user.id)) continue;
+      const blob = `${s.status || ""} ${s.note || ""} ${s.location || ""}`;
+      if (/\bss\s*\|/i.test(blob) || /^ss\b/i.test(String(s.status || ""))) thSS += 1;
+      else if (/\bhs\s*\|/i.test(blob) || /^hs\b/i.test(String(s.status || ""))) thHS += 1;
+    }
+    if (thSS > thHS && hasSS) return "SS";
+    if (thHS > thSS && hasHS) return "HS";
+  }
+
+  if (hasHS && !hasSS) return "HS";
+  if (hasSS && !hasHS) return "SS";
+  return "HS";
+}
+
+export function pickLatestOpenInvoice(invoiceList) {
+  const open = (invoiceList || []).filter(i => !i.is_closed);
+  return open[0] || (invoiceList || [])[0] || null;
 }
 
 export function groupSessionsByWeeks(sessions, anchorISO, cycleWeeks = 4) {

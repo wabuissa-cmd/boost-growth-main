@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback, Fragment } from "react";
+import { useEffect, useMemo, useState, useCallback, Fragment, useRef } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
 import {
@@ -14,6 +14,8 @@ import {
   enrichClientBilling, resolveClientBillingMode, formatServiceTypeDisplay,
   resolveCycleAnchor, computeWeeksProgress, groupSessionsByWeeks,
   fmtDate, dayShort, WEEK_ROW_BG,
+  normalizeServiceTypeCode, clientHasServiceInvoices, inferDefaultServiceType,
+  pickLatestOpenInvoice, computeSsTotals, ssSessionDayValue,
 } from "../attendanceUtils";
 
 const SUPERVISOR_CLIENTS = {
@@ -42,7 +44,39 @@ function getUsedHours(sessions, clientId, resetAt) {
     .reduce((sum, s) => sum + (parseFloat(s.hours) || 0), 0);
 }
 
-function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdit, onDeleted, rowBg }) {
+function ServiceTypeToggle({ value, onChange, hasHS, hasSS }) {
+  const renderBtn = (code) => {
+    const active = value === code;
+    const enabled = code === "HS" ? hasHS : hasSS;
+    return (
+      <button
+        key={code}
+        type="button"
+        data-testid={`service-type-${code}`}
+        disabled={!enabled}
+        onClick={() => enabled && onChange(code)}
+        className="px-3 py-1.5 text-xs font-bold rounded-lg border-2 transition shrink-0"
+        style={
+          active
+            ? { background: "#7A8A6A", color: "#fff", borderColor: "#7A8A6A" }
+            : !enabled
+              ? { background: "#F5F5F5", color: "#A0A0A0", borderColor: "#E0E0E0", opacity: 0.55, cursor: "not-allowed" }
+              : { background: "#fff", color: "#5C6853", borderColor: "#DDD8D0" }
+        }
+      >
+        {code}
+      </button>
+    );
+  };
+  return (
+    <div className="flex gap-1 items-center" role="group" aria-label="Service type">
+      {renderBtn("HS")}
+      {renderBtn("SS")}
+    </div>
+  );
+}
+
+function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdit, onDeleted, rowBg, billingKind }) {
   const stColor = s.status === "Completed" ? "#3D4F35" :
     s.status === "Cancelled" ? "#6B5218" :
     s.status === "No Show" ? "#8A3F27" : "#5C6853";
@@ -51,13 +85,16 @@ function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdi
     s.status === "No Show" ? "#F8EBE7" : "#F0EDE9";
   const tNames = (s.therapist_ids || []).map(id => findT(id)?.name?.replace("Ms. ", "")).filter(Boolean).join(" - ");
   const canEdit = isAdmin || isSupervisorForClient(user, client.file_no) || (s.therapist_ids || []).includes(currentUserId);
+  const measureVal = billingKind === "SS"
+    ? (ssSessionDayValue(s) ? 1 : "—")
+    : s.hours;
   return (
     <tr key={s.id} className="border-t border-[#E8E4DE]" style={{ background: rowBg || undefined }}>
       <td className="p-2 font-bold">{dayShort(s.session_date)}</td>
       <td className="p-2 font-bold">{fmtDate(s.session_date)}</td>
       <td className="p-2"><span className="pill text-[10px] uppercase" style={{ background: stBg, color: stColor }}>{s.status}</span></td>
       <td className="p-2">{s.start_time && s.end_time ? `${s.start_time} - ${s.end_time}` : "—"}</td>
-      <td className="p-2 font-bold">{s.hours}</td>
+      <td className="p-2 font-bold">{measureVal}</td>
       <td className="p-2">{tNames || "—"}</td>
       <td className="p-2 italic" style={{ color: "#5C6853" }}>{s.note || ""}</td>
       <td className="p-2 text-right whitespace-nowrap no-print">
@@ -558,6 +595,8 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   // Invoice + package management state
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [packageSize, setPackageSize] = useState(client.package_hours || 24);
+  const [allInvoices, setAllInvoices] = useState([]);
+  const [serviceTypeFilter, setServiceTypeFilter] = useState("HS");
   const [invoices, setInvoices] = useState([]);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState("");
   const [packageEndDate, setPackageEndDate] = useState(client.package_end_date || "");
@@ -569,25 +608,34 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   const [exportOpen, setExportOpen] = useState(false);
   const [newInvMenuOpen, setNewInvMenuOpen] = useState(false);
   const [localSessions, setLocalSessions] = useState(sessions);
+  const invoicesInitialized = useRef(false);
+  const prevServiceFilter = useRef(serviceTypeFilter);
 
   const findT = id => therapists.find(t => t.id === id);
+  const hasHS = useMemo(() => clientHasServiceInvoices(allInvoices, "HS"), [allInvoices]);
+  const hasSS = useMemo(() => clientHasServiceInvoices(allInvoices, "SS"), [allInvoices]);
+  const isSchool = serviceTypeFilter === "SS";
   const selectedInvoice = invoices.find(i => i.id === selectedInvoiceId);
   const cycleSessions = localSessions;
-  const used = cycleSessions.filter(s => s.status === "Completed").reduce((sum, s) => sum + (parseFloat(s.hours) || 0), 0);
+  const hoursDelivered = cycleSessions.filter(s => s.status === "Completed").reduce((sum, s) => sum + (parseFloat(s.hours) || 0), 0);
+  const used = hoursDelivered;
   const pkg = (selectedInvoice?.package_size) || client.package_hours || 24;
   const rem = Math.max(0, pkg - used);
+  const ssTotals = useMemo(() => computeSsTotals(cycleSessions), [cycleSessions]);
+  const ssPkg = (selectedInvoice?.package_size) || 20;
+  const ssRem = Math.max(0, ssPkg - ssTotals.used);
+  const noServiceCount = cycleSessions.filter(s => s.status === "No Service").length;
   const completed = cycleSessions.filter(s => s.status === "Completed").length;
   const noShows = cycleSessions.filter(s => s.status === "No Show").length;
-  const counted = completed + noShows;
+  const counted = isSchool ? ssTotals.counted : completed + noShows;
 
   const billingMode = useMemo(
-    () => resolveClientBillingMode(client, selectedInvoice || null),
-    [client, selectedInvoice]
+    () => resolveClientBillingMode(client, selectedInvoice || null, serviceTypeFilter),
+    [client, selectedInvoice, serviceTypeFilter]
   );
-  const isSchool = billingMode === "weeks";
   const serviceDisplay = useMemo(
-    () => formatServiceTypeDisplay(selectedInvoice?.service_type) || "—",
-    [selectedInvoice?.service_type]
+    () => formatServiceTypeDisplay(selectedInvoice?.service_type || serviceTypeFilter) || serviceTypeFilter,
+    [selectedInvoice?.service_type, serviceTypeFilter]
   );
   const cycleWeeks = client.cycle_weeks || 4;
   const adminWeekAnchor = useMemo(
@@ -610,10 +658,40 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   );
   const showAdminWeekGuides = !!(weekGroups && weekGroups.length);
 
-  // Load existing invoices for this client
-  useEffect(() => {
-    api.get(`/clients/${client.id}/invoices`).then(r => setInvoices(r.data || [])).catch(() => setInvoices([]));
+  // Load all invoices, then apply HS/SS filter
+  const loadInvoices = useCallback(async (typeCode) => {
+    const params = typeCode ? { service_type: typeCode } : {};
+    const r = await api.get(`/clients/${client.id}/invoices`, { params }).catch(() => ({ data: [] }));
+    return r.data || [];
   }, [client.id]);
+
+  useEffect(() => {
+    loadInvoices().then(list => {
+      setAllInvoices(list);
+      if (!invoicesInitialized.current && list.length) {
+        const def = inferDefaultServiceType(list, user, sessions);
+        invoicesInitialized.current = true;
+        setServiceTypeFilter(def);
+        const filtered = list.filter(i => normalizeServiceTypeCode(i.service_type) === def);
+        const pick = pickLatestOpenInvoice(filtered);
+        setSelectedInvoiceId(pick?.id || "");
+      }
+    }).catch(() => setAllInvoices([]));
+  }, [client.id, loadInvoices, user, sessions]);
+
+  useEffect(() => {
+    if (!allInvoices.length) {
+      setInvoices([]);
+      return;
+    }
+    const filtered = allInvoices.filter(i => normalizeServiceTypeCode(i.service_type) === serviceTypeFilter);
+    setInvoices(filtered);
+    if (prevServiceFilter.current !== serviceTypeFilter) {
+      prevServiceFilter.current = serviceTypeFilter;
+      const pick = pickLatestOpenInvoice(filtered);
+      setSelectedInvoiceId(pick?.id || "");
+    }
+  }, [allInvoices, serviceTypeFilter]);
 
   // Re-fetch sessions when invoice filter changes
   useEffect(() => {
@@ -642,18 +720,19 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
     }
   }, [selectedInvoiceId, invoices, client.package_end_date, client.payment_status, client.package_hours]);
 
-  const createInvoice = async (number, size, serviceType) => {
+  const createInvoice = async (number, size) => {
     const trimmed = (number || "").trim();
     if (!trimmed) { alert("Please enter an invoice number"); return; }
     const r = await api.post(`/clients/${client.id}/invoices`, {
       invoice_number: trimmed,
-      package_size: parseFloat(size) || (client.package_hours || 24),
+      package_size: parseFloat(size) || (isSchool ? 20 : (client.package_hours || 24)),
       payment_status: "pending",
       start_date: new Date().toISOString().slice(0, 10),
-      service_type: serviceType || null,
+      service_type: serviceTypeFilter,
       is_closed: false,
     });
-    setInvoices(prev => [r.data, ...prev]);
+    const list = await loadInvoices();
+    setAllInvoices(list);
     setSelectedInvoiceId(r.data.id);
     setShowNewInvModal(false);
   };
@@ -661,7 +740,8 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   const deleteInvoice = async (iid) => {
     if (!window.confirm("Delete this invoice number?")) return;
     await api.delete(`/invoices/${iid}`);
-    setInvoices(prev => prev.filter(x => x.id !== iid));
+    const list = await loadInvoices();
+    setAllInvoices(list);
     if (selectedInvoiceId === iid) setSelectedInvoiceId("");
   };
 
@@ -675,8 +755,8 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
         headers: { "Content-Type": "multipart/form-data" },
       });
       const { invoices_added = [], invoices_updated = [], sessions_added = 0, sessions_skipped_existing = 0, matched_sheets = [] } = r.data || {};
-      const list = await api.get(`/clients/${client.id}/invoices`);
-      setInvoices(list.data || []);
+      const list = await loadInvoices();
+      setAllInvoices(list);
       alert([
         `Invoice sheets detected: ${matched_sheets.length}`,
         `Invoices added: ${invoices_added.length}`,
@@ -705,11 +785,11 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
           notes: selectedInvoice.notes || null,
           amount: selectedInvoice.amount || null,
           period_from: selectedInvoice.period_from || null,
-          service_type: selectedInvoice.service_type || null,
+          service_type: selectedInvoice.service_type || serviceTypeFilter,
           is_closed: !!closed,
           close_date: closed ? (closureDate || null) : null,
         });
-        setInvoices(prev => prev.map(inv => inv.id === updated.data.id ? updated.data : inv));
+        setAllInvoices(prev => prev.map(inv => inv.id === updated.data.id ? updated.data : inv));
       } else {
         await api.put(`/clients/${client.id}`, {
           ...client,
@@ -741,11 +821,11 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
       notes: selectedInvoice.notes || null,
       amount: selectedInvoice.amount || null,
       period_from: selectedInvoice.period_from || null,
-      service_type: selectedInvoice.service_type || null,
+      service_type: selectedInvoice.service_type || serviceTypeFilter,
       is_closed: newClosed,
       close_date: newDate,
     });
-    setInvoices(prev => prev.map(inv => inv.id === updated.data.id ? updated.data : inv));
+    setAllInvoices(prev => prev.map(inv => inv.id === updated.data.id ? updated.data : inv));
   };
 
   const performReset = async () => {
@@ -779,20 +859,26 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
         <div className="flex items-center justify-between px-5 py-3 border-b border-[#E8E4DE] no-print flex-wrap gap-2">
           <div className="font-bold text-sm" style={{color: "#2C3625"}}>Invoice Sheet · {client.name}</div>
           <div className="flex gap-2 flex-wrap items-center">
+            <ServiceTypeToggle
+              value={serviceTypeFilter}
+              onChange={setServiceTypeFilter}
+              hasHS={hasHS}
+              hasSS={hasSS}
+            />
             {invoices.length > 0 ? (
               <select data-testid="invoice-dropdown" value={selectedInvoiceId} onChange={e => setSelectedInvoiceId(e.target.value)}
                       className="select text-xs" style={{maxWidth: 220}}>
-                <option value="">All Invoices</option>
                 {invoices.map(inv => (
                   <option key={inv.id} value={inv.id}>
                     {inv.invoice_number}
-                    {inv.service_type ? ` · ${formatServiceTypeDisplay(inv.service_type) || inv.service_type}` : ""}
                     {inv.is_closed ? " (Closed)" : ""}
                   </option>
                 ))}
               </select>
             ) : (
-              <span className="text-[11px] italic px-2 py-1.5" style={{color: "#8B6918", background: "#FAE8C8", borderRadius: 8}}>No invoices</span>
+              <span className="text-[11px] italic px-2 py-1.5" style={{color: "#8B6918", background: "#FAE8C8", borderRadius: 8}}>
+                No {serviceTypeFilter} invoices
+              </span>
             )}
             {isAdmin && (
               <>
@@ -853,7 +939,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
         {selectedInvoice && (
           <div className="px-5 py-2 flex items-center gap-2 text-xs no-print border-b border-[#E8E4DE] flex-wrap" style={{background: "#FAFAF7"}}>
             <span className="font-bold" style={{color: "#2C3625"}}>{selectedInvoice.invoice_number}</span>
-            {selectedInvoice && serviceDisplay !== "—" && (
+            {selectedInvoice && (
               <span className="pill text-[10px] font-bold" style={{
                 background: isSchool ? "#E0EBD8" : "#F4EDE3",
                 color: isSchool ? "#2C5035" : "#6B5430",
@@ -865,9 +951,9 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               {closed ? "Closed" : "Open"}
             </span>
             {isSchool && weekProgress ? (
-              <span style={{color: "#5C6853"}}>Week {weekProgress.currentWeek}/{cycleWeeks} · {weekProgress.weeksDone} completed</span>
+              <span style={{color: "#5C6853"}}>Week {weekProgress.currentWeek}/{cycleWeeks} · {ssTotals.used}/{ssPkg} sessions</span>
             ) : (
-              <span style={{color: "#5C6853"}}>{rem.toFixed(1)}h remaining</span>
+              <span style={{color: "#5C6853"}}>{rem.toFixed(1)}h remaining · {used.toFixed(1)}/{pkg}h</span>
             )}
             <button onClick={() => setShowInvoiceDetails(true)} className="btn btn-ghost text-[11px] py-0 px-2">ⓘ Details</button>
             {isAdmin && (
@@ -951,18 +1037,22 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               {isSchool && weekProgress ? (
                 <>
                   <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>WEEKS COMPLETED</div>
-                    <div className="font-bold" style={{color: "#2C3625"}}>{weekProgress.weeksDone} / {cycleWeeks}</div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PACKAGE (SESSIONS)</div>
+                    <div className="font-bold" style={{color: "#2C3625"}}>{ssPkg} sessions</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>SESSIONS USED</div>
+                    <div className="font-bold" style={{color: "#2C3625"}}>{ssTotals.used} / {ssPkg}</div>
                   </div>
                   <div>
                     <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>CURRENT WEEK</div>
                     <div className="font-bold" style={{color: weekProgress.currentWeek >= cycleWeeks ? "#C97B5C" : "#2C3625"}}>
-                      Week {weekProgress.currentWeek}
+                      Week {weekProgress.currentWeek} / {cycleWeeks}
                     </div>
                   </div>
                   <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>CYCLE START</div>
-                    <div className="font-bold" style={{color: "#2C3625"}}>{fmtDateLocal(cycleAnchor)}</div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>SESSIONS LEFT</div>
+                    <div className="font-bold" style={{color: ssRem <= Math.ceil(ssPkg * 0.2) ? "#C97B5C" : "#2C3625"}}>{ssRem}</div>
                   </div>
                 </>
               ) : (
@@ -973,11 +1063,15 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                   </div>
                   <div>
                     <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>HOURS LEFT</div>
-                    <div className="font-bold" style={{color: rem <= 4 ? "#C97B5C" : "#2C3625"}}>{rem.toFixed(1)}h</div>
+                    <div className="font-bold" style={{color: rem <= pkg * 0.2 ? "#C97B5C" : "#2C3625"}}>{rem.toFixed(1)}h</div>
                   </div>
                   <div>
                     <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>HOURS USED</div>
                     <div className="font-bold" style={{color: "#2C3625"}}>{used.toFixed(1)}h</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>NO SERVICE</div>
+                    <div className="font-bold" style={{color: "#2C3625"}}>{noServiceCount}</div>
                   </div>
                 </>
               )}
@@ -997,7 +1091,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                   <th className="p-2 text-left font-bold">Date</th>
                   <th className="p-2 text-left font-bold">Status</th>
                   <th className="p-2 text-left font-bold">Time</th>
-                  <th className="p-2 text-left font-bold"># of Hrs</th>
+                  <th className="p-2 text-left font-bold">{isSchool ? "Sessions" : "# of Hrs"}</th>
                   <th className="p-2 text-left font-bold">Therapist</th>
                   <th className="p-2 text-left font-bold">Note</th>
                   <th className="p-2 no-print"></th>
@@ -1019,6 +1113,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                           onEdit={onEdit}
                           onDeleted={onDeleted}
                           rowBg={WEEK_ROW_BG[(group.weekNumber - 1) % WEEK_ROW_BG.length]}
+                          billingKind={serviceTypeFilter}
                         />
                       ))}
                       {!group.extra && group.weekNumber <= cycleWeeks && (
@@ -1049,6 +1144,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                       currentUserId={currentUserId}
                       onEdit={onEdit}
                       onDeleted={onDeleted}
+                      billingKind={serviceTypeFilter}
                     />
                   ))
                 )}
@@ -1058,30 +1154,44 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
 
           {/* Footer summary */}
           <div className="px-8 py-5 border-t-2 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm" style={{borderColor: "#7A8A6A", background: "#FAFAF7"}}>
-            <div>
-              <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>TOTAL DELIVERED SESSIONS</div>
-              <div className="font-display text-2xl" style={{color: "#3D4F35"}}>{completed}</div>
-            </div>
-            <div>
-              <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>TOTAL NO-SHOW (counted)</div>
-              <div className="font-display text-2xl" style={{color: "#8A3F27"}}>{noShows}</div>
-            </div>
-            <div>
-              <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>TOTAL COUNTED SESSIONS</div>
-              <div className="font-display text-2xl" style={{color: "#2C3625"}}>{counted}</div>
-            </div>
-            {isSchool && weekProgress ? (
-              <div>
-                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>WEEKS REMAINING</div>
-                <div className="font-display text-2xl" style={{color: weekProgress.weeksRem <= 1 ? "#C97B5C" : "#3D4F35"}}>
-                  {weekProgress.weeksRem} / {cycleWeeks}
+            {isSchool ? (
+              <>
+                <div>
+                  <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>TOTAL SESSIONS DELIVERED</div>
+                  <div className="font-display text-2xl" style={{color: "#3D4F35"}}>{ssTotals.completed}</div>
                 </div>
-              </div>
+                <div>
+                  <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>TOTAL NO SERVICE</div>
+                  <div className="font-display text-2xl" style={{color: "#5C6853"}}>{ssTotals.noService}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>TOTAL COUNTED SESSIONS</div>
+                  <div className="font-display text-2xl" style={{color: "#2C3625"}}>{ssTotals.counted}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>SESSIONS REMAINING</div>
+                  <div className="font-display text-2xl" style={{color: ssRem <= ssPkg * 0.2 ? "#C97B5C" : "#3D4F35"}}>{ssRem}</div>
+                </div>
+              </>
             ) : (
-              <div>
-                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>HOURS REMAINING</div>
-                <div className="font-display text-2xl" style={{color: rem <= 4 ? "#C97B5C" : "#3D4F35"}}>{rem.toFixed(1)}h</div>
-              </div>
+              <>
+                <div>
+                  <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>TOTAL HOURS DELIVERED</div>
+                  <div className="font-display text-2xl" style={{color: "#3D4F35"}}>{hoursDelivered.toFixed(1)}h</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>TOTAL NO SERVICE</div>
+                  <div className="font-display text-2xl" style={{color: "#5C6853"}}>{noServiceCount}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>TOTAL COUNTED HOURS</div>
+                  <div className="font-display text-2xl" style={{color: "#2C3625"}}>{hoursDelivered.toFixed(1)}h</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>HOURS REMAINING</div>
+                  <div className="font-display text-2xl" style={{color: rem <= pkg * 0.2 ? "#C97B5C" : "#3D4F35"}}>{rem.toFixed(1)}h</div>
+                </div>
+              </>
             )}
           </div>
           <div className="px-8 py-3 text-[10px] text-center" style={{color: "#8B9E7A"}}>
@@ -1123,6 +1233,13 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                   value={invoiceNumber || selectedInvoice.invoice_number || ""}
                 />
               </FormField>
+              <FormField label="Service">
+                <input
+                  className="modal-input"
+                  readOnly
+                  value={isSchool ? "School Support (SS)" : "Home Session (HS)"}
+                />
+              </FormField>
               <div>
                 <span className="text-xs font-semibold block mb-1.5" style={{ color: "#374151" }}>Status</span>
                 <span
@@ -1140,28 +1257,59 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
             </FormSection>
 
             <FormSection title="Package">
-              <FormField label="Package size">
-                <input
-                  className="modal-input"
-                  readOnly
-                  value={`${packageSize || selectedInvoice.package_size || pkg}h`}
-                />
-              </FormField>
-              <FormField label="Hours used">
-                <input className="modal-input" readOnly value={`${used.toFixed(1)}h`} />
-              </FormField>
-              <FormField label="Hours remaining">
-                <input className="modal-input" readOnly value={`${rem.toFixed(1)}h`} />
-              </FormField>
-              <div className="h-2 rounded-lg overflow-hidden" style={{ background: "#EDE9E3" }}>
-                <div
-                  className="h-full rounded-lg transition-all"
-                  style={{
-                    width: `${Math.min(100, ((used / (packageSize || selectedInvoice.package_size || pkg || 1)) * 100))}%`,
-                    background: rem <= 4 ? "#C97B5C" : "#5C8A47",
-                  }}
-                />
-              </div>
+              {isSchool ? (
+                <>
+                  <FormField label="Package size">
+                    <input className="modal-input" readOnly value={`${ssPkg} sessions`} />
+                  </FormField>
+                  <FormField label="Sessions used">
+                    <input className="modal-input" readOnly value={`${ssTotals.used}`} />
+                  </FormField>
+                  <FormField label="Sessions remaining">
+                    <input
+                      className="modal-input"
+                      readOnly
+                      value={`${ssRem}`}
+                      style={{ color: ssRem <= ssPkg * 0.2 ? "#C97B5C" : undefined }}
+                    />
+                  </FormField>
+                  <div className="h-2 rounded-lg overflow-hidden" style={{ background: "#EDE9E3" }}>
+                    <div
+                      className="h-full rounded-lg transition-all"
+                      style={{
+                        width: `${Math.min(100, (ssTotals.used / (ssPkg || 1)) * 100)}%`,
+                        background: ssRem <= ssPkg * 0.2 ? "#C97B5C" : "#5C8A47",
+                      }}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <FormField label="Package size">
+                    <input className="modal-input" readOnly value={`${packageSize || selectedInvoice.package_size || pkg} hours`} />
+                  </FormField>
+                  <FormField label="Hours used">
+                    <input className="modal-input" readOnly value={`${used.toFixed(1)}h`} />
+                  </FormField>
+                  <FormField label="Hours remaining">
+                    <input
+                      className="modal-input"
+                      readOnly
+                      value={`${rem.toFixed(1)}h`}
+                      style={{ color: rem <= pkg * 0.2 ? "#C97B5C" : undefined }}
+                    />
+                  </FormField>
+                  <div className="h-2 rounded-lg overflow-hidden" style={{ background: "#EDE9E3" }}>
+                    <div
+                      className="h-full rounded-lg transition-all"
+                      style={{
+                        width: `${Math.min(100, ((used / (packageSize || selectedInvoice.package_size || pkg || 1)) * 100))}%`,
+                        background: rem <= pkg * 0.2 ? "#C97B5C" : "#5C8A47",
+                      }}
+                    />
+                  </div>
+                </>
+              )}
             </FormSection>
 
             <FormSection title="Payment">
@@ -1203,9 +1351,13 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
 
         {/* New Invoice modal */}
         {showNewInvModal && (
-          <NewInvoiceModal client={client} defaultPackage={client.package_hours || 24}
-                           onCancel={() => setShowNewInvModal(false)}
-                           onCreate={createInvoice}/>
+          <NewInvoiceModal
+            client={client}
+            serviceTypeFilter={serviceTypeFilter}
+            defaultPackage={client.package_hours || 24}
+            onCancel={() => setShowNewInvModal(false)}
+            onCreate={createInvoice}
+          />
         )}
 
         {/* Reset confirmation dialog */}
@@ -1236,17 +1388,15 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   );
 }
 
-function NewInvoiceModal({ client, defaultPackage, onCancel, onCreate }) {
-  const defaultService = client?.service_type === "SS" ? "School Support" : "Home Session";
+function NewInvoiceModal({ client, serviceTypeFilter, defaultPackage, onCancel, onCreate }) {
+  const isSchool = serviceTypeFilter === "SS";
   const [num, setNum] = useState("");
-  const [size, setSize] = useState(defaultService === "School Support" ? (client?.cycle_weeks || 4) : defaultPackage);
-  const [serviceType, setServiceType] = useState(defaultService);
-  const isSchool = serviceType === "School Support";
-  const submit = (e) => { e.preventDefault(); onCreate(num, size, serviceType); };
+  const [size, setSize] = useState(isSchool ? 20 : defaultPackage);
+  const submit = (e) => { e.preventDefault(); onCreate(num, size); };
   return (
     <ModalBase
       title="New Invoice"
-      subtitle={`Create a fresh invoice for ${client.name}`}
+      subtitle={`Create a new ${serviceTypeFilter} invoice for ${client.name}`}
       onClose={onCancel}
       size="sm"
       elevated
@@ -1259,7 +1409,7 @@ function NewInvoiceModal({ client, defaultPackage, onCancel, onCreate }) {
     >
       <form id="new-invoice-form" onSubmit={submit}>
         <p className="text-xs -mt-2 mb-4" style={{ color: "#9CA3AF" }}>
-          The new sheet starts empty.
+          Service type: <strong>{isSchool ? "School Support (SS)" : "Home Session (HS)"}</strong> — matches the selected tab.
         </p>
         <FormSection title="Invoice Details">
           <FormField label="Invoice number" required hint="Manual entry, e.g. INV0490">
@@ -1273,26 +1423,10 @@ function NewInvoiceModal({ client, defaultPackage, onCancel, onCreate }) {
               onChange={e => setNum(e.target.value)}
             />
           </FormField>
-          <FormField label="Service type" required>
-            <select
-              data-testid="new-inv-service"
-              className="modal-input"
-              value={serviceType}
-              onChange={e => {
-                const v = e.target.value;
-                setServiceType(v);
-                if (v === "School Support") setSize(client?.cycle_weeks || 4);
-                else setSize(defaultPackage);
-              }}
-            >
-              <option value="Home Session">Home Session (HS)</option>
-              <option value="School Support">School Support (SS)</option>
-            </select>
-          </FormField>
           <FormField
-            label={isSchool ? "Cycle length (weeks)" : "Package size (hours)"}
+            label={isSchool ? "Package size (sessions)" : "Package size (hours)"}
             required
-            hint={isSchool ? "School service bills every 4 weeks, not by hours" : "Total paid hours for this invoice"}
+            hint={isSchool ? "Total school sessions / days in this invoice" : "Total paid hours for this invoice"}
           >
             <input
               data-testid="new-inv-size"
