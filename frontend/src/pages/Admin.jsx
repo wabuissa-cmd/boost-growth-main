@@ -1,8 +1,55 @@
 import { useEffect, useState } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
-import { Plus, PencilSimple, Trash, X, UserPlus, Key, EnvelopeSimple, CheckCircle, Warning, Database, SignOut } from "@phosphor-icons/react";
-import PackageStatusOverview from "../components/PackageStatusOverview";
+import {
+  Plus, PencilSimple, Trash, X, UserPlus, Key, EnvelopeSimple, CheckCircle, Warning,
+  Database, SignOut, CaretDown, CaretUp, Users, Wrench, LinkSimple,
+} from "@phosphor-icons/react";
+
+function AdminSection({ id, title, subtitle, icon, defaultOpen = false, badge, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="card mb-3 overflow-hidden" data-testid={`admin-section-${id}`}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-[#FAFAF7] transition"
+      >
+        <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+          {icon}
+        </span>
+        <span className="flex-1 min-w-0">
+          <span className="font-bold block" style={{ color: "#2C3625" }}>{title}</span>
+          {subtitle && <span className="text-xs block truncate" style={{ color: "#8B9E7A" }}>{subtitle}</span>}
+        </span>
+        {badge && (
+          <span className="pill text-[10px] px-2 py-0.5 shrink-0" style={{ background: "#E5EBE1", color: "#3D4F35" }}>{badge}</span>
+        )}
+        {open ? <CaretUp size={18} style={{ color: "#8B9E7A" }} /> : <CaretDown size={18} style={{ color: "#8B9E7A" }} />}
+      </button>
+      {open && (
+        <div className="px-5 pb-5 pt-0 border-t" style={{ borderColor: "#E8E4DE" }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ToolRow({ title, desc, children, danger }) {
+  return (
+    <div className={`rounded-xl p-4 mb-3 last:mb-0 border ${danger ? "border-[#E8C4C4]" : "border-[#E8E4DE]"}`}
+      style={{ background: danger ? "#FDF8F8" : "#FAFAF7" }}>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex-1 min-w-[200px]">
+          <div className="font-bold text-sm" style={{ color: danger ? "#8A3F27" : "#2C3625" }}>{title}</div>
+          {desc && <div className="text-xs mt-0.5" style={{ color: "#5C6853" }}>{desc}</div>}
+        </div>
+        <div className="shrink-0">{children}</div>
+      </div>
+    </div>
+  );
+}
 
 export default function Admin() {
   const { logout } = useAuth();
@@ -36,6 +83,7 @@ export default function Admin() {
   const [migratingUrls, setMigratingUrls] = useState(false);
   const [repairSessionsResult, setRepairSessionsResult] = useState(null);
   const [repairingSessions, setRepairingSessions] = useState(false);
+  const [backingUp, setBackingUp] = useState(false);
 
   const load = async () => {
     const [t, e, q] = await Promise.all([
@@ -69,7 +117,7 @@ export default function Admin() {
     if (emailForm.smtp_port) payload.smtp_port = parseInt(emailForm.smtp_port, 10);
     if (emailForm.smtp_user) payload.smtp_user = emailForm.smtp_user;
     if (emailForm.smtp_password) payload.smtp_password = emailForm.smtp_password;
-    if (Object.keys(payload).length === 0) { alert("أدخلي بيانات SMTP أو Resend API Key"); return; }
+    if (Object.keys(payload).length === 0) { alert("أدخلي Brevo API Key أو إعدادات أخرى"); return; }
     try {
       await api.post("/admin/email-settings", payload);
       setEditEmail(false); load();
@@ -81,7 +129,7 @@ export default function Admin() {
   const sendTest = async () => {
     if (!testTo) return;
     if (!emailSettings.smtp_configured && !emailSettings.resend_configured && !emailSettings.brevo_configured) {
-      alert("⚠️ لازم تضغطين Save Settings أولاً قبل Send Test");
+      alert("⚠️ Save Settings أولاً");
       return;
     }
     setTestResult({ status: "sending" });
@@ -94,10 +142,7 @@ export default function Admin() {
     }
   };
 
-  const saveAndTest = async () => {
-    await saveEmail();
-    if (testTo) sendTest();
-  };
+  const saveAndTest = async () => { await saveEmail(); if (testTo) sendTest(); };
 
   const save = async () => {
     if (edit.id) {
@@ -112,7 +157,7 @@ export default function Admin() {
   const remove = async (id) => { if (!window.confirm("Delete therapist?")) return; await api.delete(`/therapists/${id}`); load(); };
 
   const resetPassword = async (t) => {
-    if (!window.confirm(`Generate a new temporary password for ${t.name}?\nShe will be required to change it on next login.`)) return;
+    if (!window.confirm(`Generate a new temporary password for ${t.name}?`)) return;
     try {
       const { data } = await api.post(`/therapists/${t.id}/reset-password`);
       setResetInfo({ ...data, name: t.name });
@@ -136,7 +181,7 @@ export default function Admin() {
   };
 
   const seedAprReports = async () => {
-    if (!window.confirm("Seed April 2026 progress reports for all listed clients?\nExisting records (same title + date) will be skipped.")) return;
+    if (!window.confirm("Seed April 2026 progress reports?")) return;
     setPrSeeding(true);
     setPrSeedResult(null);
     try {
@@ -150,9 +195,8 @@ export default function Admin() {
   };
 
   const clearAllLeaves = async () => {
-    if (!window.confirm("Delete ALL leave requests from the database?\n\nThis is for clearing test data only.")) return;
+    if (!window.confirm("Delete ALL leave requests?")) return;
     setClearingLeaves(true);
-    setClearLeavesResult(null);
     try {
       const { data } = await api.post("/admin/clear-leaves");
       setClearLeavesResult(data);
@@ -164,9 +208,8 @@ export default function Admin() {
   };
 
   const migrateProgressUrls = async () => {
-    if (!window.confirm("Update Drive URLs on existing Apr 2026 progress reports?")) return;
+    if (!window.confirm("Update Apr 2026 Drive URLs?")) return;
     setMigratingUrls(true);
-    setMigrateUrlsResult(null);
     try {
       const { data } = await api.post("/admin/migrate-progress-report-urls");
       setMigrateUrlsResult(data);
@@ -178,9 +221,8 @@ export default function Admin() {
   };
 
   const repairSessionInvoices = async () => {
-    if (!window.confirm("Backfill invoice_id on sessions and fix HS service_type for HS-only clients?")) return;
+    if (!window.confirm("Repair session invoice links?")) return;
     setRepairingSessions(true);
-    setRepairSessionsResult(null);
     try {
       const { data } = await api.post("/admin/repair-session-invoices");
       setRepairSessionsResult(data);
@@ -206,10 +248,9 @@ export default function Admin() {
 
   const confirmDeleteSessionsInvoices = async () => {
     if (!deletePreview) return;
-    const msg = `Delete ALL sessions and invoices for ${deletePreview.name} (#${deletePreview.file_no})?\n\n${deletePreview.sessions_count} sessions · ${deletePreview.invoices_count} invoices\n\nThe client record will be kept.`;
+    const msg = `Delete ALL sessions and invoices for ${deletePreview.name} (#${deletePreview.file_no})?\n\n${deletePreview.sessions_count} sessions · ${deletePreview.invoices_count} invoices`;
     if (!window.confirm(msg)) return;
     setDeleting(true);
-    setDeleteResult(null);
     try {
       const { data } = await api.post("/admin/delete-client-sessions-invoices", { file_no: deletePreview.file_no });
       setDeleteResult(data);
@@ -222,406 +263,269 @@ export default function Admin() {
     }
   };
 
-  const [backingUp, setBackingUp] = useState(false);
   const downloadFullBackup = async () => {
     setBackingUp(true);
     try {
       const res = await api.get("/admin/full-backup", { responseType: "blob" });
       const cd = res.headers["content-disposition"] || "";
       const m = cd.match(/filename=([^;]+)/i);
-      const fname = m ? m[1].trim().replace(/"/g, "") : `boost-growth-backup-${new Date().toISOString().slice(0,19)}.json`;
+      const fname = m ? m[1].trim().replace(/"/g, "") : `boost-growth-backup-${new Date().toISOString().slice(0, 19)}.json`;
       const url = window.URL.createObjectURL(res.data);
       const a = document.createElement("a");
       a.href = url; a.download = fname; document.body.appendChild(a); a.click();
       document.body.removeChild(a); window.URL.revokeObjectURL(url);
     } catch (e) {
       alert("Backup failed: " + (e.response?.data?.detail || e.message));
-    } finally { setBackingUp(false); }
+    } finally {
+      setBackingUp(false);
+    }
   };
 
+  const emailBadge = emailSettings.configured
+    ? (emailSettings.active_provider === "brevo" ? "Brevo ✓" : emailSettings.active_provider || "On")
+    : "Not set";
+
   return (
-    <div>
+    <div className="max-w-4xl mx-auto">
       <div className="flex items-center mb-5 flex-wrap gap-2">
         <div className="flex-1 min-w-[200px]">
-          <h1 className="font-display text-3xl font-semibold" style={{color: "#2C3625"}}>Admin Panel</h1>
-          <div className="text-sm" style={{color: "#5C6853"}}>Therapists & system settings</div>
+          <h1 className="font-display text-3xl font-semibold" style={{ color: "#2C3625" }}>Admin Panel</h1>
+          <div className="text-sm" style={{ color: "#5C6853" }}>اختر القسم من القائمة ↓</div>
         </div>
-        <button data-testid="admin-logout-btn" onClick={logout} className="btn btn-outline"><SignOut size={16}/> Log Out</button>
-        <button data-testid="add-therapist-btn" onClick={() => setEdit({ name: "", color: "#7A8A6A", pin: "0000" })} className="btn btn-primary"><UserPlus size={16}/> New Therapist</button>
+        <button data-testid="admin-logout-btn" onClick={logout} className="btn btn-outline"><SignOut size={16} /> Log Out</button>
       </div>
 
-      <div className="card p-5 mb-5" style={{borderColor: "#E0CDB0", background: "#FAF6EE"}}>
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <Database size={20} weight="duotone" style={{color: "#8B6918"}}/>
-            <div>
-              <div className="font-bold" style={{color: "#2C3625"}}>Full Database Backup</div>
-              <div className="text-xs" style={{color: "#8B6918"}}>Download a full JSON dump of every collection (therapists, clients, sessions, invoices, leaves, requests, progress reports, schedule cells, intake, notifications). Sensitive credentials are redacted.</div>
-            </div>
-          </div>
-          <button data-testid="full-backup-btn" onClick={downloadFullBackup} disabled={backingUp}
-                  className="btn btn-secondary text-sm">
-            {backingUp ? <span className="spinner"/> : <><Database size={14}/> Export Full Backup</>}
+      {/* Therapists */}
+      <AdminSection
+        id="therapists"
+        title="Therapists"
+        subtitle={`${therapists.length} registered · PIN default 0000`}
+        icon={<Users size={20} weight="duotone" />}
+        defaultOpen
+        badge={String(therapists.length)}
+      >
+        <div className="flex justify-end mb-3 pt-4">
+          <button data-testid="add-therapist-btn" onClick={() => setEdit({ name: "", color: "#7A8A6A", pin: "0000" })} className="btn btn-primary text-sm">
+            <UserPlus size={16} /> New Therapist
           </button>
         </div>
-      </div>
-
-      <div className="card p-5 mb-5" style={{borderColor: "#E0CDB0", background: "#FAF6EE"}}>
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <Database size={20} weight="duotone" style={{color: "#8B6918"}}/>
-            <div>
-              <div className="font-bold" style={{color: "#2C3625"}}>Seed Master Data</div>
-              <div className="text-xs" style={{color: "#8B6918"}}>One-click sync of therapists & clients from the canonical master list. Idempotent — never deletes data.</div>
-            </div>
-          </div>
-          <button data-testid="seed-master-btn" onClick={() => setSeedConfirm(true)} disabled={seeding}
-                  className="btn btn-gold text-sm">
-            {seeding ? <span className="spinner"/> : <><Database size={14}/> Run Seed</>}
-          </button>
-        </div>
-        {seedResult && (
-          <div className="mt-3 grid sm:grid-cols-2 gap-2 text-xs">
-            <div className="p-2 rounded-lg" style={{background: "#E5EBE1", color: "#3D4F35"}}>
-              <strong>Therapists:</strong> +{seedResult.therapists.created.length} created, {seedResult.therapists.updated.length} updated
-            </div>
-            <div className="p-2 rounded-lg" style={{background: "#E5EBE1", color: "#3D4F35"}}>
-              <strong>Clients:</strong> +{seedResult.clients.created.length} created, {seedResult.clients.updated.length} updated
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="card p-5 mb-5" style={{ borderColor: "#C4D4B8", background: "#F5FAF3" }}>
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <div className="font-bold" style={{ color: "#2C3625" }}>Seed Apr 2026 Progress Reports</div>
-            <div className="text-xs" style={{ color: "#5C6853" }}>
-              Import 21 April progress report records with Drive links where available. Statuses stay unchecked — idempotent.
-            </div>
-          </div>
-          <button data-testid="seed-apr-reports-btn" type="button" onClick={seedAprReports} disabled={prSeeding}
-            className="btn btn-primary text-sm">
-            {prSeeding ? <span className="spinner" /> : "Seed Apr 2026 Reports"}
-          </button>
-        </div>
-        {prSeedResult && (
-          <div className="mt-3 p-3 rounded-lg text-xs space-y-1" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
-            <div><strong>{prSeedResult.message}</strong></div>
-            <div>Inserted: {prSeedResult.inserted} · Skipped (already exist): {prSeedResult.skipped ?? 0}</div>
-            {prSeedResult.missing_clients?.length > 0 && (
-              <div style={{ color: "#8B6918" }}>Clients not found: {prSeedResult.missing_clients.join(", ")}</div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="card p-5 mb-5" style={{ borderColor: "#D4C4E8", background: "#FAF7FD" }}>
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <div className="font-bold" style={{ color: "#2C3625" }}>Update Apr 2026 Report Drive Links</div>
-            <div className="text-xs" style={{ color: "#5C6853" }}>
-              One-time migration — sets Drive URLs on existing Apr 2026 progress reports by client file number.
-            </div>
-          </div>
-          <button type="button" onClick={migrateProgressUrls} disabled={migratingUrls} className="btn btn-secondary text-sm">
-            {migratingUrls ? <span className="spinner" /> : "Migrate Drive URLs"}
-          </button>
-        </div>
-        {migrateUrlsResult && (
-          <div className="mt-3 p-3 rounded-lg text-xs" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
-            <strong>{migrateUrlsResult.message}</strong>
-            {migrateUrlsResult.missing_clients?.length > 0 && (
-              <div style={{ color: "#8B6918" }}>Clients not found: {migrateUrlsResult.missing_clients.join(", ")}</div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="card p-5 mb-5" style={{ borderColor: "#C4D4B8", background: "#F5FAF3" }}>
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <div className="font-bold" style={{ color: "#2C3625" }}>Repair Session Invoice Links</div>
-            <div className="text-xs" style={{ color: "#5C6853" }}>
-              Backfill missing invoice_id on sessions and set service_type to HS for HS-only clients.
-            </div>
-          </div>
-          <button type="button" onClick={repairSessionInvoices} disabled={repairingSessions} className="btn btn-primary text-sm">
-            {repairingSessions ? <span className="spinner" /> : "Repair Sessions"}
-          </button>
-        </div>
-        {repairSessionsResult && (
-          <div className="mt-3 p-3 rounded-lg text-xs space-y-1" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
-            <div><strong>Repair complete</strong></div>
-            <div>Invoice links: {repairSessionsResult.invoice_ids_linked ?? 0} · Service type fixes: {repairSessionsResult.service_types_fixed ?? 0}</div>
-          </div>
-        )}
-      </div>
-
-      <div className="card p-5 mb-5" style={{ borderColor: "#E8C4C4", background: "#FDF5F5" }}>
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <div className="font-bold" style={{ color: "#8A3F27" }}>Clear All Leave Requests (Test Data)</div>
-            <div className="text-xs" style={{ color: "#5C6853" }}>
-              Permanently deletes every record in the leaves collection. Use once to clear test data.
-            </div>
-          </div>
-          <button data-testid="clear-leaves-btn" type="button" onClick={clearAllLeaves} disabled={clearingLeaves}
-            className="btn text-sm" style={{ background: "#C97B5C", color: "#fff", borderColor: "#C97B5C" }}>
-            {clearingLeaves ? <span className="spinner" /> : "Clear All Leave Requests"}
-          </button>
-        </div>
-        {clearLeavesResult && (
-          <div className="mt-3 p-3 rounded-lg text-xs" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
-            <strong>{clearLeavesResult.message}</strong>
-          </div>
-        )}
-      </div>
-
-      <div className="card p-5 mb-5" style={{ borderColor: "#E8C4C4", background: "#FDF5F5" }}>
-        <div className="font-bold mb-1" style={{ color: "#8A3F27" }}>Delete Sessions &amp; Invoices for Client</div>
-        <div className="text-xs mb-3" style={{ color: "#5C6853" }}>
-          Removes all attendance sessions and invoices for one client (by file number). Client profile is kept — use before re-importing from Excel.
-        </div>
-        <div className="flex flex-wrap gap-2 items-end">
-          <div>
-            <label className="text-[11px] font-bold block mb-1" style={{ color: "#5C6853" }}>File No.</label>
-            <input
-              data-testid="delete-client-file-no"
-              className="input text-sm w-28"
-              placeholder="e.g. 009"
-              value={deleteFileNo}
-              onChange={e => { setDeleteFileNo(e.target.value); setDeletePreview(null); setDeleteResult(null); }}
-              onKeyDown={e => e.key === "Enter" && lookupDeleteClient()}
-            />
-          </div>
-          <button type="button" onClick={lookupDeleteClient} className="btn btn-secondary text-sm">Look up</button>
-          {deletePreview && (
-            <button
-              data-testid="delete-client-sessions-btn"
-              type="button"
-              onClick={confirmDeleteSessionsInvoices}
-              disabled={deleting}
-              className="btn text-sm"
-              style={{ background: "#C97B5C", color: "#fff", borderColor: "#C97B5C" }}
-            >
-              {deleting ? <span className="spinner" /> : `Delete for ${deletePreview.name}`}
-            </button>
-          )}
-        </div>
-        {deletePreview && (
-          <div className="mt-3 p-3 rounded-lg text-xs" style={{ background: "#FAE8C8", color: "#6B5218" }}>
-            <strong>{deletePreview.name}</strong> (#{deletePreview.file_no}) — {deletePreview.sessions_count} sessions, {deletePreview.invoices_count} invoices
-          </div>
-        )}
-        {deleteResult && (
-          <div className="mt-3 p-3 rounded-lg text-xs" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
-            <strong>{deleteResult.message}</strong>
-          </div>
-        )}
-      </div>
-
-      <PackageStatusOverview />
-
-      <div className="card p-5 mb-5">
-        <div className="flex items-center justify-between mb-3">
-          <div className="font-bold" style={{color: "#2C3625"}}>Therapists ({therapists.length})</div>
-          <div className="text-xs flex items-center gap-1" style={{color: "#8B9E7A"}}><Key size={12}/> Default PIN: 0000</div>
-        </div>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 stagger">
+        <div className="grid sm:grid-cols-2 gap-3">
           {therapists.map(t => (
-            <div key={t.id} className="p-4 rounded-xl border flex items-center gap-3" style={{borderColor: "#E8E4DE"}}>
-              <div className="w-11 h-11 rounded-full text-white font-bold flex items-center justify-center shrink-0" style={{background: t.color}}>{t.name?.replace("Ms. ", "").charAt(0)}</div>
-              <div className="flex-1 min-w-0">
-                <div className="font-bold truncate" style={{color: "#2C3625"}}>{t.name}</div>
-                <div className="text-xs truncate" style={{color: "#8B9E7A"}}>{t.email || t.phone || "—"}</div>
+            <div key={t.id} className="p-3 rounded-xl border flex items-center gap-3" style={{ borderColor: "#E8E4DE" }}>
+              <div className="w-10 h-10 rounded-full text-white font-bold flex items-center justify-center shrink-0" style={{ background: t.color }}>
+                {t.name?.replace("Ms. ", "").charAt(0)}
               </div>
-              <button onClick={() => setEdit({...t, pin: ""})} className="btn btn-ghost p-2"><PencilSimple size={16}/></button>
-              <button data-testid={`reset-pwd-${t.id}`} onClick={() => resetPassword(t)} className="btn btn-ghost p-2" title="Reset password"><Key size={16}/></button>
-              <button onClick={() => remove(t.id)} className="btn btn-ghost p-2 text-red-700"><Trash size={16}/></button>
+              <div className="flex-1 min-w-0">
+                <div className="font-bold text-sm truncate" style={{ color: "#2C3625" }}>{t.name}</div>
+                <div className="text-xs truncate" style={{ color: "#8B9E7A" }}>{t.email || t.phone || "—"}</div>
+              </div>
+              <button onClick={() => setEdit({ ...t, pin: "" })} className="btn btn-ghost p-1.5"><PencilSimple size={15} /></button>
+              <button data-testid={`reset-pwd-${t.id}`} onClick={() => resetPassword(t)} className="btn btn-ghost p-1.5" title="Reset password"><Key size={15} /></button>
+              <button onClick={() => remove(t.id)} className="btn btn-ghost p-1.5 text-red-700"><Trash size={15} /></button>
             </div>
           ))}
         </div>
-      </div>
+      </AdminSection>
 
-      <div className="card p-5 mb-5">
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <EnvelopeSimple size={20} weight="duotone" style={{ color: "#7A8A6A" }} />
-            <div className="font-bold" style={{ color: "#2C3625" }}>Email Notifications</div>
+      {/* Email */}
+      <AdminSection
+        id="email"
+        title="Email Notifications"
+        subtitle="Brevo · إشعارات الأخصائيات"
+        icon={<EnvelopeSimple size={20} weight="duotone" />}
+        badge={emailBadge}
+      >
+        <div className="pt-4">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             {emailSettings.configured
-              ? <span className="pill text-[10px] px-2 py-0.5" style={{ background: "#E5EBE1", color: "#3D4F35" }}><CheckCircle size={11} weight="fill" /> {emailSettings.active_provider === "brevo" ? "Brevo" : emailSettings.active_provider === "smtp" ? "Gmail/SMTP" : emailSettings.active_provider === "resend" ? "Resend" : "Configured"}</span>
-              : <span className="pill text-[10px] px-2 py-0.5" style={{ background: "#FAF0D1", color: "#6B5218" }}><Warning size={11} weight="fill" /> Not configured</span>}
+              ? <span className="pill text-xs" style={{ background: "#E5EBE1", color: "#3D4F35" }}><CheckCircle size={12} weight="fill" /> {emailSettings.active_provider} · {emailSettings.from_email}</span>
+              : <span className="pill text-xs" style={{ background: "#FAF0D1", color: "#6B5218" }}><Warning size={12} /> Not configured</span>}
+            <button data-testid="edit-email-settings-btn" onClick={() => setEditEmail(s => !s)} className="btn btn-outline text-xs">
+              <PencilSimple size={14} /> {editEmail ? "Close" : "Configure"}
+            </button>
           </div>
-          <button data-testid="edit-email-settings-btn" onClick={() => setEditEmail(s => !s)} className="btn btn-outline text-xs">
-            <PencilSimple size={14} /> {editEmail ? "Cancel" : "Configure"}
-          </button>
-        </div>
 
-        <div className="text-xs mb-3 px-3 py-3 rounded-lg" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
-          <strong>✅ الطريقة الموصى بها: Brevo (تشتغل على Railway — بدون DNS)</strong>
-          <p className="mt-1.5">Gmail SMTP <strong>ما يشتغل</strong> على سيرفر Railway (خطأ 101). Brevo يرسل عبر الإنترنت العادي — أسهل من Resend:</p>
-          <ol className="list-decimal pr-5 mt-2 space-y-1">
-            <li>سجّلي في <a href="https://app.brevo.com/account/register" target="_blank" rel="noreferrer" className="underline font-bold">brevo.com</a> (مجاني — 300 إيميل/يوم)</li>
-            <li>Senders → Add Sender → <code>admin@boostgrowthsa.com</code></li>
-            <li>افتحي إيميل admin@ واضغطي <strong>Verify</strong> (رابط تأكيد — بدون DNS)</li>
-            <li>SMTP &amp; API → Create API Key → انسخي المفتاح</li>
-            <li>Configure → Provider: <strong>Brevo</strong> → الصق المفتاح → From: <code>Boost Growth &lt;admin@boostgrowthsa.com&gt;</code></li>
-            <li><strong>Save Settings</strong> → Send Test</li>
-          </ol>
-        </div>
+          {editEmail ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+              <div className="sm:col-span-2">
+                <label className="label">Provider</label>
+                <select className="input" value={emailForm.email_provider} onChange={e => setEmailForm({ ...emailForm, email_provider: e.target.value })}>
+                  <option value="brevo">Brevo (موصى به)</option>
+                  <option value="auto">Auto</option>
+                  <option value="resend">Resend</option>
+                </select>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="label">From Email</label>
+                <input className="input" value={emailForm.from_email} onChange={e => setEmailForm({ ...emailForm, from_email: e.target.value })} />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="label">Brevo API Key (xkeysib-...)</label>
+                <input data-testid="brevo-key-input" className="input" type="password" placeholder="xkeysib-..." value={emailForm.brevo_api_key} onChange={e => setEmailForm({ ...emailForm, brevo_api_key: e.target.value })} />
+              </div>
+              <div className="sm:col-span-2 flex gap-2 justify-end flex-wrap">
+                <button onClick={() => setEditEmail(false)} className="btn btn-outline text-sm">Cancel</button>
+                <button data-testid="save-email-settings-btn" onClick={saveEmail} className="btn btn-primary text-sm">Save</button>
+                {testTo && <button type="button" onClick={saveAndTest} className="btn btn-gold text-sm">Save & Test</button>}
+              </div>
+            </div>
+          ) : (
+            <div className="text-xs mb-3 grid grid-cols-2 gap-2" style={{ color: "#5C6853" }}>
+              <div>Active: <strong>{emailSettings.active_provider || "—"}</strong></div>
+              <div>Brevo: <strong>{emailSettings.brevo_key_preview || "—"}</strong></div>
+            </div>
+          )}
 
-        <div className="text-xs mb-3 px-3 py-2 rounded-lg" style={{ background: "#FCE0E8", color: "#8B3A55" }}>
-          <strong>❌ Gmail SMTP على Railway:</strong> السيرفر يمنع smtp.gmail.com — لو ظهر <code>Network is unreachable</code> هذا طبيعي. استخدمي Brevo فوق.
-        </div>
-
-        <div className="text-xs mb-3 px-3 py-2 rounded-lg" style={{ background: "#FAF0D1", color: "#6B5218" }}>
-          <strong>Resend (اختياري):</strong> يحتاج DNS للدومين — تجاهليه إذا ما تبغين.
-        </div>
-
-        {editEmail ? (
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
-              <label className="label">Provider</label>
-              <select className="input" value={emailForm.email_provider} onChange={e => setEmailForm({ ...emailForm, email_provider: e.target.value })}>
-                <option value="brevo">Brevo (موصى به — Railway)</option>
-                <option value="auto">Auto — Brevo ثم Resend</option>
-                <option value="resend">Resend only</option>
-                <option value="smtp">Gmail / SMTP (ما يشتغل على Railway)</option>
-              </select>
-            </div>
-            <div className="col-span-2">
-              <label className="label">From Email</label>
-              <input className="input" placeholder="Boost Growth <admin@boostgrowthsa.com>" value={emailForm.from_email} onChange={e => setEmailForm({ ...emailForm, from_email: e.target.value })} />
-            </div>
-            <div className="col-span-2 text-[11px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>BREVO (موصى به)</div>
-            <div className="col-span-2">
-              <label className="label">Brevo API Key (يبدأ بـ xkeysib- — مو xsmtpsib)</label>
-              <input data-testid="brevo-key-input" className="input" type="password" placeholder="xkeysib-..." value={emailForm.brevo_api_key} onChange={e => setEmailForm({ ...emailForm, brevo_api_key: e.target.value })} />
-            </div>
-            <div className="col-span-2 text-[11px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>GMAIL / SMTP (لا يعمل على Railway)</div>
-            <div>
-              <label className="label">SMTP Host</label>
-              <input className="input" value={emailForm.smtp_host} onChange={e => setEmailForm({ ...emailForm, smtp_host: e.target.value })} />
-            </div>
-            <div>
-              <label className="label">SMTP Port</label>
-              <input className="input" type="number" value={emailForm.smtp_port} onChange={e => setEmailForm({ ...emailForm, smtp_port: e.target.value })} />
-            </div>
-            <div className="col-span-2">
-              <label className="label">SMTP User (Gmail address)</label>
-              <input className="input" placeholder="hr@boostgrowthsa.com" value={emailForm.smtp_user} onChange={e => setEmailForm({ ...emailForm, smtp_user: e.target.value })} />
-            </div>
-            <div className="col-span-2">
-              <label className="label">SMTP Password (Google App Password — 16 chars)</label>
-              <input data-testid="smtp-password-input" className="input" type="password" placeholder="xxxx xxxx xxxx xxxx" value={emailForm.smtp_password} onChange={e => setEmailForm({ ...emailForm, smtp_password: e.target.value })} />
-            </div>
-            <div className="col-span-2 text-[11px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>RESEND (optional)</div>
-            <div className="col-span-2">
-              <label className="label">Resend API Key</label>
-              <input data-testid="resend-key-input" className="input" type="password" placeholder="re_xxxxxxxxxxx" value={emailForm.resend_api_key} onChange={e => setEmailForm({ ...emailForm, resend_api_key: e.target.value })} />
-            </div>
-            <div className="col-span-2 flex justify-end gap-2 flex-wrap">
-              <button onClick={() => setEditEmail(false)} className="btn btn-outline">Cancel</button>
-              <button data-testid="save-email-settings-btn" onClick={saveEmail} className="btn btn-primary">Save Settings</button>
-              {testTo && (
-                <button type="button" onClick={saveAndTest} className="btn btn-gold text-sm">Save &amp; Send Test</button>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><span style={{ color: "#8B9E7A" }}>Active:</span> <span style={{ color: "#2C3625" }}>{emailSettings.active_provider || "none"}</span></div>
-            <div><span style={{ color: "#8B9E7A" }}>From:</span> <span style={{ color: "#2C3625" }}>{emailSettings.from_email}</span></div>
-            <div><span style={{ color: "#8B9E7A" }}>SMTP:</span> <span style={{ color: "#2C3625" }}>{emailSettings.smtp_configured ? `✓ ${emailSettings.smtp_user}` : "—"}</span></div>
-            <div><span style={{ color: "#8B9E7A" }}>Brevo:</span> <span className="font-mono" style={{ color: "#2C3625" }}>{emailSettings.brevo_key_preview || "—"}</span></div>
-            <div><span style={{ color: "#8B9E7A" }}>Resend:</span> <span className="font-mono" style={{ color: "#2C3625" }}>{emailSettings.key_preview || "—"}</span></div>
-          </div>
-        )}
-
-        {/* Test send */}
-        <div className="mt-4 pt-4 border-t" style={{ borderColor: "#E8E4DE" }}>
-          <div className="text-[11px] tracking-widest mb-2" style={{ color: "#8B9E7A" }}>SEND A TEST EMAIL</div>
-          <div className="text-xs mb-2 px-2 py-1.5 rounded-lg" style={{ background: "#FAF0D1", color: "#6B5218" }}>
-            ⚠️ <strong>مهم:</strong> بعد تعبئة App Password اضغطي <strong>Save Settings</strong> (أو Save &amp; Send Test) — Send Test لوحده ما يحفظ كلمة المرور.
-          </div>
           <div className="flex gap-2 flex-wrap">
-            <input data-testid="test-email-input" className="input flex-1 text-sm" placeholder="recipient@example.com" value={testTo} onChange={e=>setTestTo(e.target.value)} />
-            <button data-testid="send-test-email-btn" onClick={sendTest} disabled={!testTo || testResult?.status==="sending"} className="btn btn-primary text-sm disabled:opacity-50">
-              {testResult?.status === "sending" ? "Sending..." : "Send Test"}
+            <input data-testid="test-email-input" className="input flex-1 text-sm" placeholder="Test email address" value={testTo} onChange={e => setTestTo(e.target.value)} />
+            <button data-testid="send-test-email-btn" onClick={sendTest} disabled={!testTo || testResult?.status === "sending"} className="btn btn-primary text-sm">
+              {testResult?.status === "sending" ? "Sending…" : "Send Test"}
             </button>
           </div>
           {testResult && testResult.status !== "sending" && (
             <div className="mt-2 text-xs px-3 py-2 rounded-lg" style={{
               background: testResult.status === "sent" ? "#E5EBE1" : "#FCE0E8",
-              color: testResult.status === "sent" ? "#3D4F35" : "#8B3A55"
+              color: testResult.status === "sent" ? "#3D4F35" : "#8B3A55",
             }}>
-              {testResult.status === "sent" ? (
-                <>✅ <b>تم الإرسال!</b> Provider: <code>{testResult.provider}</code>
-                  {testResult.provider_id && <> · ID: <code>{testResult.provider_id}</code></>}
-                  . تحققي من inbox: <b>{testResult.to}</b> (وشوفي Spam)</>
-              ) : (
-                <>❌ <b>فشل:</b> <code>{testResult.error || JSON.stringify(testResult)}</code><br/>
-                {testResult.hint_ar && <span className="block mt-1 font-bold">💡 {testResult.hint_ar}</span>}
-                {(testResult.error || "").includes("testing emails") && <span className="block mt-1">💡 Resend test mode: أرسلي فقط لإيميل حسابك في Resend، أو استخدمي Gmail SMTP.</span>}
-                {(testResult.error || "").includes("not verified") && <span className="block mt-1">💡 الدومين غير مفعّل في Resend — استخدمي Gmail SMTP (أسهل).</span>}
-                {(testResult.error || "").includes("535") && <span className="block mt-1">💡 Gmail: تأكدي من App Password (مو كلمة مرور الحساب العادية).</span>}
-                {testResult.status === "queued_no_key" && <span className="block mt-1">💡 ما في إعدادات — Configure → Gmail SMTP → Save</span>}
-                </>
-              )}
+              {testResult.status === "sent"
+                ? <>✅ Sent via {testResult.provider} → {testResult.to}</>
+                : <>❌ {testResult.error || "Failed"}{testResult.hint_ar && <div className="mt-1">{testResult.hint_ar}</div>}</>}
+            </div>
+          )}
+          {emailQueue.length > 0 && (
+            <details className="mt-3 text-xs">
+              <summary className="cursor-pointer font-bold" style={{ color: "#8B9E7A" }}>Recent activity ({emailQueue.length})</summary>
+              <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                {emailQueue.slice(0, 8).map(q => (
+                  <div key={q.id} className="flex gap-2">
+                    <span className="pill text-[10px] px-1">{q.status}</span>
+                    <span className="truncate">{q.to} — {q.subject}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+        </div>
+      </AdminSection>
+
+      {/* Data & Backup */}
+      <AdminSection
+        id="data"
+        title="Data & Backup"
+        subtitle="Export · Seed master list"
+        icon={<Database size={20} weight="duotone" />}
+      >
+        <div className="pt-4 space-y-3">
+          <ToolRow title="Full Database Backup" desc="JSON export of all collections (credentials redacted).">
+            <button data-testid="full-backup-btn" onClick={downloadFullBackup} disabled={backingUp} className="btn btn-secondary text-sm">
+              {backingUp ? <span className="spinner" /> : "Export Backup"}
+            </button>
+          </ToolRow>
+          <ToolRow title="Seed Master Data" desc="Sync therapists & clients from master list. Safe to re-run.">
+            <button data-testid="seed-master-btn" onClick={() => setSeedConfirm(true)} disabled={seeding} className="btn btn-gold text-sm">
+              {seeding ? <span className="spinner" /> : "Run Seed"}
+            </button>
+          </ToolRow>
+          {seedResult && (
+            <div className="text-xs p-2 rounded-lg" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+              Therapists: +{seedResult.therapists.created.length} · Clients: +{seedResult.clients.created.length}
             </div>
           )}
         </div>
-        {emailQueue.length > 0 && (
-          <div className="mt-4 pt-4 border-t" style={{ borderColor: "#E8E4DE" }}>
-            <div className="text-[11px] tracking-widest mb-2" style={{ color: "#8B9E7A" }}>RECENT EMAIL ACTIVITY ({emailQueue.length})</div>
-            <div className="text-xs space-y-1 max-h-48 overflow-y-auto">
-              {emailQueue.slice(0, 10).map(q => (
-                <div key={q.id} className="flex items-center gap-2">
-                  <span className="pill text-[10px] px-1.5 py-0.5" style={{
-                    background: q.status === "sent" ? "#E5EBE1" : q.status === "failed" ? "#FCE0E8" : "#FAF0D1",
-                    color: q.status === "sent" ? "#3D4F35" : q.status === "failed" ? "#8B3A55" : "#6B5218"
-                  }}>{q.status}</span>
-                  <span style={{ color: "#5C6853" }}>{q.to}</span>
-                  <span className="truncate flex-1" style={{ color: "#8B9E7A" }}>{q.subject}</span>
-                  <span className="text-[10px]" style={{ color: "#8B9E7A" }}>{new Date(q.created_at).toLocaleString()}</span>
-                </div>
-              ))}
+      </AdminSection>
+
+      {/* Migrations */}
+      <AdminSection
+        id="tools"
+        title="Migrations & Maintenance"
+        subtitle="One-time tools · use with care"
+        icon={<Wrench size={20} weight="duotone" />}
+      >
+        <div className="pt-4">
+          <ToolRow title="Seed Apr 2026 Progress Reports" desc="Import April report records (idempotent).">
+            <button data-testid="seed-apr-reports-btn" onClick={seedAprReports} disabled={prSeeding} className="btn btn-primary text-sm">
+              {prSeeding ? <span className="spinner" /> : "Seed Reports"}
+            </button>
+          </ToolRow>
+          {prSeedResult && <div className="text-xs p-2 rounded-lg mb-3" style={{ background: "#E5EBE1" }}>{prSeedResult.message}</div>}
+
+          <ToolRow title="Migrate Apr 2026 Drive URLs" desc="Set Drive links on existing reports.">
+            <button onClick={migrateProgressUrls} disabled={migratingUrls} className="btn btn-secondary text-sm">
+              {migratingUrls ? <span className="spinner" /> : "Migrate URLs"}
+            </button>
+          </ToolRow>
+          {migrateUrlsResult && <div className="text-xs p-2 rounded-lg mb-3" style={{ background: "#E5EBE1" }}>{migrateUrlsResult.message}</div>}
+
+          <ToolRow title="Repair Session Invoice Links" desc="Backfill invoice_id on sessions.">
+            <button onClick={repairSessionInvoices} disabled={repairingSessions} className="btn btn-secondary text-sm">
+              {repairingSessions ? <span className="spinner" /> : "Repair"}
+            </button>
+          </ToolRow>
+          {repairSessionsResult && (
+            <div className="text-xs p-2 rounded-lg mb-3" style={{ background: "#E5EBE1" }}>
+              Linked: {repairSessionsResult.invoice_ids_linked ?? 0} · Fixed types: {repairSessionsResult.service_types_fixed ?? 0}
             </div>
-          </div>
-        )}
-      </div>
+          )}
 
-      <div className="card p-5">
-        <div className="font-bold mb-3" style={{color: "#2C3625"}}>Quick Admin Links</div>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <a href="https://docs.google.com/spreadsheets/d/1D2DQX0M4ieeKz4Z7c-QdO67XbDl1llnlXolLOrDXopk" target="_blank" rel="noreferrer" className="btn btn-outline justify-start">📊 Master Sheet</a>
-          <a href="https://drive.google.com/drive/folders/1iMDwfucwzsEIl9WxwhJi_h6tg2vVtAFr" target="_blank" rel="noreferrer" className="btn btn-outline justify-start">📁 Client Files</a>
-          <a href="https://boost-growthsa.com" target="_blank" rel="noreferrer" className="btn btn-outline justify-start">🌱 Website</a>
-          <a href="https://app.netlify.com/" target="_blank" rel="noreferrer" className="btn btn-outline justify-start">🌐 Netlify</a>
+          <ToolRow title="Clear All Leave Requests" desc="Delete all test leave data." danger>
+            <button data-testid="clear-leaves-btn" onClick={clearAllLeaves} disabled={clearingLeaves}
+              className="btn text-sm" style={{ background: "#C97B5C", color: "#fff" }}>
+              {clearingLeaves ? <span className="spinner" /> : "Clear Leaves"}
+            </button>
+          </ToolRow>
+          {clearLeavesResult && <div className="text-xs p-2 rounded-lg mb-3" style={{ background: "#E5EBE1" }}>{clearLeavesResult.message}</div>}
+
+          <ToolRow title="Delete Client Sessions & Invoices" desc="By file no. — keeps client profile. Before re-import." danger>
+            <div className="flex gap-2 items-center flex-wrap">
+              <input data-testid="delete-client-file-no" className="input text-sm w-24" placeholder="009"
+                value={deleteFileNo} onChange={e => { setDeleteFileNo(e.target.value); setDeletePreview(null); setDeleteResult(null); }}
+                onKeyDown={e => e.key === "Enter" && lookupDeleteClient()} />
+              <button type="button" onClick={lookupDeleteClient} className="btn btn-secondary text-sm">Look up</button>
+              {deletePreview && (
+                <button data-testid="delete-client-sessions-btn" onClick={confirmDeleteSessionsInvoices} disabled={deleting}
+                  className="btn text-sm" style={{ background: "#C97B5C", color: "#fff" }}>
+                  {deleting ? <span className="spinner" /> : "Delete"}
+                </button>
+              )}
+            </div>
+          </ToolRow>
+          {deletePreview && (
+            <div className="text-xs p-2 rounded-lg mb-2" style={{ background: "#FAE8C8" }}>
+              {deletePreview.name} — {deletePreview.sessions_count} sessions, {deletePreview.invoices_count} invoices
+            </div>
+          )}
+          {deleteResult && <div className="text-xs p-2 rounded-lg" style={{ background: "#E5EBE1" }}>{deleteResult.message}</div>}
         </div>
-      </div>
+      </AdminSection>
 
+      {/* Links */}
+      <AdminSection id="links" title="Quick Links" subtitle="External resources" icon={<LinkSimple size={20} weight="duotone" />}>
+        <div className="pt-4 grid sm:grid-cols-2 gap-2">
+          <a href="https://docs.google.com/spreadsheets/d/1D2DQX0M4ieeKz4Z7c-QdO67XbDl1llnlXolLOrDXopk" target="_blank" rel="noreferrer" className="btn btn-outline justify-start text-sm">📊 Master Sheet</a>
+          <a href="https://drive.google.com/drive/folders/1iMDwfucwzsEIl9WxwhJi_h6tg2vVtAFr" target="_blank" rel="noreferrer" className="btn btn-outline justify-start text-sm">📁 Client Files</a>
+          <a href="https://boost-growthsa.com" target="_blank" rel="noreferrer" className="btn btn-outline justify-start text-sm">🌱 Website</a>
+          <a href="https://app.brevo.com/senders/list" target="_blank" rel="noreferrer" className="btn btn-outline justify-start text-sm">📧 Brevo Senders</a>
+        </div>
+      </AdminSection>
+
+      {/* Modals */}
       {edit && (
         <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={() => setEdit(null)}>
-          <div className="card p-6 w-full max-w-md modal-card" onClick={e=>e.stopPropagation()}>
+          <div className="card p-6 w-full max-w-md modal-card" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
               <div className="font-display text-2xl">{edit.id ? "Edit Therapist" : "New Therapist"}</div>
-              <button onClick={() => setEdit(null)} className="btn btn-ghost p-2"><X size={18}/></button>
+              <button onClick={() => setEdit(null)} className="btn btn-ghost p-2"><X size={18} /></button>
             </div>
             <label className="label">Name</label>
-            <input data-testid="therapist-name-input" className="input mb-2" placeholder="Ms. Sarah" value={edit.name} onChange={e=>setEdit({...edit, name: e.target.value})}/>
-            <label className="label">Email (optional)</label>
-            <input className="input mb-2" type="email" value={edit.email || ""} onChange={e=>setEdit({...edit, email: e.target.value})}/>
-            <label className="label">Phone (optional)</label>
-            <input className="input mb-2" value={edit.phone || ""} onChange={e=>setEdit({...edit, phone: e.target.value})}/>
+            <input data-testid="therapist-name-input" className="input mb-2" placeholder="Ms. Sarah" value={edit.name} onChange={e => setEdit({ ...edit, name: e.target.value })} />
+            <label className="label">Email</label>
+            <input className="input mb-2" type="email" value={edit.email || ""} onChange={e => setEdit({ ...edit, email: e.target.value })} />
+            <label className="label">Phone</label>
+            <input className="input mb-2" value={edit.phone || ""} onChange={e => setEdit({ ...edit, phone: e.target.value })} />
             <label className="label">Color</label>
-            <div className="flex items-center gap-3 mb-2">
-              <input type="color" value={edit.color} onChange={e=>setEdit({...edit, color: e.target.value})} className="w-12 h-10 rounded-lg border border-[#E8E4DE]"/>
-              <span className="text-xs" style={{color: "#8B9E7A"}}>{edit.color}</span>
-            </div>
-            <label className="label">PIN (4-6 digits)</label>
-            <input data-testid="therapist-pin-input" className="input mb-4" type="password" placeholder={edit.id ? "Leave empty to keep current" : "0000"} value={edit.pin} onChange={e=>setEdit({...edit, pin: e.target.value})}/>
+            <input type="color" value={edit.color} onChange={e => setEdit({ ...edit, color: e.target.value })} className="w-12 h-10 rounded-lg border mb-2" />
+            <label className="label">PIN</label>
+            <input data-testid="therapist-pin-input" className="input mb-4" type="password" placeholder={edit.id ? "Leave empty to keep" : "0000"} value={edit.pin} onChange={e => setEdit({ ...edit, pin: e.target.value })} />
             <div className="flex justify-end gap-2">
               <button onClick={() => setEdit(null)} className="btn btn-outline">Cancel</button>
               <button data-testid="therapist-save-btn" onClick={save} className="btn btn-primary">Save</button>
@@ -629,20 +533,16 @@ export default function Admin() {
           </div>
         </div>
       )}
+
       {seedConfirm && (
         <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-[60]" onClick={() => setSeedConfirm(false)}>
-          <div className="card p-6 w-full max-w-md modal-card" onClick={e=>e.stopPropagation()}>
-            <div className="font-display text-xl mb-2" style={{color: "#2C3625"}}>Run Master Data Seed?</div>
-            <p className="text-sm mb-3" style={{color: "#5C6853"}}>
-              This will <strong>update</strong> existing therapists (match by name) and clients (match by file_no), and <strong>create</strong> any missing ones from the canonical list.
-              <br/><br/>
-              ✓ Existing names, emails, sessions, and invoices are <strong>NEVER touched</strong>.<br/>
-              ✓ Idempotent — safe to run multiple times.
-            </p>
+          <div className="card p-6 w-full max-w-md modal-card" onClick={e => e.stopPropagation()}>
+            <div className="font-display text-xl mb-2">Run Master Data Seed?</div>
+            <p className="text-sm mb-3" style={{ color: "#5C6853" }}>Updates existing records and creates missing ones. Never deletes data.</p>
             <div className="flex justify-end gap-2">
               <button onClick={() => setSeedConfirm(false)} className="btn btn-outline">Cancel</button>
               <button data-testid="confirm-seed-btn" onClick={runSeed} disabled={seeding} className="btn btn-primary">
-                {seeding ? <span className="spinner"/> : "Yes, run seed"}
+                {seeding ? <span className="spinner" /> : "Yes, run seed"}
               </button>
             </div>
           </div>
@@ -651,19 +551,14 @@ export default function Admin() {
 
       {resetInfo && (
         <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-[60]" onClick={() => setResetInfo(null)}>
-          <div className="card p-6 w-full max-w-md modal-card" onClick={e=>e.stopPropagation()}>
-            <div className="font-display text-xl mb-2" style={{color: "#2C3625"}}>Temporary Password Generated</div>
-            <p className="text-sm mb-3" style={{color: "#5C6853"}}>
-              Share this with <strong>{resetInfo.name}</strong>. She will be required to change it on next login.
-            </p>
-            <div className="p-3 rounded-lg mb-3" style={{background: "#F0E9D8", color: "#2C3625"}}>
-              <div className="text-[11px] tracking-wider font-bold" style={{color: "#8B9E7A"}}>EMAIL</div>
-              <div className="font-mono text-sm mb-2">{resetInfo.email || "—"}</div>
-              <div className="text-[11px] tracking-wider font-bold" style={{color: "#8B9E7A"}}>TEMPORARY PASSWORD</div>
+          <div className="card p-6 w-full max-w-md modal-card" onClick={e => e.stopPropagation()}>
+            <div className="font-display text-xl mb-2">Temporary Password</div>
+            <p className="text-sm mb-3">Share with <strong>{resetInfo.name}</strong></p>
+            <div className="p-3 rounded-lg mb-3" style={{ background: "#F0E9D8" }}>
               <div className="font-mono text-lg font-bold" data-testid="temp-password-value">{resetInfo.temp_password}</div>
             </div>
             <div className="flex justify-end gap-2">
-              <button onClick={() => { navigator.clipboard?.writeText(resetInfo.temp_password); }} className="btn btn-outline text-xs">Copy</button>
+              <button onClick={() => navigator.clipboard?.writeText(resetInfo.temp_password)} className="btn btn-outline text-xs">Copy</button>
               <button onClick={() => setResetInfo(null)} className="btn btn-primary">Done</button>
             </div>
           </div>
