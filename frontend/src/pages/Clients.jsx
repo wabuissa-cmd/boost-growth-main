@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api";
-import { useAuth } from "../auth";
+import { useAuth, hasFullClientAccess } from "../auth";
 import { Plus, PencilSimple, Trash, MagnifyingGlass, MapPin, User, Phone, Hash, ArrowSquareOut } from "@phosphor-icons/react";
 import { PackageStatusBadge } from "../components/PackageStatusBadge";
 import {
@@ -572,6 +572,7 @@ function ProgressReportsList({ clientId, fileNo, client, isAdmin, embedded }) {
   const [busy, setBusy]      = useState(null);
 
   const isSupervisor = () => {
+    if (hasFullClientAccess(user)) return true;
     if (isAdmin) return true;
     if (!user) return false;
     const key = user.key || "";

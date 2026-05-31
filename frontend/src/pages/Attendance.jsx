@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "../api";
-import { useAuth } from "../auth";
+import { useAuth, hasFullClientAccess } from "../auth";
 import {
   MagnifyingGlass, Plus, X, Trash, PencilSimple, ClipboardText, ClockCounterClockwise,
   CheckCircle, Prohibit, Warning, XCircle, Clock, MapPin, Printer, FileXls,
@@ -95,7 +95,7 @@ function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdi
     s.status === "Cancelled" ? "#FAF0D1" :
     s.status === "No Show" ? "#F8EBE7" : "#F0EDE9";
   const tNames = (s.therapist_ids || []).map(id => findT(id)?.name?.replace("Ms. ", "")).filter(Boolean).join(" - ");
-  const canEdit = isAdmin || isSupervisorForClient(user, client.file_no) || (s.therapist_ids || []).includes(currentUserId);
+  const canEdit = isAdmin || hasFullClientAccess(user) || isSupervisorForClient(user, client.file_no) || (s.therapist_ids || []).includes(currentUserId);
   const measureVal = billingKind === "SS"
     ? (ssSessionDayValue(s) ? 1 : "—")
     : s.hours;
@@ -598,7 +598,7 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
               </thead>
               <tbody>
                 {sorted.map(s => {
-                  const canEdit = isAdmin || isSupervisorForClient(user, client.file_no) || (s.therapist_ids || []).includes(currentUserId);
+                  const canEdit = isAdmin || hasFullClientAccess(user) || isSupervisorForClient(user, client.file_no) || (s.therapist_ids || []).includes(currentUserId);
                   const tNames = (s.therapist_ids || []).map(id => findT(id)?.name?.replace("Ms. ", "")).filter(Boolean).join(" - ");
                   const stBg = s.status === "Completed" ? "#E5EBE1" : s.status === "No Show" ? "#F8EBE7" : "#F0EDE9";
                   const stColor = s.status === "Completed" ? "#3D4F35" : s.status === "No Show" ? "#8A3F27" : "#5C6853";

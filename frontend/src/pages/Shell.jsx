@@ -36,10 +36,18 @@ export default function Shell() {
     ? [{ to: "/intake", label: "Intake", testid: "nav-intake" }]
     : [];
 
-  // Requests dropdown — Requests + Leave Balance (admin)
+  // Therapist-only links
+  const therapistLinks = !isAdmin ? [
+    { to: "/leaves", icon: <Airplane size={18} weight="duotone"/>, label: "My Leaves", testid: "nav-my-leaves" },
+  ] : [];
+
+  // Requests dropdown — admin: staff requests + leave management
   const requestsItems = [];
-  if (isAdmin) requestsItems.push({ to: "/requests", label: "Requests", testid: "nav-requests" });
-  if (isAdmin) requestsItems.push({ to: "/leave-balance", label: "Leave Balance", testid: "nav-leave-balance" });
+  if (isAdmin) {
+    requestsItems.push({ to: "/requests", label: "Staff Requests", testid: "nav-requests" });
+    requestsItems.push({ to: "/leaves", label: "Leave Requests", testid: "nav-leave-requests" });
+    requestsItems.push({ to: "/leave-balance", label: "Leave Balance", testid: "nav-leave-balance" });
+  }
 
   // Admin tools (Reports moved here since it doesn't fit Requests)
   const adminTools = isAdmin ? [
@@ -73,6 +81,12 @@ export default function Shell() {
             {/* Desktop nav */}
             <nav className="hidden lg:flex items-center gap-1 flex-1 ml-4">
               {baseLinks.map(l => (
+                <NavLink key={l.to} to={l.to} data-testid={l.testid}
+                         className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
+                  {l.icon}<span>{l.label}</span>
+                </NavLink>
+              ))}
+              {therapistLinks.map(l => (
                 <NavLink key={l.to} to={l.to} data-testid={l.testid}
                          className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
                   {l.icon}<span>{l.label}</span>
@@ -157,6 +171,11 @@ export default function Shell() {
             </div>
             <div className="p-3 flex flex-col gap-1">
               {baseLinks.map(l => (
+                <NavLink key={l.to} to={l.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
+                  {l.icon}<span>{l.label}</span>
+                </NavLink>
+              ))}
+              {therapistLinks.map(l => (
                 <NavLink key={l.to} to={l.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
                   {l.icon}<span>{l.label}</span>
                 </NavLink>

@@ -779,7 +779,7 @@ async def schedule_notification_receipts(cid: str, _=Depends(admin_only)):
 # ------------------- Clients & Sessions -------------------
 @api.get("/clients")
 async def list_clients(user=Depends(get_current_user)):
-    if user.get("role") == "admin":
+    if _has_full_client_access(user):
         return await db.clients.find({}, {"_id": 0}).sort("file_no", 1).to_list(500)
     # therapist: see only assigned (main or co)
     items = await db.clients.find({}, {"_id": 0}).sort("file_no", 1).to_list(500)
@@ -862,6 +862,21 @@ SUPERVISOR_CLIENT_FILES = {
     "msFahda": ["009", "011", "018", "023", "024", "027", "030", "034", "061", "062", "068", "072", "079"],
 }
 
+FULL_CLIENT_ACCESS_KEYS = frozenset({"mswalaa", "msmaha", "msjenan", "msfahda"})
+FULL_CLIENT_NAME_TOKENS = frozenset({"walaa", "maha", "jenan", "fahda"})
+
+
+def _has_full_client_access(user: dict) -> bool:
+    if user.get("role") == "admin":
+        return True
+    key = (user.get("key") or "").lower()
+    if key in FULL_CLIENT_ACCESS_KEYS:
+        return True
+    name = (user.get("name") or "").lower().replace("ms.", "").replace("ms ", "").strip()
+    first = name.split()[0] if name else ""
+    return first in FULL_CLIENT_NAME_TOKENS
+
+
 async def _client_file_no(client_id: str) -> Optional[str]:
     c = await db.clients.find_one({"id": client_id}, {"_id": 0, "file_no": 1})
     if not c or not c.get("file_no"):
@@ -874,6 +889,8 @@ def _is_supervisor_for_file(user: dict, file_no: str) -> bool:
     return fn in (SUPERVISOR_CLIENT_FILES.get(key) or [])
 
 async def _can_edit_progress_step(user: dict, report_id: str, step: str) -> bool:
+    if _has_full_client_access(user):
+        return True
     if user.get("role") == "admin":
         return True
     doc = await db.progress_reports.find_one({"id": report_id}, {"_id": 0, "client_id": 1})
@@ -923,7 +940,7 @@ async def get_progress_reports_summary(user=Depends(get_current_user)):
 
 @api.get("/clients/{cid}/progress-reports")
 async def list_progress_reports(cid: str, user=Depends(get_current_user)):
-    if user.get("role") != "admin":
+    if not _has_full_client_access(user):
         client = await db.clients.find_one(
             {"id": cid},
             {"_id": 0, "main_therapist_id": 1, "co_therapist_ids": 1, "file_no": 1},
@@ -1056,7 +1073,7 @@ async def delete_progress_report(rid: str, _=Depends(admin_only)):
 
 
 async def _can_access_progress_report(user: dict, report: dict) -> bool:
-    if user.get("role") == "admin":
+    if _has_full_client_access(user):
         return True
     client = await db.clients.find_one(
         {"id": report["client_id"]},
@@ -1580,7 +1597,7 @@ async def list_clients_package_status(user=Depends(get_current_user)):
     clients = await db.clients.find(
         {"status": {"$ne": "Inactive"}}, {"_id": 0}
     ).sort("name", 1).to_list(500)
-    if user.get("role") != "admin":
+    if not _has_full_client_access(user):
         uid = user["id"]
         clients = [
             c for c in clients
@@ -1604,7 +1621,7 @@ async def get_client_package_status(cid: str, user=Depends(get_current_user)):
     client = await db.clients.find_one({"id": cid}, {"_id": 0})
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
-    if user.get("role") != "admin":
+    if not _has_full_client_access(user):
         uid = user["id"]
         if client.get("main_therapist_id") != uid and uid not in (client.get("co_therapist_ids") or []):
             fn = str(client.get("file_no") or "").strip()

@@ -51,3 +51,16 @@ export function AuthProvider({ children }) {
 }
 
 export const useAuth = () => useContext(AuthCtx);
+
+const FULL_CLIENT_KEYS = new Set(["mswalaa", "msmaha", "msjenan", "msfahda"]);
+const FULL_CLIENT_NAMES = new Set(["walaa", "maha", "jenan", "fahda"]);
+
+/** Walaa, Maha, Jenan, Fahda + admin — see all clients */
+export function hasFullClientAccess(user) {
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  const key = (user.key || "").toLowerCase();
+  if (FULL_CLIENT_KEYS.has(key)) return true;
+  const first = (user.name || "").replace(/^Ms\.?\s*/i, "").split(/\s+/)[0]?.toLowerCase();
+  return FULL_CLIENT_NAMES.has(first);
+}

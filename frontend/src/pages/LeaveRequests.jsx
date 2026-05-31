@@ -433,7 +433,8 @@ export default function LeaveRequests() {
     setLeaves(l.data);
     setTherapists(t.data);
     if (!isAdmin && user?.id) {
-      setMyBalance((b.data || []).find(x => x.therapist_id === user.id) || null);
+      const row = (b.data || []).find(x => x.therapist_id === user.id) || (b.data || [])[0] || null;
+      setMyBalance(row);
     }
   };
   useEffect(() => { load(); }, [year, isAdmin, user?.id]);
@@ -474,7 +475,7 @@ export default function LeaveRequests() {
             <FileText size={28} weight="duotone" /> {isAdmin ? "Leave Requests" : "My Leave Requests"}
           </h1>
           <div className="text-sm" style={{ color: "#5C6853" }}>
-            {isAdmin ? "Approve requests · track documents · mark absences" : "Submit requests and upload supporting documents"}
+            {isAdmin ? "Approve requests · track documents · mark absences" : "رصيدك · طلباتك · رفع المستندات"}
           </div>
         </div>
         <select className="select text-sm max-w-[100px]" value={year} onChange={e => setYear(parseInt(e.target.value, 10))}>
@@ -490,15 +491,33 @@ export default function LeaveRequests() {
         </button>
       </div>
 
-      {!isAdmin && myBalance && (
-        <div className="card p-4 mb-5 flex items-center gap-6 flex-wrap" style={{ background: "#F5FAF3", borderColor: "#C4D4B8" }}>
-          <div>
-            <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>REMAINING BALANCE</div>
-            <div className="font-display text-3xl font-semibold" style={{ color: "#2C3625" }}>{myBalance.remaining} days</div>
-          </div>
-          <div className="text-sm" style={{ color: "#5C6853" }}>
-            Used {myBalance.used_annual} / {myBalance.allocated} · Pending {myBalance.pending}
-          </div>
+      {!isAdmin && (
+        <div className="card p-5 sm:p-6 mb-5" style={{ background: "linear-gradient(135deg, #7A8A6A 0%, #606E52 100%)", borderColor: "transparent", color: "white" }}>
+          <div className="text-xs tracking-[0.2em] font-bold opacity-90 mb-1">رصيد الإجازات السنوي · {year}</div>
+          {myBalance ? (
+            <div className="flex items-end gap-4 flex-wrap">
+              <div>
+                <div className="font-display text-4xl sm:text-5xl font-semibold">{myBalance.remaining}</div>
+                <div className="text-sm opacity-90">يوم متبقي</div>
+              </div>
+              <div className="flex-1 grid grid-cols-3 gap-2 sm:gap-3 min-w-[200px]">
+                <div className="bg-white/15 rounded-xl p-3">
+                  <div className="text-[9px] sm:text-[10px] tracking-widest opacity-80">المستحق</div>
+                  <div className="text-xl sm:text-2xl font-bold">{myBalance.allocated}</div>
+                </div>
+                <div className="bg-white/15 rounded-xl p-3">
+                  <div className="text-[9px] sm:text-[10px] tracking-widest opacity-80">المستخدم</div>
+                  <div className="text-xl sm:text-2xl font-bold">{myBalance.used_annual}</div>
+                </div>
+                <div className="bg-white/15 rounded-xl p-3">
+                  <div className="text-[9px] sm:text-[10px] tracking-widest opacity-80">قيد الانتظار</div>
+                  <div className="text-xl sm:text-2xl font-bold">{myBalance.pending}</div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm opacity-80">Loading balance…</div>
+          )}
         </div>
       )}
 
