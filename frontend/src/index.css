@@ -276,11 +276,21 @@ main, .page-enter { min-width: 0; }
 .sched-sheet tr.sheet-therapist-divider > td.sheet-therapist {
     border-bottom-color: #606E52 !important;
 }
-/* v2: per-therapist tbody groups — clear separation, compact cells */
+/* v2: per-therapist tbody groups — full-width separator row */
 .sched-sheet-v2 { background: #F5F2ED !important; }
 .sched-sheet-v2 tbody.sheet-therapist-group {
-    border-bottom: 5px solid #606E52;
-    box-shadow: 0 2px 0 #FAFAF7;
+    border-bottom: none;
+}
+.sched-sheet-v2 tr.sheet-therapist-separator td {
+    padding: 0 !important;
+    height: 0 !important;
+    line-height: 0 !important;
+    border: none !important;
+    border-bottom: 5px solid #606E52 !important;
+    background: transparent !important;
+}
+.sched-sheet-v2 tr.sheet-therapist-divider > td {
+    border-bottom: 1px solid #E5E7EB !important;
 }
 .sched-sheet-v2 .sheet-td {
     height: 38px !important;

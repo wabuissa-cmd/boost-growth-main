@@ -3844,6 +3844,38 @@ _INTAKE_HEADER_HINTS = frozenset({
 })
 
 
+def _sanitize_cell(value):
+    """Convert pandas/numpy scalars to BSON-safe Python types."""
+    if value is None:
+        return None
+    import math
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    tn = type(value).__name__
+    if tn in ("int64", "int32", "int16", "int8", "uint64", "uint32"):
+        return int(value)
+    if tn in ("float64", "float32"):
+        v = float(value)
+        return None if math.isnan(v) else v
+    if tn in ("bool_", "bool8"):
+        return bool(value)
+    if hasattr(value, "isoformat"):
+        try:
+            return value.date().isoformat() if hasattr(value, "date") else value.isoformat()
+        except Exception:
+            return str(value)
+    return value
+
+
+def _clean_str(value) -> Optional[str]:
+    v = _sanitize_cell(value)
+    if v is None:
+        return None
+    s = str(v).strip()
+    if not s or s.lower() in ("nan", "none", "nat"):
+        return None
+    return s
+
 def _normalize_table_column(name) -> str:
     """Excel headers like 'Child Name' / \"Child's Name\" / 'DOB/Age' → child_name / dob_age."""
     s = str(name).strip().lower()
@@ -3902,8 +3934,9 @@ def _rows_from_dataframe(df) -> List[dict]:
     rows = df.to_dict("records")
     out = []
     for r in rows:
-        if any(v is not None and str(v).strip().lower() not in ("", "nan", "none") for v in r.values()):
-            out.append(r)
+        clean = {k: _sanitize_cell(v) for k, v in r.items()}
+        if any(v is not None and str(v).strip().lower() not in ("", "nan", "none") for v in clean.values()):
+            out.append(clean)
     return out
 
 
@@ -3928,6 +3961,7 @@ def _read_intake_rows(content: bytes, filename: str) -> tuple:
 
     def consider(df, sheet_name: str = "", header_idx: int = 0):
         nonlocal best_rows, best_cols, best_score, best_meta
+        norm_cols = [_normalize_table_column(c) for c in df.columns]
         rows = _rows_from_dataframe(df)
         type_hint = _sheet_intake_type_hint(sheet_name)
         if type_hint:
@@ -3935,7 +3969,11 @@ def _read_intake_rows(content: bytes, filename: str) -> tuple:
                 if not r.get("intake_type") and not r.get("type"):
                     r["_sheet_intake_type"] = type_hint
         score = sum(1 for r in rows if _extract_intake_child_name(r))
-        cols = list(rows[0].keys()) if rows else []
+        if any(c in ("child_name", "name", "student_name") for c in norm_cols):
+            score += 15
+        elif any("child" in c and "name" in c for c in norm_cols):
+            score += 12
+        cols = list(rows[0].keys()) if rows else norm_cols
         if score > best_score:
             best_score = score
             best_rows = rows
@@ -3963,15 +4001,18 @@ def _read_intake_rows(content: bytes, filename: str) -> tuple:
         # Also merge all sheets when each has data (pre + post tabs)
         merged: List[dict] = []
         for sheet in xl.sheet_names:
-            df_raw = pd.read_excel(io.BytesIO(content), sheet_name=sheet, header=None, engine="openpyxl")
-            hdr = _detect_table_header_row(df_raw)
-            df = pd.read_excel(io.BytesIO(content), sheet_name=sheet, header=hdr, engine="openpyxl")
-            rows = _rows_from_dataframe(df)
-            hint = _sheet_intake_type_hint(sheet)
-            for r in rows:
-                if hint and not r.get("intake_type") and not r.get("type"):
-                    r["_sheet_intake_type"] = hint
-            merged.extend(rows)
+            try:
+                df_raw = pd.read_excel(io.BytesIO(content), sheet_name=sheet, header=None, engine="openpyxl")
+                hdr = _detect_table_header_row(df_raw)
+                df = pd.read_excel(io.BytesIO(content), sheet_name=sheet, header=hdr, engine="openpyxl")
+                rows = _rows_from_dataframe(df)
+                hint = _sheet_intake_type_hint(sheet)
+                for r in rows:
+                    if hint and not r.get("intake_type") and not r.get("type"):
+                        r["_sheet_intake_type"] = hint
+                merged.extend(rows)
+            except Exception:
+                continue
         if merged:
             score = sum(1 for r in merged if _extract_intake_child_name(r))
             if score > best_score:
@@ -4010,7 +4051,7 @@ def _extract_intake_child_name(r: dict) -> str:
         "child_name", "childs_name", "name", "child", "student_name",
         "client_name", "patient_name", "full_name", "candidate", "student",
     )
-    header_like = {"child name", "child_name", "name", "child", "student name", "nan", "none"}
+    header_like = {"child name", "child_name", "name", "child", "student name", "parent", "parent name", "phone", "service", "nan", "none"}
 
     for k in preferred_keys:
         v = r.get(k)
@@ -4076,39 +4117,43 @@ async def import_clients(file: UploadFile = File(...), _=Depends(ops_or_admin)):
 
 @api.post("/import/intake")
 async def import_intake(file: UploadFile = File(...), _=Depends(ops_or_admin)):
-    content = file.file.read()
-    rows, detected_columns, parse_meta = _read_intake_rows(content, file.filename or "")
+    try:
+        content = file.file.read()
+        rows, detected_columns, parse_meta = _read_intake_rows(content, file.filename or "")
+    except Exception as e:
+        logger.exception("Intake file parse failed")
+        raise HTTPException(status_code=400, detail=f"Could not read intake file: {e}")
     created, updated, skipped = 0, 0, 0
     for r in rows:
         name = _extract_intake_child_name(r)
         if not name:
             skipped += 1
             continue
-        phone = str(r.get("phone") or r.get("parent_phone") or r.get("mobile") or "").strip() or None
-        raw_type = (r.get("intake_type") or r.get("type") or r.get("_sheet_intake_type") or "pre")
-        intake_type = str(raw_type).strip().lower()
+        phone = _clean_str(r.get("phone") or r.get("parent_phone") or r.get("mobile"))
+        raw_type = _clean_str(r.get("intake_type") or r.get("type") or r.get("_sheet_intake_type")) or "pre"
+        intake_type = raw_type.lower()
         if "post" in intake_type:
             intake_type = "post"
         elif "pre" in intake_type:
             intake_type = "pre"
         elif intake_type not in ("pre", "post"):
             intake_type = "pre"
-        status = str(r.get("status") or "new").strip().lower()
+        status = (_clean_str(r.get("status")) or "new").lower()
         doc = {
             "child_name": name,
-            "parent_name": r.get("parent_name") or r.get("parent") or r.get("guardian"),
+            "parent_name": _clean_str(r.get("parent_name") or r.get("parent") or r.get("guardian")),
             "phone": phone,
             "intake_type": intake_type,
             "status": status,
-            "notes": r.get("notes") or r.get("note"),
-            "intake_date": str(r.get("intake_date") or r.get("date") or "") or None,
-            "age": str(r.get("age") or r.get("dob_age") or r.get("dob") or "") or None,
-            "service": r.get("service") or r.get("service_type"),
-            "district": r.get("area") or r.get("district") or r.get("location"),
-            "diagnosis": r.get("diagnosis"),
-            "time_pref": r.get("time_pref") or r.get("time_preference") or r.get("preferred_time"),
-            "language": r.get("language"),
-            "priority": bool(r.get("priority")) if r.get("priority") not in (None, "", "0", "false", "no") else False,
+            "notes": _clean_str(r.get("notes") or r.get("note")),
+            "intake_date": _clean_str(r.get("intake_date") or r.get("date")),
+            "age": _clean_str(r.get("age") or r.get("dob_age") or r.get("dob")),
+            "service": _clean_str(r.get("service") or r.get("service_type")),
+            "district": _clean_str(r.get("area") or r.get("district") or r.get("location")),
+            "diagnosis": _clean_str(r.get("diagnosis")),
+            "time_pref": _clean_str(r.get("time_pref") or r.get("time_preference") or r.get("preferred_time")),
+            "language": _clean_str(r.get("language")),
+            "priority": bool(_sanitize_cell(r.get("priority"))) if _sanitize_cell(r.get("priority")) not in (None, "", "0", "false", "no", False) else False,
         }
         match_q = {
             "child_name": {"$regex": f"^{re.escape(name)}$", "$options": "i"},
@@ -4124,12 +4169,16 @@ async def import_intake(file: UploadFile = File(...), _=Depends(ops_or_admin)):
             await db.intake.update_one({"id": match["id"]}, {"$set": doc})
             updated += 1
         else:
-            await db.intake.insert_one({
-                "id": str(uuid.uuid4()),
-                "created_at": now_iso(),
-                **doc,
-            })
-            created += 1
+            try:
+                await db.intake.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "created_at": now_iso(),
+                    **doc,
+                })
+                created += 1
+            except Exception as e:
+                logger.warning(f"Intake insert skipped for {name}: {e}")
+                skipped += 1
     hint = None
     if rows and skipped == len(rows):
         hint = f"Could not read child names ({parse_meta}). Columns: {', '.join(detected_columns[:12])}"

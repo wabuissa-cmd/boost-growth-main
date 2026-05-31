@@ -705,6 +705,9 @@ export default function Schedule() {
                 </tr>
                 );
               })}
+              <tr className="sheet-therapist-separator" aria-hidden="true">
+                <td colSpan={3 + TIME_SLOTS.length} />
+              </tr>
             </tbody>
           ))}
           {visibleTherapists.length === 0 && (
