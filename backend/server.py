@@ -3498,6 +3498,8 @@ async def _send_email_stub(to: str, subject: str, body: str) -> dict:
             queue_doc["hint_ar"] = hint
         elif "sender" in str(e).lower() or "not verified" in str(e).lower():
             queue_doc["hint_ar"] = "فعّلي إيميل المرسل في Brevo: Senders → admin@boostgrowthsa.com → Verify (رابط في الإيميل)."
+        elif "unrecognised ip" in str(e).lower() or "unauthorized" in str(e).lower() or "authorised_ips" in str(e).lower():
+            queue_doc["hint_ar"] = "Brevo حجب IP السيرفر. افتحي app.brevo.com/security/authorised_ips → Authorize 152.55.177.26 أو Deactivate blocking للـ API."
         logger.warning(f"Email send failed ({chosen}) to {to}: {e}")
 
     await db.email_queue.insert_one(queue_doc)
