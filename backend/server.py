@@ -2970,6 +2970,9 @@ async def save_email_settings(payload: EmailSettingsIn, _=Depends(admin_only)):
         update["resend_api_key"] = key
     if payload.brevo_api_key and payload.brevo_api_key.strip():
         key = payload.brevo_api_key.strip()
+        if key.startswith("xsmtpsib-"):
+            raise HTTPException(status_code=400,
+                detail="This is a Brevo SMTP key (xsmtpsib-). Use an API key (xkeysib-) from SMTP & API → API Keys.")
         if len(key) < 20:
             raise HTTPException(status_code=400, detail="Invalid Brevo API key (too short).")
         update["brevo_api_key"] = key

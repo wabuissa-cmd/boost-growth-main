@@ -496,7 +496,7 @@ export default function Admin() {
             </div>
             <div className="col-span-2 text-[11px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>BREVO (موصى به)</div>
             <div className="col-span-2">
-              <label className="label">Brevo API Key</label>
+              <label className="label">Brevo API Key (يبدأ بـ xkeysib- — مو xsmtpsib)</label>
               <input data-testid="brevo-key-input" className="input" type="password" placeholder="xkeysib-..." value={emailForm.brevo_api_key} onChange={e => setEmailForm({ ...emailForm, brevo_api_key: e.target.value })} />
             </div>
             <div className="col-span-2 text-[11px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>GMAIL / SMTP (لا يعمل على Railway)</div>
