@@ -80,6 +80,31 @@ async def admin_only(user: dict = Depends(get_current_user)) -> dict:
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
 
+FULL_CLIENT_ACCESS_KEYS = frozenset({"mswalaa", "msmaha", "msjenan", "msfahda"})
+FULL_CLIENT_NAME_TOKENS = frozenset({"walaa", "maha", "jenan", "fahda"})
+
+
+def _has_full_client_access(user: dict) -> bool:
+    if user.get("role") == "admin":
+        return True
+    key = (user.get("key") or "").lower()
+    if key in FULL_CLIENT_ACCESS_KEYS:
+        return True
+    name = (user.get("name") or "").lower().replace("ms.", "").replace("ms ", "").strip()
+    first = name.split()[0] if name else ""
+    return first in FULL_CLIENT_NAME_TOKENS
+
+
+def _is_staff_admin(user: dict) -> bool:
+    """Admin login or ops team (Walaa, Maha, Jenan, Fahda) — full operational access."""
+    return user.get("role") == "admin" or _has_full_client_access(user)
+
+
+async def ops_or_admin(user: dict = Depends(get_current_user)) -> dict:
+    if _is_staff_admin(user):
+        return user
+    raise HTTPException(status_code=403, detail="Admin access required")
+
 def set_auth_cookie(response: Response, token: str):
     response.set_cookie(key="access_token", value=token, httponly=True,
                         secure=True, samesite="none", max_age=86400, path="/")
@@ -863,32 +888,6 @@ SUPERVISOR_CLIENT_FILES = {
     "msMaha": ["035", "037", "038", "040", "041", "042", "047", "052", "054", "060", "063", "065", "070"],
     "msFahda": ["009", "011", "018", "023", "024", "027", "030", "034", "061", "062", "068", "072", "079"],
 }
-
-FULL_CLIENT_ACCESS_KEYS = frozenset({"mswalaa", "msmaha", "msjenan", "msfahda"})
-FULL_CLIENT_NAME_TOKENS = frozenset({"walaa", "maha", "jenan", "fahda"})
-
-
-def _has_full_client_access(user: dict) -> bool:
-    if user.get("role") == "admin":
-        return True
-    key = (user.get("key") or "").lower()
-    if key in FULL_CLIENT_ACCESS_KEYS:
-        return True
-    name = (user.get("name") or "").lower().replace("ms.", "").replace("ms ", "").strip()
-    first = name.split()[0] if name else ""
-    return first in FULL_CLIENT_NAME_TOKENS
-
-
-def _is_staff_admin(user: dict) -> bool:
-    """Admin login or ops team (Walaa, Maha, Jenan, Fahda) — full operational access."""
-    return user.get("role") == "admin" or _has_full_client_access(user)
-
-
-async def ops_or_admin(user: dict = Depends(get_current_user)) -> dict:
-    if _is_staff_admin(user):
-        return user
-    raise HTTPException(status_code=403, detail="Admin access required")
-
 
 async def _client_file_no(client_id: str) -> Optional[str]:
     c = await db.clients.find_one({"id": client_id}, {"_id": 0, "file_no": 1})
