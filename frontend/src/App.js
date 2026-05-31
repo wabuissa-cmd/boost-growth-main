@@ -1,6 +1,6 @@
 import { Component } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth } from "./auth";
+import { AuthProvider, useAuth, hasOpsAccess, isStaffAdmin } from "./auth";
 import Login from "./pages/Login";
 import Shell from "./pages/Shell";
 import Home from "./pages/Home";
@@ -37,6 +37,29 @@ function AdminOnly({ children }) {
   return children;
 }
 
+function StaffAdminOnly({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <Loading/>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!isStaffAdmin(user)) return <Navigate to="/home" replace />;
+  return children;
+}
+
+function AdminLeaveOnly({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <Loading/>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!isStaffAdmin(user)) return <Navigate to="/my-leaves" replace />;
+  return children;
+}
+
+function MyLeavesOnly({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <Loading/>;
+  if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
+
 function AppRoutes() {
   const { user } = useAuth();
   return (
@@ -48,15 +71,17 @@ function AppRoutes() {
         <Route path="/schedule" element={<Schedule/>}/>
         <Route path="/attendance" element={<Attendance/>}/>
         <Route path="/clients" element={<Clients/>}/>
-        <Route path="/intake" element={<AdminOnly><Intake/></AdminOnly>}/>
+        <Route path="/intake" element={<StaffAdminOnly><Intake/></StaffAdminOnly>}/>
+        <Route path="/my-requests" element={<Requests personal/>}/>
         <Route path="/requests" element={<Requests/>}/>
         <Route path="/directory" element={<Directory/>}/>
         <Route path="/resources" element={<Resources/>}/>
-        <Route path="/reports" element={<AdminOnly><Reports/></AdminOnly>}/>
-        <Route path="/import" element={<AdminOnly><ImportPage/></AdminOnly>}/>
+        <Route path="/reports" element={<StaffAdminOnly><Reports/></StaffAdminOnly>}/>
+        <Route path="/import" element={<StaffAdminOnly><ImportPage/></StaffAdminOnly>}/>
         <Route path="/admin" element={<AdminOnly><Admin/></AdminOnly>}/>
-        <Route path="/leave-balance" element={<AdminOnly><LeaveBalance/></AdminOnly>}/>
-        <Route path="/leaves" element={<LeaveRequests/>}/>
+        <Route path="/leave-balance" element={<StaffAdminOnly><LeaveBalance/></StaffAdminOnly>}/>
+        <Route path="/my-leaves" element={<MyLeavesOnly><LeaveRequests personal/></MyLeavesOnly>}/>
+        <Route path="/leaves" element={<AdminLeaveOnly><LeaveRequests/></AdminLeaveOnly>}/>
         <Route path="/leave-requests" element={<Navigate to="/leaves" replace/>}/>
         <Route path="/therapist-leaves" element={<Navigate to="/leave-balance" replace/>}/>
       </Route>

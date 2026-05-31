@@ -55,12 +55,23 @@ export const useAuth = () => useContext(AuthCtx);
 const FULL_CLIENT_KEYS = new Set(["mswalaa", "msmaha", "msjenan", "msfahda"]);
 const FULL_CLIENT_NAMES = new Set(["walaa", "maha", "jenan", "fahda"]);
 
-/** Walaa, Maha, Jenan, Fahda + admin — see all clients */
-export function hasFullClientAccess(user) {
+/** Walaa, Maha, Jenan, Fahda + admin — see all clients and full ops access */
+export function hasOpsAccess(user) {
   if (!user) return false;
   if (user.role === "admin") return true;
+  if (user.staff_admin || user.ops_access) return true;
   const key = (user.key || "").toLowerCase();
   if (FULL_CLIENT_KEYS.has(key)) return true;
   const first = (user.name || "").replace(/^Ms\.?\s*/i, "").split(/\s+/)[0]?.toLowerCase();
   return FULL_CLIENT_NAMES.has(first);
+}
+
+/** Admin or ops team — full schedule, attendance, clients, reports */
+export function isStaffAdmin(user) {
+  return user?.role === "admin" || hasOpsAccess(user);
+}
+
+/** @deprecated alias */
+export function hasFullClientAccess(user) {
+  return hasOpsAccess(user);
 }

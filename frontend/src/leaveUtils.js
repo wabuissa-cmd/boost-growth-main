@@ -1,7 +1,7 @@
 /** Leave management helpers — document badges, balance status, filters. */
 
 export const LEAVE_STATUS = {
-  pending: { label: "Pending", color: "#D4A64A", bg: "#FAF0D1", icon: "🟡" },
+  pending: { label: "Pending", therapistLabel: "Under Review", color: "#D4A64A", bg: "#FAF0D1", icon: "🟡" },
   approved: { label: "Approved", color: "#3D4F35", bg: "#E5EBE1", icon: "🟢" },
   done: { label: "Done", color: "#5C6853", bg: "#EFEAE0", icon: "✓" },
   rejected: { label: "Rejected", color: "#8B3A55", bg: "#FCE0E8", icon: "✗" },
@@ -20,12 +20,21 @@ export const LEAVE_TYPES = {
 };
 
 export const DOC_TYPES = [
-  { id: "medical", label: "Medical Report (تقرير طبي)" },
-  { id: "appointment", label: "Appointment Report (تقرير موعد)" },
-  { id: "other", label: "Other" },
+  { id: "medical", label: "Medical Report" },
+  { id: "appointment", label: "Appointment Report" },
+  { id: "other", label: "Other Document" },
 ];
 
 const DOC_REQUIRED_TYPES = new Set(["Sickleave", "Absence", "Permission"]);
+
+export function leavePayCategory(leaveType) {
+  return leaveType === "Unpaid" ? "Unpaid" : "Paid";
+}
+
+export function leaveStatusLabel(status, forTherapist = false) {
+  const st = LEAVE_STATUS[status] || LEAVE_STATUS.pending;
+  return forTherapist && st.therapistLabel ? st.therapistLabel : st.label;
+}
 
 export function leaveRequiresDocument(leaveType) {
   return DOC_REQUIRED_TYPES.has(leaveType);

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api";
-import { useAuth, hasFullClientAccess } from "../auth";
+import { useAuth, isStaffAdmin, hasOpsAccess } from "../auth";
 import { Plus, PencilSimple, Trash, MagnifyingGlass, MapPin, User, Phone, Hash, ArrowSquareOut } from "@phosphor-icons/react";
 import { PackageStatusBadge } from "../components/PackageStatusBadge";
 import {
@@ -11,7 +11,7 @@ import {
 
 export default function Clients() {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const isAdmin = isStaffAdmin(user);
   const [items, setItems] = useState([]);
   const [therapists, setTherapists] = useState([]);
   const [edit, setEdit] = useState(null);
@@ -572,7 +572,7 @@ function ProgressReportsList({ clientId, fileNo, client, isAdmin, embedded }) {
   const [busy, setBusy]      = useState(null);
 
   const isSupervisor = () => {
-    if (hasFullClientAccess(user)) return true;
+    if (hasOpsAccess(user)) return true;
     if (isAdmin) return true;
     if (!user) return false;
     const key = user.key || "";

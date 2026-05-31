@@ -5,7 +5,7 @@ import {
   SERVICE_CELL_COLORS, buildSlotRange, isSlotSelectable, slotIndex,
   findCellAt, isHiddenFromSchedule,
 } from "../scheduleUtils";
-import { useAuth } from "../auth";
+import { useAuth, isStaffAdmin } from "../auth";
 import {
   CaretLeft, CaretRight, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
   MagnifyingGlassPlus, MagnifyingGlassMinus, Printer, Info, GridFour,
@@ -86,7 +86,7 @@ function cellClassNameBlock(cell, isAdmin, leaveInfo, selected, copied) {
 
 export default function Schedule() {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const isAdmin = isStaffAdmin(user);
   const [view, setView] = useState(() => {
     // Default to "Per Therapist" (blocks) view for all users per business request.
     return "blocks";

@@ -1,10 +1,10 @@
 import { useEffect, useState, useRef } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { useAuth } from "../auth";
+import { useAuth, isStaffAdmin, hasOpsAccess } from "../auth";
 import api from "../api";
 import {
   House, CalendarBlank, ClipboardText, UsersThree,
-  Bell, SignOut, ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, Airplane, CaretDown, Folder
+  Bell, SignOut, ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, CaretDown, Folder, UserCircle
 } from "@phosphor-icons/react";
 
 export default function Shell() {
@@ -13,7 +13,9 @@ export default function Shell() {
   const [showNotif, setShowNotif] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
   const loc = useLocation();
+  const staffAdmin = isStaffAdmin(user);
   const isAdmin = user?.role === "admin";
+  const isOpsTherapist = hasOpsAccess(user) && user?.role !== "admin";
 
   const loadNotifs = async () => {
     try { const { data } = await api.get("/notifications"); setNotifs(data); } catch(_e) { /* ignore */ }
@@ -31,29 +33,30 @@ export default function Shell() {
     { to: "/clients", icon: <UsersThree size={18} weight="duotone"/>, label: "Clients", testid: "nav-clients" },
   ];
 
-  // Referrals dropdown (admin only — Intake)
-  const referralsItems = isAdmin
+  // Referrals dropdown (admin / ops — Intake)
+  const referralsItems = staffAdmin
     ? [{ to: "/intake", label: "Intake", testid: "nav-intake" }]
     : [];
 
-  // Therapist-only links
-  const therapistLinks = !isAdmin ? [
-    { to: "/leaves", icon: <Airplane size={18} weight="duotone"/>, label: "My Leaves", testid: "nav-my-leaves" },
+  // Personal portal dropdown (therapists + ops team)
+  const myPortalItems = (user?.role !== "admin" || isOpsTherapist) ? [
+    { to: "/my-requests", label: "My Requests", testid: "nav-my-requests" },
+    { to: "/my-leaves", label: "My Leaves", testid: "nav-my-leaves" },
   ] : [];
 
-  // Requests dropdown — admin: staff requests + leave management
+  // Requests dropdown — admin / ops: staff requests + leave management
   const requestsItems = [];
-  if (isAdmin) {
+  if (staffAdmin) {
     requestsItems.push({ to: "/requests", label: "Staff Requests", testid: "nav-requests" });
     requestsItems.push({ to: "/leaves", label: "Leave Requests", testid: "nav-leave-requests" });
     requestsItems.push({ to: "/leave-balance", label: "Leave Balance", testid: "nav-leave-balance" });
   }
 
-  // Admin tools (Reports moved here since it doesn't fit Requests)
-  const adminTools = isAdmin ? [
+  // Admin tools (Reports, Import; Admin page admin-login only)
+  const adminTools = staffAdmin ? [
     { to: "/reports", icon: <ChartBar size={18} weight="duotone"/>, label: "Reports", testid: "nav-reports" },
     { to: "/import", icon: <UploadSimple size={18} weight="duotone"/>, label: "Import", testid: "nav-import" },
-    { to: "/admin", icon: <Gear size={18} weight="duotone"/>, label: "Admin", testid: "nav-admin" },
+    ...(isAdmin ? [{ to: "/admin", icon: <Gear size={18} weight="duotone"/>, label: "Admin", testid: "nav-admin" }] : []),
   ] : [];
 
   const markAllRead = async () => { await api.post("/notifications/read-all"); loadNotifs(); };
@@ -86,12 +89,10 @@ export default function Shell() {
                   {l.icon}<span>{l.label}</span>
                 </NavLink>
               ))}
-              {therapistLinks.map(l => (
-                <NavLink key={l.to} to={l.to} data-testid={l.testid}
-                         className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
-                  {l.icon}<span>{l.label}</span>
-                </NavLink>
-              ))}
+              {myPortalItems.length > 0 && (
+                <NavDropdown testid="nav-my-portal" label="My Portal" icon={<UserCircle size={18} weight="duotone"/>}
+                             items={myPortalItems} loc={loc}/>
+              )}
               {referralsItems.length > 0 && (
                 <NavDropdown testid="nav-referrals" label="Referrals" icon={<Folder size={18} weight="duotone"/>}
                              items={referralsItems} loc={loc}/>
@@ -150,7 +151,7 @@ export default function Shell() {
               </div>
               <div className="text-xs leading-tight">
                 <div className="font-bold truncate max-w-[120px]" style={{color: "#2C3625"}}>{user?.name?.replace("Ms. ", "") || user?.email}</div>
-                <div style={{color: "#8B9E7A"}}>{isAdmin ? "Admin" : "Therapist"}</div>
+                <div style={{color: "#8B9E7A"}}>{isAdmin ? "Admin" : staffAdmin ? "Operations" : "Therapist"}</div>
               </div>
               <button data-testid="logout-btn" onClick={logout} className="btn btn-ghost p-2"><SignOut size={18}/></button>
             </div>
@@ -175,11 +176,16 @@ export default function Shell() {
                   {l.icon}<span>{l.label}</span>
                 </NavLink>
               ))}
-              {therapistLinks.map(l => (
-                <NavLink key={l.to} to={l.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
-                  {l.icon}<span>{l.label}</span>
-                </NavLink>
-              ))}
+              {myPortalItems.length > 0 && (
+                <div className="mt-1">
+                  <div className="text-[10px] tracking-widest px-3 mt-2 mb-1" style={{color: "#8B9E7A"}}>MY PORTAL</div>
+                  {myPortalItems.map(s => (
+                    <NavLink key={s.to} to={s.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
+                      <UserCircle size={16} weight="duotone"/><span>{s.label}</span>
+                    </NavLink>
+                  ))}
+                </div>
+              )}
               {referralsItems.length > 0 && (
                 <div className="mt-1">
                   <div className="text-[10px] tracking-widest px-3 mt-2 mb-1" style={{color: "#8B9E7A"}}>REFERRALS</div>
@@ -190,18 +196,20 @@ export default function Shell() {
                   ))}
                 </div>
               )}
+              {requestsItems.length > 0 && (
               <div className="mt-1">
                 <div className="text-[10px] tracking-widest px-3 mt-2 mb-1" style={{color: "#8B9E7A"}}>REQUESTS</div>
                 {requestsItems.map(s => (
                   <NavLink key={s.to} to={s.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
-                    {s.to === "/leaves" ? <Airplane size={16} weight="duotone"/> :
+                    {s.to === "/leaves" ? <ListChecks size={16} weight="duotone"/> :
                      s.to === "/requests" ? <ListChecks size={16} weight="duotone"/> :
-                     s.to === "/reports" ? <ChartBar size={16} weight="duotone"/> :
+                     s.to === "/leave-balance" ? <UserList size={16} weight="duotone"/> :
                      <UserList size={16} weight="duotone"/>}
                     <span>{s.label}</span>
                   </NavLink>
                 ))}
               </div>
+              )}
               {adminTools.map(l => (
                 <NavLink key={l.to} to={l.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
                   {l.icon}<span>{l.label}</span>

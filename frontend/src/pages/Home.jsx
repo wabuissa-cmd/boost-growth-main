@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api, { startOfWeek, toISODate } from "../api";
-import { useAuth } from "../auth";
+import { useAuth, isStaffAdmin } from "../auth";
 import {
   CalendarBlank, ClipboardText, UsersThree, ListChecks, Plant, ArrowRight, Sparkle,
   CheckCircle, Clock, XCircle, CalendarCheck, MagnifyingGlass
@@ -10,7 +10,7 @@ import { quoteOfTheDay } from "../data/quotes";
 
 export default function Home() {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const isAdmin = isStaffAdmin(user);
   const [stats, setStats] = useState({
     clients: 0, therapists: 0, requests: 0,
     weekSessions: 0, weekHours: 0,

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import api, { API } from "../api";
-import { useAuth } from "../auth";
+import { useAuth, isStaffAdmin } from "../auth";
 import {
   Plus, X, CheckCircle, XCircle, FilePdf, UploadSimple, Eye, Trash,
-  UserMinus, MagnifyingGlass, Export, CaretDown, CaretRight, FileText
+  UserMinus, MagnifyingGlass, Export, CaretDown, CaretRight, FileText, PencilSimple
 } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
@@ -12,7 +12,7 @@ import {
 import {
   LEAVE_STATUS, LEAVE_TYPES, DOC_TYPES, documentBadge, leaveRequiresDocument,
   diffDays, fmtDateRange, isActiveLeave, isHistoryLeave, exportLeavesCsv,
-  scheduleImpactLabel,
+  scheduleImpactLabel, leavePayCategory, leaveStatusLabel,
 } from "../leaveUtils";
 
 function emptyLeave(therapistId = "") {
@@ -131,12 +131,15 @@ function DocumentSection({ leave, isAdmin, onRefresh, canUpload }) {
   );
 }
 
-function LeaveRequestCard({ leave, isAdmin, user, onRefresh, onEdit, therapists }) {
+function LeaveRequestCard({ leave, isAdmin, user, onRefresh, onEdit, therapists, personal = false }) {
   const st = LEAVE_STATUS[leave.status] || LEAVE_STATUS.pending;
+  const statusText = leaveStatusLabel(leave.status, personal);
   const tp = LEAVE_TYPES[leave.leave_type] || { label: leave.leave_type, color: "#7A8A6A" };
   const canUpload = isAdmin || leave.therapist_id === user?.id;
+  const canEditOwn = personal && leave.therapist_id === user?.id && leave.status === "pending";
   const [marking, setMarking] = useState(false);
   const [impactOpen, setImpactOpen] = useState(false);
+  const attachRef = useRef(null);
 
   const setStatus = async (status) => {
     await api.put(`/leaves/${leave.id}/status`, { status });
@@ -175,7 +178,7 @@ function LeaveRequestCard({ leave, isAdmin, user, onRefresh, onEdit, therapists 
           </div>
         </div>
         <span className="pill text-xs font-bold px-3 py-1" style={{ background: st.bg, color: st.color }}>
-          {st.icon} {st.label.toUpperCase()}
+          {st.icon} {statusText.toUpperCase()}
         </span>
       </div>
 
@@ -221,6 +224,40 @@ function LeaveRequestCard({ leave, isAdmin, user, onRefresh, onEdit, therapists 
             </button>
           )}
           <button onClick={() => onEdit(leave)} className="btn btn-ghost text-xs">Edit</button>
+        </div>
+      )}
+
+      {personal && (
+        <div className="flex gap-2 flex-wrap mt-4 pt-3 border-t border-[#E8E4DE]">
+          {canEditOwn && (
+            <button type="button" onClick={() => onEdit(leave)} className="btn btn-secondary text-xs">
+              <PencilSimple size={14} /> Edit
+            </button>
+          )}
+          {canUpload && (
+            <>
+              <input ref={attachRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const fd = new FormData();
+                  fd.append("file", file);
+                  fd.append("document_type", "medical");
+                  try {
+                    await api.post(`/leaves/${leave.id}/upload-document`, fd, {
+                      headers: { "Content-Type": "multipart/form-data" },
+                    });
+                    onRefresh();
+                  } catch (err) {
+                    alert("Upload failed: " + (err.response?.data?.detail || err.message));
+                  }
+                  e.target.value = "";
+                }} />
+              <button type="button" onClick={() => attachRef.current?.click()} className="btn btn-outline text-xs">
+                <UploadSimple size={14} /> {leave.document_file_path ? "Add / Replace Attachment" : "Add Attachment"}
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -412,9 +449,98 @@ function HistoryTab({ leaves, therapists, isAdmin, onRefresh }) {
   );
 }
 
-export default function LeaveRequests() {
+function MyLeavesTable({ leaves, user, onEdit, onRefresh }) {
+  if (!leaves.length) {
+    return (
+      <div className="card p-10 text-center text-sm" style={{ color: "#8B9E7A" }}>
+        No leave requests submitted yet.
+      </div>
+    );
+  }
+  return (
+    <div className="card p-0 overflow-hidden">
+      <div className="table-scroll overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr style={{ background: "#EFE8D2", borderBottom: "1px solid #C9BB91" }}>
+              {["Type", "Pay Status", "Dates", "Days", "Status", "Document", "Actions"].map(h => (
+                <th key={h} className="p-3 text-left font-bold text-xs" style={{ color: "#2C3625" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {leaves.map(l => {
+              const tp = LEAVE_TYPES[l.leave_type] || { label: l.leave_type, color: "#7A8A6A" };
+              const st = LEAVE_STATUS[l.status] || LEAVE_STATUS.pending;
+              const badge = documentBadge(l);
+              const canEdit = l.therapist_id === user?.id && l.status === "pending";
+              return (
+                <tr key={l.id} className="border-b border-[#E8E4DE] hover:bg-[#FAFAF7]">
+                  <td className="p-3">
+                    <span className="pill text-[10px] px-2 py-0.5 font-bold" style={{ background: `${tp.color}22`, color: tp.color }}>{tp.label}</span>
+                  </td>
+                  <td className="p-3 font-medium" style={{ color: "#5C6853" }}>{leavePayCategory(l.leave_type)}</td>
+                  <td className="p-3" style={{ color: "#2C3625" }}>{fmtDateRange(l.start_date, l.end_date)}</td>
+                  <td className="p-3 font-bold" style={{ color: "#2C3625" }}>{l.days}</td>
+                  <td className="p-3">
+                    <span className="pill text-[10px] px-2 py-0.5 font-bold" style={{ background: st.bg, color: st.color }}>
+                      {leaveStatusLabel(l.status, true)}
+                    </span>
+                  </td>
+                  <td className="p-3">
+                    <span className="text-xs" style={{ color: badge.color }}>{badge.label}</span>
+                  </td>
+                  <td className="p-3">
+                    <div className="flex gap-1 flex-wrap">
+                      {canEdit && (
+                        <button type="button" onClick={() => onEdit(l)} className="btn btn-ghost text-xs py-1 px-2">Edit</button>
+                      )}
+                      {l.therapist_id === user?.id && (
+                        <LeaveRowAttachButton leave={l} onRefresh={onRefresh} />
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function LeaveRowAttachButton({ leave, onRefresh }) {
+  const ref = useRef(null);
+  return (
+    <>
+      <input ref={ref} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" className="hidden"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          const fd = new FormData();
+          fd.append("file", file);
+          fd.append("document_type", "medical");
+          try {
+            await api.post(`/leaves/${leave.id}/upload-document`, fd, {
+              headers: { "Content-Type": "multipart/form-data" },
+            });
+            onRefresh();
+          } catch (err) {
+            alert("Upload failed: " + (err.response?.data?.detail || err.message));
+          }
+          e.target.value = "";
+        }} />
+      <button type="button" onClick={() => ref.current?.click()} className="btn btn-outline text-xs py-1 px-2">
+        <UploadSimple size={12} /> {leave.document_file_path ? "Replace" : "Attach"}
+      </button>
+    </>
+  );
+}
+
+export default function LeaveRequests({ personal = false }) {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const isAdmin = !personal && isStaffAdmin(user);
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
   const [tab, setTab] = useState("active");
@@ -423,6 +549,8 @@ export default function LeaveRequests() {
   const [edit, setEdit] = useState(null);
   const [showMarkAbsence, setShowMarkAbsence] = useState(false);
   const [myBalance, setMyBalance] = useState(null);
+  const [pendingDoc, setPendingDoc] = useState(null);
+  const leaveFileRef = useRef(null);
 
   const load = async () => {
     const [l, t, b] = await Promise.all([
@@ -457,9 +585,21 @@ export default function LeaveRequests() {
 
   const save = async () => {
     if (!edit.therapist_id) { alert("Select a therapist"); return; }
-    if (edit.id) await api.put(`/leaves/${edit.id}`, edit);
-    else await api.post("/leaves", edit);
+    if (edit.id) {
+      await api.put(`/leaves/${edit.id}`, edit);
+    } else {
+      const { data: created } = await api.post("/leaves", edit);
+      if (pendingDoc && created?.id) {
+        const fd = new FormData();
+        fd.append("file", pendingDoc);
+        fd.append("document_type", edit.leave_type === "Sickleave" ? "medical" : "other");
+        await api.post(`/leaves/${created.id}/upload-document`, fd, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+      }
+    }
     setEdit(null);
+    setPendingDoc(null);
     load();
   };
 
@@ -472,10 +612,10 @@ export default function LeaveRequests() {
       <div className="flex items-center mb-5 flex-wrap gap-3">
         <div className="flex-1 min-w-[240px]">
           <h1 className="font-display text-3xl font-semibold flex items-center gap-2" style={{ color: "#2C3625" }}>
-            <FileText size={28} weight="duotone" /> {isAdmin ? "Leave Requests" : "My Leave Requests"}
+            <FileText size={28} weight="duotone" /> {isAdmin ? "Leave Requests" : "My Leaves"}
           </h1>
           <div className="text-sm" style={{ color: "#5C6853" }}>
-            {isAdmin ? "Approve requests · track documents · mark absences" : "رصيدك · طلباتك · رفع المستندات"}
+            {isAdmin ? "Approve requests · track documents · mark absences" : "Annual balance · your leave history · upload medical documents"}
           </div>
         </div>
         <select className="select text-sm max-w-[100px]" value={year} onChange={e => setYear(parseInt(e.target.value, 10))}>
@@ -493,24 +633,24 @@ export default function LeaveRequests() {
 
       {!isAdmin && (
         <div className="card p-5 sm:p-6 mb-5" style={{ background: "linear-gradient(135deg, #7A8A6A 0%, #606E52 100%)", borderColor: "transparent", color: "white" }}>
-          <div className="text-xs tracking-[0.2em] font-bold opacity-90 mb-1">رصيد الإجازات السنوي · {year}</div>
+          <div className="text-xs tracking-[0.2em] font-bold opacity-90 mb-1">ANNUAL LEAVE BALANCE · {year}</div>
           {myBalance ? (
             <div className="flex items-end gap-4 flex-wrap">
               <div>
                 <div className="font-display text-4xl sm:text-5xl font-semibold">{myBalance.remaining}</div>
-                <div className="text-sm opacity-90">يوم متبقي</div>
+                <div className="text-sm opacity-90">days remaining</div>
               </div>
               <div className="flex-1 grid grid-cols-3 gap-2 sm:gap-3 min-w-[200px]">
                 <div className="bg-white/15 rounded-xl p-3">
-                  <div className="text-[9px] sm:text-[10px] tracking-widest opacity-80">المستحق</div>
+                  <div className="text-[9px] sm:text-[10px] tracking-widest opacity-80">ALLOCATED</div>
                   <div className="text-xl sm:text-2xl font-bold">{myBalance.allocated}</div>
                 </div>
                 <div className="bg-white/15 rounded-xl p-3">
-                  <div className="text-[9px] sm:text-[10px] tracking-widest opacity-80">المستخدم</div>
+                  <div className="text-[9px] sm:text-[10px] tracking-widest opacity-80">USED</div>
                   <div className="text-xl sm:text-2xl font-bold">{myBalance.used_annual}</div>
                 </div>
                 <div className="bg-white/15 rounded-xl p-3">
-                  <div className="text-[9px] sm:text-[10px] tracking-widest opacity-80">قيد الانتظار</div>
+                  <div className="text-[9px] sm:text-[10px] tracking-widest opacity-80">PENDING</div>
                   <div className="text-xl sm:text-2xl font-bold">{myBalance.pending}</div>
                 </div>
               </div>
@@ -518,6 +658,13 @@ export default function LeaveRequests() {
           ) : (
             <div className="text-sm opacity-80">Loading balance…</div>
           )}
+        </div>
+      )}
+
+      {!isAdmin && (
+        <div className="mb-5">
+          <h2 className="font-display text-xl font-semibold mb-3" style={{ color: "#2C3625" }}>Leave History</h2>
+          <MyLeavesTable leaves={displayLeaves} user={user} onEdit={setEdit} onRefresh={load} />
         </div>
       )}
 
@@ -535,14 +682,14 @@ export default function LeaveRequests() {
         </div>
       )}
 
-      {(!isAdmin || tab === "active") && (
+      {(!isAdmin || tab === "active") && isAdmin && (
         <div className="space-y-4">
           {displayLeaves.length === 0 && (
             <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>No active leave requests</div>
           )}
           {displayLeaves.map(l => (
             <LeaveRequestCard key={l.id} leave={l} isAdmin={isAdmin} user={user} onRefresh={load}
-              onEdit={setEdit} therapists={therapists} />
+              onEdit={setEdit} therapists={therapists} personal={personal} />
           ))}
         </div>
       )}
@@ -552,10 +699,10 @@ export default function LeaveRequests() {
       )}
 
       {edit && (
-        <ModalBase title={edit.id ? "Edit Leave" : "Request Leave"} onClose={() => setEdit(null)} size="md"
+        <ModalBase title={edit.id ? "Edit Leave Request" : "Request Leave"} onClose={() => { setEdit(null); setPendingDoc(null); }} size="md"
           footer={<>
-            <ModalBtnSecondary onClick={() => setEdit(null)}>Cancel</ModalBtnSecondary>
-            <ModalBtnPrimary data-testid="leave-save-btn" onClick={save}>Save</ModalBtnPrimary>
+            <ModalBtnSecondary onClick={() => { setEdit(null); setPendingDoc(null); }}>Cancel</ModalBtnSecondary>
+            <ModalBtnPrimary data-testid="leave-save-btn" onClick={save}>Submit</ModalBtnPrimary>
           </>}>
           <FormSection title="Leave Details">
             {isAdmin && (
@@ -567,35 +714,44 @@ export default function LeaveRequests() {
                 </select>
               </FormField>
             )}
-            <div className="grid grid-cols-2 gap-4">
-              <FormField label="Type">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField label="Leave Type">
                 <select className="modal-input" value={edit.leave_type} onChange={e => setEdit({ ...edit, leave_type: e.target.value })}>
                   {Object.entries(LEAVE_TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                 </select>
               </FormField>
-              {isAdmin && (
-                <FormField label="Status">
-                  <select className="modal-input" value={edit.status} onChange={e => setEdit({ ...edit, status: e.target.value })}>
-                    {Object.entries(LEAVE_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                  </select>
-                </FormField>
-              )}
-              <FormField label="Date from">
+              <FormField label="Days">
+                <input type="number" step="0.5" min="0.5" className="modal-input bg-[#F5F5F5]" readOnly value={edit.days} />
+              </FormField>
+              <FormField label="Date From">
                 <input data-testid="leave-start-input" type="date" className="modal-input" value={edit.start_date}
                   onChange={e => setEdit({ ...edit, start_date: e.target.value })} />
               </FormField>
-              <FormField label="Date to">
+              <FormField label="Date To">
                 <input data-testid="leave-end-input" type="date" className="modal-input" value={edit.end_date}
                   onChange={e => setEdit({ ...edit, end_date: e.target.value })} />
               </FormField>
             </div>
-            <FormField label="Days">
-              <input type="number" step="0.5" min="0.5" className="modal-input" value={edit.days}
-                onChange={e => setEdit({ ...edit, days: parseFloat(e.target.value) || 0 })} />
+            {isAdmin && (
+              <FormField label="Status">
+                <select className="modal-input" value={edit.status} onChange={e => setEdit({ ...edit, status: e.target.value })}>
+                  {Object.entries(LEAVE_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                </select>
+              </FormField>
+            )}
+            <FormField label="Notes" hint="Optional">
+              <textarea className="modal-input" rows={3} value={edit.notes || ""} placeholder="Reason or additional details…"
+                onChange={e => setEdit({ ...edit, notes: e.target.value })} />
             </FormField>
-            <FormField label="Notes">
-              <textarea className="modal-input" rows={3} value={edit.notes || ""} onChange={e => setEdit({ ...edit, notes: e.target.value })} />
-            </FormField>
+            {!edit.id && (
+              <FormField label="Attachment" hint="Optional — medical report, sick note, etc.">
+                <input ref={leaveFileRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" className="hidden"
+                  onChange={e => setPendingDoc(e.target.files?.[0] || null)} />
+                <button type="button" onClick={() => leaveFileRef.current?.click()} className="btn btn-outline text-sm w-full justify-center">
+                  <UploadSimple size={16} /> {pendingDoc ? pendingDoc.name : "Choose File"}
+                </button>
+              </FormField>
+            )}
           </FormSection>
         </ModalBase>
       )}

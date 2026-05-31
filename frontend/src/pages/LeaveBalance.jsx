@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { useAuth } from "../auth";
+import { useAuth, isStaffAdmin } from "../auth";
 import api from "../api";
 import { Scales } from "@phosphor-icons/react";
 import LeaveBalanceTable from "../components/LeaveBalanceTable";
 
 export default function LeaveBalance() {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const isAdmin = isStaffAdmin(user);
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
   const [leaves, setLeaves] = useState([]);
@@ -32,7 +32,7 @@ export default function LeaveBalance() {
           <h1 className="font-display text-3xl font-semibold flex items-center gap-2" style={{ color: "#2C3625" }}>
             <Scales size={28} weight="duotone" /> Leave Balance
           </h1>
-          <div className="text-sm" style={{ color: "#5C6853" }}>رصيد الإجازات — HR overview of annual balances</div>
+          <div className="text-sm" style={{ color: "#5C6853" }}>Annual leave balances — HR overview</div>
         </div>
         <select className="select max-w-[120px]" value={year} onChange={e => setYear(parseInt(e.target.value, 10))}>
           {[currentYear - 1, currentYear, currentYear + 1].map(y => <option key={y} value={y}>{y}</option>)}

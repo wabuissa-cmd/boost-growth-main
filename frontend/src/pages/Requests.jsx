@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import api from "../api";
-import { useAuth } from "../auth";
+import { useAuth, isStaffAdmin } from "../auth";
+import { Navigate } from "react-router-dom";
 import { Plus, PencilSimple, Trash, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Calendar, Package, UploadSimple } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
@@ -50,9 +51,9 @@ function emptyLeaveForm() {
   return { therapist_id: "", start_date: today, end_date: today, days: 1, leave_type: "Annual", notes: "" };
 }
 
-export default function Requests() {
+export default function Requests({ personal = false }) {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const isAdmin = !personal && isStaffAdmin(user);
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState("all");
   const [edit, setEdit] = useState(null);
@@ -135,12 +136,16 @@ export default function Requests() {
 
   const filtered = items.filter(r => filter === "all" || r.status === filter);
 
+  if (!personal && !isStaffAdmin(user)) {
+    return <Navigate to="/my-requests" replace/>;
+  }
+
   return (
     <div>
       <div className="flex items-center mb-5 gap-3 flex-wrap">
         <div className="flex-1">
-          <h1 className="font-display text-3xl font-semibold" style={{color: "#2C3625"}}>Requests</h1>
-          <div className="text-sm" style={{color: "#5C6853"}}>{isAdmin ? "Manage all team requests" : "Track and submit your requests"}</div>
+          <h1 className="font-display text-3xl font-semibold" style={{color: "#2C3625"}}>{isAdmin ? "Requests" : "My Requests"}</h1>
+          <div className="text-sm" style={{color: "#5C6853"}}>{isAdmin ? "Manage all team requests" : "Submit and track your staff requests"}</div>
         </div>
         {!isAdmin && <button data-testid="new-request-btn" onClick={() => { setEdit({ title: "", description: "", request_type: "general", priority: "normal" }); setStep(1); }} className="btn btn-primary"><Plus size={16}/> New Request</button>}
         {isAdmin && (
