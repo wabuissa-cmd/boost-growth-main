@@ -400,8 +400,18 @@ async def update_therapist(tid: str, payload: TherapistUpdate, _=Depends(admin_o
 
 @api.delete("/therapists/{tid}")
 async def delete_therapist(tid: str, _=Depends(admin_only)):
+    t = await db.therapists.find_one({"id": tid}, {"_id": 0})
+    if not t:
+        raise HTTPException(status_code=404, detail="Therapist not found")
+    sc = await db.schedule_cells.delete_many({"therapist_id": tid})
+    uc = await db.users.delete_many({"$or": [{"therapist_id": tid}, {"name": t.get("name")}]})
     await db.therapists.delete_one({"id": tid})
-    return {"ok": True}
+    return {
+        "ok": True,
+        "name": t.get("name"),
+        "schedule_cells_deleted": sc.deleted_count,
+        "users_deleted": uc.deleted_count,
+    }
 
 # ------------------- Full Database Backup (admin only) -------------------
 BACKUP_COLLECTIONS = [
@@ -487,7 +497,6 @@ MASTER_THERAPISTS = [
     ("msFatimah",  "Fatimah",  "falkhater@boostgrowthsa.com",     "therapist", 26,   "2025-11-09"),
     ("msShrooq",   "Shrooq",   "shalamri@boostgrowthsa.com",      "therapist", 18,   "2026-02-08"),
     ("msAbeer",    "Abeer",    "a.alshareef@boostgrowthsa.com",   "therapist", 4,    None),
-    ("msNaja",     "Naja",     "nalhamad@boostgrowthsa.com",      "therapist", None, None),
     ("msJenan",    "Jenan",    "jsalmuhaisin@boostgrowthsa.com",  "therapist", None, None),
 ]
 
@@ -514,11 +523,11 @@ MASTER_CLIENTS = [
     ("061", "Ibrahim Alnasir",       "msRahaf",    ["msFahda"],                24, "msFahda", "HS/SS", "Alyasmin"),
     ("062", "Lulu Almutair",         "msRazan",    ["msFahda"],                24, "msFahda", "HS/SS", "Almuroj"),
     ("063", "Amani Ghaith",          "msMaha",     [],                         24, "msMaha",  "HS",    "Alnakheel"),
-    ("065", "Aser Alharbi",          "msNaja",     ["msMaha"],                 24, "msMaha",  "HS",    "Al Izdihar"),
+    ("065", "Aser Alharbi",          "msMaha",     ["msMaha"],                 24, "msMaha",  "HS",    "Al Izdihar"),
     ("068", "Abdulrahman Alshawi",   "msRazan",    ["msFahda"],                24, "msFahda", "HS/SS", "AR Rayan"),
     ("070", "Abdulelah Almuhana",    "msAbeer",    ["msMaha"],                 40, "msMaha",  "SS",    "Manarat Riyadh"),
     ("072", "Khalid Bin Shuael",     "msShatha",   ["msFahda"],                24, "msFahda", "HS",    "AlMursalat"),
-    ("079", "Fahad Suliman",         "msNaja",     ["msFahda"],                40, "msFahda", "HS",    "Al-Sahafa"),
+    ("079", "Fahad Suliman",         "msFahda",    ["msFahda"],                40, "msFahda", "HS",    "Al-Sahafa"),
 ]
 
 async def _resolve_therapist_id(key_to_id: dict, key: str) -> Optional[str]:
@@ -1252,6 +1261,71 @@ async def admin_delete_client_sessions_invoices(body: DeleteClientSessionsIn, _=
     }
 
 
+class PurgeTherapistIn(BaseModel):
+    name_pattern: str
+
+
+@api.get("/admin/therapist-search")
+async def admin_therapist_search(q: str = "", _=Depends(admin_only)):
+    """Find therapists/users matching a name pattern (e.g. naja)."""
+    regex = {"$regex": q.strip() or ".", "$options": "i"}
+    therapists = await db.therapists.find({"name": regex}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).sort("name", 1).to_list(50)
+    users = await db.users.find(
+        {"$or": [{"name": regex}, {"username": regex}, {"email": regex}]},
+        {"_id": 0, "password_hash": 0, "pin_hash": 0},
+    ).to_list(50)
+    for t in therapists:
+        t["schedule_cells"] = await db.schedule_cells.count_documents({"therapist_id": t["id"]})
+    return {"therapists": therapists, "users": users, "query": q}
+
+
+@api.post("/admin/purge-therapist")
+async def admin_purge_therapist(body: PurgeTherapistIn, _=Depends(admin_only)):
+    """Delete therapist(s), linked users, and schedule cells by name pattern."""
+    pat = body.name_pattern.strip()
+    if not pat:
+        raise HTTPException(status_code=400, detail="name_pattern required")
+    regex = {"$regex": pat, "$options": "i"}
+    found = await db.therapists.find({"name": regex}, {"_id": 0}).to_list(50)
+    if not found:
+        found_users = await db.users.find({"$or": [{"name": regex}, {"username": regex}]}, {"_id": 0}).to_list(50)
+        for u in found_users:
+            await db.users.delete_one({"id": u["id"]})
+        return {"therapists_deleted": 0, "users_deleted": len(found_users), "schedule_cells_deleted": 0, "names": []}
+    names, sc_total, u_total = [], 0, 0
+    for t in found:
+        sc = await db.schedule_cells.delete_many({"therapist_id": t["id"]})
+        uc = await db.users.delete_many({"$or": [{"therapist_id": t["id"]}, {"name": t.get("name")}]})
+        await db.therapists.delete_one({"id": t["id"]})
+        names.append(t.get("name"))
+        sc_total += sc.deleted_count
+        u_total += uc.deleted_count
+    return {
+        "therapists_deleted": len(found),
+        "users_deleted": u_total,
+        "schedule_cells_deleted": sc_total,
+        "names": names,
+        "message": f"Removed {len(found)} therapist(s): {', '.join(names)}",
+    }
+
+
+class ClearRequestsIn(BaseModel):
+    confirm: str
+
+
+@api.post("/admin/clear-requests")
+async def admin_clear_all_requests(body: ClearRequestsIn, _=Depends(admin_only)):
+    if body.confirm != "DELETE":
+        raise HTTPException(status_code=400, detail='Type "DELETE" to confirm')
+    r = await db.requests.delete_many({})
+    l = await db.leaves.delete_many({})
+    return {
+        "requests_deleted": r.deleted_count,
+        "leaves_deleted": l.deleted_count,
+        "message": f"Deleted {r.deleted_count} requests and {l.deleted_count} leave requests",
+    }
+
+
 # ------------------- Invoices (per client; manual numbers) -------------------
 @api.get("/clients/{cid}/invoices")
 async def list_invoices(cid: str, service_type: Optional[str] = None, user=Depends(get_current_user)):
@@ -1859,6 +1933,32 @@ _INV_SHEET_RE = _re_top.compile(r"^(copy of\s+)?inv[\s\-_]*\d+", _re_top.IGNOREC
 _HEADER_TOKENS = {"day", "days", "date", "status", "time", "hrs", "hours", "# of hrs", "therapist", "note", "notes"}
 
 
+def _sheet_has_session_table(ws) -> bool:
+    """True if worksheet looks like an invoice session table (Day/Date + Time/Hrs)."""
+    for row in ws.iter_rows(min_row=1, max_row=12, values_only=True):
+        cells = [str(c).strip().lower() if c is not None else "" for c in (row or [])]
+        joined = " ".join(cells)
+        if "date" in cells and ("time" in cells or "hrs" in joined or "# of hrs" in joined):
+            return True
+    return False
+
+
+def _discover_invoice_sheets(wb) -> list:
+    """Sheets named INV* or containing a session table header."""
+    out = []
+    for name in wb.sheetnames:
+        sn = name.strip()
+        if _INV_SHEET_RE.match(sn):
+            out.append(name)
+            continue
+        try:
+            if _sheet_has_session_table(wb[name]):
+                out.append(name)
+        except Exception:
+            continue
+    return out
+
+
 def _parse_invoice_header(ws, sheet_name: str = "") -> dict:
     """Read the header section (rows 1–10) for invoice metadata and service type."""
     sn = (sheet_name or ws.title or "").strip()
@@ -1873,11 +1973,11 @@ def _parse_invoice_header(ws, sheet_name: str = "") -> dict:
     for r in ws.iter_rows(min_row=1, max_row=10, values_only=True):
         rows.append([str(c).strip() if c is not None else "" for c in (r or [])])
 
-    # Invoice number — tab name (INV0465) or embedded in row 1+
+    # Invoice number — tab name (INV0465) or embedded in rows 1–10
     if _INV_SHEET_RE.match(sn):
         info["invoice_number"] = _re_top.sub(r"[\s\-_]+", "", sn, flags=_re_top.IGNORECASE).upper()
     else:
-        for row in rows[:4]:
+        for row in rows[:10]:
             joined = " ".join(row)
             m = _re_top.search(r"(inv[\s\-_]*\d+)", joined, _re_top.IGNORECASE)
             if m:
@@ -2018,7 +2118,8 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
                 out.append(name_to_id[tok])
         return out
 
-    matched_sheets = [s for s in wb.sheetnames if _INV_SHEET_RE.match(s.strip())]
+    matched_sheets = _discover_invoice_sheets(wb)
+    debug_sheets = []
     existing_inv = {i["invoice_number"]: i for i in await db.invoices.find(
         {"client_id": cid}, {"_id": 0}
     ).to_list(500)}
@@ -2040,6 +2141,7 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
             inv_num = f"INV_{cid[:8]}_{tab_idx + 1}"
         header_info["invoice_number"] = inv_num
         sheet_hs = sheet_ss = 0
+        debug_sheets.append({"sheet": clean, "invoice_number": inv_num})
         # Upsert invoice — match by invoice_number or legacy tab name
         inv_pkg = header_info.get("package_size") or pkg_default
         existing = existing_inv.get(inv_num) or existing_inv.get(clean)
@@ -2229,6 +2331,7 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
 
     return {
         "matched_sheets": matched_sheets,
+        "sheet_details": debug_sheets,
         "invoices_added": invoices_added,
         "invoices_updated": invoices_updated,
         "sessions_added": sessions_added,
@@ -3728,24 +3831,54 @@ async def import_clients(file: UploadFile = File(...), _=Depends(admin_only)):
 @api.post("/import/intake")
 async def import_intake(file: UploadFile = File(...), _=Depends(admin_only)):
     rows = _read_table(file)
-    created, skipped = 0, 0
+    created, updated, skipped = 0, 0, 0
     for r in rows:
-        name = r.get("child_name") or r.get("name")
+        name = (r.get("child_name") or r.get("name") or "").strip()
         if not name:
-            skipped += 1; continue
+            skipped += 1
+            continue
+        phone = str(r.get("phone") or r.get("parent_phone") or "").strip() or None
         intake_type = (r.get("intake_type") or r.get("type") or "pre").lower()
         if intake_type not in ("pre", "post"):
             intake_type = "pre"
-        await db.intake.insert_one({
-            "id": str(uuid.uuid4()), "child_name": str(name).strip(),
+        status = (r.get("status") or "new").lower()
+        doc = {
+            "child_name": name,
             "parent_name": r.get("parent_name") or r.get("parent"),
-            "phone": str(r.get("phone") or "") or None,
-            "intake_type": intake_type, "status": (r.get("status") or "new").lower(),
-            "notes": r.get("notes"), "intake_date": str(r.get("intake_date") or "") or None,
-            "age": str(r.get("age") or "") or None, "created_at": now_iso(),
-        })
-        created += 1
-    return {"created": created, "skipped": skipped}
+            "phone": phone,
+            "intake_type": intake_type,
+            "status": status,
+            "notes": r.get("notes") or r.get("note"),
+            "intake_date": str(r.get("intake_date") or "") or None,
+            "age": str(r.get("age") or r.get("dob/age") or r.get("dob") or "") or None,
+            "service": r.get("service") or r.get("service_type"),
+            "district": r.get("area") or r.get("district") or r.get("location"),
+            "diagnosis": r.get("diagnosis"),
+            "priority": bool(r.get("priority")) if r.get("priority") not in (None, "", "0", "false", "no") else False,
+        }
+        match_q = {
+            "child_name": {"$regex": f"^{re.escape(name)}$", "$options": "i"},
+            "intake_type": intake_type,
+        }
+        if phone:
+            match_q["phone"] = phone
+        match = await db.intake.find_one(match_q, {"_id": 0, "id": 1})
+        if match:
+            await db.intake.update_one({"id": match["id"]}, {"$set": doc})
+            updated += 1
+        else:
+            await db.intake.insert_one({
+                "id": str(uuid.uuid4()),
+                "created_at": now_iso(),
+                **doc,
+            })
+            created += 1
+    return {
+        "created": created,
+        "updated": updated,
+        "skipped": skipped,
+        "message": f"{updated} records updated, {created} records added, {skipped} records skipped",
+    }
 
 # ------------------- Historical Schedule Loader -------------------
 HISTORICAL_SCHEDULES = None  # lazy-loaded from JSON file

@@ -150,7 +150,7 @@ export default function Shell() {
       {/* Mobile drawer */}
       {mobileNav && (
         <div className="fixed inset-0 z-50 bg-black/40 modal-backdrop lg:hidden" onClick={() => setMobileNav(false)}>
-          <div className="absolute right-0 top-0 h-full w-72 bg-white shadow-2xl modal-card overflow-y-auto" onClick={e=>e.stopPropagation()}>
+          <div className="absolute right-0 top-0 h-full w-72 max-w-full mobile-nav-drawer bg-white shadow-2xl modal-card overflow-y-auto" onClick={e=>e.stopPropagation()}>
             <div className="p-4 border-b border-[#E8E4DE] flex items-center justify-between">
               <div className="font-bold">Menu</div>
               <button onClick={() => setMobileNav(false)} className="btn btn-ghost p-2"><X size={20}/></button>

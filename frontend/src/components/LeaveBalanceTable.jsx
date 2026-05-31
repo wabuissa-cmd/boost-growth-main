@@ -47,7 +47,8 @@ export default function LeaveBalanceTable({ year, onYearChange, showYearSelect =
         </div>
       )}
       <div className="card p-0 overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="table-scroll overflow-x-auto">
+        <table className="w-full text-sm" style={{ minWidth: 720 }}>
           <thead style={{ background: "#EDF4E8" }}>
             <tr style={{ color: "#2C5035" }}>
               <th className="p-3 w-8"></th>
@@ -152,6 +153,7 @@ export default function LeaveBalanceTable({ year, onYearChange, showYearSelect =
             })}
           </tbody>
         </table>
+        </div>
       </div>
     </>
   );

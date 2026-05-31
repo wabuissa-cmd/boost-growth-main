@@ -89,6 +89,7 @@ export default function Requests() {
     setStatusEdit(null); load();
   };
   const remove = async (id) => { if (!window.confirm("Delete this request?")) return; await api.delete(`/requests/${id}`); load(); };
+  const removeLeave = async (id) => { if (!window.confirm("Delete this leave request?")) return; await api.delete(`/leaves/${id}`); loadLeaves(); };
 
   const updateLeaveDates = (form, start, end) => {
     const days = Math.max(1, diffDays(start, end));
@@ -222,7 +223,11 @@ export default function Requests() {
                   </div>
                   <div className="flex gap-1 shrink-0">
                     {isAdmin && <button data-testid={`update-status-${r.id}`} onClick={() => setStatusEdit({...r})} className="btn btn-secondary"><PencilSimple size={16}/> Update</button>}
-                    <button onClick={() => remove(r.id)} className="btn btn-ghost p-2 text-red-700"><Trash size={16}/></button>
+                    {isAdmin && (
+                      <button onClick={() => remove(r.id)} className="btn btn-ghost p-2 text-red-700 min-w-[44px] min-h-[44px]" title="Delete request">
+                        <Trash size={16}/>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -255,15 +260,18 @@ export default function Requests() {
                     {l.notes && <div className="text-xs mt-1 italic" style={{ color: "#8B9E7A" }}>{l.notes}</div>}
                   </div>
                   {l.status === "pending" && (
-                    <div className="flex gap-1 shrink-0">
+                    <>
                       <button type="button" onClick={() => setLeaveStatus(l, "approved")} className="btn btn-primary text-xs py-1.5">
                         <CheckCircle size={14}/> Approve
                       </button>
                       <button type="button" onClick={() => setLeaveStatus(l, "rejected")} className="btn btn-outline text-xs py-1.5" style={{ color: "#8A3F27" }}>
                         <XCircle size={14}/> Reject
                       </button>
-                    </div>
+                    </>
                   )}
+                  <button type="button" onClick={() => removeLeave(l.id)} className="btn btn-ghost p-2 text-red-700 min-w-[44px] min-h-[44px]" title="Delete leave">
+                    <Trash size={16}/>
+                  </button>
                 </div>
               );
             })}

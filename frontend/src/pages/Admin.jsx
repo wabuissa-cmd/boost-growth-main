@@ -84,6 +84,12 @@ export default function Admin() {
   const [repairSessionsResult, setRepairSessionsResult] = useState(null);
   const [repairingSessions, setRepairingSessions] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
+  const [therapistSearch, setTherapistSearch] = useState("");
+  const [purgeResult, setPurgeResult] = useState(null);
+  const [purging, setPurging] = useState(false);
+  const [clearRequestsConfirm, setClearRequestsConfirm] = useState("");
+  const [clearRequestsResult, setClearRequestsResult] = useState(null);
+  const [clearingRequests, setClearingRequests] = useState(false);
 
   const load = async () => {
     const [t, e, q] = await Promise.all([
@@ -154,7 +160,48 @@ export default function Admin() {
     }
     setEdit(null); load();
   };
-  const remove = async (id) => { if (!window.confirm("Delete therapist?")) return; await api.delete(`/therapists/${id}`); load(); };
+  const remove = async (id) => {
+    if (!window.confirm("Delete this therapist and all their schedule cells?")) return;
+    const { data } = await api.delete(`/therapists/${id}`);
+    alert(`Removed ${data.name || "therapist"} · ${data.schedule_cells_deleted || 0} schedule cells cleared`);
+    load();
+  };
+
+  const purgeTherapistByName = async (pattern) => {
+    if (!window.confirm(`Remove all therapists matching "${pattern}" from DB (plus users & schedule cells)?`)) return;
+    setPurging(true);
+    try {
+      const { data } = await api.post("/admin/purge-therapist", { name_pattern: pattern });
+      setPurgeResult(data);
+      load();
+    } catch (e) {
+      alert("Purge failed: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setPurging(false);
+    }
+  };
+
+  const clearAllRequests = async () => {
+    if (clearRequestsConfirm !== "DELETE") {
+      alert('Type DELETE in the box to confirm');
+      return;
+    }
+    if (!window.confirm("Delete ALL requests and leave requests? This cannot be undone.")) return;
+    setClearingRequests(true);
+    try {
+      const { data } = await api.post("/admin/clear-requests", { confirm: "DELETE" });
+      setClearRequestsResult(data);
+      setClearRequestsConfirm("");
+    } catch (e) {
+      alert("Clear failed: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setClearingRequests(false);
+    }
+  };
+
+  const filteredTherapists = therapists.filter(t =>
+    !therapistSearch.trim() || t.name?.toLowerCase().includes(therapistSearch.toLowerCase())
+  );
 
   const resetPassword = async (t) => {
     if (!window.confirm(`Generate a new temporary password for ${t.name}?`)) return;
@@ -298,19 +345,35 @@ export default function Admin() {
       {/* Therapists */}
       <AdminSection
         id="therapists"
-        title="Therapists"
-        subtitle={`${therapists.length} registered · PIN default 0000`}
+        title="Manage Therapists"
+        subtitle={`${therapists.length} in database · view, edit, deactivate/delete`}
         icon={<Users size={20} weight="duotone" />}
         defaultOpen
         badge={String(therapists.length)}
       >
-        <div className="flex justify-end mb-3 pt-4">
+        <div className="flex flex-wrap justify-between gap-2 mb-3 pt-4">
+          <input
+            className="input text-sm max-w-xs flex-1 min-w-[160px]"
+            placeholder="Search therapists..."
+            value={therapistSearch}
+            onChange={e => setTherapistSearch(e.target.value)}
+          />
           <button data-testid="add-therapist-btn" onClick={() => setEdit({ name: "", color: "#7A8A6A", pin: "0000" })} className="btn btn-primary text-sm">
             <UserPlus size={16} /> New Therapist
           </button>
         </div>
+        <div className="flex flex-wrap gap-2 mb-3">
+          <button type="button" disabled={purging} onClick={() => purgeTherapistByName("naja")} className="btn btn-outline text-xs" style={{ color: "#8A3F27" }}>
+            {purging ? <span className="spinner" /> : "Remove Naja from DB"}
+          </button>
+        </div>
+        {purgeResult && (
+          <div className="text-xs p-2 rounded-lg mb-3" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+            {purgeResult.message || `Removed ${purgeResult.therapists_deleted} therapist(s)`}
+          </div>
+        )}
         <div className="grid sm:grid-cols-2 gap-3">
-          {therapists.map(t => (
+          {filteredTherapists.map(t => (
             <div key={t.id} className="p-3 rounded-xl border flex items-center gap-3" style={{ borderColor: "#E8E4DE" }}>
               <div className="w-10 h-10 rounded-full text-white font-bold flex items-center justify-center shrink-0" style={{ background: t.color }}>
                 {t.name?.replace("Ms. ", "").charAt(0)}
@@ -321,7 +384,7 @@ export default function Admin() {
               </div>
               <button onClick={() => setEdit({ ...t, pin: "" })} className="btn btn-ghost p-1.5"><PencilSimple size={15} /></button>
               <button data-testid={`reset-pwd-${t.id}`} onClick={() => resetPassword(t)} className="btn btn-ghost p-1.5" title="Reset password"><Key size={15} /></button>
-              <button onClick={() => remove(t.id)} className="btn btn-ghost p-1.5 text-red-700"><Trash size={15} /></button>
+              <button onClick={() => remove(t.id)} className="btn btn-ghost p-1.5 text-red-700" title="Delete therapist"><Trash size={15} /></button>
             </div>
           ))}
         </div>
@@ -474,6 +537,18 @@ export default function Admin() {
             </button>
           </ToolRow>
           {clearLeavesResult && <div className="text-xs p-2 rounded-lg mb-3" style={{ background: "#E5EBE1" }}>{clearLeavesResult.message}</div>}
+
+          <ToolRow title="Clear All Test Requests" desc="Deletes ALL requests + leave requests. Type DELETE to confirm." danger>
+            <div className="flex gap-2 items-center flex-wrap">
+              <input className="input text-sm w-28" placeholder="DELETE" value={clearRequestsConfirm}
+                onChange={e => { setClearRequestsConfirm(e.target.value); setClearRequestsResult(null); }} />
+              <button type="button" onClick={clearAllRequests} disabled={clearingRequests || clearRequestsConfirm !== "DELETE"}
+                className="btn text-sm" style={{ background: "#C97B5C", color: "#fff" }}>
+                {clearingRequests ? <span className="spinner" /> : "Clear All"}
+              </button>
+            </div>
+          </ToolRow>
+          {clearRequestsResult && <div className="text-xs p-2 rounded-lg mb-3" style={{ background: "#E5EBE1" }}>{clearRequestsResult.message}</div>}
 
           <ToolRow title="Delete Client Sessions & Invoices" desc="By file no. — keeps client profile. Before re-import." danger>
             <div className="flex gap-2 items-center flex-wrap">

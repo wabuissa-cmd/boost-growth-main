@@ -17,6 +17,11 @@ import {
 } from "../components/Modal";
 import ScheduleCellPanel from "../components/ScheduleCellPanel";
 
+function getSheetCellStyle(cell, clients) {
+  if (!cell) return { background: "#F3F4F6", borderColor: "#E5E7EB" };
+  return getCellStyle(cell, clients);
+}
+
 function positionContextMenu(x, y, menuWidth, menuHeight) {
   const pad = 10;
   const vw = window.innerWidth;
@@ -114,6 +119,57 @@ export default function Schedule() {
   const [ctxMenu, setCtxMenu] = useState(null);
   const ctxMenuRef = useRef(null);
   const [ctxMenuPos, setCtxMenuPos] = useState({ left: 0, top: 0, ready: false });
+  const longPressTimer = useRef(null);
+  const touchStartPos = useRef(null);
+
+  const openCtxAt = (x, y, cell, therapist_id, day, time_slot) => {
+    if (!isAdmin) return;
+    setCtxMenu({ x, y, cell, therapist_id, day, time_slot });
+  };
+
+  const onCellTouchStart = (e, cell, therapist_id, day, time_slot) => {
+    if (!isAdmin) return;
+    const t = e.touches[0];
+    touchStartPos.current = { x: t.clientX, y: t.clientY };
+    longPressTimer.current = setTimeout(() => {
+      openCtxAt(t.clientX, t.clientY, cell, therapist_id, day, time_slot);
+      if (navigator.vibrate) navigator.vibrate(30);
+    }, 500);
+  };
+
+  const onCellTouchMove = (e) => {
+    if (!touchStartPos.current || !longPressTimer.current) return;
+    const t = e.touches[0];
+    const dx = Math.abs(t.clientX - touchStartPos.current.x);
+    const dy = Math.abs(t.clientY - touchStartPos.current.y);
+    if (dx > 10 || dy > 10) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const onCellTouchEnd = () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+  };
+
+  const renderCellMenuBtn = (cell, therapist_id, day, time_slot) => {
+    if (!isAdmin) return null;
+    return (
+      <button
+        type="button"
+        className="schedule-cell-menu-btn lg:hidden"
+        aria-label="Cell options"
+        onClick={(e) => {
+          e.stopPropagation();
+          const rect = e.currentTarget.getBoundingClientRect();
+          openCtxAt(rect.left, rect.bottom, cell, therapist_id, day, time_slot);
+        }}
+      >
+        ⋮
+      </button>
+    );
+  };
 
   useLayoutEffect(() => {
     if (!ctxMenu) {
@@ -577,7 +633,7 @@ export default function Schedule() {
   // === SHEET VIEW === (matches Google Sheet: # | Therapist | Day | 10 time slots)
   const renderSheet = () => (
     <div className="card p-0 overflow-hidden">
-      <div className="overflow-x-auto">
+      <div className="table-scroll overflow-x-auto">
         <table className="text-xs border-collapse sched-sheet" style={{ minWidth: 1000 }}>
           <thead>
             <tr>
@@ -636,10 +692,14 @@ export default function Schedule() {
                         colSpan={dur}
                         data-testid={`sheet-cell-${t.id}-${di}-${ts}`}
                         className={cellClassName(cell, isAdmin, leaveInfo, isSelected(t.id, di, ts), isCopied(t.id, di, ts))}
-                        style={getCellStyle(cell, clients)}
+                        style={getSheetCellStyle(cell, clients)}
                         onClick={(e) => handleCellClick(e, t.id, di, ts, cell)}
                         onContextMenu={(e) => onCtx(e, cell, t.id, di, ts)}
+                        onTouchStart={(e) => onCellTouchStart(e, cell, t.id, di, ts)}
+                        onTouchMove={onCellTouchMove}
+                        onTouchEnd={onCellTouchEnd}
                       >
+                        {renderCellMenuBtn(cell, t.id, di, ts)}
                         {cell && <CellContent cell={cell} sc={sc} />}
                       </td>
                     );
@@ -664,7 +724,7 @@ export default function Schedule() {
           <div className="font-bold text-lg" style={{ color: "#2C3625" }}>{therapist.name}</div>
         </div>
       </div>
-      <div className="overflow-x-auto">
+      <div className="table-scroll overflow-x-auto">
         <table className="w-full text-xs border-collapse" style={{ minWidth: 1100 }}>
           <thead>
             <tr>
@@ -699,10 +759,14 @@ export default function Schedule() {
                   return (
                     <td key={ts} className={cellClassNameBlock(cell, isAdmin, leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts))}
                       colSpan={dur}
-                      style={getCellStyle(cell, clients)}
+                      style={getSheetCellStyle(cell, clients)}
                       data-testid={`cell-${therapist.id}-${di}-${ts}`}
                       onClick={(e) => handleCellClick(e, therapist.id, di, ts, cell)}
-                      onContextMenu={(e) => onCtx(e, cell, therapist.id, di, ts)}>
+                      onContextMenu={(e) => onCtx(e, cell, therapist.id, di, ts)}
+                      onTouchStart={(e) => onCellTouchStart(e, cell, therapist.id, di, ts)}
+                      onTouchMove={onCellTouchMove}
+                      onTouchEnd={onCellTouchEnd}>
+                      {renderCellMenuBtn(cell, therapist.id, di, ts)}
                       {cell && <CellContent cell={cell} sc={sc} />}
                     </td>
                   );

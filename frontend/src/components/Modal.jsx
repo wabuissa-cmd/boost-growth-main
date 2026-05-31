@@ -21,10 +21,10 @@ export function ModalBase({ title, subtitle, onClose, children, footer, size = "
       role="dialog"
       aria-modal="true"
     >
-      <div className="flex min-h-full items-center justify-center p-3 sm:p-6">
+      <div className="flex min-h-full items-center justify-center p-4 sm:p-6">
         <div
           className="bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden w-full my-auto"
-          style={{ maxWidth, maxHeight: "min(90dvh, calc(100dvh - 24px))" }}
+          style={{ maxWidth: `min(${maxWidth}px, calc(100vw - 32px))`, maxHeight: "min(90dvh, calc(100dvh - 24px))" }}
           onClick={(e) => e.stopPropagation()}
         >
           {/* HEADER */}
@@ -48,7 +48,7 @@ export function ModalBase({ title, subtitle, onClose, children, footer, size = "
             <button
               type="button"
               onClick={onClose}
-              className="ml-2 mt-0.5 rounded-lg p-1.5 hover:bg-gray-100 transition flex-shrink-0"
+              className="ml-2 mt-0.5 rounded-lg p-2 hover:bg-gray-100 transition flex-shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center"
               style={{ color: "#9CA3AF" }}
               aria-label="Close"
             >
@@ -57,7 +57,7 @@ export function ModalBase({ title, subtitle, onClose, children, footer, size = "
           </div>
 
           {/* BODY */}
-          <div className="flex-1 overflow-y-auto px-5 sm:px-8 py-5 sm:py-6 space-y-6 min-h-0">
+          <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-4 sm:py-6 space-y-6 min-h-0">
             {children}
           </div>
 
