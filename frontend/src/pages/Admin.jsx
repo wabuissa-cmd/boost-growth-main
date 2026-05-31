@@ -61,7 +61,8 @@ export default function Admin() {
   });
   const [editEmail, setEditEmail] = useState(false);
   const [emailForm, setEmailForm] = useState({
-    resend_api_key: "", brevo_api_key: "", from_email: "", email_provider: "brevo",
+    resend_api_key: "", brevo_api_key: "", mailgun_api_key: "", mailgun_domain: "",
+    from_email: "", email_provider: "mailgun",
     smtp_host: "smtp.gmail.com", smtp_port: 587, smtp_user: "", smtp_password: "",
   });
   const [emailQueue, setEmailQueue] = useState([]);
@@ -103,8 +104,10 @@ export default function Admin() {
     setEmailForm({
       resend_api_key: "",
       brevo_api_key: "",
-      from_email: e.data?.from_email || "Boost Growth <admin@boostgrowthsa.com>",
-      email_provider: e.data?.provider || "smtp",
+      mailgun_api_key: "",
+      mailgun_domain: e.data?.mailgun_domain || "",
+      from_email: e.data?.from_email || "Boost Growth <notifications@boostgrowth.org>",
+      email_provider: e.data?.provider || "mailgun",
       smtp_host: e.data?.smtp_host || "smtp.gmail.com",
       smtp_port: e.data?.smtp_port || 587,
       smtp_user: e.data?.smtp_user || "",
@@ -117,7 +120,16 @@ export default function Admin() {
     const payload = {};
     if (emailForm.email_provider) payload.email_provider = emailForm.email_provider;
     if (emailForm.from_email) payload.from_email = emailForm.from_email;
-    if (emailForm.email_provider === "smtp") {
+    if (emailForm.email_provider === "mailgun") {
+      if (!emailForm.mailgun_api_key?.trim() && !emailSettings.mailgun_configured) {
+        alert("Enter your Mailgun API key"); return;
+      }
+      if (!emailForm.mailgun_domain?.trim() && !emailSettings.mailgun_domain) {
+        alert("Enter your Mailgun domain (e.g. sandboxXXX.mailgun.org)"); return;
+      }
+      if (emailForm.mailgun_api_key?.trim()) payload.mailgun_api_key = emailForm.mailgun_api_key.trim();
+      if (emailForm.mailgun_domain?.trim()) payload.mailgun_domain = emailForm.mailgun_domain.trim();
+    } else if (emailForm.email_provider === "smtp") {
       if (!emailForm.smtp_user?.trim()) { alert("Enter your Google Workspace email (SMTP User)"); return; }
       if (!emailForm.smtp_password?.trim() && !emailSettings.smtp_configured) {
         alert("Enter your Google App Password (16 characters)"); return;
@@ -145,7 +157,7 @@ export default function Admin() {
 
   const sendTest = async () => {
     if (!testTo) return;
-    if (!emailSettings.smtp_configured && !emailSettings.resend_configured && !emailSettings.brevo_configured) {
+    if (!emailSettings.mailgun_configured && !emailSettings.smtp_configured && !emailSettings.resend_configured && !emailSettings.brevo_configured) {
       alert("Save settings first");
       return;
     }
@@ -405,7 +417,7 @@ export default function Admin() {
       <AdminSection
         id="email"
         title="Email Notifications"
-        subtitle="Google Workspace · therapist notifications"
+        subtitle="Mailgun · works on Railway"
         icon={<EnvelopeSimple size={20} weight="duotone" />}
         badge={emailBadge}
       >
@@ -424,17 +436,38 @@ export default function Admin() {
               <div className="sm:col-span-2">
                 <label className="label">Provider</label>
                 <select className="input" value={emailForm.email_provider} onChange={e => setEmailForm({ ...emailForm, email_provider: e.target.value })}>
-                  <option value="smtp">Google Workspace (SMTP) — recommended</option>
+                  <option value="mailgun">Mailgun (recommended for Railway)</option>
                   <option value="brevo">Brevo</option>
                   <option value="resend">Resend</option>
+                  <option value="smtp">Google Workspace SMTP (blocked on Railway)</option>
                   <option value="auto">Auto</option>
                 </select>
               </div>
-              {emailForm.email_provider === "smtp" ? (
+              {emailForm.email_provider === "mailgun" ? (
                 <>
-                  <div className="sm:col-span-2 text-xs p-3 rounded-lg" style={{ background: "#EAF0F3", color: "#375568" }}>
-                    Use a Google App Password (16 chars). From Email must match SMTP User.
-                    <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" className="underline ml-1">Create App Password</a>
+                  <div className="sm:col-span-2 text-xs p-3 rounded-lg" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+                    Mailgun uses HTTPS — works on Railway. Free: 100 emails/day.
+                    Sign up at <a href="https://www.mailgun.com" target="_blank" rel="noreferrer" className="underline font-bold">mailgun.com</a>
+                    → Sending → Domain Settings → copy API key + domain.
+                    Sandbox domain only sends to authorized recipients until you verify boostgrowth.org.
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="label">From Email</label>
+                    <input className="input" placeholder="Boost Growth &lt;notifications@boostgrowth.org&gt;" value={emailForm.from_email} onChange={e => setEmailForm({ ...emailForm, from_email: e.target.value })} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="label">Mailgun API Key</label>
+                    <input data-testid="mailgun-key-input" className="input" type="password" placeholder="key-..." value={emailForm.mailgun_api_key} onChange={e => setEmailForm({ ...emailForm, mailgun_api_key: e.target.value })} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="label">Mailgun Domain</label>
+                    <input data-testid="mailgun-domain-input" className="input" placeholder="sandbox123.mailgun.org or mg.boostgrowth.org" value={emailForm.mailgun_domain} onChange={e => setEmailForm({ ...emailForm, mailgun_domain: e.target.value })} />
+                  </div>
+                </>
+              ) : emailForm.email_provider === "smtp" ? (
+                <>
+                  <div className="sm:col-span-2 text-xs p-3 rounded-lg" style={{ background: "#FAE8C8", color: "#8B6918" }}>
+                    ⚠️ Railway blocks Gmail SMTP (port 587). Use Mailgun instead — it works on Railway.
                   </div>
                   <div className="sm:col-span-2">
                     <label className="label">From Email</label>
@@ -486,7 +519,7 @@ export default function Admin() {
           ) : (
             <div className="text-xs mb-3 grid grid-cols-2 gap-2" style={{ color: "#5C6853" }}>
               <div>Active: <strong>{emailSettings.active_provider || "—"}</strong></div>
-              <div>SMTP: <strong>{emailSettings.smtp_configured ? (emailSettings.smtp_user || "configured") : "—"}</strong></div>
+              <div>Mailgun: <strong>{emailSettings.mailgun_domain || emailSettings.mailgun_key_preview || "—"}</strong></div>
             </div>
           )}
 

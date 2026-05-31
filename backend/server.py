@@ -2947,12 +2947,14 @@ async def export_sessions_excel(cid: str, user=Depends(get_current_user)):
 class EmailSettingsIn(BaseModel):
     resend_api_key: Optional[str] = None
     brevo_api_key: Optional[str] = None
+    mailgun_api_key: Optional[str] = None
+    mailgun_domain: Optional[str] = None
     from_email: Optional[str] = None
     smtp_host: Optional[str] = None
     smtp_port: Optional[int] = None
     smtp_user: Optional[str] = None
     smtp_password: Optional[str] = None
-    email_provider: Optional[str] = None  # auto | brevo | resend | smtp
+    email_provider: Optional[str] = None  # auto | mailgun | brevo | resend | smtp
 
 def _apply_email_settings(doc: dict) -> None:
     """Load persisted email settings into process env."""
@@ -2966,6 +2968,14 @@ def _apply_email_settings(doc: dict) -> None:
         os.environ["BREVO_API_KEY"] = doc["brevo_api_key"]
     else:
         os.environ.pop("BREVO_API_KEY", None)
+    if doc.get("mailgun_api_key"):
+        os.environ["MAILGUN_API_KEY"] = doc["mailgun_api_key"]
+    else:
+        os.environ.pop("MAILGUN_API_KEY", None)
+    if doc.get("mailgun_domain"):
+        os.environ["MAILGUN_DOMAIN"] = doc["mailgun_domain"]
+    else:
+        os.environ.pop("MAILGUN_DOMAIN", None)
     if doc.get("from_email"):
         os.environ["EMAIL_FROM"] = doc["from_email"]
     if doc.get("smtp_host"):
@@ -2994,7 +3004,7 @@ def _parse_from_address() -> tuple:
 def _smtp_error_hint(err: str) -> str:
     e = (err or "").lower()
     if "101" in e or "network is unreachable" in e or "network unreachable" in e:
-        return "Gmail SMTP is blocked on Railway. Use Brevo instead (recommended provider above)."
+        return "Railway blocks Gmail SMTP. Use Mailgun (HTTPS) in Admin — it works on Railway."
     if "535" in e or "username and password not accepted" in e:
         return "Gmail rejected login. Check your App Password (16 characters, no spaces)."
     if "534" in e:
@@ -3002,7 +3012,7 @@ def _smtp_error_hint(err: str) -> str:
     if "550" in e or "relay" in e:
         return "Gmail will not send from this address — set From Email to match SMTP User."
     if "connection" in e or "timed out" in e:
-        return "Could not connect to SMTP — on Railway use Brevo instead of Gmail."
+        return "Could not connect to SMTP — Railway blocks port 587. Use Mailgun instead."
     return ""
 
 def _email_from_address() -> str:
@@ -3016,6 +3026,9 @@ def _resend_configured() -> bool:
 
 def _brevo_configured() -> bool:
     return bool(os.environ.get("BREVO_API_KEY"))
+
+def _mailgun_configured() -> bool:
+    return bool(os.environ.get("MAILGUN_API_KEY") and os.environ.get("MAILGUN_DOMAIN"))
 
 async def _send_via_brevo(to: str, subject: str, body: str) -> str:
     api_key = os.environ.get("BREVO_API_KEY")
@@ -3050,6 +3063,28 @@ async def _send_via_resend(to: str, subject: str, body: str) -> str:
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={"from": _email_from_address(), "to": [to], "subject": subject,
                   "html": f"<p>{body.replace(chr(10), '<br/>')}</p>"},
+        )
+        if r.status_code in (200, 202):
+            return r.json().get("id") or "ok"
+        raise ValueError(r.text[:500])
+
+async def _send_via_mailgun(to: str, subject: str, body: str) -> str:
+    api_key = os.environ.get("MAILGUN_API_KEY")
+    domain = os.environ.get("MAILGUN_DOMAIN")
+    if not api_key or not domain:
+        raise ValueError("Mailgun API key and domain not configured")
+    import httpx
+    async with httpx.AsyncClient(timeout=30) as cli:
+        r = await cli.post(
+            f"https://api.mailgun.net/v3/{domain.strip()}/messages",
+            auth=("api", api_key),
+            data={
+                "from": _email_from_address(),
+                "to": to,
+                "subject": subject,
+                "text": body,
+                "html": f"<p>{body.replace(chr(10), '<br/>')}</p>",
+            },
         )
         if r.status_code in (200, 202):
             return r.json().get("id") or "ok"
@@ -3098,8 +3133,8 @@ async def email_test_send(payload: dict, _=Depends(admin_only)):
     to = (payload.get("to") or "").strip()
     if not to:
         raise HTTPException(status_code=400, detail="Recipient email required")
-    if not _smtp_configured() and not _resend_configured() and not _brevo_configured():
-        raise HTTPException(status_code=400, detail="No email provider configured. Save Google Workspace SMTP settings first.")
+    if not _mailgun_configured() and not _smtp_configured() and not _resend_configured() and not _brevo_configured():
+        raise HTTPException(status_code=400, detail="No email provider configured. Save Mailgun settings in Admin.")
     result = await _send_email_stub(to,
         "Boost Growth — Test Email",
         "This is a test email from your Boost Growth Portal.\n\nIf you received this, email notifications are working correctly.\n\n— Boost Growth Portal")
@@ -3114,18 +3149,26 @@ async def get_email_settings(_=Depends(admin_only)):
     doc = await db.settings.find_one({"key": "email"}, {"_id": 0}) or {}
     has_resend = bool(doc.get("resend_api_key") or os.environ.get("RESEND_API_KEY"))
     has_brevo = bool(doc.get("brevo_api_key") or os.environ.get("BREVO_API_KEY"))
+    has_mailgun = bool(
+        (doc.get("mailgun_api_key") and doc.get("mailgun_domain"))
+        or _mailgun_configured()
+    )
     has_smtp = bool(
         (doc.get("smtp_user") and doc.get("smtp_password"))
         or _smtp_configured()
     )
     provider = doc.get("email_provider") or os.environ.get("EMAIL_PROVIDER") or "auto"
     active = "none"
-    if provider == "brevo" and has_brevo:
+    if provider == "mailgun" and has_mailgun:
+        active = "mailgun"
+    elif provider == "brevo" and has_brevo:
         active = "brevo"
     elif provider == "smtp" and has_smtp:
         active = "smtp"
     elif provider == "resend" and has_resend:
         active = "resend"
+    elif has_mailgun:
+        active = "mailgun"
     elif has_brevo:
         active = "brevo"
     elif has_resend:
@@ -3133,18 +3176,21 @@ async def get_email_settings(_=Depends(admin_only)):
     elif has_smtp:
         active = "smtp"
     return {
-        "configured": has_smtp or has_resend or has_brevo,
+        "configured": has_mailgun or has_smtp or has_resend or has_brevo,
         "provider": provider,
         "active_provider": active,
         "smtp_configured": has_smtp,
         "resend_configured": has_resend,
         "brevo_configured": has_brevo,
+        "mailgun_configured": has_mailgun,
+        "mailgun_domain": doc.get("mailgun_domain") or os.environ.get("MAILGUN_DOMAIN") or "",
         "from_email": doc.get("from_email") or os.environ.get("EMAIL_FROM") or "Boost Growth <admin@boostgrowthsa.com>",
         "smtp_host": doc.get("smtp_host") or os.environ.get("SMTP_HOST") or "smtp.gmail.com",
         "smtp_port": doc.get("smtp_port") or int(os.environ.get("SMTP_PORT") or "587"),
         "smtp_user": doc.get("smtp_user") or os.environ.get("SMTP_USER") or "",
         "key_preview": (doc.get("resend_api_key") or "")[:8] + "..." if doc.get("resend_api_key") else None,
         "brevo_key_preview": (doc.get("brevo_api_key") or "")[:12] + "..." if doc.get("brevo_api_key") else None,
+        "mailgun_key_preview": (doc.get("mailgun_api_key") or "")[:12] + "..." if doc.get("mailgun_api_key") else None,
     }
 
 @api.post("/admin/email-settings")
@@ -3164,6 +3210,13 @@ async def save_email_settings(payload: EmailSettingsIn, _=Depends(admin_only)):
         if len(key) < 20:
             raise HTTPException(status_code=400, detail="Invalid Brevo API key (too short).")
         update["brevo_api_key"] = key
+    if payload.mailgun_api_key and payload.mailgun_api_key.strip():
+        key = payload.mailgun_api_key.strip()
+        if len(key) < 20:
+            raise HTTPException(status_code=400, detail="Invalid Mailgun API key (too short).")
+        update["mailgun_api_key"] = key
+    if payload.mailgun_domain and payload.mailgun_domain.strip():
+        update["mailgun_domain"] = payload.mailgun_domain.strip().lower()
     if payload.from_email and payload.from_email.strip():
         update["from_email"] = payload.from_email.strip()
     if payload.smtp_host and payload.smtp_host.strip():
@@ -3174,13 +3227,15 @@ async def save_email_settings(payload: EmailSettingsIn, _=Depends(admin_only)):
         update["smtp_user"] = payload.smtp_user.strip()
     if payload.smtp_password and payload.smtp_password.strip():
         update["smtp_password"] = payload.smtp_password.strip().replace(" ", "")
-    if payload.email_provider and payload.email_provider.strip() in ("auto", "brevo", "smtp", "resend"):
+    if payload.email_provider and payload.email_provider.strip() in ("auto", "mailgun", "brevo", "smtp", "resend"):
         update["email_provider"] = payload.email_provider.strip()
     if not update:
         raise HTTPException(status_code=400, detail="No fields")
     update["updated_at"] = now_iso()
     unset = {}
-    if update.get("email_provider") == "smtp":
+    if update.get("email_provider") == "mailgun":
+        unset = {"brevo_api_key": "", "resend_api_key": ""}
+    elif update.get("email_provider") == "smtp":
         unset = {"brevo_api_key": "", "resend_api_key": ""}
     await db.settings.update_one(
         {"key": "email"},
@@ -3642,13 +3697,17 @@ async def _send_email_stub(to: str, subject: str, body: str) -> dict:
     provider_pref = os.environ.get("EMAIL_PROVIDER", "auto")
 
     def pick_provider():
+        if provider_pref == "mailgun":
+            return "mailgun" if _mailgun_configured() else None
         if provider_pref == "brevo":
             return "brevo" if _brevo_configured() else None
         if provider_pref == "resend":
             return "resend" if _resend_configured() else None
         if provider_pref == "smtp":
             return "smtp" if _smtp_configured() else None
-        # auto — HTTPS first (works on Railway); SMTP last
+        # auto — HTTPS first (works on Railway); SMTP last (blocked on Railway)
+        if _mailgun_configured():
+            return "mailgun"
         if _brevo_configured():
             return "brevo"
         if _resend_configured():
@@ -3667,7 +3726,7 @@ async def _send_email_stub(to: str, subject: str, body: str) -> dict:
 
     if not chosen:
         queue_doc["status"] = "queued_no_key"
-        queue_doc["error"] = "No email provider configured. Add Brevo API key in Admin."
+        queue_doc["error"] = "No email provider configured. Add Mailgun in Admin."
         logger.info(f"Email queued (no provider): to={to} subject={subject}")
         await db.email_queue.insert_one(queue_doc)
         queue_doc.pop("_id", None)
@@ -3676,6 +3735,10 @@ async def _send_email_stub(to: str, subject: str, body: str) -> dict:
     try:
         if chosen == "brevo":
             pid = await _send_via_brevo(to, subject, body)
+            queue_doc["status"] = "sent"
+            queue_doc["provider_id"] = pid
+        elif chosen == "mailgun":
+            pid = await _send_via_mailgun(to, subject, body)
             queue_doc["status"] = "sent"
             queue_doc["provider_id"] = pid
         elif chosen == "resend":
@@ -3691,8 +3754,10 @@ async def _send_email_stub(to: str, subject: str, body: str) -> dict:
         hint = _smtp_error_hint(str(e))
         if hint:
             queue_doc["hint"] = hint
-        elif "sender" in str(e).lower() or "not verified" in str(e).lower():
-            queue_doc["hint"] = "Verify the sender in Brevo: Senders → admin@boostgrowthsa.com → Verify (link in email)."
+        elif "sandbox" in str(e).lower() and "authorized" in str(e).lower():
+            queue_doc["hint"] = "Mailgun sandbox: add the recipient email as an Authorized Recipient in Mailgun dashboard, or verify boostgrowth.org domain."
+        elif "domain" in str(e).lower() and "not found" in str(e).lower():
+            queue_doc["hint"] = "Check Mailgun Domain matches exactly (e.g. sandbox123.mailgun.org or mg.boostgrowth.org)."
         elif "unrecognised ip" in str(e).lower() or "unauthorized" in str(e).lower() or "authorised_ips" in str(e).lower():
             queue_doc["hint"] = "Brevo blocked the server IP. Open app.brevo.com/security/authorised_ips → authorize the server IP or disable IP blocking for the API."
         logger.warning(f"Email send failed ({chosen}) to {to}: {e}")
