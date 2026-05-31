@@ -46,7 +46,7 @@ export default function ImportPage() {
       const msg = type === "schedule"
         ? `${data.cells_inserted} cells inserted for week ${data.week_start}`
         : type === "intake"
-        ? [data.message, data.hint].filter(Boolean).join(" — ")
+        ? [data.message, data.hint, data.rows_in_file != null ? `${data.rows_in_file} rows in file (${data.pre_count || 0} pre + ${data.post_count || 0} post)` : ''].filter(Boolean).join(' — ')
         : `${data.created} created, ${data.skipped} skipped`;
       setResult({ ok: true, msg });
       setFile(null);

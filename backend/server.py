@@ -3879,21 +3879,26 @@ def _clean_str(value) -> Optional[str]:
 def _normalize_table_column(name) -> str:
     """Excel headers like 'Child Name' / \"Child's Name\" / 'DOB/Age' → child_name / dob_age."""
     s = str(name).strip().lower()
+    if s in ("#", "no.", "no"):
+        return "row_num"
     s = s.replace("'", "").replace("'", "").replace("`", "")
     s = _re_top.sub(r"[\s/]+", "_", s)
     s = _re_top.sub(r"[^\w]+", "_", s)
     s = _re_top.sub(r"_+", "_", s).strip("_")
-    # childs_name / name_of_child → child_name aliases handled at extract time
     if s in ("childs_name", "name_of_child", "student", "patient", "candidate"):
         return "child_name"
-    if s in ("mobile", "mobile_no", "contact", "contact_number", "tel", "telephone"):
+    if s in ("mobile", "mobile_no", "contact", "contact_number", "tel", "telephone", "phone_no"):
         return "phone"
     if s in ("pre_post", "prepost", "list_type"):
         return "intake_type"
     if s in ("note", "comment", "comments"):
         return "notes"
-    if s in ("location", "area", "region", "neighborhood"):
+    if s in ("dis", "dis_", "location", "area", "region", "neighborhood"):
         return "district"
+    if s in ("time", "timing"):
+        return "time_pref"
+    if s in ("diagnosis_age", "diagnosis_age", "diag_age"):
+        return "diagnosis_age"
     return s
 
 
@@ -3912,6 +3917,8 @@ def _detect_table_header_row(df_raw) -> int:
                     break
         if any("child" in c and "name" in c for c in cells):
             score += 3
+        if any(c in ("name", "#", "no") for c in cells):
+            score += 4
         if score > best_score:
             best_score, best_idx = score, idx
     return best_idx if best_score >= 2 else 0
@@ -3944,84 +3951,225 @@ def _sheet_intake_type_hint(sheet_name: str) -> Optional[str]:
     low = (sheet_name or "").lower()
     if "post" in low:
         return "post"
-    if "pre" in low:
+    if "pre" in low or "pending" in low:
         return "pre"
     return None
 
 
+_INTAKE_JUNK_NAME_RE = _re_top.compile(
+    r"(total\s*:|last\s+updated|symbols|colors|gold\s+star|gray\s+circle|normal\s+priority|"
+    r"top\s+priority|timing\s+note|not\s+interested|waiting\s+list|pending\s+intake|post.intake|"
+    r"pre.intake|child\s*name|^name$|^note$|^diagnosis$|^priority$|^service$|^phone$|^#|^pre$|^post$)",
+    _re_top.IGNORECASE,
+)
+_HS_SS_SERVICE_RE = _re_top.compile(r"^(?:HS|SS)(?:\s*/\s*(?:HS|SS))?$", _re_top.IGNORECASE)
+
+
+def _looks_like_person_name(name: str) -> bool:
+    s = (name or "").strip()
+    if len(s) < 2 or len(s) > 80:
+        return False
+    if _INTAKE_JUNK_NAME_RE.search(s):
+        return False
+    if s.replace(".", "").replace(" ", "").isdigit():
+        return False
+    if sum(c.isalpha() for c in s) < 2:
+        return False
+    return True
+
+
+def _split_diagnosis_age(val) -> tuple:
+    v = _clean_str(val)
+    if not v:
+        return None, None
+    if _re_top.match(r"^\d{4}$", v):
+        return None, v
+    if _re_top.match(r"^\d+(\.\d+)?(\s*(year|yr|years|yo|y/o))?$", v, _re_top.IGNORECASE):
+        return None, v
+    return v, None
+
+
+def _extract_service_from_row(r: dict) -> Optional[str]:
+    svc = _clean_str(r.get("service") or r.get("service_type"))
+    if svc:
+        return svc
+    for k in sorted(r.keys()):
+        if "priority" not in k.lower():
+            continue
+        v = _clean_str(r.get(k))
+        if v and _HS_SS_SERVICE_RE.match(v.strip()):
+            return v
+    return None
+
+
+def _extract_priority_flag(r: dict) -> bool:
+    pri_keys = sorted(k for k in r if "priority" in k.lower())
+    for i, k in enumerate(pri_keys):
+        v = r.get(k)
+        if i == 0:
+            sv = _clean_str(v)
+            if sv and _HS_SS_SERVICE_RE.match(sv.strip()):
+                continue
+        if v is True:
+            return True
+        s = str(v or "")
+        if "⭐" in s or "★" in s or s.strip().lower() in ("1", "true", "yes", "top", "star"):
+            return True
+    return False
+
+
+def _extract_notes_and_language(r: dict) -> tuple:
+    language = _clean_str(r.get("language"))
+    note_cols = sorted(k for k in r if k == "notes" or k.startswith("notes_"))
+    notes = None
+    if len(note_cols) >= 2:
+        notes = _clean_str(r.get(note_cols[0]))
+        if not language:
+            language = _clean_str(r.get(note_cols[1]))
+    elif len(note_cols) == 1:
+        v = _clean_str(r.get(note_cols[0]))
+        if v and ("english" in v.lower() or "arabic" in v.lower()):
+            language = v
+        else:
+            notes = v
+    return notes, language
+
+
+def _is_intake_data_row(r: dict) -> bool:
+    name = _extract_intake_child_name(r)
+    if not _looks_like_person_name(name):
+        return False
+    for v in r.values():
+        if v is not None and "total:" in str(v).lower():
+            return False
+    row_num = r.get("row_num")
+    if row_num is not None:
+        try:
+            n = int(float(str(row_num)))
+            if n < 1 or n > 500:
+                return False
+        except (TypeError, ValueError):
+            pass
+    return True
+
+
+def _parse_intake_record(r: dict, sheet_name: str = "") -> Optional[dict]:
+    """Map a Waiting List row to a DB-ready intake document."""
+    name = _extract_intake_child_name(r)
+    if not _looks_like_person_name(name):
+        return None
+
+    raw_type = _clean_str(r.get("intake_type") or r.get("type") or r.get("_sheet_intake_type")) or _sheet_intake_type_hint(sheet_name) or "pre"
+    intake_type = raw_type.lower()
+    if "post" in intake_type:
+        intake_type = "post"
+    elif "pre" in intake_type or "pending" in intake_type:
+        intake_type = "pre"
+    else:
+        intake_type = "pre"
+
+    diagnosis, age_from_da = _split_diagnosis_age(r.get("diagnosis_age"))
+    notes, language = _extract_notes_and_language(r)
+
+    doc = {
+        "child_name": name,
+        "intake_type": intake_type,
+        "parent_name": _clean_str(r.get("parent_name") or r.get("parent") or r.get("guardian")),
+        "phone": _clean_str(r.get("phone") or r.get("parent_phone") or r.get("mobile")),
+        "status": (_clean_str(r.get("status")) or "new").lower(),
+        "notes": notes,
+        "intake_date": _clean_str(r.get("intake_date") or r.get("date")),
+        "age": _clean_str(r.get("age") or r.get("dob_age") or r.get("dob")) or age_from_da,
+        "service": _extract_service_from_row(r),
+        "district": _clean_str(r.get("district") or r.get("dis") or r.get("location") or r.get("area")),
+        "diagnosis": diagnosis or _clean_str(r.get("diagnosis")),
+        "time_pref": _clean_str(r.get("time_pref") or r.get("time") or r.get("time_preference")),
+        "language": language,
+        "priority": _extract_priority_flag(r),
+    }
+    return doc
+
+
+def _dedupe_column_names(raw_headers) -> List[str]:
+    """Excel duplicate headers (two 'Priority', two 'Note') → priority, priority_1, notes, notes_1."""
+    seen: dict = {}
+    out: List[str] = []
+    for h in raw_headers:
+        norm = _normalize_table_column(h)
+        if norm in seen:
+            seen[norm] += 1
+            out.append(f"{norm}_{seen[norm]}")
+        else:
+            seen[norm] = 0
+            out.append(norm)
+    return out
+
+
 def _read_intake_rows(content: bytes, filename: str) -> tuple:
-    """Try every sheet + header row; return rows with the most parseable child names."""
+    """Parse each sheet once, filter junk rows, dedupe by name + intake type."""
     import pandas as pd
     import io
 
-    best_rows: List[dict] = []
-    best_cols: List[str] = []
-    best_score = -1
-    best_meta = ""
+    parsed: List[dict] = []
+    meta_parts: List[str] = []
+    all_cols: List[str] = []
 
-    def consider(df, sheet_name: str = "", header_idx: int = 0):
-        nonlocal best_rows, best_cols, best_score, best_meta
-        norm_cols = [_normalize_table_column(c) for c in df.columns]
-        rows = _rows_from_dataframe(df)
-        type_hint = _sheet_intake_type_hint(sheet_name)
-        if type_hint:
-            for r in rows:
-                if not r.get("intake_type") and not r.get("type"):
-                    r["_sheet_intake_type"] = type_hint
-        score = sum(1 for r in rows if _extract_intake_child_name(r))
-        if any(c in ("child_name", "name", "student_name") for c in norm_cols):
-            score += 15
-        elif any("child" in c and "name" in c for c in norm_cols):
-            score += 12
-        cols = list(rows[0].keys()) if rows else norm_cols
-        if score > best_score:
-            best_score = score
-            best_rows = rows
-            best_cols = cols
-            best_meta = f"{sheet_name or 'csv'} header={header_idx}" if sheet_name or header_idx else "csv"
+    def ingest_sheet(df_raw, sheet_name: str):
+        hdr = _detect_table_header_row(df_raw)
+        df = df_raw.iloc[hdr + 1:].copy()
+        df.columns = _dedupe_column_names(df_raw.iloc[hdr].tolist())
+        df = df.where(df.notna(), None)
+        rows = []
+        for _, series in df.iterrows():
+            clean = {str(k): _sanitize_cell(v) for k, v in series.items()}
+            if any(v is not None and str(v).strip().lower() not in ("", "nan", "none") for v in clean.values()):
+                rows.append(clean)
+        hint = _sheet_intake_type_hint(sheet_name)
+        kept = 0
+        for r in rows:
+            if hint:
+                r["_sheet_intake_type"] = hint
+            if not _is_intake_data_row(r):
+                continue
+            doc = _parse_intake_record(r, sheet_name)
+            if doc:
+                parsed.append(doc)
+                kept += 1
+        if rows:
+            all_cols.extend(list(rows[0].keys()))
+        meta_parts.append(f"{sheet_name or 'csv'}:{kept}")
 
     if filename.lower().endswith(".csv"):
-        for hdr in range(0, 8):
-            try:
-                df = pd.read_csv(io.BytesIO(content), header=hdr)
-                consider(df, header_idx=hdr)
-            except Exception:
-                continue
+        df_raw = pd.read_csv(io.BytesIO(content), header=None)
+        ingest_sheet(df_raw, "")
     else:
         xl = pd.ExcelFile(io.BytesIO(content), engine="openpyxl")
         for sheet in xl.sheet_names:
-            for hdr in range(0, 8):
-                try:
-                    df = pd.read_excel(io.BytesIO(content), sheet_name=sheet, header=hdr, engine="openpyxl")
-                    if df.empty:
-                        continue
-                    consider(df, sheet_name=sheet, header_idx=hdr)
-                except Exception:
-                    continue
-        # Also merge all sheets when each has data (pre + post tabs)
-        merged: List[dict] = []
-        for sheet in xl.sheet_names:
+            low = sheet.lower()
+            if not any(k in low for k in ("intake", "waiting", "pending", "post", "pre", "list")):
+                continue
             try:
                 df_raw = pd.read_excel(io.BytesIO(content), sheet_name=sheet, header=None, engine="openpyxl")
-                hdr = _detect_table_header_row(df_raw)
-                df = pd.read_excel(io.BytesIO(content), sheet_name=sheet, header=hdr, engine="openpyxl")
-                rows = _rows_from_dataframe(df)
-                hint = _sheet_intake_type_hint(sheet)
-                for r in rows:
-                    if hint and not r.get("intake_type") and not r.get("type"):
-                        r["_sheet_intake_type"] = hint
-                merged.extend(rows)
+                if df_raw.empty:
+                    continue
+                ingest_sheet(df_raw, sheet)
             except Exception:
+                logger.exception(f"Intake sheet skipped: {sheet}")
                 continue
-        if merged:
-            score = sum(1 for r in merged if _extract_intake_child_name(r))
-            if score > best_score:
-                best_rows = merged
-                best_cols = list(merged[0].keys()) if merged else []
-                best_score = score
-                best_meta = f"merged {len(xl.sheet_names)} sheets"
 
-    return best_rows, best_cols, best_meta
+    # Dedupe: same child + intake type (case-insensitive)
+    seen: set = set()
+    unique: List[dict] = []
+    for doc in parsed:
+        key = (doc["child_name"].lower().strip(), doc["intake_type"])
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(doc)
+
+    meta = f"{len(unique)} records from {len(meta_parts)} sheet(s) — " + ", ".join(meta_parts)
+    cols = list(dict.fromkeys(all_cols))[:20]
+    return unique, cols, meta
 
 
 def _read_table(file: UploadFile, for_intake: bool = False) -> List[dict]:
@@ -4079,7 +4227,9 @@ def _extract_intake_child_name(r: dict) -> str:
         if v is None:
             continue
         kl = str(k).lower()
-        if kl in ("no", "num", "number", "#", "id", "sn", "sno", "index", "priority"):
+        if kl in ("no", "num", "number", "#", "id", "sn", "sno", "index", "priority", "_sheet_intake_type"):
+            continue
+        if kl.startswith("_"):
             continue
         if any(x in kl for x in ("phone", "service", "district", "diagnosis", "status", "note", "age", "date", "language", "time")):
             continue
@@ -4124,37 +4274,15 @@ async def import_intake(file: UploadFile = File(...), _=Depends(ops_or_admin)):
         logger.exception("Intake file parse failed")
         raise HTTPException(status_code=400, detail=f"Could not read intake file: {e}")
     created, updated, skipped = 0, 0, 0
-    for r in rows:
-        name = _extract_intake_child_name(r)
+    pre_count = sum(1 for d in rows if d.get("intake_type") == "pre")
+    post_count = sum(1 for d in rows if d.get("intake_type") == "post")
+    for doc in rows:
+        name = doc.get("child_name")
         if not name:
             skipped += 1
             continue
-        phone = _clean_str(r.get("phone") or r.get("parent_phone") or r.get("mobile"))
-        raw_type = _clean_str(r.get("intake_type") or r.get("type") or r.get("_sheet_intake_type")) or "pre"
-        intake_type = raw_type.lower()
-        if "post" in intake_type:
-            intake_type = "post"
-        elif "pre" in intake_type:
-            intake_type = "pre"
-        elif intake_type not in ("pre", "post"):
-            intake_type = "pre"
-        status = (_clean_str(r.get("status")) or "new").lower()
-        doc = {
-            "child_name": name,
-            "parent_name": _clean_str(r.get("parent_name") or r.get("parent") or r.get("guardian")),
-            "phone": phone,
-            "intake_type": intake_type,
-            "status": status,
-            "notes": _clean_str(r.get("notes") or r.get("note")),
-            "intake_date": _clean_str(r.get("intake_date") or r.get("date")),
-            "age": _clean_str(r.get("age") or r.get("dob_age") or r.get("dob")),
-            "service": _clean_str(r.get("service") or r.get("service_type")),
-            "district": _clean_str(r.get("area") or r.get("district") or r.get("location")),
-            "diagnosis": _clean_str(r.get("diagnosis")),
-            "time_pref": _clean_str(r.get("time_pref") or r.get("time_preference") or r.get("preferred_time")),
-            "language": _clean_str(r.get("language")),
-            "priority": bool(_sanitize_cell(r.get("priority"))) if _sanitize_cell(r.get("priority")) not in (None, "", "0", "false", "no", False) else False,
-        }
+        intake_type = doc.get("intake_type") or "pre"
+        phone = doc.get("phone")
         match_q = {
             "child_name": {"$regex": f"^{re.escape(name)}$", "$options": "i"},
             "intake_type": intake_type,
@@ -4165,30 +4293,34 @@ async def import_intake(file: UploadFile = File(...), _=Depends(ops_or_admin)):
                 {"child_name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}, "phone": phone},
                 {"_id": 0, "id": 1},
             )
+        db_doc = {k: v for k, v in doc.items() if v is not None}
         if match:
-            await db.intake.update_one({"id": match["id"]}, {"$set": doc})
+            await db.intake.update_one({"id": match["id"]}, {"$set": db_doc})
             updated += 1
         else:
             try:
                 await db.intake.insert_one({
                     "id": str(uuid.uuid4()),
                     "created_at": now_iso(),
-                    **doc,
+                    **db_doc,
                 })
                 created += 1
             except Exception as e:
                 logger.warning(f"Intake insert skipped for {name}: {e}")
                 skipped += 1
     hint = None
-    if rows and skipped == len(rows):
-        hint = f"Could not read child names ({parse_meta}). Columns: {', '.join(detected_columns[:12])}"
+    if not rows:
+        hint = f"No intake rows found ({parse_meta}). Columns seen: {', '.join(detected_columns[:12])}"
     return {
         "created": created,
         "updated": updated,
         "skipped": skipped,
+        "rows_in_file": len(rows),
+        "pre_count": pre_count,
+        "post_count": post_count,
         "detected_columns": detected_columns,
         "parse_meta": parse_meta,
-        "message": f"{updated} records updated, {created} records added, {skipped} records skipped",
+        "message": f"{updated} updated, {created} added ({pre_count} pre + {post_count} post from file, {skipped} skipped)",
         "hint": hint,
     }
 
