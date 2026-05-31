@@ -4615,6 +4615,20 @@ async def root():
 async def health():
     return {"status": "ok"}
 
+
+@api.get("/version")
+async def app_version():
+    """Deploy fingerprint — compare with GitHub main to confirm Railway picked up latest build."""
+    version_file = ROOT_DIR / "BUILD_VERSION.txt"
+    build_id = version_file.read_text(encoding="utf-8").strip() if version_file.is_file() else "unknown"
+    js_hash = "unknown"
+    index = ROOT_DIR / "static" / "index.html"
+    if index.is_file():
+        m = re.search(r"main\.([a-f0-9]+)\.js", index.read_text(encoding="utf-8"))
+        if m:
+            js_hash = m.group(1)
+    return {"build": build_id, "js": js_hash, "status": "ok"}
+
 app.include_router(api)
 app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 logging.basicConfig(level=logging.INFO)
