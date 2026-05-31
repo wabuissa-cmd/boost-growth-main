@@ -827,16 +827,22 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
       const r = await api.post(`/clients/${client.id}/invoices/sync-from-excel`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      const { invoices_added = [], invoices_updated = [], sessions_added = 0, sessions_skipped_existing = 0, matched_sheets = [] } = r.data || {};
+      const {
+        invoices_added = [], invoices_updated = [], sessions_added = 0,
+        sessions_skipped_existing = 0, matched_sheets = [], workbook_tabs = [],
+        warning = null,
+      } = r.data || {};
       const list = await loadInvoices();
       setAllInvoices(list);
-      alert([
-        `Invoice sheets detected: ${matched_sheets.length}`,
+      const lines = [
+        warning || `Invoice sheets detected: ${matched_sheets.length}`,
+        matched_sheets.length ? `Sheets: ${matched_sheets.join(", ")}` : (workbook_tabs.length ? `Tabs in file: ${workbook_tabs.join(", ")}` : ""),
         `Invoices added: ${invoices_added.length}`,
         `Invoices updated: ${invoices_updated.length}`,
         `Sessions added: ${sessions_added}`,
         `Sessions already existed (skipped): ${sessions_skipped_existing}`,
-      ].join("\n"));
+      ].filter(Boolean);
+      alert(lines.join("\n"));
     } catch (e) {
       alert("Sync failed: " + (e?.response?.data?.detail || e.message));
     }

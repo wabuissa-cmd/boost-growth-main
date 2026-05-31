@@ -1960,14 +1960,29 @@ def _sheet_has_session_table(ws) -> bool:
     return False
 
 
-def _discover_invoice_sheets(wb) -> list:
-    """Sheets named INV* or containing a session table header."""
+def _discover_invoice_sheets(wb, client_file_no: str = None) -> list:
+    """Sheets named INV*, matching client file_no, or containing a session table header."""
     out = []
+    fn_raw = (client_file_no or "").strip()
+    fn_padded = fn_raw.zfill(3) if fn_raw else ""
+    fn_stripped = fn_raw.lstrip("0") or fn_raw
+    skip_hints = ("summary", "info", "readme", "template", "cover", "index")
     for name in wb.sheetnames:
         sn = name.strip()
+        sn_low = sn.lower()
+        if any(h in sn_low for h in skip_hints):
+            continue
         if _INV_SHEET_RE.match(sn):
             out.append(name)
             continue
+        sn_compact = _re_top.sub(r"[\s\-_]+", "", sn)
+        if fn_padded and (fn_padded in sn_compact or (fn_stripped and fn_stripped in sn_compact)):
+            try:
+                if _sheet_has_session_table(wb[name]):
+                    out.append(name)
+                    continue
+            except Exception:
+                pass
         try:
             if _sheet_has_session_table(wb[name]):
                 out.append(name)
@@ -2135,8 +2150,9 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
                 out.append(name_to_id[tok])
         return out
 
-    matched_sheets = _discover_invoice_sheets(wb)
+    matched_sheets = _discover_invoice_sheets(wb, client.get("file_no"))
     debug_sheets = []
+    all_tabs = list(wb.sheetnames)
     existing_inv = {i["invoice_number"]: i for i in await db.invoices.find(
         {"client_id": cid}, {"_id": 0}
     ).to_list(500)}
@@ -2348,11 +2364,16 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
 
     return {
         "matched_sheets": matched_sheets,
+        "workbook_tabs": all_tabs,
         "sheet_details": debug_sheets,
         "invoices_added": invoices_added,
         "invoices_updated": invoices_updated,
         "sessions_added": sessions_added,
         "sessions_skipped_existing": sessions_skipped,
+        "warning": (
+            None if matched_sheets
+            else f"No invoice sheets found. Tabs in file: {', '.join(all_tabs)}"
+        ),
     }
 
 # ------------------- Package reset (manual; admin only) -------------------
@@ -3805,6 +3826,15 @@ async def reports_dashboard(_=Depends(admin_only)):
     }
 
 # ------------------- Imports -------------------
+def _normalize_table_column(name) -> str:
+    """Excel headers like 'Child Name' / 'DOB/Age' → child_name / dob_age."""
+    s = str(name).strip().lower()
+    s = _re_top.sub(r"[\s/]+", "_", s)
+    s = _re_top.sub(r"[^\w]+", "_", s)
+    s = _re_top.sub(r"_+", "_", s).strip("_")
+    return s
+
+
 def _read_table(file: UploadFile) -> List[dict]:
     """Read xlsx/csv into list of dicts with normalized lower-case keys."""
     import pandas as pd
@@ -3814,7 +3844,7 @@ def _read_table(file: UploadFile) -> List[dict]:
         df = pd.read_csv(io.BytesIO(content))
     else:
         df = pd.read_excel(io.BytesIO(content), engine="openpyxl")
-    df.columns = [str(c).strip().lower() for c in df.columns]
+    df.columns = [_normalize_table_column(c) for c in df.columns]
     df = df.where(df.notna(), None)
     return df.to_dict("records")
 
@@ -3850,24 +3880,31 @@ async def import_intake(file: UploadFile = File(...), _=Depends(admin_only)):
     rows = _read_table(file)
     created, updated, skipped = 0, 0, 0
     for r in rows:
-        name = (r.get("child_name") or r.get("name") or "").strip()
+        name = (
+            r.get("child_name") or r.get("name") or r.get("child")
+            or r.get("student_name") or r.get("client_name") or ""
+        )
+        if isinstance(name, str):
+            name = name.strip()
+        else:
+            name = str(name).strip() if name is not None else ""
         if not name:
             skipped += 1
             continue
-        phone = str(r.get("phone") or r.get("parent_phone") or "").strip() or None
+        phone = str(r.get("phone") or r.get("parent_phone") or r.get("mobile") or "").strip() or None
         intake_type = (r.get("intake_type") or r.get("type") or "pre").lower()
         if intake_type not in ("pre", "post"):
             intake_type = "pre"
         status = (r.get("status") or "new").lower()
         doc = {
             "child_name": name,
-            "parent_name": r.get("parent_name") or r.get("parent"),
+            "parent_name": r.get("parent_name") or r.get("parent") or r.get("guardian"),
             "phone": phone,
             "intake_type": intake_type,
             "status": status,
             "notes": r.get("notes") or r.get("note"),
-            "intake_date": str(r.get("intake_date") or "") or None,
-            "age": str(r.get("age") or r.get("dob/age") or r.get("dob") or "") or None,
+            "intake_date": str(r.get("intake_date") or r.get("date") or "") or None,
+            "age": str(r.get("age") or r.get("dob_age") or r.get("dob") or "") or None,
             "service": r.get("service") or r.get("service_type"),
             "district": r.get("area") or r.get("district") or r.get("location"),
             "diagnosis": r.get("diagnosis"),

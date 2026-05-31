@@ -140,7 +140,7 @@ main, .page-enter { min-width: 0; }
     text-align: center;
     vertical-align: middle;
 }
-.cell-base.cell-empty { background: #F3F4F6; border-color: #E5E7EB; }
+.cell-base.cell-empty { background: #D1D5DB; border-color: #9CA3AF; }
 
 /* Fix 2: schedule zoom — scale schedule tables, overriding Tailwind's absolute font sizes. */
 .sched-zoom .sched-sheet,
@@ -226,7 +226,7 @@ main, .page-enter { min-width: 0; }
     padding: 6px 5px;
     vertical-align: middle;
     text-align: center;          /* center text horizontally */
-    background: #F3F4F6;          /* empty/unscheduled slots — NOT white */
+    background: #D1D5DB;          /* empty/unscheduled slots — clearly gray, not white */
     min-height: 56px;
     height: 56px;
     font-size: 11.5px;
@@ -276,10 +276,10 @@ main, .page-enter { min-width: 0; }
 .sched-sheet .sheet-slot.editable { cursor: pointer; }
 .sched-sheet .sheet-slot.editable:hover { outline: 2px solid #7A8A6A; outline-offset: -2px; }
 .sched-sheet .sheet-slot.cell-empty {
-    background: #F3F4F6 !important;
-    border-color: #E5E7EB !important;
+    background: #D1D5DB !important;
+    border-color: #9CA3AF !important;
 }
-.sched-sheet .sheet-slot.cell-empty:hover { background: #E5E7EB !important; }
+.sched-sheet .sheet-slot.cell-empty:hover { background: #BFC5CE !important; }
 .sched-sheet .sheet-slot.has-event:hover { transform: scale(1.02); z-index: 2; }
 .sched-sheet .sheet-slot.copied-source { outline: 2px dashed #C28E6A !important; outline-offset: -2px; animation: copy-pulse 1s ease-in-out infinite; }
 @keyframes copy-pulse { 0%,100% { outline-color: #C28E6A; } 50% { outline-color: #D4A064; } }

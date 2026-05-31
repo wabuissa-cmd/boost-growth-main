@@ -18,7 +18,7 @@ import {
 import ScheduleCellPanel from "../components/ScheduleCellPanel";
 
 function getSheetCellStyle(cell, clients) {
-  if (!cell) return { background: "#F3F4F6", borderColor: "#E5E7EB" };
+  if (!cell) return { background: "#D1D5DB", borderColor: "#9CA3AF" };
   return getCellStyle(cell, clients);
 }
 

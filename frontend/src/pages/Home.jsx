@@ -104,11 +104,10 @@ export default function Home() {
 
   return (
     <div>
-      {/* Hero banner */}
-      <div className="card p-7 lg:p-10 mb-6 relative overflow-hidden text-white" style={{background: "linear-gradient(135deg, #7A8A6A 0%, #606E52 60%, #48543E 100%)", borderColor: "transparent"}}>
-        <img src="/bg-logo.png" alt="" className="absolute opacity-10 pointer-events-none" style={{top: "-20px", right: "-20px", width: 220, animation: "leaf-float 8s ease-in-out infinite"}}/>
-        <img src="/bg-logo.png" alt="" className="absolute opacity-10 pointer-events-none" style={{bottom: "-50px", right: "30%", width: 180, animation: "leaf-float 10s ease-in-out infinite", animationDelay: "3s"}}/>
-        <div className="relative">
+      {/* Hero banner — matches login page layout */}
+      <div className="text-white py-10 lg:py-14 px-6 lg:px-10 mb-6 relative overflow-hidden rounded-2xl" style={{background: "linear-gradient(135deg, #7A8A6A 0%, #606E52 60%, #48543E 100%)", borderColor: "transparent"}}>
+        <img src="/bg-logo.png" alt="" className="absolute opacity-10 pointer-events-none" style={{bottom: "-50px", left: "-30px", width: 280, animation: "leaf-float 8s ease-in-out infinite"}}/>
+        <div className="relative max-w-5xl">
           <div className="text-xs tracking-[0.3em] opacity-80 font-bold mb-2 flex items-center gap-2"><Sparkle size={14} weight="fill"/> WELCOME BACK</div>
           <h1 className="font-display text-3xl md:text-5xl font-semibold leading-[1.1]">
             Hello, {user?.name?.replace("Ms. ", "") || "Friend"}.

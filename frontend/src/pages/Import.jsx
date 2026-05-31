@@ -45,6 +45,8 @@ export default function ImportPage() {
       const { data } = await api.post(endpoint, fd, { headers: {"Content-Type": "multipart/form-data"}});
       const msg = type === "schedule"
         ? `${data.cells_inserted} cells inserted for week ${data.week_start}`
+        : type === "intake"
+        ? (data.message || `${data.updated || 0} updated, ${data.created || 0} added, ${data.skipped || 0} skipped`)
         : `${data.created} created, ${data.skipped} skipped`;
       setResult({ ok: true, msg });
       setFile(null);
