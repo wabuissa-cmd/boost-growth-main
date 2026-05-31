@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import api, { API } from "../api";
 import { useAuth, isStaffAdmin } from "../auth";
 import {
@@ -450,7 +450,7 @@ function HistoryTab({ leaves, therapists, isAdmin, onRefresh }) {
   );
 }
 
-function MyLeavesTable({ leaves, user, onEdit, onRefresh }) {
+function MyLeavesTable({ leaves, user, onEdit, onRefresh, adminView = false }) {
   if (!leaves.length) {
     return (
       <div className="card p-10 text-center text-sm" style={{ color: "#8B9E7A" }}>
@@ -474,7 +474,7 @@ function MyLeavesTable({ leaves, user, onEdit, onRefresh }) {
               const tp = LEAVE_TYPES[l.leave_type] || { label: l.leave_type, color: "#7A8A6A" };
               const st = LEAVE_STATUS[l.status] || LEAVE_STATUS.pending;
               const badge = documentBadge(l);
-              const canEdit = l.therapist_id === user?.id && l.status === "pending";
+              const canEdit = adminView || (l.therapist_id === user?.id && l.status === "pending");
               return (
                 <tr key={l.id} className="border-b border-[#E8E4DE] hover:bg-[#FAFAF7]">
                   <td className="p-3">
@@ -496,7 +496,7 @@ function MyLeavesTable({ leaves, user, onEdit, onRefresh }) {
                       {canEdit && (
                         <button type="button" onClick={() => onEdit(l)} className="btn btn-ghost text-xs py-1 px-2">Edit</button>
                       )}
-                      {l.therapist_id === user?.id && (
+                      {(l.therapist_id === user?.id || adminView) && (
                         <LeaveRowAttachButton leave={l} onRefresh={onRefresh} />
                       )}
                     </div>
@@ -610,7 +610,7 @@ export default function LeaveRequests({ personal = false }) {
   };
 
   const displayLeaves = useMemo(() => {
-    let list = isAdmin ? activeLeaves : [...leaves];
+    let list = (isAdmin && !therapistFilter) ? activeLeaves : [...leaves];
     if (therapistFilter) {
       list = list.filter(l => l.therapist_id === therapistFilter);
     }
@@ -618,18 +618,26 @@ export default function LeaveRequests({ personal = false }) {
   }, [isAdmin, activeLeaves, leaves, therapistFilter]);
 
   const filteredTherapist = therapistFilter ? therapists.find(t => t.id === therapistFilter) : null;
+  const therapistProfileView = Boolean(therapistFilter && isAdmin);
 
   return (
     <div>
       <div className="flex items-center mb-5 flex-wrap gap-3">
         <div className="flex-1 min-w-[240px]">
+          {therapistProfileView && (
+            <Link to="/leave-balance" className="text-xs font-bold mb-1 inline-block hover:underline" style={{ color: "#7A8A6A" }}>
+              ← Back to Leave Balance
+            </Link>
+          )}
           <h1 className="font-display text-3xl font-semibold flex items-center gap-2" style={{ color: "#2C3625" }}>
-            <FileText size={28} weight="duotone" /> {isAdmin ? "Leave Requests" : "My Leaves"}
+            <FileText size={28} weight="duotone" /> {therapistProfileView ? filteredTherapist?.name || "Therapist Leaves" : (isAdmin ? "Leave Requests" : "My Leaves")}
           </h1>
           <div className="text-sm" style={{ color: "#5C6853" }}>
-            {isAdmin
-              ? (filteredTherapist ? `Leave records for ${filteredTherapist.name}` : "Approve requests · track documents · mark absences")
-              : "Annual balance · leave history · upload medical documents"}
+            {therapistProfileView
+              ? "Annual balance and full leave history"
+              : isAdmin
+                ? (filteredTherapist ? `Leave records for ${filteredTherapist.name}` : "Approve requests · track documents · mark absences")
+                : "Annual balance · leave history · upload medical documents"}
           </div>
         </div>
         <select className="select text-sm max-w-[100px]" value={year} onChange={e => setYear(parseInt(e.target.value, 10))}>
@@ -681,14 +689,20 @@ export default function LeaveRequests({ personal = false }) {
         </div>
       )}
 
-      {personal && (
+      {(personal || therapistProfileView) && (
         <div className="mb-5">
           <h2 className="font-display text-xl font-semibold mb-3" style={{ color: "#2C3625" }}>Leave History</h2>
-          <MyLeavesTable leaves={displayLeaves} user={user} onEdit={setEdit} onRefresh={load} />
+          <MyLeavesTable
+            leaves={displayLeaves}
+            user={user}
+            onEdit={setEdit}
+            onRefresh={load}
+            adminView={therapistProfileView}
+          />
         </div>
       )}
 
-      {isAdmin && (
+      {isAdmin && !therapistProfileView && (
         <div className="flex gap-2 mb-5">
           {[
             { id: "active", label: "Active Requests" },
@@ -702,7 +716,7 @@ export default function LeaveRequests({ personal = false }) {
         </div>
       )}
 
-      {(!isAdmin || tab === "active") && isAdmin && (
+      {(!isAdmin || tab === "active") && isAdmin && !therapistProfileView && (
         <div className="space-y-4">
           {displayLeaves.length === 0 && (
             <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>No active leave requests</div>
@@ -714,7 +728,7 @@ export default function LeaveRequests({ personal = false }) {
         </div>
       )}
 
-      {isAdmin && tab === "history" && (
+      {isAdmin && tab === "history" && !therapistProfileView && (
         <HistoryTab leaves={leaves} therapists={therapists} isAdmin={isAdmin} onRefresh={load} />
       )}
 

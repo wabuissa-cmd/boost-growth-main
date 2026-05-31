@@ -123,7 +123,7 @@ export default function Admin() {
     if (emailForm.smtp_port) payload.smtp_port = parseInt(emailForm.smtp_port, 10);
     if (emailForm.smtp_user) payload.smtp_user = emailForm.smtp_user;
     if (emailForm.smtp_password) payload.smtp_password = emailForm.smtp_password;
-    if (Object.keys(payload).length === 0) { alert("أدخلي Brevo API Key أو إعدادات أخرى"); return; }
+    if (Object.keys(payload).length === 0) { alert("Enter a Brevo API Key or other settings first"); return; }
     try {
       await api.post("/admin/email-settings", payload);
       setEditEmail(false); load();
@@ -135,7 +135,7 @@ export default function Admin() {
   const sendTest = async () => {
     if (!testTo) return;
     if (!emailSettings.smtp_configured && !emailSettings.resend_configured && !emailSettings.brevo_configured) {
-      alert("⚠️ Save Settings أولاً");
+      alert("Save settings first");
       return;
     }
     setTestResult({ status: "sending" });
@@ -337,7 +337,7 @@ export default function Admin() {
       <div className="flex items-center mb-5 flex-wrap gap-2">
         <div className="flex-1 min-w-[200px]">
           <h1 className="font-display text-3xl font-semibold" style={{ color: "#2C3625" }}>Admin Panel</h1>
-          <div className="text-sm" style={{ color: "#5C6853" }}>اختر القسم من القائمة ↓</div>
+          <div className="text-sm" style={{ color: "#5C6853" }}>Choose a section from the menu below</div>
         </div>
         <button data-testid="admin-logout-btn" onClick={logout} className="btn btn-outline"><SignOut size={16} /> Log Out</button>
       </div>
@@ -394,7 +394,7 @@ export default function Admin() {
       <AdminSection
         id="email"
         title="Email Notifications"
-        subtitle="Brevo · إشعارات الأخصائيات"
+        subtitle="Brevo · therapist notifications"
         icon={<EnvelopeSimple size={20} weight="duotone" />}
         badge={emailBadge}
       >
@@ -413,7 +413,7 @@ export default function Admin() {
               <div className="sm:col-span-2">
                 <label className="label">Provider</label>
                 <select className="input" value={emailForm.email_provider} onChange={e => setEmailForm({ ...emailForm, email_provider: e.target.value })}>
-                  <option value="brevo">Brevo (موصى به)</option>
+                  <option value="brevo">Brevo (recommended)</option>
                   <option value="auto">Auto</option>
                   <option value="resend">Resend</option>
                 </select>
@@ -452,7 +452,7 @@ export default function Admin() {
             }}>
               {testResult.status === "sent"
                 ? <>✅ Sent via {testResult.provider} → {testResult.to}</>
-                : <>❌ {testResult.error || "Failed"}{testResult.hint_ar && <div className="mt-1">{testResult.hint_ar}</div>}</>}
+                : <>❌ {testResult.error || "Failed"}{testResult.hint && <div className="mt-1">{testResult.hint}</div>}</>}
             </div>
           )}
           {emailQueue.length > 0 && (

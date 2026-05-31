@@ -2963,15 +2963,15 @@ def _parse_from_address() -> tuple:
 def _smtp_error_hint(err: str) -> str:
     e = (err or "").lower()
     if "101" in e or "network is unreachable" in e or "network unreachable" in e:
-        return "Gmail SMTP محجوب على Railway (مو خطأ منك). استخدمي Brevo — الخيار الأخضر فوق (بدون DNS)."
+        return "Gmail SMTP is blocked on Railway. Use Brevo instead (recommended provider above)."
     if "535" in e or "username and password not accepted" in e:
-        return "Gmail رفض الدخول: تأكدي من App Password (16 حرف بدون مسافات)."
+        return "Gmail rejected login. Check your App Password (16 characters, no spaces)."
     if "534" in e:
-        return "Google Workspace قد يكون موقف SMTP — تواصلي مع مدير حساب Google للمنشأة."
+        return "Google Workspace may have SMTP disabled — contact your Google Workspace admin."
     if "550" in e or "relay" in e:
-        return "Gmail ما يسمح بالإرسال من هذا العنوان — خلي From Email نفس SMTP User."
+        return "Gmail will not send from this address — set From Email to match SMTP User."
     if "connection" in e or "timed out" in e:
-        return "تعذر الاتصال بـ SMTP — على Railway استخدمي Brevo بدلاً من Gmail."
+        return "Could not connect to SMTP — on Railway use Brevo instead of Gmail."
     return ""
 
 def _email_from_address() -> str:
@@ -3075,7 +3075,7 @@ async def email_test_send(payload: dict, _=Depends(admin_only)):
     if result.get("status") == "failed" and result.get("error"):
         hint = _smtp_error_hint(result["error"])
         if hint:
-            result["hint_ar"] = hint
+            result["hint"] = hint
     return result
 
 @api.get("/admin/email-settings")
@@ -3649,11 +3649,11 @@ async def _send_email_stub(to: str, subject: str, body: str) -> dict:
         queue_doc["error"] = str(e)[:500]
         hint = _smtp_error_hint(str(e))
         if hint:
-            queue_doc["hint_ar"] = hint
+            queue_doc["hint"] = hint
         elif "sender" in str(e).lower() or "not verified" in str(e).lower():
-            queue_doc["hint_ar"] = "فعّلي إيميل المرسل في Brevo: Senders → admin@boostgrowthsa.com → Verify (رابط في الإيميل)."
+            queue_doc["hint"] = "Verify the sender in Brevo: Senders → admin@boostgrowthsa.com → Verify (link in email)."
         elif "unrecognised ip" in str(e).lower() or "unauthorized" in str(e).lower() or "authorised_ips" in str(e).lower():
-            queue_doc["hint_ar"] = "Brevo حجب IP السيرفر. افتحي app.brevo.com/security/authorised_ips → Authorize 152.55.177.26 أو Deactivate blocking للـ API."
+            queue_doc["hint"] = "Brevo blocked the server IP. Open app.brevo.com/security/authorised_ips → authorize the server IP or disable IP blocking for the API."
         logger.warning(f"Email send failed ({chosen}) to {to}: {e}")
 
     await db.email_queue.insert_one(queue_doc)
