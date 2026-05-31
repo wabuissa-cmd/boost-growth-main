@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import api, { API } from "../api";
 import { useAuth, isStaffAdmin } from "../auth";
 import {
@@ -323,7 +324,7 @@ function MarkAbsenceModal({ therapists, onClose, onDone }) {
         <FormField label="Type">
           <select className="modal-input" value={form.leave_type} onChange={e => setForm({ ...form, leave_type: e.target.value })}>
             <option value="Absence">Absent</option>
-            <option value="Permission">Permission (استئذان)</option>
+            <option value="Permission">Permission</option>
           </select>
         </FormField>
         <FormField label="Note">
@@ -540,6 +541,8 @@ function LeaveRowAttachButton({ leave, onRefresh }) {
 
 export default function LeaveRequests({ personal = false }) {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const therapistFilter = personal ? user?.id : (searchParams.get("therapist") || null);
   const isAdmin = !personal && isStaffAdmin(user);
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
@@ -560,12 +563,15 @@ export default function LeaveRequests({ personal = false }) {
     ]);
     setLeaves(l.data);
     setTherapists(t.data);
-    if (!isAdmin && user?.id) {
-      const row = (b.data || []).find(x => x.therapist_id === user.id) || (b.data || [])[0] || null;
+    const balanceFor = personal ? user?.id : (searchParams.get("therapist") || null);
+    if (balanceFor) {
+      const row = (b.data || []).find(x => x.therapist_id === balanceFor) || null;
       setMyBalance(row);
+    } else {
+      setMyBalance(null);
     }
   };
-  useEffect(() => { load(); }, [year, isAdmin, user?.id]);
+  useEffect(() => { load(); }, [year, isAdmin, user?.id, searchParams]);
 
   useEffect(() => {
     if (edit?.start_date && edit?.end_date) {
@@ -603,9 +609,15 @@ export default function LeaveRequests({ personal = false }) {
     load();
   };
 
-  const displayLeaves = isAdmin ? activeLeaves : [...leaves].sort((a, b) =>
-    String(b.start_date).localeCompare(String(a.start_date))
-  );
+  const displayLeaves = useMemo(() => {
+    let list = isAdmin ? activeLeaves : [...leaves];
+    if (therapistFilter) {
+      list = list.filter(l => l.therapist_id === therapistFilter);
+    }
+    return list.sort((a, b) => String(b.start_date).localeCompare(String(a.start_date)));
+  }, [isAdmin, activeLeaves, leaves, therapistFilter]);
+
+  const filteredTherapist = therapistFilter ? therapists.find(t => t.id === therapistFilter) : null;
 
   return (
     <div>
@@ -615,7 +627,9 @@ export default function LeaveRequests({ personal = false }) {
             <FileText size={28} weight="duotone" /> {isAdmin ? "Leave Requests" : "My Leaves"}
           </h1>
           <div className="text-sm" style={{ color: "#5C6853" }}>
-            {isAdmin ? "Approve requests · track documents · mark absences" : "Annual balance · your leave history · upload medical documents"}
+            {isAdmin
+              ? (filteredTherapist ? `Leave records for ${filteredTherapist.name}` : "Approve requests · track documents · mark absences")
+              : "Annual balance · leave history · upload medical documents"}
           </div>
         </div>
         <select className="select text-sm max-w-[100px]" value={year} onChange={e => setYear(parseInt(e.target.value, 10))}>
@@ -631,18 +645,20 @@ export default function LeaveRequests({ personal = false }) {
         </button>
       </div>
 
-      {!isAdmin && (
+      {(personal || therapistFilter) && (
         <div className="card p-5 sm:p-6 mb-5" style={{ background: "linear-gradient(135deg, #7A8A6A 0%, #606E52 100%)", borderColor: "transparent", color: "white" }}>
-          <div className="text-xs tracking-[0.2em] font-bold opacity-90 mb-1">ANNUAL LEAVE BALANCE · {year}</div>
+          <div className="text-xs tracking-[0.2em] font-bold opacity-90 mb-1">
+            ANNUAL LEAVE BALANCE · {year}{filteredTherapist && !personal ? ` · ${filteredTherapist.name}` : ""}
+          </div>
           {myBalance ? (
             <div className="flex items-end gap-4 flex-wrap">
               <div>
                 <div className="font-display text-4xl sm:text-5xl font-semibold">{myBalance.remaining}</div>
                 <div className="text-sm opacity-90">days remaining</div>
               </div>
-              <div className="flex-1 grid grid-cols-3 gap-2 sm:gap-3 min-w-[200px]">
+              <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 min-w-[200px]">
                 <div className="bg-white/15 rounded-xl p-3">
-                  <div className="text-[9px] sm:text-[10px] tracking-widest opacity-80">ALLOCATED</div>
+                  <div className="text-[9px] sm:text-[10px] tracking-widest opacity-80">ENTITLED</div>
                   <div className="text-xl sm:text-2xl font-bold">{myBalance.allocated}</div>
                 </div>
                 <div className="bg-white/15 rounded-xl p-3">
@@ -653,6 +669,10 @@ export default function LeaveRequests({ personal = false }) {
                   <div className="text-[9px] sm:text-[10px] tracking-widest opacity-80">PENDING</div>
                   <div className="text-xl sm:text-2xl font-bold">{myBalance.pending}</div>
                 </div>
+                <div className="bg-white/15 rounded-xl p-3">
+                  <div className="text-[9px] sm:text-[10px] tracking-widest opacity-80">JOIN DATE</div>
+                  <div className="text-sm sm:text-base font-bold mt-1">{myBalance.join_date || "—"}</div>
+                </div>
               </div>
             </div>
           ) : (
@@ -661,7 +681,7 @@ export default function LeaveRequests({ personal = false }) {
         </div>
       )}
 
-      {!isAdmin && (
+      {personal && (
         <div className="mb-5">
           <h2 className="font-display text-xl font-semibold mb-3" style={{ color: "#2C3625" }}>Leave History</h2>
           <MyLeavesTable leaves={displayLeaves} user={user} onEdit={setEdit} onRefresh={load} />
@@ -671,12 +691,12 @@ export default function LeaveRequests({ personal = false }) {
       {isAdmin && (
         <div className="flex gap-2 mb-5">
           {[
-            { id: "active", label: "Active Requests", sub: "الطلبات الحالية" },
-            { id: "history", label: "History", sub: "السجل" },
+            { id: "active", label: "Active Requests" },
+            { id: "history", label: "History" },
           ].map(t => (
             <button key={t.id} type="button" onClick={() => setTab(t.id)}
               className={`px-4 py-2 rounded-xl text-sm font-bold border-2 transition ${tab === t.id ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E8E4DE]"}`}>
-              {t.label} <span className="opacity-70 font-normal text-xs">· {t.sub}</span>
+              {t.label}
             </button>
           ))}
         </div>

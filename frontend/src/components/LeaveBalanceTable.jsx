@@ -1,10 +1,13 @@
 import { useEffect, useState, Fragment } from "react";
+import { Link } from "react-router-dom";
 import api from "../api";
+import { useAuth } from "../auth";
 import { FloppyDisk, PencilSimple, CaretDown, CaretRight } from "@phosphor-icons/react";
-import { balanceHealthStatus, fmtDateRange, LEAVE_STATUS, LEAVE_TYPES } from "../leaveUtils";
+import { balanceHealthStatus, fmtDateRange, LEAVE_STATUS, LEAVE_TYPES, leavePayCategory, leaveStatusLabel } from "../leaveUtils";
 
 /** HR leave balance table with expandable history per therapist. */
 export default function LeaveBalanceTable({ year, onYearChange, showYearSelect = true, leaves = [], onRefresh }) {
+  const { user } = useAuth();
   const currentYear = new Date().getFullYear();
   const [rows, setRows] = useState([]);
   const [editing, setEditing] = useState({});
@@ -84,7 +87,14 @@ export default function LeaveBalanceTable({ year, onYearChange, showYearSelect =
                           {(r.name || "?").replace("Ms. ", "").charAt(0)}
                         </div>
                         <div>
-                          <div className="font-bold" style={{ color: "#2C3625" }}>{r.name}</div>
+                          <Link
+                            to={user?.id === r.therapist_id ? "/my-leaves" : `/leaves?therapist=${r.therapist_id}`}
+                            onClick={e => e.stopPropagation()}
+                            className="font-bold hover:underline"
+                            style={{ color: "#2C3625" }}
+                          >
+                            {r.name}
+                          </Link>
                           <div className="text-[11px]" style={{ color: "#8B9E7A" }}>{r.email || "—"}</div>
                         </div>
                       </div>
@@ -133,17 +143,45 @@ export default function LeaveBalanceTable({ year, onYearChange, showYearSelect =
                     <tr className="border-t border-[#E8E4DE]" style={{ background: "#FAFAF7" }}>
                       <td colSpan={8} className="p-4">
                         <div className="text-xs font-bold mb-2" style={{ color: "#5C6853" }}>Leave history — {r.name}</div>
-                        <div className="space-y-1">
-                          {hist.slice(0, 12).map(l => {
-                            const st = LEAVE_STATUS[l.status] || LEAVE_STATUS.pending;
-                            return (
-                              <div key={l.id} className="flex items-center gap-3 text-xs py-1 border-b border-[#EDE9E3]">
-                                <span className="w-28">{LEAVE_TYPES[l.leave_type]?.label || l.leave_type}</span>
-                                <span className="flex-1">{fmtDateRange(l.start_date, l.end_date)} · {l.days}d</span>
-                                <span className="pill text-[10px] px-2" style={{ background: st.bg, color: st.color }}>{st.label}</span>
-                              </div>
-                            );
-                          })}
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr style={{ color: "#8B9E7A" }}>
+                                <th className="text-left py-1 pr-3">Type</th>
+                                <th className="text-left py-1 pr-3">Pay</th>
+                                <th className="text-left py-1 pr-3">Dates</th>
+                                <th className="text-left py-1 pr-3">Days</th>
+                                <th className="text-left py-1">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {hist.map(l => {
+                                const st = LEAVE_STATUS[l.status] || LEAVE_STATUS.pending;
+                                return (
+                                  <tr key={l.id} className="border-t border-[#EDE9E3]">
+                                    <td className="py-1.5 pr-3">{LEAVE_TYPES[l.leave_type]?.label || l.leave_type}</td>
+                                    <td className="py-1.5 pr-3">{leavePayCategory(l.leave_type)}</td>
+                                    <td className="py-1.5 pr-3">{fmtDateRange(l.start_date, l.end_date)}</td>
+                                    <td className="py-1.5 pr-3">{l.days}</td>
+                                    <td className="py-1.5">
+                                      <span className="pill text-[10px] px-2" style={{ background: st.bg, color: st.color }}>
+                                        {leaveStatusLabel(l.status, false)}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="mt-2">
+                          <Link
+                            to={user?.id === r.therapist_id ? "/my-leaves" : `/leaves?therapist=${r.therapist_id}`}
+                            className="text-xs font-bold hover:underline"
+                            style={{ color: "#7A8A6A" }}
+                          >
+                            Open full leave page →
+                          </Link>
                         </div>
                       </td>
                     </tr>

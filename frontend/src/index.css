@@ -276,6 +276,34 @@ main, .page-enter { min-width: 0; }
 .sched-sheet tr.sheet-therapist-divider > td.sheet-therapist {
     border-bottom-color: #606E52 !important;
 }
+/* v2: per-therapist tbody groups — clear separation, compact cells */
+.sched-sheet-v2 { background: #F5F2ED !important; }
+.sched-sheet-v2 tbody.sheet-therapist-group {
+    border-bottom: 5px solid #606E52;
+    box-shadow: 0 2px 0 #FAFAF7;
+}
+.sched-sheet-v2 .sheet-td {
+    height: 38px !important;
+    min-height: 38px !important;
+    padding: 2px 1px !important;
+    font-size: 10px !important;
+    border-color: #E5E7EB !important;
+}
+.sched-sheet-v2 .sheet-slot.cell-empty {
+    background: #E5E7EB !important;
+    border-color: #D1D5DB !important;
+}
+.sched-sheet-v2 .sheet-th {
+    background: #F6F4F0 !important;
+    border-color: #E8E4DE !important;
+    font-size: 10px !important;
+    padding: 5px 3px !important;
+}
+.sched-sheet-v2 .sheet-therapist,
+.sched-sheet-v2 .sheet-idx,
+.sched-sheet-v2 .sheet-day {
+    background: #FAFAF7 !important;
+}
 .schedule-cell-menu-btn {
     position: absolute; top: 2px; right: 2px; z-index: 4;
     min-width: 28px; min-height: 28px; padding: 0 4px;

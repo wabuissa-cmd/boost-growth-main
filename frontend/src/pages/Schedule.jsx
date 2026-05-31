@@ -18,8 +18,9 @@ import {
 import ScheduleCellPanel from "../components/ScheduleCellPanel";
 
 function getSheetCellStyle(cell, clients) {
-  if (!cell) return { background: "#E5E7EB", borderColor: "#D1D5DB" };
-  return getCellStyle(cell, clients);
+  if (!cell) return { background: "#E5E7EB", borderColor: "#D1D5DB", height: 38, minHeight: 38, padding: "2px 1px", fontSize: 10 };
+  const base = getCellStyle(cell, clients);
+  return { ...base, height: 38, minHeight: 38, padding: "2px 1px", fontSize: 10 };
 }
 
 function positionContextMenu(x, y, menuWidth, menuHeight) {
@@ -634,7 +635,7 @@ export default function Schedule() {
   const renderSheet = () => (
     <div className="card p-0 overflow-hidden">
       <div className="table-scroll overflow-x-auto">
-        <table className="text-xs border-collapse sched-sheet" style={{ minWidth: 1000 }}>
+        <table className="text-xs border-collapse sched-sheet sched-sheet-v2" style={{ minWidth: 980 }}>
           <thead>
             <tr>
               <th className="sheet-th" style={{ minWidth: 32, width: 32 }}>#</th>
@@ -647,12 +648,9 @@ export default function Schedule() {
               ))}
             </tr>
           </thead>
-          <tbody>
-            {visibleTherapists.length === 0 && (
-              <tr><td colSpan={13} className="p-12 text-center" style={{ color: "#8B9E7A" }}>No therapists found</td></tr>
-            )}
-            {visibleTherapists.map((t, ti) => (
-              DAYS_EN.map((d, di) => {
+          {visibleTherapists.map((t, ti) => (
+            <tbody key={t.id} className="sheet-therapist-group">
+            {DAYS_EN.map((d, di) => {
                 const leaveInfo = leaveByTherapistDay[`${t.id}_${di}`];
                 return (
                 <tr key={`${t.id}_${di}`} className={[di === 0 ? "sheet-therapist-start" : "", di === 4 ? "sheet-therapist-divider" : ""].filter(Boolean).join(" ")}>
@@ -706,9 +704,14 @@ export default function Schedule() {
                   })}
                 </tr>
                 );
-              })
-            ))}
-          </tbody>
+              })}
+            </tbody>
+          ))}
+          {visibleTherapists.length === 0 && (
+            <tbody>
+              <tr><td colSpan={13} className="p-12 text-center" style={{ color: "#8B9E7A" }}>No therapists found</td></tr>
+            </tbody>
+          )}
         </table>
       </div>
     </div>
@@ -916,7 +919,7 @@ export default function Schedule() {
           {ctxMenu.cell && (
             <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
               onClick={ctxAction(() => copyCell(ctxMenu))}>
-              Copy Cell <span className="text-[10px]" style={{ color: "#8B9E7A" }}>(نسخ الخلية)</span>
+              Copy Cell
             </button>
           )}
           {!ctxMenu.cell && clipboard && (

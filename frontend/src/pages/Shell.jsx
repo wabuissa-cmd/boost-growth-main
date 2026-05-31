@@ -40,8 +40,8 @@ export default function Shell() {
 
   // Personal portal dropdown (therapists + ops team)
   const myPortalItems = (user?.role !== "admin" || isOpsTherapist) ? [
-    { to: "/my-requests", label: "My Requests", testid: "nav-my-requests" },
-    { to: "/my-leaves", label: "My Leaves", testid: "nav-my-leaves" },
+    { to: "/my-requests", label: "Requests", testid: "nav-my-requests" },
+    { to: "/my-leaves", label: "Leaves", testid: "nav-my-leaves" },
   ] : [];
 
   // Requests dropdown — admin / ops: staff requests + leave management
@@ -90,7 +90,7 @@ export default function Shell() {
                 </NavLink>
               ))}
               {myPortalItems.length > 0 && (
-                <NavDropdown testid="nav-my-portal" label="My Portal" icon={<UserCircle size={18} weight="duotone"/>}
+                <NavDropdown testid="nav-my-portal" label="Personal" icon={<UserCircle size={18} weight="duotone"/>}
                              items={myPortalItems} loc={loc}/>
               )}
               {referralsItems.length > 0 && (
@@ -178,7 +178,7 @@ export default function Shell() {
               ))}
               {myPortalItems.length > 0 && (
                 <div className="mt-1">
-                  <div className="text-[10px] tracking-widest px-3 mt-2 mb-1" style={{color: "#8B9E7A"}}>MY PORTAL</div>
+                  <div className="text-[10px] tracking-widest px-3 mt-2 mb-1" style={{color: "#8B9E7A"}}>PERSONAL</div>
                   {myPortalItems.map(s => (
                     <NavLink key={s.to} to={s.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
                       <UserCircle size={16} weight="duotone"/><span>{s.label}</span>

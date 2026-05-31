@@ -379,7 +379,7 @@ function AttachmentsPanelModal({ client, isAdmin, onClose, onSaved }) {
     { key: "intake_file_url", label: "Intake File", hint: "Google Drive link to the intake document" },
     { key: "attendance_sheet_url", label: "Attendance Sheet", hint: "Google Sheets URL in the client's Attendance Sheets folder" },
     { key: "progress_reports_url", label: "Progress Reports Folder", hint: "Drive folder link for Progress Reports" },
-    { key: "case_summary_url", label: "Case Summary (ملخص الحالة)", hint: "Drive folder or document link" },
+    { key: "case_summary_url", label: "Case Summary", hint: "Drive folder or document link" },
   ];
   return (
     <ModalBase title="Attachments" subtitle={`${client.name} · Google Drive links`} onClose={onClose} size="lg"

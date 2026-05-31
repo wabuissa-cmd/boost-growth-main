@@ -3897,30 +3897,112 @@ def _pick_excel_sheet(xl, for_intake: bool = False):
     return names[0]
 
 
+def _rows_from_dataframe(df) -> List[dict]:
+    df.columns = [_normalize_table_column(c) for c in df.columns]
+    df = df.where(df.notna(), None)
+    rows = df.to_dict("records")
+    out = []
+    for r in rows:
+        if any(v is not None and str(v).strip().lower() not in ("", "nan", "none") for v in r.values()):
+            out.append(r)
+    return out
+
+
+def _sheet_intake_type_hint(sheet_name: str) -> Optional[str]:
+    low = (sheet_name or "").lower()
+    if "post" in low:
+        return "post"
+    if "pre" in low:
+        return "pre"
+    return None
+
+
+def _read_intake_rows(content: bytes, filename: str) -> tuple:
+    """Try every sheet + header row; return rows with the most parseable child names."""
+    import pandas as pd
+    import io
+
+    best_rows: List[dict] = []
+    best_cols: List[str] = []
+    best_score = -1
+    best_meta = ""
+
+    def consider(df, sheet_name: str = "", header_idx: int = 0):
+        nonlocal best_rows, best_cols, best_score, best_meta
+        rows = _rows_from_dataframe(df)
+        type_hint = _sheet_intake_type_hint(sheet_name)
+        if type_hint:
+            for r in rows:
+                if not r.get("intake_type") and not r.get("type"):
+                    r["_sheet_intake_type"] = type_hint
+        score = sum(1 for r in rows if _extract_intake_child_name(r))
+        cols = list(rows[0].keys()) if rows else []
+        if score > best_score:
+            best_score = score
+            best_rows = rows
+            best_cols = cols
+            best_meta = f"{sheet_name or 'csv'} header={header_idx}" if sheet_name or header_idx else "csv"
+
+    if filename.lower().endswith(".csv"):
+        for hdr in range(0, 8):
+            try:
+                df = pd.read_csv(io.BytesIO(content), header=hdr)
+                consider(df, header_idx=hdr)
+            except Exception:
+                continue
+    else:
+        xl = pd.ExcelFile(io.BytesIO(content), engine="openpyxl")
+        for sheet in xl.sheet_names:
+            for hdr in range(0, 8):
+                try:
+                    df = pd.read_excel(io.BytesIO(content), sheet_name=sheet, header=hdr, engine="openpyxl")
+                    if df.empty:
+                        continue
+                    consider(df, sheet_name=sheet, header_idx=hdr)
+                except Exception:
+                    continue
+        # Also merge all sheets when each has data (pre + post tabs)
+        merged: List[dict] = []
+        for sheet in xl.sheet_names:
+            df_raw = pd.read_excel(io.BytesIO(content), sheet_name=sheet, header=None, engine="openpyxl")
+            hdr = _detect_table_header_row(df_raw)
+            df = pd.read_excel(io.BytesIO(content), sheet_name=sheet, header=hdr, engine="openpyxl")
+            rows = _rows_from_dataframe(df)
+            hint = _sheet_intake_type_hint(sheet)
+            for r in rows:
+                if hint and not r.get("intake_type") and not r.get("type"):
+                    r["_sheet_intake_type"] = hint
+            merged.extend(rows)
+        if merged:
+            score = sum(1 for r in merged if _extract_intake_child_name(r))
+            if score > best_score:
+                best_rows = merged
+                best_cols = list(merged[0].keys()) if merged else []
+                best_score = score
+                best_meta = f"merged {len(xl.sheet_names)} sheets"
+
+    return best_rows, best_cols, best_meta
+
+
 def _read_table(file: UploadFile, for_intake: bool = False) -> List[dict]:
     """Read xlsx/csv into list of dicts with normalized lower-case keys."""
     import pandas as pd
     content = file.file.read()
     import io
+    if for_intake:
+        rows, _, _ = _read_intake_rows(content, file.filename or "")
+        return rows
     if file.filename.lower().endswith(".csv"):
         df_raw = pd.read_csv(io.BytesIO(content), header=None)
         hdr = _detect_table_header_row(df_raw)
         df = pd.read_csv(io.BytesIO(content), header=hdr)
     else:
         xl = pd.ExcelFile(io.BytesIO(content), engine="openpyxl")
-        sheet = _pick_excel_sheet(xl, for_intake=for_intake)
+        sheet = _pick_excel_sheet(xl, for_intake=False)
         df_raw = pd.read_excel(io.BytesIO(content), sheet_name=sheet, header=None, engine="openpyxl")
         hdr = _detect_table_header_row(df_raw)
         df = pd.read_excel(io.BytesIO(content), sheet_name=sheet, header=hdr, engine="openpyxl")
-    df.columns = [_normalize_table_column(c) for c in df.columns]
-    df = df.where(df.notna(), None)
-    rows = df.to_dict("records")
-    # Drop fully empty rows
-    out = []
-    for r in rows:
-        if any(v is not None and str(v).strip() not in ("", "nan", "None") for v in r.values()):
-            out.append(r)
-    return out
+    return _rows_from_dataframe(df)
 
 
 def _extract_intake_child_name(r: dict) -> str:
@@ -3950,15 +4032,19 @@ def _extract_intake_child_name(r: dict) -> str:
             if s and s.lower() not in header_like and len(s) >= 2:
                 return s
 
-    # Fallback: first column with a plausible name (skip numbered index cols)
-    for k, v in r.items():
-        if v is None or str(k).startswith("unnamed"):
+    # Fallback: first text column (including unnamed Excel columns)
+    ordered_keys = sorted(r.keys(), key=lambda k: (0 if str(k).lower().startswith("unnamed") else 1, str(k)))
+    for k in ordered_keys:
+        v = r.get(k)
+        if v is None:
             continue
         kl = str(k).lower()
-        if kl in ("no", "num", "number", "#", "id", "sn", "sno", "index"):
+        if kl in ("no", "num", "number", "#", "id", "sn", "sno", "index", "priority"):
+            continue
+        if any(x in kl for x in ("phone", "service", "district", "diagnosis", "status", "note", "age", "date", "language", "time")):
             continue
         s = str(v).strip()
-        if len(s) >= 2 and s.lower() not in header_like and not s.isdigit():
+        if len(s) >= 2 and s.lower() not in header_like and not s.replace(".", "", 1).isdigit():
             return s
     return ""
 
@@ -3991,16 +4077,16 @@ async def import_clients(file: UploadFile = File(...), _=Depends(ops_or_admin)):
 
 @api.post("/import/intake")
 async def import_intake(file: UploadFile = File(...), _=Depends(ops_or_admin)):
-    rows = _read_table(file, for_intake=True)
+    content = file.file.read()
+    rows, detected_columns, parse_meta = _read_intake_rows(content, file.filename or "")
     created, updated, skipped = 0, 0, 0
-    detected_columns = list(rows[0].keys()) if rows else []
     for r in rows:
         name = _extract_intake_child_name(r)
         if not name:
             skipped += 1
             continue
         phone = str(r.get("phone") or r.get("parent_phone") or r.get("mobile") or "").strip() or None
-        raw_type = (r.get("intake_type") or r.get("type") or r.get("list") or "pre")
+        raw_type = (r.get("intake_type") or r.get("type") or r.get("_sheet_intake_type") or "pre")
         intake_type = str(raw_type).strip().lower()
         if "post" in intake_type:
             intake_type = "post"
@@ -4047,12 +4133,13 @@ async def import_intake(file: UploadFile = File(...), _=Depends(ops_or_admin)):
             created += 1
     hint = None
     if rows and skipped == len(rows):
-        hint = f"Could not read child names. Detected columns: {', '.join(detected_columns[:12])}"
+        hint = f"Could not read child names ({parse_meta}). Columns: {', '.join(detected_columns[:12])}"
     return {
         "created": created,
         "updated": updated,
         "skipped": skipped,
         "detected_columns": detected_columns,
+        "parse_meta": parse_meta,
         "message": f"{updated} records updated, {created} records added, {skipped} records skipped",
         "hint": hint,
     }
