@@ -104,7 +104,7 @@ export default function Admin() {
       resend_api_key: "",
       brevo_api_key: "",
       from_email: e.data?.from_email || "Boost Growth <admin@boostgrowthsa.com>",
-      email_provider: e.data?.provider || "brevo",
+      email_provider: e.data?.provider || "smtp",
       smtp_host: e.data?.smtp_host || "smtp.gmail.com",
       smtp_port: e.data?.smtp_port || 587,
       smtp_user: e.data?.smtp_user || "",
@@ -115,15 +115,26 @@ export default function Admin() {
 
   const saveEmail = async () => {
     const payload = {};
-    if (emailForm.resend_api_key) payload.resend_api_key = emailForm.resend_api_key;
-    if (emailForm.brevo_api_key) payload.brevo_api_key = emailForm.brevo_api_key;
-    if (emailForm.from_email) payload.from_email = emailForm.from_email;
     if (emailForm.email_provider) payload.email_provider = emailForm.email_provider;
-    if (emailForm.smtp_host) payload.smtp_host = emailForm.smtp_host;
-    if (emailForm.smtp_port) payload.smtp_port = parseInt(emailForm.smtp_port, 10);
-    if (emailForm.smtp_user) payload.smtp_user = emailForm.smtp_user;
-    if (emailForm.smtp_password) payload.smtp_password = emailForm.smtp_password;
-    if (Object.keys(payload).length === 0) { alert("Enter a Brevo API Key or other settings first"); return; }
+    if (emailForm.from_email) payload.from_email = emailForm.from_email;
+    if (emailForm.email_provider === "smtp") {
+      if (!emailForm.smtp_user?.trim()) { alert("Enter your Google Workspace email (SMTP User)"); return; }
+      if (!emailForm.smtp_password?.trim() && !emailSettings.smtp_configured) {
+        alert("Enter your Google App Password (16 characters)"); return;
+      }
+      payload.smtp_host = emailForm.smtp_host || "smtp.gmail.com";
+      payload.smtp_port = parseInt(emailForm.smtp_port, 10) || 587;
+      payload.smtp_user = emailForm.smtp_user.trim();
+      if (emailForm.smtp_password?.trim()) payload.smtp_password = emailForm.smtp_password.trim();
+    } else {
+      if (emailForm.resend_api_key) payload.resend_api_key = emailForm.resend_api_key;
+      if (emailForm.brevo_api_key) payload.brevo_api_key = emailForm.brevo_api_key;
+      if (emailForm.smtp_host) payload.smtp_host = emailForm.smtp_host;
+      if (emailForm.smtp_port) payload.smtp_port = parseInt(emailForm.smtp_port, 10);
+      if (emailForm.smtp_user) payload.smtp_user = emailForm.smtp_user;
+      if (emailForm.smtp_password) payload.smtp_password = emailForm.smtp_password;
+    }
+    if (Object.keys(payload).length === 0) { alert("Enter email settings first"); return; }
     try {
       await api.post("/admin/email-settings", payload);
       setEditEmail(false); load();
@@ -394,7 +405,7 @@ export default function Admin() {
       <AdminSection
         id="email"
         title="Email Notifications"
-        subtitle="Brevo · therapist notifications"
+        subtitle="Google Workspace · therapist notifications"
         icon={<EnvelopeSimple size={20} weight="duotone" />}
         badge={emailBadge}
       >
@@ -413,19 +424,59 @@ export default function Admin() {
               <div className="sm:col-span-2">
                 <label className="label">Provider</label>
                 <select className="input" value={emailForm.email_provider} onChange={e => setEmailForm({ ...emailForm, email_provider: e.target.value })}>
-                  <option value="brevo">Brevo (recommended)</option>
-                  <option value="auto">Auto</option>
+                  <option value="smtp">Google Workspace (SMTP) — recommended</option>
+                  <option value="brevo">Brevo</option>
                   <option value="resend">Resend</option>
+                  <option value="auto">Auto</option>
                 </select>
               </div>
-              <div className="sm:col-span-2">
-                <label className="label">From Email</label>
-                <input className="input" value={emailForm.from_email} onChange={e => setEmailForm({ ...emailForm, from_email: e.target.value })} />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="label">Brevo API Key (xkeysib-...)</label>
-                <input data-testid="brevo-key-input" className="input" type="password" placeholder="xkeysib-..." value={emailForm.brevo_api_key} onChange={e => setEmailForm({ ...emailForm, brevo_api_key: e.target.value })} />
-              </div>
+              {emailForm.email_provider === "smtp" ? (
+                <>
+                  <div className="sm:col-span-2 text-xs p-3 rounded-lg" style={{ background: "#EAF0F3", color: "#375568" }}>
+                    Use a Google App Password (16 chars). From Email must match SMTP User.
+                    <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" className="underline ml-1">Create App Password</a>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="label">From Email</label>
+                    <input className="input" placeholder="Boost Growth &lt;walaa@boostgrowthsa.com&gt;" value={emailForm.from_email} onChange={e => setEmailForm({ ...emailForm, from_email: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="label">SMTP User (Google email)</label>
+                    <input data-testid="smtp-user-input" className="input" placeholder="walaa@boostgrowthsa.com" value={emailForm.smtp_user} onChange={e => setEmailForm({ ...emailForm, smtp_user: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="label">App Password</label>
+                    <input data-testid="smtp-password-input" className="input" type="password" placeholder="16-character app password" value={emailForm.smtp_password} onChange={e => setEmailForm({ ...emailForm, smtp_password: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="label">SMTP Host</label>
+                    <input className="input" value={emailForm.smtp_host} onChange={e => setEmailForm({ ...emailForm, smtp_host: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="label">SMTP Port</label>
+                    <input className="input" type="number" value={emailForm.smtp_port} onChange={e => setEmailForm({ ...emailForm, smtp_port: e.target.value })} />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="sm:col-span-2">
+                    <label className="label">From Email</label>
+                    <input className="input" value={emailForm.from_email} onChange={e => setEmailForm({ ...emailForm, from_email: e.target.value })} />
+                  </div>
+                  {emailForm.email_provider === "brevo" && (
+                    <div className="sm:col-span-2">
+                      <label className="label">Brevo API Key (xkeysib-...)</label>
+                      <input data-testid="brevo-key-input" className="input" type="password" placeholder="xkeysib-..." value={emailForm.brevo_api_key} onChange={e => setEmailForm({ ...emailForm, brevo_api_key: e.target.value })} />
+                    </div>
+                  )}
+                  {emailForm.email_provider === "resend" && (
+                    <div className="sm:col-span-2">
+                      <label className="label">Resend API Key (re_...)</label>
+                      <input className="input" type="password" placeholder="re_..." value={emailForm.resend_api_key} onChange={e => setEmailForm({ ...emailForm, resend_api_key: e.target.value })} />
+                    </div>
+                  )}
+                </>
+              )}
               <div className="sm:col-span-2 flex gap-2 justify-end flex-wrap">
                 <button onClick={() => setEditEmail(false)} className="btn btn-outline text-sm">Cancel</button>
                 <button data-testid="save-email-settings-btn" onClick={saveEmail} className="btn btn-primary text-sm">Save</button>
@@ -435,7 +486,7 @@ export default function Admin() {
           ) : (
             <div className="text-xs mb-3 grid grid-cols-2 gap-2" style={{ color: "#5C6853" }}>
               <div>Active: <strong>{emailSettings.active_provider || "—"}</strong></div>
-              <div>Brevo: <strong>{emailSettings.brevo_key_preview || "—"}</strong></div>
+              <div>SMTP: <strong>{emailSettings.smtp_configured ? (emailSettings.smtp_user || "configured") : "—"}</strong></div>
             </div>
           )}
 

@@ -2960,8 +2960,12 @@ def _apply_email_settings(doc: dict) -> None:
         return
     if doc.get("resend_api_key"):
         os.environ["RESEND_API_KEY"] = doc["resend_api_key"]
+    else:
+        os.environ.pop("RESEND_API_KEY", None)
     if doc.get("brevo_api_key"):
         os.environ["BREVO_API_KEY"] = doc["brevo_api_key"]
+    else:
+        os.environ.pop("BREVO_API_KEY", None)
     if doc.get("from_email"):
         os.environ["EMAIL_FROM"] = doc["from_email"]
     if doc.get("smtp_host"):
@@ -3095,7 +3099,7 @@ async def email_test_send(payload: dict, _=Depends(admin_only)):
     if not to:
         raise HTTPException(status_code=400, detail="Recipient email required")
     if not _smtp_configured() and not _resend_configured() and not _brevo_configured():
-        raise HTTPException(status_code=400, detail="No email provider configured. Save Brevo or Resend API key first.")
+        raise HTTPException(status_code=400, detail="No email provider configured. Save Google Workspace SMTP settings first.")
     result = await _send_email_stub(to,
         "Boost Growth — Test Email",
         "This is a test email from your Boost Growth Portal.\n\nIf you received this, email notifications are working correctly.\n\n— Boost Growth Portal")
@@ -3110,7 +3114,10 @@ async def get_email_settings(_=Depends(admin_only)):
     doc = await db.settings.find_one({"key": "email"}, {"_id": 0}) or {}
     has_resend = bool(doc.get("resend_api_key") or os.environ.get("RESEND_API_KEY"))
     has_brevo = bool(doc.get("brevo_api_key") or os.environ.get("BREVO_API_KEY"))
-    has_smtp = bool(doc.get("smtp_user") and doc.get("smtp_password"))
+    has_smtp = bool(
+        (doc.get("smtp_user") and doc.get("smtp_password"))
+        or _smtp_configured()
+    )
     provider = doc.get("email_provider") or os.environ.get("EMAIL_PROVIDER") or "auto"
     active = "none"
     if provider == "brevo" and has_brevo:
@@ -3172,7 +3179,14 @@ async def save_email_settings(payload: EmailSettingsIn, _=Depends(admin_only)):
     if not update:
         raise HTTPException(status_code=400, detail="No fields")
     update["updated_at"] = now_iso()
-    await db.settings.update_one({"key": "email"}, {"$set": update, "$setOnInsert": {"key": "email"}}, upsert=True)
+    unset = {}
+    if update.get("email_provider") == "smtp":
+        unset = {"brevo_api_key": "", "resend_api_key": ""}
+    await db.settings.update_one(
+        {"key": "email"},
+        {"$set": update, "$setOnInsert": {"key": "email"}, **({"$unset": unset} if unset else {})},
+        upsert=True,
+    )
     doc = await db.settings.find_one({"key": "email"}, {"_id": 0}) or {}
     _apply_email_settings(doc)
     return {"ok": True, "configured": True}
