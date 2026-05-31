@@ -140,7 +140,7 @@ main, .page-enter { min-width: 0; }
     text-align: center;
     vertical-align: middle;
 }
-.cell-base.cell-empty { background: #D1D5DB; border-color: #9CA3AF; }
+.cell-base.cell-empty { background: #E5E7EB; border-color: #D1D5DB; }
 
 /* Fix 2: schedule zoom — scale schedule tables, overriding Tailwind's absolute font sizes. */
 .sched-zoom .sched-sheet,
@@ -208,37 +208,37 @@ main, .page-enter { min-width: 0; }
 }
 
 /* Sheet-style schedule (mirrors Google Sheets layout) */
-.sched-sheet { border-collapse: separate; border-spacing: 0; width: 100%; background: #ECE7DC; }
+.sched-sheet { border-collapse: separate; border-spacing: 0; width: 100%; background: #F5F2ED; }
 .sched-sheet .sheet-th {
-    background: #EFE8D2;
+    background: #F6F4F0;
     color: #2C3625;
     font-weight: 700;
-    font-size: 11px;
-    padding: 8px 4px;
+    font-size: 10px;
+    padding: 6px 3px;
     text-align: center;
-    border: 1px solid #C9BB91;
-    letter-spacing: 0.04em;
+    border: 1px solid #E8E4DE;
+    letter-spacing: 0.03em;
     white-space: nowrap;
     position: sticky; top: 0; z-index: 3;
 }
 .sched-sheet .sheet-td {
-    border: 1px solid #BFB6A0;
-    padding: 6px 5px;
+    border: 1px solid #E5E7EB;
+    padding: 3px 2px;
     vertical-align: middle;
-    text-align: center;          /* center text horizontally */
-    background: #D1D5DB;          /* empty/unscheduled slots — clearly gray, not white */
-    min-height: 56px;
-    height: 56px;
-    font-size: 11.5px;
-    transition: background 140ms ease, transform 140ms ease;
+    text-align: center;
+    background: #E5E7EB;
+    min-height: 40px;
+    height: 40px;
+    font-size: 10px;
+    line-height: 1.15;
+    transition: background 120ms ease;
 }
 .sched-sheet .sheet-slot.has-event {
-    /* background from inline cellStyle — do not force white */
     text-align: center !important;
     vertical-align: middle !important;
-    font-weight: 700;
-    border-radius: 4px;
-    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.04);
+    font-weight: 600;
+    border-radius: 3px;
+    box-shadow: none;
 }
 .sched-sheet .sheet-slot.cell-available {
     background: #FFFFFF !important;
@@ -247,22 +247,35 @@ main, .page-enter { min-width: 0; }
 }
 .sched-sheet .sheet-slot.has-event > * { margin: 0 auto; text-align: center; }
 .sched-sheet .sheet-idx {
-    background: linear-gradient(135deg, #FAF5E8 0%, #F0E9D8 100%);
-    font-size: 14px; font-weight: 800;
-    color: #5C6853; width: 36px; min-width: 36px;
+    background: #FAFAF7;
+    font-size: 12px; font-weight: 800;
+    color: #5C6853; width: 32px; min-width: 32px;
+    border-right: 1px solid #E8E4DE;
 }
 .sched-sheet .sheet-therapist {
-    background: linear-gradient(135deg, #FAF5E8 0%, #F5EFDC 100%);
-    min-width: 120px; text-align: center;
-    border-right: 2px solid #C9BB91;
+    background: #FAFAF7;
+    min-width: 96px; max-width: 96px;
+    text-align: center;
+    border-right: 2px solid #E8E4DE;
 }
 .sched-sheet .sheet-day {
-    background: #F6F2E4;
-    min-width: 70px; width: 70px;
+    background: #F6F4F0;
+    min-width: 58px; width: 58px;
     text-align: center;
-    border-right: 2px solid #D9CDA3;
+    border-right: 1px solid #E8E4DE;
 }
-.sched-sheet .sheet-slot { min-width: 88px; cursor: default; position: relative; }
+.sched-sheet .sheet-slot { min-width: 68px; cursor: default; position: relative; }
+/* Clear separation between each therapist block */
+.sched-sheet tr.sheet-therapist-divider > td {
+    border-bottom: 4px solid #606E52 !important;
+}
+.sched-sheet tr.sheet-therapist-start > td {
+    border-top: 6px solid #F5F2ED;
+}
+.sched-sheet tr.sheet-therapist-divider > td.sheet-idx,
+.sched-sheet tr.sheet-therapist-divider > td.sheet-therapist {
+    border-bottom-color: #606E52 !important;
+}
 .schedule-cell-menu-btn {
     position: absolute; top: 2px; right: 2px; z-index: 4;
     min-width: 28px; min-height: 28px; padding: 0 4px;
@@ -276,11 +289,11 @@ main, .page-enter { min-width: 0; }
 .sched-sheet .sheet-slot.editable { cursor: pointer; }
 .sched-sheet .sheet-slot.editable:hover { outline: 2px solid #7A8A6A; outline-offset: -2px; }
 .sched-sheet .sheet-slot.cell-empty {
-    background: #D1D5DB !important;
-    border-color: #9CA3AF !important;
+    background: #E5E7EB !important;
+    border-color: #D1D5DB !important;
 }
-.sched-sheet .sheet-slot.cell-empty:hover { background: #BFC5CE !important; }
-.sched-sheet .sheet-slot.has-event:hover { transform: scale(1.02); z-index: 2; }
+.sched-sheet .sheet-slot.cell-empty:hover { background: #D1D5DB !important; }
+.sched-sheet .sheet-slot.has-event:hover { transform: none; z-index: 2; filter: brightness(0.98); }
 .sched-sheet .sheet-slot.copied-source { outline: 2px dashed #C28E6A !important; outline-offset: -2px; animation: copy-pulse 1s ease-in-out infinite; }
 @keyframes copy-pulse { 0%,100% { outline-color: #C28E6A; } 50% { outline-color: #D4A064; } }
 @media print {

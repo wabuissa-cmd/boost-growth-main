@@ -46,7 +46,7 @@ export default function ImportPage() {
       const msg = type === "schedule"
         ? `${data.cells_inserted} cells inserted for week ${data.week_start}`
         : type === "intake"
-        ? (data.message || `${data.updated || 0} updated, ${data.created || 0} added, ${data.skipped || 0} skipped`)
+        ? [data.message, data.hint].filter(Boolean).join(" — ")
         : `${data.created} created, ${data.skipped} skipped`;
       setResult({ ok: true, msg });
       setFile(null);
@@ -127,7 +127,7 @@ export default function ImportPage() {
               Accepted formats: <code className="px-1.5 py-0.5 bg-[#F0E9D8] rounded">.xlsx</code> <code className="px-1.5 py-0.5 bg-[#F0E9D8] rounded">.csv</code>
             </div>
             <div className="text-xs mb-4 p-3 rounded-xl border border-[#E8E4DE]" style={{background: "#FAFAF7", color: "#5C6853"}}>
-              <strong>Required column for {type}:</strong> {type === "clients" ? "name (required), file_no, package_hours, supervisor, parent_name, phone, color, age, notes, main_therapist (matches Ms. Name)" : "child_name (required), parent_name, phone, intake_type (pre/post), status, intake_date, age, notes"}
+              <strong>Required column for {type}:</strong> {type === "clients" ? "name (required), file_no, package_hours, supervisor, parent_name, phone, color, age, notes, main_therapist (matches Ms. Name)" : "Child Name (or name / child_name), phone, service, district, diagnosis, intake_type (pre/post). Header row is auto-detected."}
             </div>
             <label className="btn btn-outline w-full justify-start cursor-pointer mb-3">
               <UploadSimple size={18}/> {file ? file.name : "Choose Excel or CSV..."}

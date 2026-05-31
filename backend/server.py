@@ -3839,27 +3839,128 @@ async def reports_dashboard(_=Depends(ops_or_admin)):
     }
 
 # ------------------- Imports -------------------
+_INTAKE_HEADER_HINTS = frozenset({
+    "child", "name", "phone", "service", "district", "diagnosis", "intake",
+    "age", "parent", "area", "status", "notes", "language", "priority",
+})
+
+
 def _normalize_table_column(name) -> str:
-    """Excel headers like 'Child Name' / 'DOB/Age' → child_name / dob_age."""
+    """Excel headers like 'Child Name' / \"Child's Name\" / 'DOB/Age' → child_name / dob_age."""
     s = str(name).strip().lower()
+    s = s.replace("'", "").replace("'", "").replace("`", "")
     s = _re_top.sub(r"[\s/]+", "_", s)
     s = _re_top.sub(r"[^\w]+", "_", s)
     s = _re_top.sub(r"_+", "_", s).strip("_")
+    # childs_name / name_of_child → child_name aliases handled at extract time
+    if s in ("childs_name", "name_of_child", "student", "patient", "candidate"):
+        return "child_name"
+    if s in ("mobile", "mobile_no", "contact", "contact_number", "tel", "telephone"):
+        return "phone"
+    if s in ("pre_post", "prepost", "list_type"):
+        return "intake_type"
+    if s in ("note", "comment", "comments"):
+        return "notes"
+    if s in ("location", "area", "region", "neighborhood"):
+        return "district"
     return s
 
 
-def _read_table(file: UploadFile) -> List[dict]:
+def _detect_table_header_row(df_raw) -> int:
+    """Find the row index that looks like a column header (not a title row)."""
+    best_idx, best_score = 0, 0
+    for idx in range(min(25, len(df_raw))):
+        cells = [str(c).strip().lower() for c in df_raw.iloc[idx].tolist() if c is not None and str(c).strip()]
+        if len(cells) < 2:
+            continue
+        score = 0
+        for cell in cells:
+            for hint in _INTAKE_HEADER_HINTS:
+                if hint in cell:
+                    score += 1
+                    break
+        if any("child" in c and "name" in c for c in cells):
+            score += 3
+        if score > best_score:
+            best_score, best_idx = score, idx
+    return best_idx if best_score >= 2 else 0
+
+
+def _pick_excel_sheet(xl, for_intake: bool = False):
+    names = xl.sheet_names
+    if not for_intake or len(names) == 1:
+        return names[0]
+    for name in names:
+        low = name.lower()
+        if any(k in low for k in ("pre", "post", "intake", "waiting", "list")):
+            return name
+    return names[0]
+
+
+def _read_table(file: UploadFile, for_intake: bool = False) -> List[dict]:
     """Read xlsx/csv into list of dicts with normalized lower-case keys."""
     import pandas as pd
     content = file.file.read()
     import io
     if file.filename.lower().endswith(".csv"):
-        df = pd.read_csv(io.BytesIO(content))
+        df_raw = pd.read_csv(io.BytesIO(content), header=None)
+        hdr = _detect_table_header_row(df_raw)
+        df = pd.read_csv(io.BytesIO(content), header=hdr)
     else:
-        df = pd.read_excel(io.BytesIO(content), engine="openpyxl")
+        xl = pd.ExcelFile(io.BytesIO(content), engine="openpyxl")
+        sheet = _pick_excel_sheet(xl, for_intake=for_intake)
+        df_raw = pd.read_excel(io.BytesIO(content), sheet_name=sheet, header=None, engine="openpyxl")
+        hdr = _detect_table_header_row(df_raw)
+        df = pd.read_excel(io.BytesIO(content), sheet_name=sheet, header=hdr, engine="openpyxl")
     df.columns = [_normalize_table_column(c) for c in df.columns]
     df = df.where(df.notna(), None)
-    return df.to_dict("records")
+    rows = df.to_dict("records")
+    # Drop fully empty rows
+    out = []
+    for r in rows:
+        if any(v is not None and str(v).strip() not in ("", "nan", "None") for v in r.values()):
+            out.append(r)
+    return out
+
+
+def _extract_intake_child_name(r: dict) -> str:
+    """Resolve child name from many possible Excel column layouts."""
+    preferred_keys = (
+        "child_name", "childs_name", "name", "child", "student_name",
+        "client_name", "patient_name", "full_name", "candidate", "student",
+    )
+    header_like = {"child name", "child_name", "name", "child", "student name", "nan", "none"}
+
+    for k in preferred_keys:
+        v = r.get(k)
+        if v is None:
+            continue
+        s = str(v).strip()
+        if s and s.lower() not in header_like:
+            return s
+
+    for k, v in r.items():
+        if v is None:
+            continue
+        kl = str(k).lower()
+        if any(x in kl for x in ("parent", "guardian", "mother", "father", "note", "status", "phone", "service", "district", "diagnosis", "intake", "age", "date", "priority", "language", "time")):
+            continue
+        if "name" in kl or kl in ("child", "student", "patient"):
+            s = str(v).strip()
+            if s and s.lower() not in header_like and len(s) >= 2:
+                return s
+
+    # Fallback: first column with a plausible name (skip numbered index cols)
+    for k, v in r.items():
+        if v is None or str(k).startswith("unnamed"):
+            continue
+        kl = str(k).lower()
+        if kl in ("no", "num", "number", "#", "id", "sn", "sno", "index"):
+            continue
+        s = str(v).strip()
+        if len(s) >= 2 and s.lower() not in header_like and not s.isdigit():
+            return s
+    return ""
 
 @api.post("/import/clients")
 async def import_clients(file: UploadFile = File(...), _=Depends(ops_or_admin)):
@@ -3890,25 +3991,24 @@ async def import_clients(file: UploadFile = File(...), _=Depends(ops_or_admin)):
 
 @api.post("/import/intake")
 async def import_intake(file: UploadFile = File(...), _=Depends(ops_or_admin)):
-    rows = _read_table(file)
+    rows = _read_table(file, for_intake=True)
     created, updated, skipped = 0, 0, 0
+    detected_columns = list(rows[0].keys()) if rows else []
     for r in rows:
-        name = (
-            r.get("child_name") or r.get("name") or r.get("child")
-            or r.get("student_name") or r.get("client_name") or ""
-        )
-        if isinstance(name, str):
-            name = name.strip()
-        else:
-            name = str(name).strip() if name is not None else ""
+        name = _extract_intake_child_name(r)
         if not name:
             skipped += 1
             continue
         phone = str(r.get("phone") or r.get("parent_phone") or r.get("mobile") or "").strip() or None
-        intake_type = (r.get("intake_type") or r.get("type") or "pre").lower()
-        if intake_type not in ("pre", "post"):
+        raw_type = (r.get("intake_type") or r.get("type") or r.get("list") or "pre")
+        intake_type = str(raw_type).strip().lower()
+        if "post" in intake_type:
+            intake_type = "post"
+        elif "pre" in intake_type:
             intake_type = "pre"
-        status = (r.get("status") or "new").lower()
+        elif intake_type not in ("pre", "post"):
+            intake_type = "pre"
+        status = str(r.get("status") or "new").strip().lower()
         doc = {
             "child_name": name,
             "parent_name": r.get("parent_name") or r.get("parent") or r.get("guardian"),
@@ -3921,15 +4021,20 @@ async def import_intake(file: UploadFile = File(...), _=Depends(ops_or_admin)):
             "service": r.get("service") or r.get("service_type"),
             "district": r.get("area") or r.get("district") or r.get("location"),
             "diagnosis": r.get("diagnosis"),
+            "time_pref": r.get("time_pref") or r.get("time_preference") or r.get("preferred_time"),
+            "language": r.get("language"),
             "priority": bool(r.get("priority")) if r.get("priority") not in (None, "", "0", "false", "no") else False,
         }
         match_q = {
             "child_name": {"$regex": f"^{re.escape(name)}$", "$options": "i"},
             "intake_type": intake_type,
         }
-        if phone:
-            match_q["phone"] = phone
         match = await db.intake.find_one(match_q, {"_id": 0, "id": 1})
+        if not match and phone:
+            match = await db.intake.find_one(
+                {"child_name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}, "phone": phone},
+                {"_id": 0, "id": 1},
+            )
         if match:
             await db.intake.update_one({"id": match["id"]}, {"$set": doc})
             updated += 1
@@ -3940,11 +4045,16 @@ async def import_intake(file: UploadFile = File(...), _=Depends(ops_or_admin)):
                 **doc,
             })
             created += 1
+    hint = None
+    if rows and skipped == len(rows):
+        hint = f"Could not read child names. Detected columns: {', '.join(detected_columns[:12])}"
     return {
         "created": created,
         "updated": updated,
         "skipped": skipped,
+        "detected_columns": detected_columns,
         "message": f"{updated} records updated, {created} records added, {skipped} records skipped",
+        "hint": hint,
     }
 
 # ------------------- Historical Schedule Loader -------------------

@@ -18,7 +18,7 @@ import {
 import ScheduleCellPanel from "../components/ScheduleCellPanel";
 
 function getSheetCellStyle(cell, clients) {
-  if (!cell) return { background: "#D1D5DB", borderColor: "#9CA3AF" };
+  if (!cell) return { background: "#E5E7EB", borderColor: "#D1D5DB" };
   return getCellStyle(cell, clients);
 }
 
@@ -637,11 +637,11 @@ export default function Schedule() {
         <table className="text-xs border-collapse sched-sheet" style={{ minWidth: 1000 }}>
           <thead>
             <tr>
-              <th className="sheet-th" style={{ minWidth: 38, width: 38 }}>#</th>
-              <th className="sheet-th sheet-th-sticky" style={{ minWidth: 110 }}>Therapist</th>
-              <th className="sheet-th" style={{ minWidth: 64 }}>Day</th>
+              <th className="sheet-th" style={{ minWidth: 32, width: 32 }}>#</th>
+              <th className="sheet-th sheet-th-sticky" style={{ minWidth: 96 }}>Therapist</th>
+              <th className="sheet-th" style={{ minWidth: 58 }}>Day</th>
               {TIME_SLOTS.map(ts => (
-                <th key={ts} className="sheet-th" style={{ minWidth: 78 }}>
+                <th key={ts} className="sheet-th" style={{ minWidth: 68 }}>
                   {ts.replace(' AM', 'a').replace(' PM', 'p').replace(' - ', '–')}
                 </th>
               ))}
@@ -655,18 +655,18 @@ export default function Schedule() {
               DAYS_EN.map((d, di) => {
                 const leaveInfo = leaveByTherapistDay[`${t.id}_${di}`];
                 return (
-                <tr key={`${t.id}_${di}`} className={di === 4 ? "border-b-2" : ""} style={di === 4 ? { borderBottomColor: "#7A8A6A" } : {}}>
+                <tr key={`${t.id}_${di}`} className={[di === 0 ? "sheet-therapist-start" : "", di === 4 ? "sheet-therapist-divider" : ""].filter(Boolean).join(" ")}>
                   {di === 0 && (
                     <>
                       <td rowSpan={5} className="sheet-td sheet-idx font-bold text-center">
                         {ti + 1}
                       </td>
-                      <td rowSpan={5} className="sheet-td sheet-therapist" style={{ background: `${t.color}15` }}>
-                        <div className="flex flex-col items-center justify-center gap-1.5 text-center px-1">
-                          <div className="w-8 h-8 rounded-full text-white text-[11px] flex items-center justify-center font-bold shrink-0" style={{ background: t.color }}>
+                      <td rowSpan={5} className="sheet-td sheet-therapist">
+                        <div className="flex flex-col items-center justify-center gap-1 text-center px-1 py-2">
+                          <div className="w-7 h-7 rounded-full text-white text-[10px] flex items-center justify-center font-bold shrink-0" style={{ background: t.color }}>
                             {t.name.replace("Ms. ", "").charAt(0)}
                           </div>
-                          <span className="font-bold text-[11px] leading-tight break-words" style={{ color: "#2C3625" }}>{t.name}</span>
+                          <span className="font-bold text-[10px] leading-tight break-words" style={{ color: "#2C3625" }}>{t.name}</span>
                         </div>
                       </td>
                     </>
