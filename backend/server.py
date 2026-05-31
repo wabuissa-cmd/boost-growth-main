@@ -2160,6 +2160,13 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
             tok = p.split()[0]
             if tok in name_to_id and name_to_id[tok] not in out:
                 out.append(name_to_id[tok])
+            elif len(tok) >= 3:
+                for k, tid in name_to_id.items():
+                    if tid in out:
+                        continue
+                    if k.startswith(tok[:3]) or tok.startswith(k[:3]):
+                        out.append(tid)
+                        break
         return out
 
     matched_sheets = _discover_invoice_sheets(wb, client.get("file_no"))
@@ -4241,29 +4248,49 @@ def _extract_intake_child_name(r: dict) -> str:
 @api.post("/import/clients")
 async def import_clients(file: UploadFile = File(...), _=Depends(ops_or_admin)):
     rows = _read_table(file)
-    created, skipped = 0, 0
+    created, updated, skipped = 0, 0, 0
     therapists = await db.therapists.find({}, {"_id": 0}).to_list(100)
     t_by_name = {t["name"].lower(): t["id"] for t in therapists}
     for r in rows:
         name = r.get("name") or r.get("child_name") or r.get("full_name")
         if not name:
-            skipped += 1; continue
-        file_no = str(r.get("file_no") or r.get("id") or r.get("file") or "").strip() or None
-        # match therapist name to id
+            skipped += 1
+            continue
+        file_no_raw = str(r.get("file_no") or r.get("id") or r.get("file") or "").strip()
+        if not file_no_raw or not file_no_raw.replace("0", "").isdigit():
+            skipped += 1
+            continue
+        file_no = file_no_raw.zfill(3)
         main_name = (r.get("main_therapist") or r.get("main") or "").strip().lower() if r.get("main_therapist") or r.get("main") else None
         main_id = t_by_name.get(main_name) if main_name else None
-        await db.clients.insert_one({
-            "id": str(uuid.uuid4()), "name": str(name).strip(),
-            "file_no": file_no, "package_hours": float(r.get("package_hours") or r.get("pkg") or 24),
-            "supervisor": r.get("supervisor"), "main_therapist_id": main_id,
-            "co_therapist_ids": [], "color": r.get("color") or "#A2C4C9",
-            "locations": [], "parent_name": r.get("parent_name") or r.get("parent"),
+        doc = {
+            "name": str(name).strip(),
+            "file_no": file_no,
+            "package_hours": float(r.get("package_hours") or r.get("pkg") or 24),
+            "supervisor": r.get("supervisor"),
+            "main_therapist_id": main_id,
+            "co_therapist_ids": [],
+            "color": r.get("color") or "#A2C4C9",
+            "locations": [],
+            "parent_name": r.get("parent_name") or r.get("parent"),
             "parent_phone": str(r.get("parent_phone") or r.get("phone") or "") or None,
-            "age": str(r.get("age") or "") or None, "notes": r.get("notes"),
-            "created_at": now_iso(),
-        })
-        created += 1
-    return {"created": created, "skipped": skipped}
+            "age": str(r.get("age") or "") or None,
+            "notes": r.get("notes"),
+            "billing_mode": "hours",
+        }
+        match = await db.clients.find_one({"file_no": file_no}, {"_id": 0, "id": 1})
+        if match:
+            await db.clients.update_one({"id": match["id"]}, {"$set": doc})
+            updated += 1
+        else:
+            await db.clients.insert_one({
+                "id": str(uuid.uuid4()),
+                "payment_status": "pending",
+                "created_at": now_iso(),
+                **doc,
+            })
+            created += 1
+    return {"created": created, "updated": updated, "skipped": skipped}
 
 @api.post("/import/intake")
 async def import_intake(file: UploadFile = File(...), _=Depends(ops_or_admin)):
@@ -4809,7 +4836,6 @@ async def app_version():
             js_hash = m.group(1)
     return {"build": build_id, "js": js_hash, "status": "ok"}
 
-app.include_router(api)
 app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -4859,6 +4885,80 @@ CLIENT_SEED = [
     {"file_no":"070","name":"Abdulelah Almuhana","main":"Ms. Abeer","co":["Ms. Maha"],"pkg":24,"sup":"Ms. Maha","color":"#CFE2F3","locs":[{"service":"SS","address":"Manarat Ar Riyadh"}]},
     {"file_no":"072","name":"Khalid Bin Shuael","main":"Ms. Shatha","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#EAD1DC","locs":[{"service":"HS","address":"AlMursalat"}]},
 ]
+
+CLIENT_ATTENDANCE_SHEETS = {
+    "038": "https://docs.google.com/spreadsheets/d/1O4xIX4pJzXfHw3b029kXOQZ8owI9F4RYSlBFuPJ3X7k/edit?usp=sharing",
+}
+
+OFFICIAL_CLIENT_FILE_NOS = frozenset(c["file_no"] for c in CLIENT_SEED)
+
+
+class RestoreClientsIn(BaseModel):
+    confirm: str
+
+
+@api.post("/admin/restore-official-clients")
+async def restore_official_clients(body: RestoreClientsIn, _=Depends(ops_or_admin)):
+    """Remove clients not in the official 25-client seed list and restore known profiles."""
+    if (body.confirm or "").strip() != "RESTORE":
+        raise HTTPException(status_code=400, detail="Type RESTORE to confirm")
+
+    therapists_map = {t["name"]: t["id"] async for t in db.therapists.find({}, {"_id": 0, "name": 1, "id": 1})}
+    deleted: List[str] = []
+    for c in await db.clients.find({}, {"_id": 0, "id": 1, "file_no": 1, "name": 1}).to_list(500):
+        fn = str(c.get("file_no") or "").strip()
+        fn_norm = fn.zfill(3) if fn else None
+        if fn_norm and fn_norm in OFFICIAL_CLIENT_FILE_NOS:
+            continue
+        cid = c["id"]
+        await db.sessions.delete_many({"client_id": cid})
+        await db.invoices.delete_many({"client_id": cid})
+        await db.progress_reports.delete_many({"client_id": cid})
+        await db.clients.delete_one({"id": cid})
+        deleted.append(c.get("name") or fn or cid)
+
+    created, updated = 0, 0
+    for seed in CLIENT_SEED:
+        match = await db.clients.find_one({"file_no": seed["file_no"]}, {"_id": 0, "id": 1})
+        fields = {
+            "file_no": seed["file_no"],
+            "name": seed["name"],
+            "package_hours": seed["pkg"],
+            "supervisor": seed["sup"],
+            "main_therapist_id": therapists_map.get(seed["main"]),
+            "co_therapist_ids": [therapists_map[n] for n in seed["co"] if n in therapists_map],
+            "color": seed["color"],
+            "locations": seed["locs"],
+            "billing_mode": "hours",
+        }
+        if seed["file_no"] in CLIENT_ATTENDANCE_SHEETS:
+            fields["attendance_sheet_url"] = CLIENT_ATTENDANCE_SHEETS[seed["file_no"]]
+        if match:
+            await db.clients.update_one({"id": match["id"]}, {"$set": fields})
+            updated += 1
+        else:
+            await db.clients.insert_one({
+                "id": str(uuid.uuid4()),
+                "payment_status": "pending",
+                "created_at": now_iso(),
+                **fields,
+            })
+            created += 1
+
+    total = await db.clients.count_documents({})
+    return {
+        "ok": True,
+        "deleted_count": len(deleted),
+        "deleted_names": deleted[:40],
+        "created": created,
+        "updated": updated,
+        "total_clients": total,
+        "message": (
+            f"Removed {len(deleted)} unknown client(s). "
+            f"Restored {len(CLIENT_SEED)} official clients ({created} new, {updated} updated). "
+            f"Total now: {total}."
+        ),
+    }
 
 # ------------------- Intake Seed (from Waiting_List_v4.xlsx) -------------------
 INTAKE_SEED = [
@@ -5079,6 +5179,8 @@ async def startup():
     asyncio.create_task(_run_startup())
     logger.info("API ready; database init running in background")
 
+
+app.include_router(api)
 
 @app.on_event("shutdown")
 async def shutdown():

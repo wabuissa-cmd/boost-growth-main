@@ -12,6 +12,8 @@ export default function ImportPage() {
   const [scheduleWeekStart, setScheduleWeekStart] = useState(toISODate(startOfWeek(new Date())));
   const [sheetName, setSheetName] = useState("");
   const [availableSheets, setAvailableSheets] = useState([]);
+  const [restoreConfirm, setRestoreConfirm] = useState("");
+  const [restoreResult, setRestoreResult] = useState(null);
 
   // When schedule file is picked, list its sheet names so user can choose
   useEffect(() => {
@@ -61,6 +63,24 @@ export default function ImportPage() {
       const { data } = await api.post("/import/historical-load", { clear_existing: clearExisting });
       setResult({ ok: true, msg: `${data.weeks_loaded} weeks loaded, ${data.cells_inserted} cells inserted` });
     } catch (e) { setResult({ ok: false, msg: e.response?.data?.detail || e.message }); }
+    setLoading(false);
+  };
+
+  const restoreOfficialClients = async () => {
+    if (restoreConfirm !== "RESTORE") {
+      alert('Type RESTORE in the box to confirm');
+      return;
+    }
+    if (!window.confirm("Remove all clients NOT in the official 25-client list and restore known profiles?")) return;
+    setLoading(true);
+    setRestoreResult(null);
+    try {
+      const { data } = await api.post("/admin/restore-official-clients", { confirm: "RESTORE" });
+      setRestoreResult(data);
+      setRestoreConfirm("");
+    } catch (e) {
+      setRestoreResult({ message: e.response?.data?.detail || e.message, ok: false });
+    }
     setLoading(false);
   };
 
@@ -162,6 +182,26 @@ export default function ImportPage() {
           <div className={`mt-4 p-3 rounded-xl border flex items-start gap-2 ${result.ok ? "bg-[#E5EBE1] border-[#B4C2A9]" : "bg-[#F8EBE7] border-[#ECA6A6]"}`}>
             {result.ok ? <CheckCircle size={18} weight="fill" style={{color: "#3D4F35"}}/> : <X size={18} style={{color: "#8A3F27"}}/>}
             <div className="text-sm font-bold" style={{color: result.ok ? "#3D4F35" : "#8A3F27"}}>{result.msg}</div>
+          </div>
+        )}
+      </div>
+
+      <div className="card p-6 mt-5 border-2" style={{ borderColor: "#C9BB91" }}>
+        <div className="font-bold mb-1" style={{ color: "#2C3625" }}>Restore Official Clients (25)</div>
+        <div className="text-sm mb-4" style={{ color: "#5C6853" }}>
+          Removes clients added by mistake (e.g. from a bad import) and restores the known client list with file numbers, therapists, and locations.
+        </div>
+        <div className="flex flex-wrap gap-2 items-center mb-3">
+          <input className="input text-sm max-w-[140px]" placeholder="RESTORE" value={restoreConfirm}
+            onChange={e => setRestoreConfirm(e.target.value)} />
+          <button type="button" onClick={restoreOfficialClients} disabled={loading || restoreConfirm !== "RESTORE"}
+            className="btn btn-gold text-sm disabled:opacity-50">
+            Restore Official Clients
+          </button>
+        </div>
+        {restoreResult && (
+          <div className="text-xs p-3 rounded-xl" style={{ background: restoreResult.ok !== false ? "#E5EBE1" : "#F8EBE7", color: "#3D4F35" }}>
+            {restoreResult.message}
           </div>
         )}
       </div>
