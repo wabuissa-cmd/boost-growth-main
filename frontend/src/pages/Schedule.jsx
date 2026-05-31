@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef, useLayoutEffect } from "react";
 import api, { DAYS_EN, DAYS_SHORT, TIME_SLOTS, SERVICE_CODES, startOfWeek, addDays, toISODate, formatDateRange } from "../api";
 import {
   getCellStyle, META_SERVICE_CODES, MERGE_QUICK,
@@ -16,6 +16,19 @@ import {
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
 import ScheduleCellPanel from "../components/ScheduleCellPanel";
+
+function positionContextMenu(x, y, menuWidth, menuHeight) {
+  const pad = 10;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  let left = x;
+  let top = y;
+  if (left + menuWidth > vw - pad) left = vw - menuWidth - pad;
+  if (top + menuHeight > vh - pad) top = y - menuHeight;
+  if (top < pad) top = pad;
+  if (left < pad) left = pad;
+  return { left, top };
+}
 
 function CellContent({ cell, sc }) {
   if (!cell) return null;
@@ -99,6 +112,20 @@ export default function Schedule() {
   const [mergeForm, setMergeForm] = useState({ label: "", color: "#E5EBE1", quick: "MEETING" });
   const [colorForm, setColorForm] = useState("#A2C4C9");
   const [ctxMenu, setCtxMenu] = useState(null);
+  const ctxMenuRef = useRef(null);
+  const [ctxMenuPos, setCtxMenuPos] = useState({ left: 0, top: 0, ready: false });
+
+  useLayoutEffect(() => {
+    if (!ctxMenu) {
+      setCtxMenuPos({ left: 0, top: 0, ready: false });
+      return;
+    }
+    const el = ctxMenuRef.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    const pos = positionContextMenu(ctxMenu.x, ctxMenu.y, width, height);
+    setCtxMenuPos({ ...pos, ready: true });
+  }, [ctxMenu]);
 
   const weekStartISO = toISODate(weekStart);
 
@@ -804,8 +831,16 @@ export default function Schedule() {
 
       {ctxMenu && isAdmin && (
         <div
+          ref={ctxMenuRef}
           className="fixed z-[70] bg-white rounded-xl shadow-2xl border py-1 min-w-[220px] text-sm"
-          style={{ left: Math.min(ctxMenu.x, window.innerWidth - 240), top: Math.min(ctxMenu.y, window.innerHeight - 360), borderColor: "#E8E4DE" }}
+          style={{
+            left: ctxMenuPos.ready ? ctxMenuPos.left : ctxMenu.x,
+            top: ctxMenuPos.ready ? ctxMenuPos.top : ctxMenu.y,
+            visibility: ctxMenuPos.ready ? "visible" : "hidden",
+            maxHeight: "calc(100dvh - 16px)",
+            overflowY: "auto",
+            borderColor: "#E8E4DE",
+          }}
           onClick={e => e.stopPropagation()}
           data-testid="schedule-context-menu"
         >

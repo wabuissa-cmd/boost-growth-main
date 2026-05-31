@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { X } from "@phosphor-icons/react";
 
 const SIZE_MAX = { sm: 480, md: 600, lg: 760, xl: 900 };
@@ -6,62 +7,70 @@ const SIZE_MAX = { sm: 480, md: 600, lg: 760, xl: 900 };
 export function ModalBase({ title, subtitle, onClose, children, footer, size = "md", elevated = false }) {
   const maxWidth = SIZE_MAX[size] || SIZE_MAX.md;
 
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
   return (
     <div
-      className={`fixed inset-0 ${elevated ? "z-[60]" : "z-50"} flex items-end sm:items-center justify-center p-0 sm:p-4`}
+      className={`fixed inset-0 ${elevated ? "z-[60]" : "z-50"} overflow-y-auto`}
       style={{ background: "rgba(30,40,25,0.45)", backdropFilter: "blur(4px)" }}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
     >
-      <div
-        className="bg-white rounded-none sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden w-full h-[100dvh] sm:h-auto"
-        style={{ maxWidth, maxHeight: "min(90vh, 100dvh)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* HEADER */}
+      <div className="flex min-h-full items-center justify-center p-3 sm:p-6">
         <div
-          className="px-5 sm:px-8 pt-5 sm:pt-7 pb-4 sm:pb-5 border-b flex items-start justify-between flex-shrink-0"
-          style={{ borderColor: "#EDE9E3" }}
+          className="bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden w-full my-auto"
+          style={{ maxWidth, maxHeight: "min(90dvh, calc(100dvh - 24px))" }}
+          onClick={(e) => e.stopPropagation()}
         >
-          <div className="min-w-0 pr-2">
-            <h2
-              className="font-bold tracking-tight text-xl sm:text-[26px]"
-              style={{ color: "#1C2617", lineHeight: 1.2 }}
-            >
-              {title}
-            </h2>
-            {subtitle && (
-              <p className="mt-1 text-sm truncate" style={{ color: "#8B9E7A" }}>
-                {subtitle}
-              </p>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="ml-2 mt-0.5 rounded-lg p-1.5 hover:bg-gray-100 transition flex-shrink-0"
-            style={{ color: "#9CA3AF" }}
-            aria-label="Close"
-          >
-            <X size={20} weight="bold" />
-          </button>
-        </div>
-
-        {/* BODY */}
-        <div className="flex-1 overflow-y-auto px-5 sm:px-8 py-5 sm:py-6 space-y-6 min-h-0">
-          {children}
-        </div>
-
-        {/* FOOTER */}
-        {footer && (
+          {/* HEADER */}
           <div
-            className="px-5 sm:px-8 py-4 sm:py-5 border-t flex items-center justify-end gap-2 sm:gap-3 flex-wrap flex-shrink-0"
-            style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}
+            className="px-5 sm:px-8 pt-5 sm:pt-7 pb-4 sm:pb-5 border-b flex items-start justify-between flex-shrink-0"
+            style={{ borderColor: "#EDE9E3" }}
           >
-            {footer}
+            <div className="min-w-0 pr-2">
+              <h2
+                className="font-bold tracking-tight text-xl sm:text-[26px]"
+                style={{ color: "#1C2617", lineHeight: 1.2 }}
+              >
+                {title}
+              </h2>
+              {subtitle && (
+                <p className="mt-1 text-sm truncate" style={{ color: "#8B9E7A" }}>
+                  {subtitle}
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="ml-2 mt-0.5 rounded-lg p-1.5 hover:bg-gray-100 transition flex-shrink-0"
+              style={{ color: "#9CA3AF" }}
+              aria-label="Close"
+            >
+              <X size={20} weight="bold" />
+            </button>
           </div>
-        )}
+
+          {/* BODY */}
+          <div className="flex-1 overflow-y-auto px-5 sm:px-8 py-5 sm:py-6 space-y-6 min-h-0">
+            {children}
+          </div>
+
+          {/* FOOTER */}
+          {footer && (
+            <div
+              className="px-5 sm:px-8 py-4 sm:py-5 border-t flex items-center justify-end gap-2 sm:gap-3 flex-wrap flex-shrink-0"
+              style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}
+            >
+              {footer}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
