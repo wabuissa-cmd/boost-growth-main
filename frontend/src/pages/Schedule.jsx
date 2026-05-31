@@ -36,7 +36,7 @@ function CellContent({ cell, sc }) {
   );
 }
 
-function cellClassName(cell, isAdmin, leaveInfo, selected) {
+function cellClassName(cell, isAdmin, leaveInfo, selected, copied) {
   const parts = ["sheet-td sheet-slot"];
   if (cell) {
     parts.push("has-event");
@@ -47,10 +47,11 @@ function cellClassName(cell, isAdmin, leaveInfo, selected) {
   if (isAdmin) parts.push("editable");
   if (leaveInfo) parts.push("on-leave-cell");
   if (selected) parts.push("cell-selected");
+  if (copied) parts.push("copied-source");
   return parts.join(" ");
 }
 
-function cellClassNameBlock(cell, isAdmin, leaveInfo, selected) {
+function cellClassNameBlock(cell, isAdmin, leaveInfo, selected, copied) {
   const parts = ["cell-base"];
   if (cell) {
     parts.push("has-event");
@@ -61,6 +62,7 @@ function cellClassNameBlock(cell, isAdmin, leaveInfo, selected) {
   if (isAdmin) parts.push("editable");
   if (leaveInfo) parts.push("on-leave-cell");
   if (selected) parts.push("cell-selected");
+  if (copied) parts.push("copied-source");
   return parts.join(" ");
 }
 
@@ -276,12 +278,15 @@ export default function Schedule() {
 
   const bulkFillAt = async (mode, { therapist_id, day, time_slot }) => {
     const leaveColor = SERVICE_CELL_COLORS.LEAVE.background;
+    const therapistName = therapists.find(t => t.id === therapist_id)?.name || "Therapist";
     const clearDay = async (d) => {
       for (const ts of TIME_SLOTS) await deleteAtSlot(therapist_id, d, ts);
     };
 
     if (mode === "leave_day") {
-      if (!window.confirm(`Apply Leave for full ${DAYS_EN[day]} (all hours)?`)) return;
+      const dayDate = addDays(weekStart, day);
+      const dateLabel = `${dayDate.getDate()}/${dayDate.getMonth() + 1}`;
+      if (!window.confirm(`Mark ${therapistName} on leave for full ${DAYS_EN[day]} (${dateLabel})?`)) return;
       await clearDay(day);
       await api.post("/schedule", {
         therapist_id, day, time_slot: TIME_SLOTS[0], duration: TIME_SLOTS.length,
@@ -289,7 +294,7 @@ export default function Schedule() {
         state: "normal", color: leaveColor, child_name: null,
       });
     } else if (mode === "leave_week") {
-      if (!window.confirm("Apply Leave for the entire week (all days, all hours)?")) return;
+      if (!window.confirm(`Mark ${therapistName} on leave for entire week of ${formatDateRange(weekStart)}?`)) return;
       for (let d = 0; d < 5; d++) {
         await clearDay(d);
         await api.post("/schedule", {
@@ -318,21 +323,30 @@ export default function Schedule() {
     closePanel();
   };
 
+  const pasteAt = async (therapist_id, day, time_slot) => {
+    if (!clipboard) return;
+    if (cellMap[`${therapist_id}_${day}_${time_slot}`]) {
+      alert("This slot is occupied");
+      return;
+    }
+    await api.post("/schedule", {
+      therapist_id, day, time_slot, week_start: weekStartISO,
+      service_code: clipboard.service_code,
+      child_name: clipboard.child_name,
+      custom_time: clipboard.custom_time,
+      note: clipboard.note,
+      duration: clipboard.duration || 1,
+      state: "normal",
+      color: clipboard.color || null,
+    });
+    await load();
+  };
+
   const handleCellClick = (e, therapist_id, day, time_slot, existing) => {
     if (e) e.stopPropagation();
     if (!isAdmin) return;
     if (clipboard && !existing) {
-      const payload = {
-        therapist_id, day, time_slot, week_start: weekStartISO,
-        service_code: clipboard.service_code,
-        child_name: clipboard.child_name,
-        custom_time: clipboard.custom_time,
-        note: clipboard.note,
-        duration: clipboard.duration || 1,
-        state: "normal",
-        color: clipboard.color || null,
-      };
-      api.post("/schedule", payload).then(load);
+      pasteAt(therapist_id, day, time_slot);
       return;
     }
     if (e?.shiftKey && panelOpen && selectAnchor
@@ -424,13 +438,19 @@ export default function Schedule() {
     await load();
   };
 
-  const copyCell = (cell) => {
+  const copyCell = ({ cell, therapist_id, day, time_slot }) => {
+    if (!cell) return;
     setClipboard({
       service_code: cell.service_code, child_name: cell.child_name,
       custom_time: cell.custom_time, note: cell.note,
       duration: cell.duration || 1, color: cell.color,
+      sourceKey: `${therapist_id}_${day}_${time_slot}`,
     });
+    setCtxMenu(null);
   };
+
+  const isCopied = (therapist_id, day, time_slot) =>
+    clipboard?.sourceKey === `${therapist_id}_${day}_${time_slot}`;
 
   const openNotify = (cell, cancelState = null) => {
     const therapist = therapists.find(t => t.id === cell.therapist_id);
@@ -460,7 +480,7 @@ export default function Schedule() {
     });
   };
 
-  const save = async () => {
+  const save = async (opts = {}) => {
     if (!panelForm) return;
     setPanelSaving(true);
     try {
@@ -471,8 +491,27 @@ export default function Schedule() {
         payload.note = payload.note || "Available";
         payload.child_name = null;
       }
-      if (panelForm.id) await api.put(`/schedule/${panelForm.id}`, payload);
-      else await api.post("/schedule", payload);
+      let cellId = panelForm.id;
+      if (panelForm.id) {
+        await api.put(`/schedule/${panelForm.id}`, payload);
+      } else {
+        const { data } = await api.post("/schedule", payload);
+        cellId = data?.id;
+      }
+      const cn = opts.cancelNotify;
+      if (
+        cn && (payload.state === "cancel_therapist" || payload.state === "cancel_child") && cellId
+        && (cn.send_email || cn.send_in_app)
+      ) {
+        await api.post("/schedule/cancel-notify", {
+          cell_id: cellId,
+          state: payload.state,
+          message: cn.message,
+          recipient_ids: cn.recipient_ids || [],
+          send_email: !!cn.send_email,
+          send_in_app: cn.send_in_app !== false,
+        });
+      }
       await load();
       closePanel();
     } finally {
@@ -496,33 +535,6 @@ export default function Schedule() {
     setNotify(null);
     load();
   };
-  const setState = async (cell, state) => {
-    if (state === "cancel_therapist" || state === "cancel_child") {
-      openNotify(cell, state);
-      closePanel();
-      return;
-    }
-    await api.put(`/schedule/${cell.id}`, { ...cell, state });
-    await load();
-    setPanelForm(f => f ? { ...f, state } : f);
-  };
-
-  const duplicateSession = async ({ cell, therapist_id, day, time_slot }) => {
-    if (!cell) return;
-    const idx = TIME_SLOTS.indexOf(time_slot);
-    const nextTs = TIME_SLOTS[idx + 1];
-    if (!nextTs) { alert("No adjacent slot available"); return; }
-    if (cellMap[`${therapist_id}_${day}_${nextTs}`]) { alert("Next slot is occupied"); return; }
-    await api.post("/schedule", {
-      therapist_id, day, time_slot: nextTs, week_start: weekStartISO,
-      service_code: cell.service_code, child_name: cell.child_name,
-      custom_time: cell.custom_time, note: cell.note,
-      duration: 1, state: cell.state, color: cell.color,
-    });
-    await load();
-    setCtxMenu(null);
-  };
-
   const onCtx = (e, cell, therapist_id, day, time_slot) => {
     if (!isAdmin) return;
     e.preventDefault();
@@ -596,7 +608,7 @@ export default function Schedule() {
                         key={ts}
                         colSpan={dur}
                         data-testid={`sheet-cell-${t.id}-${di}-${ts}`}
-                        className={cellClassName(cell, isAdmin, leaveInfo, isSelected(t.id, di, ts))}
+                        className={cellClassName(cell, isAdmin, leaveInfo, isSelected(t.id, di, ts), isCopied(t.id, di, ts))}
                         style={getCellStyle(cell, clients)}
                         onClick={(e) => handleCellClick(e, t.id, di, ts, cell)}
                         onContextMenu={(e) => onCtx(e, cell, t.id, di, ts)}
@@ -658,7 +670,7 @@ export default function Schedule() {
                   const sc = SERVICE_CODES.find(s => s.id === cell?.service_code);
                   const dur = cell?.duration || 1;
                   return (
-                    <td key={ts} className={cellClassNameBlock(cell, isAdmin, leaveInfo, isSelected(therapist.id, di, ts))}
+                    <td key={ts} className={cellClassNameBlock(cell, isAdmin, leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts))}
                       colSpan={dur}
                       style={getCellStyle(cell, clients)}
                       data-testid={`cell-${therapist.id}-${di}-${ts}`}
@@ -739,7 +751,7 @@ export default function Schedule() {
         <div className="card p-3 mb-4 flex items-center gap-3 text-sm" style={{ background: "#FFF7E1", borderColor: "#E8C572" }} data-testid="clipboard-banner">
           <Copy size={18} weight="duotone" style={{ color: "#8B6918" }} />
           <div className="flex-1">
-            <div className="font-bold" style={{ color: "#6B5218" }}>📋 Cell copied — click any empty slot to paste</div>
+            <div className="font-bold" style={{ color: "#6B5218" }}>📋 Cell copied — right-click empty slot → Paste Here</div>
             <div className="text-xs" style={{ color: "#8B6918" }}>{clipboard.service_code}{clipboard.child_name && ` | ${clipboard.child_name}`}{clipboard.custom_time && ` (${clipboard.custom_time})`} {clipboard.duration > 1 && `· ${clipboard.duration}h`}</div>
           </div>
           <button onClick={() => setClipboard(null)} className="btn btn-ghost p-1.5"><X size={16} /></button>
@@ -804,8 +816,14 @@ export default function Schedule() {
           </button>
           {ctxMenu.cell && (
             <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
-              onClick={ctxAction(() => duplicateSession(ctxMenu))}>
-              Duplicate Session
+              onClick={ctxAction(() => copyCell(ctxMenu))}>
+              Copy Cell <span className="text-[10px]" style={{ color: "#8B9E7A" }}>(نسخ الخلية)</span>
+            </button>
+          )}
+          {!ctxMenu.cell && clipboard && (
+            <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
+              onClick={ctxAction(() => { pasteAt(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.time_slot); setCtxMenu(null); })}>
+              Paste Here
             </button>
           )}
           <div className="my-1 border-t" style={{ borderColor: "#EDE9E3" }} />

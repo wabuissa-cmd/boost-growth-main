@@ -167,6 +167,7 @@ main, .page-enter { min-width: 0; }
 .cell-base:hover { background: rgba(229, 235, 225, 0.5); }
 .cell-empty:hover { box-shadow: inset 0 0 0 2px var(--brand); }
 .cell-selected { outline: 3px solid #3B82F6 !important; outline-offset: -3px; z-index: 3; }
+.cell-base.copied-source { outline: 2px dashed #C28E6A !important; outline-offset: -2px; animation: copy-pulse 1s ease-in-out infinite; z-index: 2; }
 .cell-base.cell-available, .sched-sheet .sheet-slot.cell-available {
     background: #FFFFFF !important;
     color: #5C6853;
