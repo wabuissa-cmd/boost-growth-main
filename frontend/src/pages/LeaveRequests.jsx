@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import api, { API } from "../api";
-import { useAuth, isStaffAdmin } from "../auth";
+import { useAuth, showAdminNav } from "../auth";
 import {
   Plus, X, CheckCircle, XCircle, FilePdf, UploadSimple, Eye, Trash,
   UserMinus, MagnifyingGlass, Export, CaretDown, CaretRight, FileText, PencilSimple
@@ -543,7 +543,7 @@ export default function LeaveRequests({ personal = false }) {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const therapistFilter = personal ? user?.id : (searchParams.get("therapist") || null);
-  const isAdmin = !personal && isStaffAdmin(user);
+  const isAdmin = !personal && showAdminNav(user);
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
   const [tab, setTab] = useState("active");

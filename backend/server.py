@@ -78,14 +78,23 @@ async def get_current_user(request: Request) -> dict:
 async def admin_only(user: dict = Depends(get_current_user)) -> dict:
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
+    if _is_client_lead(user):
+        raise HTTPException(status_code=403, detail="Admin access required")
     return user
 
 FULL_CLIENT_ACCESS_KEYS = frozenset({"mswalaa", "msmaha", "msjenan", "msfahda"})
 FULL_CLIENT_NAME_TOKENS = frozenset({"walaa", "maha", "jenan", "fahda"})
+CLIENT_LEAD_EMAILS = frozenset({
+    "walaa@boostgrowthsa.com",
+    "msalthunayan@boostgrowthsa.com",
+    "falghadeeb@boostgrowthsa.com",
+    "jsalmuhaisin@boostgrowthsa.com",
+})
 
 
-def _has_full_client_access(user: dict) -> bool:
-    if user.get("role") == "admin":
+def _is_client_lead(user: dict) -> bool:
+    email = (user.get("email") or "").lower().strip()
+    if email in CLIENT_LEAD_EMAILS:
         return True
     key = (user.get("key") or "").lower()
     if key in FULL_CLIENT_ACCESS_KEYS:
@@ -95,13 +104,23 @@ def _has_full_client_access(user: dict) -> bool:
     return first in FULL_CLIENT_NAME_TOKENS
 
 
+def _has_full_client_access(user: dict) -> bool:
+    if user.get("role") == "admin":
+        return True
+    return _is_client_lead(user)
+
+
+def _is_portal_admin(user: dict) -> bool:
+    return user.get("role") == "admin"
+
+
 def _is_staff_admin(user: dict) -> bool:
-    """Admin login or ops team (Walaa, Maha, Jenan, Fahda) — full operational access."""
-    return user.get("role") == "admin" or _has_full_client_access(user)
+    """Admin login or client-lead team (Walaa, Maha, Jenan, Fahda) — full client access."""
+    return _is_portal_admin(user) or _has_full_client_access(user)
 
 
 async def ops_or_admin(user: dict = Depends(get_current_user)) -> dict:
-    if _is_staff_admin(user):
+    if _has_full_client_access(user):
         return user
     raise HTTPException(status_code=403, detail="Admin access required")
 
@@ -392,8 +411,10 @@ async def reset_therapist_password(tid: str, _=Depends(admin_only)):
 
 @api.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
-    user["ops_access"] = bool(_has_full_client_access(user) and user.get("role") != "admin")
-    user["staff_admin"] = _is_staff_admin(user)
+    user["ops_access"] = bool(_is_client_lead(user))
+    user["client_lead"] = _is_client_lead(user)
+    user["portal_admin"] = user.get("role") == "admin" and not _is_client_lead(user)
+    user["staff_admin"] = user["portal_admin"]
     return user
 
 @api.post("/auth/logout")
@@ -698,7 +719,7 @@ async def list_schedule(week_start: Optional[str] = None, user=Depends(get_curre
     if week_start:
         q["week_start"] = week_start
         meta = await db.schedule_weeks.find_one({"week_start": week_start}, {"_id": 0})
-        if meta and meta.get("status") == "draft" and not _is_staff_admin(user):
+        if meta and meta.get("status") == "draft" and not _has_full_client_access(user):
             return []
     cells = await db.schedule_cells.find(q, {"_id": 0}).to_list(5000)
     return cells
@@ -2533,7 +2554,7 @@ async def update_session(sid: str, payload: SessionIn, user=Depends(get_current_
     sess = await db.sessions.find_one({"id": sid})
     if not sess:
         raise HTTPException(status_code=404, detail="Not found")
-    if not _is_staff_admin(user) and user["id"] not in (sess.get("therapist_ids") or []):
+    if not _has_full_client_access(user) and user["id"] not in (sess.get("therapist_ids") or []):
         raise HTTPException(status_code=403, detail="Forbidden")
     await db.sessions.update_one({"id": sid}, {"$set": payload.model_dump()})
     return await db.sessions.find_one({"id": sid}, {"_id": 0})
@@ -2543,7 +2564,7 @@ async def delete_session(sid: str, user=Depends(get_current_user)):
     sess = await db.sessions.find_one({"id": sid})
     if not sess:
         return {"ok": True}
-    if not _is_staff_admin(user) and user["id"] not in (sess.get("therapist_ids") or []):
+    if not _has_full_client_access(user) and user["id"] not in (sess.get("therapist_ids") or []):
         raise HTTPException(status_code=403, detail="Forbidden")
     await db.sessions.delete_one({"id": sid})
     return {"ok": True}
@@ -2600,7 +2621,7 @@ async def download_sheet(sid: str, user=Depends(get_current_user)):
 # ------------------- Requests -------------------
 @api.get("/requests")
 async def list_requests(user=Depends(get_current_user)):
-    q = {} if _is_staff_admin(user) else {"therapist_id": user["id"]}
+    q = {} if _is_portal_admin(user) else {"therapist_id": user["id"]}
     return await db.requests.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
 
 @api.post("/requests")
@@ -2620,7 +2641,7 @@ async def create_request(payload: RequestIn, user=Depends(get_current_user)):
     return doc
 
 @api.put("/requests/{rid}/status")
-async def update_request_status(rid: str, payload: RequestStatusUpdate, admin=Depends(ops_or_admin)):
+async def update_request_status(rid: str, payload: RequestStatusUpdate, admin=Depends(admin_only)):
     req = await db.requests.find_one({"id": rid})
     if not req:
         raise HTTPException(status_code=404, detail="Not found")
@@ -3250,7 +3271,7 @@ async def list_leaves(year: Optional[int] = None, user=Depends(get_current_user)
     q: dict = {}
     if year:
         q["start_date"] = {"$gte": f"{year}-01-01", "$lte": f"{year}-12-31"}
-    if not _is_staff_admin(user):
+    if not _is_portal_admin(user):
         q["therapist_id"] = user["id"]
     items = await db.leaves.find(q, {"_id": 0}).sort("start_date", -1).to_list(2000)
     therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1, "color": 1}).to_list(100)
@@ -3260,7 +3281,7 @@ async def list_leaves(year: Optional[int] = None, user=Depends(get_current_user)
         if t:
             it["therapist_name"] = t.get("name")
             it["therapist_color"] = t.get("color")
-            if _is_staff_admin(user):
+            if _is_portal_admin(user):
                 it["therapist_email"] = t.get("email")
     return [_enrich_leave_document_url(it) for it in items]
 
@@ -3271,7 +3292,7 @@ async def leaves_balance(year: Optional[int] = None, user=Depends(get_current_us
     """
     yr = year or datetime.now(timezone.utc).year
     therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "color": 1, "email": 1, "annual_balance": 1, "leave_balance": 1, "join_date": 1}).to_list(100)
-    if not _is_staff_admin(user):
+    if not _is_portal_admin(user):
         therapists = [t for t in therapists if t["id"] == user["id"]]
     leaves = await db.leaves.find({"start_date": {"$gte": f"{yr}-01-01", "$lte": f"{yr}-12-31"}}, {"_id": 0}).to_list(2000)
     out = []
@@ -3298,7 +3319,7 @@ async def leaves_balance(year: Optional[int] = None, user=Depends(get_current_us
 
 @api.post("/leaves")
 async def create_leave(payload: LeaveIn, user=Depends(get_current_user)):
-    if not _is_staff_admin(user) and payload.therapist_id != user["id"]:
+    if not _is_portal_admin(user) and payload.therapist_id != user["id"]:
         raise HTTPException(status_code=403, detail="Therapist can only create own leaves")
     lid = str(uuid.uuid4())
     doc = {"id": lid, **payload.model_dump(), **_leave_default_fields(), "created_by": user["id"], "created_at": now_iso()}
@@ -3317,14 +3338,14 @@ async def update_leave(lid: str, payload: LeaveIn, user=Depends(get_current_user
     leave = await db.leaves.find_one({"id": lid})
     if not leave:
         raise HTTPException(status_code=404, detail="Not found")
-    if not _is_staff_admin(user) and leave.get("therapist_id") != user["id"]:
+    if not _is_portal_admin(user) and leave.get("therapist_id") != user["id"]:
         raise HTTPException(status_code=403, detail="Forbidden")
     update = payload.model_dump()
     await db.leaves.update_one({"id": lid}, {"$set": update})
     return await db.leaves.find_one({"id": lid}, {"_id": 0})
 
 @api.put("/leaves/{lid}/status")
-async def update_leave_status(lid: str, payload: LeaveStatusUpdate, admin=Depends(ops_or_admin)):
+async def update_leave_status(lid: str, payload: LeaveStatusUpdate, admin=Depends(admin_only)):
     leave = await db.leaves.find_one({"id": lid})
     if not leave:
         raise HTTPException(status_code=404, detail="Not found")
@@ -3376,7 +3397,7 @@ async def delete_leave(lid: str, user=Depends(get_current_user)):
 
 
 @api.post("/leaves/mark-absence")
-async def mark_absence_without_request(payload: MarkAbsenceIn, admin=Depends(ops_or_admin)):
+async def mark_absence_without_request(payload: MarkAbsenceIn, admin=Depends(admin_only)):
     """Admin: record absence/permission and optionally cancel schedule sessions."""
     t = await db.therapists.find_one({"id": payload.therapist_id}, {"_id": 0, "id": 1, "name": 1})
     if not t:
@@ -3414,7 +3435,7 @@ async def mark_absence_without_request(payload: MarkAbsenceIn, admin=Depends(ops
 
 
 @api.post("/leaves/{lid}/mark-absent")
-async def mark_leave_absent(lid: str, payload: MarkAbsentIn, admin=Depends(ops_or_admin)):
+async def mark_leave_absent(lid: str, payload: MarkAbsentIn, admin=Depends(admin_only)):
     leave = await db.leaves.find_one({"id": lid}, {"_id": 0})
     if not leave:
         raise HTTPException(status_code=404, detail="Leave not found")
@@ -3522,7 +3543,7 @@ async def delete_leave_document(lid: str, user=Depends(get_current_user)):
 
 
 @api.put("/leaves/{lid}/verify-document")
-async def verify_leave_document(lid: str, payload: LeaveDocumentVerifyIn, _=Depends(ops_or_admin)):
+async def verify_leave_document(lid: str, payload: LeaveDocumentVerifyIn, _=Depends(admin_only)):
     leave = await db.leaves.find_one({"id": lid}, {"_id": 0})
     if not leave:
         raise HTTPException(status_code=404, detail="Leave not found")
@@ -3729,11 +3750,11 @@ async def schedule_cancel_notify(payload: CancelNotifyIn, _=Depends(ops_or_admin
 
 # ------------------- Intake (admin only) -------------------
 @api.get("/intake")
-async def list_intake(_=Depends(ops_or_admin)):
+async def list_intake(_=Depends(admin_only)):
     return await db.intake.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
 
 @api.post("/intake")
-async def create_intake(payload: IntakeIn, _=Depends(ops_or_admin)):
+async def create_intake(payload: IntakeIn, _=Depends(admin_only)):
     iid = str(uuid.uuid4())
     doc = {"id": iid, **payload.model_dump(), "created_at": now_iso()}
     await db.intake.insert_one(doc)
@@ -3741,7 +3762,7 @@ async def create_intake(payload: IntakeIn, _=Depends(ops_or_admin)):
     return doc
 
 @api.put("/intake/{iid}")
-async def update_intake(iid: str, payload: IntakeIn, _=Depends(ops_or_admin)):
+async def update_intake(iid: str, payload: IntakeIn, _=Depends(admin_only)):
     await db.intake.update_one({"id": iid}, {"$set": payload.model_dump()})
     return await db.intake.find_one({"id": iid}, {"_id": 0})
 
@@ -3780,7 +3801,7 @@ async def seed_intake_master(_=Depends(admin_only)):
 
 # ------------------- Reports -------------------
 @api.get("/reports/dashboard")
-async def reports_dashboard(_=Depends(ops_or_admin)):
+async def reports_dashboard(_=Depends(admin_only)):
     sessions = await db.sessions.find({}, {"_id": 0}).to_list(5000)
     clients = await db.clients.find({}, {"_id": 0}).to_list(500)
     therapists = await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).to_list(50)
@@ -4246,7 +4267,7 @@ def _extract_intake_child_name(r: dict) -> str:
     return ""
 
 @api.post("/import/clients")
-async def import_clients(file: UploadFile = File(...), _=Depends(ops_or_admin)):
+async def import_clients(file: UploadFile = File(...), _=Depends(admin_only)):
     rows = _read_table(file)
     created, updated, skipped = 0, 0, 0
     therapists = await db.therapists.find({}, {"_id": 0}).to_list(100)
@@ -4293,7 +4314,7 @@ async def import_clients(file: UploadFile = File(...), _=Depends(ops_or_admin)):
     return {"created": created, "updated": updated, "skipped": skipped}
 
 @api.post("/import/intake")
-async def import_intake(file: UploadFile = File(...), _=Depends(ops_or_admin)):
+async def import_intake(file: UploadFile = File(...), _=Depends(admin_only)):
     try:
         content = file.file.read()
         rows, detected_columns, parse_meta = _read_intake_rows(content, file.filename or "")
@@ -4366,12 +4387,12 @@ def _load_historical():
     return HISTORICAL_SCHEDULES
 
 @api.get("/import/historical-weeks")
-async def list_historical_weeks(_=Depends(ops_or_admin)):
+async def list_historical_weeks(_=Depends(admin_only)):
     data = _load_historical()
     return {"weeks": list(data.keys())}
 
 @api.post("/import/historical-load")
-async def import_historical(body: dict, _=Depends(ops_or_admin)):
+async def import_historical(body: dict, _=Depends(admin_only)):
     """Import all historical weeks into schedule_cells. body: {clear_existing?: bool}"""
     data = _load_historical()
     if not data:
@@ -4446,7 +4467,7 @@ async def import_historical(body: dict, _=Depends(ops_or_admin)):
     return {"weeks_loaded": weeks_loaded, "cells_inserted": inserted}
 
 @api.post("/schedule/duplicate-week")
-async def duplicate_week(body: dict, _=Depends(ops_or_admin)):
+async def duplicate_week(body: dict, _=Depends(admin_only)):
     """Copy all cells from source_week to target_week. body: {source_week, target_week, clear_target?}"""
     source = body.get("source_week"); target = body.get("target_week")
     if not source or not target:
@@ -4463,7 +4484,7 @@ async def duplicate_week(body: dict, _=Depends(ops_or_admin)):
     return {"copied": inserted}
 
 @api.post("/import/list-sheets")
-async def list_excel_sheets(file: UploadFile = File(...), _=Depends(ops_or_admin)):
+async def list_excel_sheets(file: UploadFile = File(...), _=Depends(admin_only)):
     """Return the list of sheet names in an uploaded .xlsx file (helps user pick the right one)."""
     import openpyxl, io
     content = await file.read()
@@ -4898,7 +4919,7 @@ class RestoreClientsIn(BaseModel):
 
 
 @api.post("/admin/restore-official-clients")
-async def restore_official_clients(body: RestoreClientsIn, _=Depends(ops_or_admin)):
+async def restore_official_clients(body: RestoreClientsIn, _=Depends(admin_only)):
     """Remove clients not in the official 25-client seed list and restore known profiles."""
     if (body.confirm or "").strip() != "RESTORE":
         raise HTTPException(status_code=400, detail="Type RESTORE to confirm")

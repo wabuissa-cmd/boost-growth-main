@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api, { startOfWeek, toISODate } from "../api";
-import { useAuth, isStaffAdmin } from "../auth";
+import { useAuth, showAdminNav } from "../auth";
 import {
   CalendarBlank, ClipboardText, UsersThree, ListChecks, Plant, ArrowRight, Sparkle,
-  CheckCircle, Clock, XCircle, CalendarCheck, MagnifyingGlass
+  CheckCircle, Clock, XCircle, CalendarCheck
 } from "@phosphor-icons/react";
 import { quoteOfTheDay } from "../data/quotes";
 
 export default function Home() {
   const { user } = useAuth();
-  const isAdmin = isStaffAdmin(user);
+  const isPortalAdminUser = showAdminNav(user);
   const [stats, setStats] = useState({
     clients: 0, therapists: 0, requests: 0,
     weekSessions: 0, weekHours: 0,
@@ -46,7 +46,7 @@ export default function Home() {
         const sessions = asList(sess);
 
         // Schedule cells for the displayed week, scoped to current user
-        const myCells = isAdmin
+        const myCells = isPortalAdminUser
           ? schedule
           : schedule.filter(x => x.therapist_id === user?.id);
         const real = myCells.filter(x => !["LEAVE", "BREAK", "AVC"].includes(x.service_code));
@@ -59,7 +59,7 @@ export default function Home() {
         // Sessions logged via Attendance — completed in current week, by this user (if therapist)
         const weekStartDate = weekISO;
         const weekEndDate = toISODate(new Date(new Date(weekISO).getTime() + 7 * 24 * 3600 * 1000));
-        const mySessions = isAdmin
+        const mySessions = isPortalAdminUser
           ? sessions
           : sessions.filter(x => (x.therapist_ids || []).includes(user?.id));
         const sessionsThisWeek = mySessions.filter(x =>
@@ -78,7 +78,7 @@ export default function Home() {
         });
       } catch (_e) { /* ignore */ }
     })();
-  }, [user?.id, isAdmin, user]);
+  }, [user?.id, isPortalAdminUser, user]);
 
   // Therapist-focused stat tiles
   const therapistTiles = [
@@ -95,11 +95,16 @@ export default function Home() {
     { to: "/requests", icon: <ListChecks size={26} weight="duotone" />, title: "Requests", desc: "Pending requests", count: stats.requests, color: "#F1ECF7", iconColor: "#4E3F70" },
   ];
 
-  const quickLinks = [
+  const quickLinks = isPortalAdminUser ? [
     { to: "/schedule", label: "Schedule", icon: <CalendarBlank size={18} weight="duotone"/> },
     { to: "/attendance", label: "Attendance", icon: <ClipboardText size={18} weight="duotone"/> },
     { to: "/requests", label: "Requests", icon: <ListChecks size={18} weight="duotone"/> },
-    { to: "/requests", label: "Track My Request", icon: <MagnifyingGlass size={18} weight="duotone"/> },
+    { to: "/clients", label: "Clients", icon: <UsersThree size={18} weight="duotone"/> },
+  ] : [
+    { to: "/schedule", label: "Schedule", icon: <CalendarBlank size={18} weight="duotone"/> },
+    { to: "/attendance", label: "Attendance", icon: <ClipboardText size={18} weight="duotone"/> },
+    { to: "/my-requests", label: "Requests", icon: <ListChecks size={18} weight="duotone"/> },
+    { to: "/my-leaves", label: "Leaves", icon: <CalendarCheck size={18} weight="duotone"/> },
   ];
 
   return (
@@ -121,7 +126,7 @@ export default function Home() {
 
       {/* Stats - therapist gets personal stats; admin gets navigation tiles */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 stagger mb-6">
-        {isAdmin
+        {isPortalAdminUser
           ? adminTiles.map(t => (
               <Link key={t.to} to={t.to} className="card card-hover p-5 group" data-testid={`home-tile-${t.to.slice(1)}`}>
                 <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-3" style={{background: t.color, color: t.iconColor}}>{t.icon}</div>

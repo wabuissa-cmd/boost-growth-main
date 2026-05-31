@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "../api";
-import { useAuth, isStaffAdmin } from "../auth";
+import { useAuth, hasOpsAccess } from "../auth";
 import {
   MagnifyingGlass, Plus, X, Trash, PencilSimple, ClipboardText, ClockCounterClockwise,
   CheckCircle, Prohibit, Warning, XCircle, Clock, MapPin, Printer, FileXls,
@@ -118,7 +118,7 @@ function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdi
 
 export default function Attendance() {
   const { user } = useAuth();
-  const isAdmin = isStaffAdmin(user);
+  const isAdmin = hasOpsAccess(user);
   const [clients, setClients] = useState([]);
   const [therapists, setTherapists] = useState([]);
   const [sessions, setSessions] = useState([]);
@@ -848,35 +848,6 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
     }
   };
 
-  // Sync from Google Drive removed per product request.
-
-  const syncFromDrive = async () => {
-    const url = (client.attendance_sheet_url || client.drive_url || "").trim()
-      || window.prompt("Paste Google Sheets URL for this client:");
-    if (!url) return;
-    try {
-      const r = await api.post(`/clients/${client.id}/invoices/sync-from-drive`, { drive_url: url });
-      const {
-        invoices_added = [], invoices_updated = [], sessions_added = 0,
-        sessions_skipped_existing = 0, matched_sheets = [], workbook_tabs = [],
-        warning = null,
-      } = r.data || {};
-      const list = await loadInvoices();
-      setAllInvoices(list);
-      const lines = [
-        warning || `Invoice sheets detected: ${matched_sheets.length}`,
-        matched_sheets.length ? `Sheets: ${matched_sheets.join(", ")}` : (workbook_tabs.length ? `Tabs in file: ${workbook_tabs.join(", ")}` : ""),
-        `Invoices added: ${invoices_added.length}`,
-        `Invoices updated: ${invoices_updated.length}`,
-        `Sessions added: ${sessions_added}`,
-        `Sessions already existed (skipped): ${sessions_skipped_existing}`,
-      ].filter(Boolean);
-      alert(lines.join("\n"));
-    } catch (e) {
-      alert("Sync failed: " + (e?.response?.data?.detail || e.message));
-    }
-  };
-
   // Save: when invoice selected -> update the invoice; otherwise -> update the client defaults.
   const savePackageInfo = async () => {
     setSavingClient(true);
@@ -1003,8 +974,6 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                        onChange={e => { const f = e.target.files?.[0]; if (f) { syncFromExcel(f); } e.target.value = ""; }}/>
                 <button data-testid="sync-xlsx-btn" onClick={() => document.getElementById(`sync-xlsx-${client.id}`).click()}
                         className="btn btn-secondary text-xs"><FileXls size={14}/> Sync from Excel</button>
-                <button data-testid="sync-drive-btn" onClick={syncFromDrive}
-                        className="btn btn-secondary text-xs"><FileXls size={14}/> Sync Google Sheet</button>
               </>
             )}
             {isAdmin && (

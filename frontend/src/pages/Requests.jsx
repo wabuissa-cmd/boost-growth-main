@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import api from "../api";
-import { useAuth, isStaffAdmin } from "../auth";
+import { useAuth, showAdminNav } from "../auth";
 import { Navigate } from "react-router-dom";
 import { Plus, PencilSimple, Trash, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Calendar, Package, UploadSimple } from "@phosphor-icons/react";
 import {
@@ -53,7 +53,7 @@ function emptyLeaveForm() {
 
 export default function Requests({ personal = false }) {
   const { user } = useAuth();
-  const isAdmin = !personal && isStaffAdmin(user);
+  const isAdmin = !personal && showAdminNav(user);
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState("all");
   const [edit, setEdit] = useState(null);
@@ -136,7 +136,7 @@ export default function Requests({ personal = false }) {
 
   const filtered = items.filter(r => filter === "all" || r.status === filter);
 
-  if (!personal && !isStaffAdmin(user)) {
+  if (!personal && !showAdminNav(user)) {
     return <Navigate to="/my-requests" replace/>;
   }
 

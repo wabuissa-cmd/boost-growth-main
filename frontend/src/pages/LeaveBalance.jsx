@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { useAuth, isStaffAdmin } from "../auth";
+import { useAuth, showAdminNav } from "../auth";
 import api from "../api";
 import { Scales } from "@phosphor-icons/react";
 import LeaveBalanceTable from "../components/LeaveBalanceTable";
 
 export default function LeaveBalance() {
   const { user } = useAuth();
-  const isAdmin = isStaffAdmin(user);
+  const isAdmin = showAdminNav(user);
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
   const [leaves, setLeaves] = useState([]);

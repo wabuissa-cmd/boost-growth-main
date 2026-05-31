@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { useAuth, isStaffAdmin, hasOpsAccess } from "../auth";
+import { useAuth, showAdminNav, isClientLead } from "../auth";
 import api from "../api";
 import {
   House, CalendarBlank, ClipboardText, UsersThree,
@@ -13,9 +13,8 @@ export default function Shell() {
   const [showNotif, setShowNotif] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
   const loc = useLocation();
-  const staffAdmin = isStaffAdmin(user);
-  const isAdmin = user?.role === "admin";
-  const isOpsTherapist = hasOpsAccess(user) && user?.role !== "admin";
+  const portalAdmin = showAdminNav(user);
+  const showPersonal = !portalAdmin;
 
   const loadNotifs = async () => {
     try { const { data } = await api.get("/notifications"); setNotifs(data); } catch(_e) { /* ignore */ }
@@ -33,30 +32,30 @@ export default function Shell() {
     { to: "/clients", icon: <UsersThree size={18} weight="duotone"/>, label: "Clients", testid: "nav-clients" },
   ];
 
-  // Referrals dropdown (admin / ops — Intake)
-  const referralsItems = staffAdmin
+  // Referrals dropdown (admin only — Intake)
+  const referralsItems = portalAdmin
     ? [{ to: "/intake", label: "Intake", testid: "nav-intake" }]
     : [];
 
-  // Personal portal dropdown (therapists + ops team)
-  const myPortalItems = (user?.role !== "admin" || isOpsTherapist) ? [
+  // Personal portal dropdown (therapists + ops team; hidden for admin login)
+  const myPortalItems = showPersonal ? [
     { to: "/my-requests", label: "Requests", testid: "nav-my-requests" },
     { to: "/my-leaves", label: "Leaves", testid: "nav-my-leaves" },
   ] : [];
 
-  // Requests dropdown — admin / ops: staff requests + leave management
+  // Requests dropdown — admin only: staff requests + leave management
   const requestsItems = [];
-  if (staffAdmin) {
+  if (portalAdmin) {
     requestsItems.push({ to: "/requests", label: "Staff Requests", testid: "nav-requests" });
     requestsItems.push({ to: "/leaves", label: "Leave Requests", testid: "nav-leave-requests" });
     requestsItems.push({ to: "/leave-balance", label: "Leave Balance", testid: "nav-leave-balance" });
   }
 
-  // Admin tools (Reports, Import; Admin page admin-login only)
-  const adminTools = staffAdmin ? [
+  // Admin tools (Reports, Import, Admin page)
+  const adminTools = portalAdmin ? [
     { to: "/reports", icon: <ChartBar size={18} weight="duotone"/>, label: "Reports", testid: "nav-reports" },
     { to: "/import", icon: <UploadSimple size={18} weight="duotone"/>, label: "Import", testid: "nav-import" },
-    ...(isAdmin ? [{ to: "/admin", icon: <Gear size={18} weight="duotone"/>, label: "Admin", testid: "nav-admin" }] : []),
+    { to: "/admin", icon: <Gear size={18} weight="duotone"/>, label: "Admin", testid: "nav-admin" },
   ] : [];
 
   const markAllRead = async () => { await api.post("/notifications/read-all"); loadNotifs(); };
@@ -151,7 +150,7 @@ export default function Shell() {
               </div>
               <div className="text-xs leading-tight">
                 <div className="font-bold truncate max-w-[120px]" style={{color: "#2C3625"}}>{user?.name?.replace("Ms. ", "") || user?.email}</div>
-                <div style={{color: "#8B9E7A"}}>{isAdmin ? "Admin" : staffAdmin ? "Operations" : "Therapist"}</div>
+                <div style={{color: "#8B9E7A"}}>{portalAdmin ? "Admin" : "Therapist"}</div>
               </div>
               <button data-testid="logout-btn" onClick={logout} className="btn btn-ghost p-2"><SignOut size={18}/></button>
             </div>

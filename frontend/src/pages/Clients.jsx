@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api";
-import { useAuth, isStaffAdmin, hasOpsAccess } from "../auth";
+import { useAuth, hasOpsAccess } from "../auth";
 import { Plus, PencilSimple, Trash, MagnifyingGlass, MapPin, User, Phone, Hash, ArrowSquareOut } from "@phosphor-icons/react";
 import { PackageStatusBadge } from "../components/PackageStatusBadge";
 import {
@@ -11,7 +11,7 @@ import {
 
 export default function Clients() {
   const { user } = useAuth();
-  const isAdmin = isStaffAdmin(user);
+  const isAdmin = hasOpsAccess(user);
   const [items, setItems] = useState([]);
   const [therapists, setTherapists] = useState([]);
   const [edit, setEdit] = useState(null);

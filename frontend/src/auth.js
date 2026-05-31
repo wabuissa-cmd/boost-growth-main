@@ -54,21 +54,49 @@ export const useAuth = () => useContext(AuthCtx);
 
 const FULL_CLIENT_KEYS = new Set(["mswalaa", "msmaha", "msjenan", "msfahda"]);
 const FULL_CLIENT_NAMES = new Set(["walaa", "maha", "jenan", "fahda"]);
+const CLIENT_LEAD_EMAILS = new Set([
+  "walaa@boostgrowthsa.com",
+  "msalthunayan@boostgrowthsa.com",
+  "falghadeeb@boostgrowthsa.com",
+  "jsalmuhaisin@boostgrowthsa.com",
+]);
 
-/** Walaa, Maha, Jenan, Fahda + admin — see all clients and full ops access */
-export function hasOpsAccess(user) {
-  if (!user) return false;
-  if (user.role === "admin") return true;
-  if (user.staff_admin || user.ops_access) return true;
+function _matchesClientLead(user) {
+  const email = (user.email || "").toLowerCase().trim();
+  if (CLIENT_LEAD_EMAILS.has(email)) return true;
   const key = (user.key || "").toLowerCase();
   if (FULL_CLIENT_KEYS.has(key)) return true;
   const first = (user.name || "").replace(/^Ms\.?\s*/i, "").split(/\s+/)[0]?.toLowerCase();
   return FULL_CLIENT_NAMES.has(first);
 }
 
-/** Admin or ops team — full schedule, attendance, clients, reports */
+/** Walaa, Maha, Jenan, Fahda — therapist UI, all clients, schedule edit */
+export function isClientLead(user) {
+  if (!user) return false;
+  if (user.ops_access) return true;
+  return _matchesClientLead(user);
+}
+
+/** Walaa, Maha, Jenan, Fahda + admin — all clients, schedule edit, attendance */
+export function hasOpsAccess(user) {
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  return isClientLead(user);
+}
+
+/** Email admin login — intake, reports, import, staff requests, leave management */
+export function isPortalAdmin(user) {
+  return user?.role === "admin" && !isClientLead(user);
+}
+
+/** Admin nav + dashboard (excludes client-lead team even if role is admin) */
+export function showAdminNav(user) {
+  return isPortalAdmin(user);
+}
+
+/** @deprecated use isPortalAdmin for admin nav; hasOpsAccess for client tools */
 export function isStaffAdmin(user) {
-  return user?.role === "admin" || hasOpsAccess(user);
+  return isPortalAdmin(user) || hasOpsAccess(user);
 }
 
 /** @deprecated alias */
