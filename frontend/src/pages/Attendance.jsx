@@ -880,6 +880,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
           close_date: closed ? (closureDate || null) : null,
         });
         setAllInvoices(prev => prev.map(inv => inv.id === updated.data.id ? updated.data : inv));
+        onClientUpdated && onClientUpdated();
       } else {
         await api.put(`/clients/${client.id}`, {
           ...client,
@@ -916,6 +917,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
       close_date: newDate,
     });
     setAllInvoices(prev => prev.map(inv => inv.id === updated.data.id ? updated.data : inv));
+    onClientUpdated && onClientUpdated();
   };
 
   const performReset = async () => {

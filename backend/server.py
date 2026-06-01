@@ -1636,7 +1636,28 @@ def _package_status_level_ss_sessions(remaining: float, total: float) -> str:
     return "good"
 
 
+def _display_invoice_for_service(invoices: list, service_code: str) -> Optional[dict]:
+    """Open invoice first; otherwise most recent for service (payment badge on attendance list)."""
+    inv = _last_open_invoice(invoices, service_code)
+    if inv:
+        return inv
+    typed = [i for i in invoices if _normalize_service_type(i.get("service_type")) == service_code]
+    sorted_inv = _sort_invoices_by_date(typed)
+    return sorted_inv[0] if sorted_inv else None
+
+
+def _invoice_payment_fields(inv: Optional[dict]) -> dict:
+    if not inv:
+        return {"payment_status": "pending", "package_end_date": None}
+    return {
+        "payment_status": inv.get("payment_status") or "pending",
+        "package_end_date": inv.get("period_to"),
+    }
+
+
 def _compute_package_status_row(client: dict, service_code: str, invoices: list, sessions: list) -> dict:
+    display_inv = _display_invoice_for_service(invoices, service_code)
+    pay_fields = _invoice_payment_fields(display_inv)
     inv = _last_open_invoice(invoices, service_code)
     base = {
         "client_id": client["id"],
@@ -1654,6 +1675,7 @@ def _compute_package_status_row(client: dict, service_code: str, invoices: list,
         "label": "No open invoice",
         "current_week": None,
         "total_weeks": None,
+        **pay_fields,
     }
     if not inv:
         return base
@@ -1684,6 +1706,7 @@ def _compute_package_status_row(client: dict, service_code: str, invoices: list,
             "status": level,
             "unit": "hours",
             "label": label,
+            **pay_fields,
         }
 
     # SS — always 4 school weeks per invoice
@@ -1712,6 +1735,7 @@ def _compute_package_status_row(client: dict, service_code: str, invoices: list,
         "label": label,
         "current_week": current_w,
         "total_weeks": total_weeks,
+        **pay_fields,
     }
 
 
@@ -1808,7 +1832,17 @@ async def update_invoice(iid: str, payload: InvoiceIn, _=Depends(ops_or_admin)):
     # Don't overwrite stored values with None unless explicitly cleared
     update = {k: v for k, v in update.items() if v is not None or k in ("notes", "amount", "period_from", "period_to", "package_size", "service_type", "close_date")}
     await db.invoices.update_one({"id": iid}, {"$set": update})
-    return await db.invoices.find_one({"id": iid}, {"_id": 0})
+    updated = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    # Keep client card payment badge in sync with the active (open) invoice
+    if updated and not updated.get("is_closed"):
+        client_patch = {}
+        if payload.payment_status is not None:
+            client_patch["payment_status"] = payload.payment_status
+        if payload.period_to is not None:
+            client_patch["package_end_date"] = payload.period_to
+        if client_patch:
+            await db.clients.update_one({"id": updated["client_id"]}, {"$set": client_patch})
+    return updated
 
 @api.delete("/invoices/{iid}")
 async def delete_invoice(iid: str, _=Depends(ops_or_admin)):

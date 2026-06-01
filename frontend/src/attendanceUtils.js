@@ -515,8 +515,12 @@ export function enrichClientFromPackageStatus(client, packageRows) {
 
   if (!primary || primary.status === "none") {
     const isWeeks = clientType === "SS";
+    const payStatus = primary?.payment_status ?? client.payment_status ?? "pending";
+    const pkgEnd = primary?.package_end_date ?? client.package_end_date;
     return {
       ...client,
+      payment_status: payStatus,
+      package_end_date: pkgEnd,
       billing_mode: isWeeks ? "weeks" : "hours",
       serviceDisplay,
       status: "ok",
@@ -540,6 +544,8 @@ export function enrichClientFromPackageStatus(client, packageRows) {
     const rem = Math.max(0, primary.remaining ?? 0);
     return {
       ...client,
+      payment_status: primary.payment_status ?? client.payment_status ?? "pending",
+      package_end_date: primary.package_end_date ?? client.package_end_date,
       billing_mode: "hours",
       serviceDisplay,
       used,
@@ -560,6 +566,8 @@ export function enrichClientFromPackageStatus(client, packageRows) {
   const weeksRem = primary.remaining ?? 0;
   return {
     ...client,
+    payment_status: primary.payment_status ?? client.payment_status ?? "pending",
+    package_end_date: primary.package_end_date ?? client.package_end_date,
     billing_mode: "weeks",
     serviceDisplay,
     weeksDone,
