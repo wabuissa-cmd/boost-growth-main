@@ -2049,6 +2049,32 @@ THERAPIST_EMAIL_MIGRATIONS = [
 ]
 
 
+async def _migrate_mark_all_payments_complete(force: bool = False) -> dict:
+    """One-time: mark every existing client + invoice as paid. New invoices stay pending by default."""
+    flag = await db.meta.find_one({"key": "payment_status_bulk_complete_v1"})
+    if flag and not force:
+        return {"skipped": True, "reason": "already applied"}
+
+    inv_r = await db.invoices.update_many(
+        {"payment_status": {"$ne": "complete"}},
+        {"$set": {"payment_status": "complete"}},
+    )
+    cl_r = await db.clients.update_many(
+        {"payment_status": {"$ne": "complete"}},
+        {"$set": {"payment_status": "complete"}},
+    )
+    await db.meta.update_one(
+        {"key": "payment_status_bulk_complete_v1"},
+        {"$set": {"done": True, "at": now_iso(), "invoices": inv_r.modified_count, "clients": cl_r.modified_count}},
+        upsert=True,
+    )
+    return {
+        "skipped": False,
+        "invoices_updated": inv_r.modified_count,
+        "clients_updated": cl_r.modified_count,
+    }
+
+
 async def _migrate_therapist_emails() -> int:
     """Fix therapist emails: rename old→new, then force-sync from MASTER_THERAPISTS by key/name."""
     updated = 0
@@ -3859,6 +3885,12 @@ async def admin_repair_session_invoices(_=Depends(admin_only)):
     }
 
 
+@api.post("/admin/mark-all-payments-complete")
+async def admin_mark_all_payments_complete(_=Depends(admin_only)):
+    """Mark all clients and invoices as payment complete (re-runnable)."""
+    return await _migrate_mark_all_payments_complete(force=True)
+
+
 # ------------------- Cancel-Notify (in-app + queued email) -------------------
 async def _send_email_stub(to: str, subject: str, body: str) -> dict:
     """Send email via Brevo/Resend (HTTPS) or SMTP. Logs all attempts to email_queue."""
@@ -5463,6 +5495,16 @@ async def _run_startup():
                 logger.info(f"Therapist email migration: updated {n} record(s)")
         except Exception as e:
             logger.warning(f"Therapist email migration skipped: {e}")
+
+        try:
+            pay = await _migrate_mark_all_payments_complete()
+            if not pay.get("skipped"):
+                logger.info(
+                    f"Payment bulk complete: {pay.get('invoices_updated', 0)} invoice(s), "
+                    f"{pay.get('clients_updated', 0)} client(s)"
+                )
+        except Exception as e:
+            logger.warning(f"Payment bulk complete migration skipped: {e}")
 
         # Load persisted email settings from db.settings into env
         settings_doc = await db.settings.find_one({"key": "email"}, {"_id": 0})
