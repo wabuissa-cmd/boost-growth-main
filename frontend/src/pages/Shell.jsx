@@ -71,12 +71,12 @@ export default function Shell() {
         <div className="max-w-[1600px] mx-auto px-4 lg:px-6">
           <div className="h-16 flex items-center gap-4">
             <NavLink to="/home" className="flex items-center gap-2.5 shrink-0">
-              <div className="w-10 h-10 rounded-xl bg-[#7A8A6A] flex items-center justify-center p-1.5">
+              <div className="w-10 h-10 rounded-xl bg-[#7A8A6A] flex items-center justify-center p-1.5 shadow-sm">
                 <img src="/bg-logo.png" alt="BG" className="w-full h-full object-contain"/>
               </div>
-              <div className="hidden sm:block">
-                <div className="text-[15px] font-bold leading-tight" style={{color: "#2C3625"}}>BOOST GROWTH</div>
-                <div className="text-[10px] font-bold tracking-[0.2em]" style={{color: "#8B9E7A"}}>STAFF PORTAL</div>
+              <div className="block">
+                <div className="text-[13px] sm:text-[15px] font-bold leading-tight" style={{color: "#2C3625"}}>BOOST GROWTH</div>
+                <div className="text-[9px] sm:text-[10px] font-bold tracking-[0.15em] sm:tracking-[0.2em]" style={{color: "#8B9E7A"}}>STAFF PORTAL</div>
               </div>
             </NavLink>
 
@@ -164,12 +164,21 @@ export default function Shell() {
       {/* Mobile drawer */}
       {mobileNav && (
         <div className="fixed inset-0 z-50 bg-black/40 modal-backdrop lg:hidden" onClick={() => setMobileNav(false)}>
-          <div className="absolute right-0 top-0 h-full w-72 max-w-full mobile-nav-drawer bg-white shadow-2xl modal-card overflow-y-auto" onClick={e=>e.stopPropagation()}>
-            <div className="p-4 border-b border-[#E8E4DE] flex items-center justify-between">
-              <div className="font-bold">Menu</div>
-              <button onClick={() => setMobileNav(false)} className="btn btn-ghost p-2"><X size={20}/></button>
+          <div className="absolute right-0 top-0 h-full w-72 max-w-full mobile-nav-drawer shadow-2xl modal-card overflow-y-auto" onClick={e=>e.stopPropagation()}
+            style={{ background: "linear-gradient(180deg, #7A8A6A 0%, #606E52 40%, #FAFAF7 40%)" }}>
+            <div className="p-4 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center p-1.5" style={{ background: "rgba(255,255,255,0.2)" }}>
+                  <img src="/bg-logo.png" alt="" className="w-full h-full object-contain"/>
+                </div>
+                <div>
+                  <div className="font-bold text-sm leading-tight">Boost Growth</div>
+                  <div className="text-[9px] tracking-[0.2em] opacity-85 font-bold">STAFF PORTAL</div>
+                </div>
+              </div>
+              <button onClick={() => setMobileNav(false)} className="btn btn-ghost p-2 text-white min-w-[44px] min-h-[44px]"><X size={20}/></button>
             </div>
-            <div className="p-3 flex flex-col gap-1">
+            <div className="bg-[#FAFAF7] min-h-full p-3 flex flex-col gap-1 rounded-t-2xl">
               {baseLinks.map(l => (
                 <NavLink key={l.to} to={l.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
                   {l.icon}<span>{l.label}</span>

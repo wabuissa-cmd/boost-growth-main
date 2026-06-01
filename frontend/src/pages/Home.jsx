@@ -110,17 +110,27 @@ export default function Home() {
   return (
     <div>
       {/* Hero banner — matches login page layout */}
-      <div className="text-white py-10 lg:py-14 px-6 lg:px-10 mb-6 relative overflow-hidden rounded-2xl" style={{background: "linear-gradient(135deg, #7A8A6A 0%, #606E52 60%, #48543E 100%)", borderColor: "transparent"}}>
-        <img src="/bg-logo.png" alt="" className="absolute opacity-10 pointer-events-none" style={{bottom: "-50px", left: "-30px", width: 280, animation: "leaf-float 8s ease-in-out infinite"}}/>
+      <div className="text-white py-8 sm:py-10 lg:py-14 px-5 sm:px-6 lg:px-10 mb-6 relative overflow-hidden rounded-2xl" style={{background: "linear-gradient(135deg, #7A8A6A 0%, #606E52 60%, #48543E 100%)", borderColor: "transparent"}}>
+        <img src="/bg-logo.png" alt="" className="absolute opacity-10 pointer-events-none login-watermark"/>
         <div className="relative max-w-5xl">
-          <div className="text-xs tracking-[0.3em] opacity-80 font-bold mb-2 flex items-center gap-2"><Sparkle size={14} weight="fill"/> WELCOME BACK</div>
-          <h1 className="font-display text-3xl md:text-5xl font-semibold leading-[1.1]">
-            Hello, {user?.name?.replace("Ms. ", "") || "Friend"}.
-          </h1>
-          <h2 className="font-display text-2xl md:text-3xl mt-2 italic opacity-95">
+          <div className="flex items-start gap-4 mb-4 sm:mb-0">
+            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center p-2 shrink-0 shadow-lg sm:hidden"
+              style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)" }}>
+              <img src="/bg-logo.png" alt="Boost Growth" className="w-full h-full object-contain"/>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] sm:text-xs tracking-[0.25em] sm:tracking-[0.3em] opacity-80 font-bold mb-2 flex items-center gap-2">
+                <Sparkle size={14} weight="fill"/> STAFF PORTAL · WELCOME BACK
+              </div>
+              <h1 className="font-display text-2xl sm:text-3xl md:text-5xl font-semibold leading-[1.1]">
+                Hello, {user?.name?.replace("Ms. ", "") || "Friend"}.
+              </h1>
+            </div>
+          </div>
+          <h2 className="font-display text-lg sm:text-2xl md:text-3xl mt-1 sm:mt-2 italic opacity-95">
             Each growth begins with <span className="text-[#F0D88A]">seeds.</span>
           </h2>
-          <div className="opacity-90 mt-3 text-sm">{new Date().toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
+          <div className="opacity-90 mt-2 sm:mt-3 text-xs sm:text-sm">{new Date().toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
         </div>
       </div>
 
