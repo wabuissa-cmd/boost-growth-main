@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import api from "../api";
 import { useAuth, hasOpsAccess } from "../auth";
 import {
@@ -12,7 +12,7 @@ import {
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
 import {
-  enrichClientFromPackageStatus, resolveClientBillingMode, formatServiceTypeDisplay,
+  enrichClientForCardView, resolveClientBillingMode, formatServiceTypeDisplay,
   resolveCycleAnchor, computeSsWeekSummary, groupSessionsBySchoolWeeks,
   computeHsInvoiceTotals,
   filterSessionsForInvoice,
@@ -25,6 +25,7 @@ import {
   resolveServiceTabState, hasOpenInvoice,
 } from "../attendanceUtils";
 import { PackageAlertBanner } from "../components/PackageStatusBadge";
+import PreparationClientCard from "../components/PreparationClientCard";
 
 const SUPERVISOR_CLIENTS = {
   msMaha: ["035", "037", "038", "040", "041", "042", "047", "052", "054", "060", "063", "065", "070"],
@@ -123,9 +124,11 @@ function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdi
 export default function Attendance() {
   const { user } = useAuth();
   const isAdmin = hasOpsAccess(user);
+  const navigate = useNavigate();
   const [clients, setClients] = useState([]);
   const [therapists, setTherapists] = useState([]);
   const [sessions, setSessions] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [packageRows, setPackageRows] = useState([]);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -139,14 +142,16 @@ export default function Attendance() {
   const deepNewInvoice = searchParams.get("newInvoice") === "1";
 
   const load = useCallback(async () => {
-    const [c, t, s, pkg] = await Promise.all([
+    const [c, t, s, pkg, inv] = await Promise.all([
       api.get("/clients"),
       api.get("/therapists").catch(() => ({ data: [] })),
       api.get("/sessions"),
       api.get("/clients/package-status").catch(() => ({ data: [] })),
+      api.get("/invoices").catch(() => ({ data: [] })),
     ]);
     setClients(c.data); setTherapists(t.data); setSessions(s.data);
     setPackageRows(pkg.data || []);
+    setInvoices(inv.data || []);
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -165,8 +170,8 @@ export default function Attendance() {
   };
 
   const enriched = useMemo(
-    () => clients.map(c => enrichClientFromPackageStatus(c, packageRows)),
-    [clients, packageRows]
+    () => clients.map(c => enrichClientForCardView(c, packageRows, invoices, sessions)),
+    [clients, packageRows, invoices, sessions]
   );
 
   const filtered = useMemo(() => {
@@ -189,106 +194,95 @@ export default function Attendance() {
 
   const findT = id => therapists.find(t => t.id === id);
 
+  const filterOpts = [
+    { id: "all", label: "All" },
+    { id: "urgent", label: "Urgent", dot: "#C97B5C" },
+    { id: "warning", label: "Warning", dot: "#D4A64A" },
+    { id: "ok", label: "Safe", dot: "#7A8A6A" },
+  ];
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-        <div>
-          <h1 className="font-display text-3xl font-semibold" style={{color: "#2C3625"}}>Attendance</h1>
-          <div className="text-sm" style={{color: "#5C6853"}}>Log sessions, track hours, monitor packages</div>
+      {/* Tracker header + stats bar */}
+      <div className="rounded-2xl overflow-hidden mb-5 shadow-sm border border-[#E8E4DE]">
+        <div className="bg-sage-hero px-5 py-4 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-white/75 text-xs font-medium">Package &amp; Sessions Tracker</div>
+            <h1 className="font-display text-2xl font-semibold text-white m-0">Boost Growth</h1>
+          </div>
+          <div className="hidden sm:flex items-center gap-1.5 pill px-3 py-1.5 text-xs font-bold bg-white/15 text-white border border-white/20">
+            <CheckCircle size={14} weight="fill" /> Synced
+          </div>
         </div>
-        <button data-testid="log-session-picker" onClick={() => setLogFor("__pick__")} className="btn btn-primary"><Plus size={16}/> Log Session</button>
-      </div>
-
-      {/* Filter pills */}
-      <div className="flex gap-2 flex-wrap mb-3">
-        {[
-          {id:"all", label:"All", color:"#7A8A6A"},
-          {id:"urgent", label:"🔴 Urgent", color:"#C97B5C"},
-          {id:"warning", label:"🟡 Warning", color:"#D4A64A"},
-          {id:"ok", label:"🟢 OK", color:"#7A8A6A"},
-        ].map(f => (
-          <button key={f.id} onClick={() => setFilter(f.id)}
-                  className={`pill px-4 py-2 text-sm transition border-2 ${filter === f.id ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E8E4DE]"}`}>
-            {f.label} <span className="opacity-60 text-xs">({counts[f.id]})</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Search */}
-      <div className="relative mb-5">
-        <MagnifyingGlass size={18} className="absolute top-3 left-3" style={{color: "#8B9E7A"}}/>
-        <input data-testid="att-search" className="input pl-10" placeholder="Search client by name or file #..." value={search} onChange={e=>setSearch(e.target.value)}/>
-      </div>
-
-      {/* Client cards */}
-      <div className="space-y-3 stagger">
-        {filtered.length === 0 && <div className="card p-12 text-center" style={{color: "#8B9E7A"}}>No clients</div>}
-        {filtered.map(c => {
-          const fillColor = c.status === "urgent" ? "#C97B5C" : c.status === "warning" ? "#D4A64A" : "#7A8A6A";
-          const stCls = c.status === "urgent" ? "bg-[#F8EBE7] text-[#8A3F27]" : c.status === "warning" ? "bg-[#FAF0D1] text-[#6B5218]" : "bg-[#E5EBE1] text-[#3D4F35]";
-          const stIcon = c.status === "urgent" ? "🔴" : c.status === "warning" ? "🟡" : "🟢";
-          return (
-            <div key={c.id} className="card p-5" style={{borderColor: c.status === "ok" ? "#E8E4DE" : fillColor, borderWidth: c.status === "ok" ? 1 : 2}}>
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div className="flex items-start gap-3 flex-1 min-w-0">
-                  <div className="w-12 h-12 rounded-xl flex items-center justify-center font-bold shrink-0 text-white" style={{background: c.color || "#7A8A6A", color: "#2C3625"}}>
-                    {(c.name || "?").charAt(0)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-bold text-lg" style={{color: "#2C3625"}}>{c.name} <span className="text-xs font-normal ml-1" style={{color: "#8B9E7A"}}>#{c.file_no}</span></div>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span className="pill text-[11px] font-bold px-2.5 py-1" style={{
-                        background: c.billing_mode === "weeks" ? "#E0EBD8" : "#F4EDE3",
-                        color: c.billing_mode === "weeks" ? "#2C5035" : "#6B5430",
-                        border: c.billing_mode === "weeks" ? "1px solid #B6D7A8" : "1px solid #E0CDB0",
-                      }}>
-                        {c.serviceDisplay}
-                      </span>
-                    </div>
-                    <div className="text-xs mt-0.5" style={{color: "#8B9E7A"}}>
-                      {c.billing_mode === "weeks" ? (
-                        <>📅 Week {c.currentWeek}/{c.cycleWeeks} · {c.weeksDone} completed · {c.weeksRem} left</>
-                      ) : (
-                        <>Pkg {c.pkg}h · Used {c.used.toFixed(1)}h</>
-                      )} · Main: {findT(c.main_therapist_id)?.name || "—"}
-                    </div>
-                    {/* Package end date + Payment status */}
-                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                      {c.package_end_date && (
-                        <span className="pill text-[10px] px-2 py-0.5 inline-flex items-center gap-1" style={{background: "#F4EDE3", color: "#6B5430", border: "1px solid #E0CDB0"}}>
-                          <CalendarBlank size={11}/> Ends {c.package_end_date}
-                        </span>
-                      )}
-                      <span data-testid={`pay-${c.id}`} className="pill text-[10px] px-2 py-0.5 font-bold" style={{
-                          background: c.payment_status === "complete" ? "#E5EBE1" : "#FAE8C8",
-                          color: c.payment_status === "complete" ? "#3D4F35" : "#8B6918",
-                          border: c.payment_status === "complete" ? "1px solid #B8C8A8" : "1px solid #E5C387",
-                        }}>
-                        {c.payment_status === "complete" ? "✓ Payment Complete" : "⚠ Payment Pending"}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <span className={`pill ${stCls} font-bold`}>{stIcon} {c.status.toUpperCase()}</span>
-              </div>
-
-              <div className="flex items-center gap-2 mt-3 mb-3">
-                <div className="flex-1 h-2 bg-[#F0EDE9] rounded-full overflow-hidden">
-                  <div className="h-full rounded-full transition-all" style={{ width: `${c.pct}%`, background: fillColor }}/>
-                </div>
-                <span className="text-xs min-w-[100px] text-right font-bold" style={{color: "#5C6853"}}>
-                  {c.billing_mode === "weeks" ? `${c.weeksRem}/${c.cycleWeeks} weeks left` : `${c.rem.toFixed(1)}/${c.pkg}h left`}
-                </span>
-              </div>
-
-              <div className="flex gap-2 flex-wrap">
-                <button data-testid={`log-${c.id}`} onClick={() => setLogFor(c)} className="btn btn-primary text-xs"><Plus size={14}/> Log Session</button>
-                <button onClick={() => { setSheetMode("history"); setHistoryFor(c); }} className="btn btn-secondary text-xs"><ClockCounterClockwise size={14}/> History</button>
-                <button onClick={() => { setSheetMode("invoice"); setHistoryFor(c); }} className="btn btn-gold text-xs"><ClipboardText size={14}/> Invoice Sheet</button>
-              </div>
+        <div className="grid grid-cols-4 divide-x divide-white/10" style={{ background: "#48543E" }}>
+          {[
+            { n: counts.all, label: "Total", accent: "#fff" },
+            { n: counts.urgent, label: "Urgent", accent: "#F4A89A" },
+            { n: counts.warning, label: "Warning", accent: "#F5D78E" },
+            { n: counts.ok, label: "Safe", accent: "#B8D4A8" },
+          ].map(s => (
+            <div key={s.label} className="py-3 px-2 text-center">
+              <div className="text-2xl font-bold leading-none" style={{ color: s.accent }}>{s.n}</div>
+              <div className="text-[10px] uppercase tracking-wider mt-1 font-bold text-white/50">{s.label}</div>
             </div>
-          );
-        })}
+          ))}
+        </div>
+      </div>
+
+      {/* Toolbar: filters + search + actions */}
+      <div className="flex flex-wrap items-center gap-2 mb-5">
+        <div className="flex gap-1.5 flex-wrap">
+          {filterOpts.map(f => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => setFilter(f.id)}
+              className={`pill px-3 py-2 text-sm font-semibold border transition min-h-[40px] ${
+                filter === f.id ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E8E4DE] text-[#5C6853]"
+              }`}
+            >
+              {f.dot && filter !== f.id && (
+                <span className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle" style={{ background: f.dot }} />
+              )}
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div className="relative flex-1 min-w-[180px]">
+          <MagnifyingGlass size={16} className="absolute top-1/2 -translate-y-1/2 left-3" style={{ color: "#8B9E7A" }} />
+          <input
+            data-testid="att-search"
+            className="input pl-9 py-2 text-sm"
+            placeholder="Search client..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+        <button data-testid="log-session-picker" type="button" onClick={() => setLogFor("__pick__")} className="btn btn-primary text-sm min-h-[40px]">
+          <Plus size={16} /> Log Session
+        </button>
+        {isAdmin && (
+          <button type="button" onClick={() => navigate("/clients")} className="btn btn-outline text-sm min-h-[40px]">
+            <Plus size={16} /> Add Client
+          </button>
+        )}
+      </div>
+
+      {/* Client card grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 stagger">
+        {filtered.length === 0 && (
+          <div className="card p-12 text-center col-span-full" style={{ color: "#8B9E7A" }}>No clients</div>
+        )}
+        {filtered.map(c => (
+          <PreparationClientCard
+            key={c.id}
+            client={c}
+            therapistName={findT(c.main_therapist_id)?.name || ""}
+            onLog={() => setLogFor(c)}
+            onHistory={() => { setSheetMode("history"); setHistoryFor(c); }}
+            onInvoice={() => { setSheetMode("invoice"); setHistoryFor(c); }}
+          />
+        ))}
       </div>
 
       {/* Picker modal */}

@@ -594,6 +594,94 @@ export function enrichClientFromPackageStatus(client, packageRows) {
   };
 }
 
+const PKG_URGENCY_ORDER = { critical: 0, expired: 1, low: 2, good: 3, none: 4 };
+
+export function clientInitials(name) {
+  if (!name) return "?";
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return parts[0].slice(0, 2).toUpperCase();
+}
+
+export function worstPkgStatus(rows) {
+  const statuses = (rows || []).map(r => r?.status).filter(s => s && s !== "none");
+  if (!statuses.length) return "none";
+  return statuses.sort((a, b) => (PKG_URGENCY_ORDER[a] ?? 9) - (PKG_URGENCY_ORDER[b] ?? 9))[0];
+}
+
+export function mapPkgStatusToCardStatus(pkgStatus) {
+  if (pkgStatus === "critical" || pkgStatus === "expired") return "urgent";
+  if (pkgStatus === "low") return "warning";
+  return "ok";
+}
+
+export function cardStatusMeta(cardStatus) {
+  if (cardStatus === "urgent") {
+    return { label: "Invoice Now", bg: "#FCE0E8", color: "#8B3A55", border: "#E8A0B8", bar: "#C97B5C" };
+  }
+  if (cardStatus === "warning") {
+    return { label: "Nearing End", bg: "#FAF0D1", color: "#6B5218", border: "#E5C387", bar: "#D4A64A" };
+  }
+  return { label: "Safe", bg: "#E5EBE1", color: "#3D4F35", border: "#B8C8A8", bar: "#7A8A6A" };
+}
+
+export function ssWeekAlertText(ssRow) {
+  if (!ssRow || !["critical", "low"].includes(ssRow.status)) return null;
+  const wk = ssRow.current_week || ssRow.total_weeks || 4;
+  if (ssRow.status === "critical") return `Week ${wk} → Issue invoice now`;
+  return `${ssRow.remaining ?? 0} week(s) remaining`;
+}
+
+/** Card view: HS + SS progress, week boxes, combined urgency. */
+export function enrichClientForCardView(client, packageRows, invoices, sessions) {
+  const base = enrichClientFromPackageStatus(client, packageRows);
+  const rows = (packageRows || []).filter(r => r.client_id === client.id);
+  const hsRow = rows.find(r => r.service_type === "HS") || null;
+  const ssRow = rows.find(r => r.service_type === "SS") || null;
+  const worst = worstPkgStatus([hsRow, ssRow]);
+  const cardStatus = mapPkgStatusToCardStatus(worst);
+
+  const clientSessions = (sessions || []).filter(s => s.client_id === client.id);
+  const clientInvoices = (invoices || []).filter(i => i.client_id === client.id);
+
+  let ssWeeks = null;
+  if (ssRow?.status && ssRow.status !== "none") {
+    const inv = clientInvoices.find(i => i.id === ssRow.invoice_id);
+    const invSessions = filterSessionsForInvoice(clientSessions, inv, clientInvoices);
+    ssWeeks = computeSsWeekSummary(invSessions, inv?.start_date || client.cycle_start_date, ssRow.total_weeks || 4);
+  }
+
+  let hsProgress = null;
+  if (hsRow?.status && hsRow.status !== "none") {
+    const pkg = hsRow.package_size ?? 24;
+    const used = hsRow.used ?? 0;
+    hsProgress = {
+      used,
+      pkg,
+      remaining: hsRow.remaining ?? 0,
+      pct: pkg > 0 ? Math.min(100, Math.round((used / pkg) * 100)) : 0,
+      status: hsRow.status,
+    };
+  }
+
+  const locEntry = client.locations?.[0];
+  return {
+    ...base,
+    cardStatus,
+    status: cardStatus,
+    hsRow,
+    ssRow,
+    ssWeeks,
+    hsProgress,
+    hasSs: Boolean(ssRow?.status && ssRow.status !== "none"),
+    hasHs: Boolean(hsRow?.status && hsRow.status !== "none"),
+    location: locEntry?.address || client.address || "",
+    locationService: locEntry?.service || "",
+    initials: clientInitials(client.name),
+    ssAlert: ssWeekAlertText(ssRow),
+  };
+}
+
 /** @deprecated Use enrichClientFromPackageStatus — sums hours across all invoices. */
 export function enrichClientBilling(client, sessions) {
   const mode = resolveClientBillingMode(client, null);

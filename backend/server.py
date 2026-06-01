@@ -1424,6 +1424,26 @@ async def list_invoices(cid: str, service_type: Optional[str] = None, user=Depen
             items = [i for i in items if _normalize_service_type(i.get("service_type")) == code]
     return items
 
+
+@api.get("/invoices")
+async def list_all_invoices(user=Depends(get_current_user)):
+    """All invoices for clients the user can access (attendance card week windows)."""
+    clients = await db.clients.find(
+        _active_client_filter({"status": {"$ne": "Inactive"}}),
+        {"_id": 0, "id": 1, "main_therapist_id": 1, "co_therapist_ids": 1},
+    ).to_list(500)
+    if not _has_full_client_access(user):
+        uid = user["id"]
+        clients = [
+            c for c in clients
+            if c.get("main_therapist_id") == uid or uid in (c.get("co_therapist_ids") or [])
+        ]
+    client_ids = {c["id"] for c in clients}
+    if not client_ids:
+        return []
+    items = await db.invoices.find({"client_id": {"$in": list(client_ids)}}, {"_id": 0}).to_list(5000)
+    return items
+
 # ------------------- Package status (last open invoice) -------------------
 def _sort_invoices_by_date(invoices: list) -> list:
     return sorted(
