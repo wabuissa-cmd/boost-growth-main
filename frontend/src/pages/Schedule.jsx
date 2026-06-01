@@ -7,9 +7,9 @@ import {
 } from "../scheduleUtils";
 import { useAuth, hasOpsAccess } from "../auth";
 import {
-  CaretLeft, CaretRight, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
+  CaretLeft, CaretRight, CaretDown, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
   MagnifyingGlassPlus, MagnifyingGlassMinus, Printer, Info, GridFour,
-  CopySimple, Table, CalendarBlank, CheckCircle
+  CopySimple, Table, CalendarBlank, CheckCircle, PencilSimple
 } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
@@ -124,6 +124,19 @@ export default function Schedule() {
   const [ctxMenuPos, setCtxMenuPos] = useState({ left: 0, top: 0, ready: false });
   const longPressTimer = useRef(null);
   const touchStartPos = useRef(null);
+  const [adminEditsOpen, setAdminEditsOpen] = useState(false);
+  const adminEditsRef = useRef(null);
+
+  useEffect(() => {
+    if (!adminEditsOpen) return;
+    const close = (e) => {
+      if (adminEditsRef.current && !adminEditsRef.current.contains(e.target)) {
+        setAdminEditsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [adminEditsOpen]);
 
   const openCtxAt = (x, y, cell, therapist_id, day, time_slot) => {
     if (!isAdmin) return;
@@ -866,11 +879,49 @@ export default function Schedule() {
           <button onClick={() => window.print()} className="btn btn-ghost p-2"><Printer size={16} /></button>
         </div>
         {isAdmin && (
-          <>
-            <button type="button" onClick={setDraft} className="btn btn-outline text-xs">Save as Draft</button>
-            <button type="button" onClick={publishWeek} className="btn btn-primary text-xs">Publish Week</button>
-            <button data-testid="duplicate-week-btn" onClick={() => { setDupTarget(toISODate(addDays(weekStart, 7))); setShowDup(true); }} className="btn btn-gold"><CopySimple size={16} /> Duplicate Week →</button>
-          </>
+          <div className="relative ml-auto" ref={adminEditsRef}>
+            <button
+              type="button"
+              data-testid="schedule-admin-edits"
+              onClick={() => setAdminEditsOpen(o => !o)}
+              className="btn btn-outline text-xs flex items-center gap-1.5 min-h-[44px]"
+              aria-expanded={adminEditsOpen}
+            >
+              <PencilSimple size={16} />
+              Edits
+              <CaretDown size={14} className={`transition-transform ${adminEditsOpen ? "rotate-180" : ""}`} />
+            </button>
+            {adminEditsOpen && (
+              <div className="absolute right-0 top-full mt-1.5 z-30 card p-2 min-w-[220px] shadow-lg border border-[#E8E4DE] flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => { setDraft(); setAdminEditsOpen(false); }}
+                  className="btn btn-outline text-xs w-full justify-start"
+                >
+                  Save as Draft
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { publishWeek(); setAdminEditsOpen(false); }}
+                  className="btn btn-primary text-xs w-full justify-start"
+                >
+                  Publish Week
+                </button>
+                <button
+                  type="button"
+                  data-testid="duplicate-week-btn"
+                  onClick={() => {
+                    setDupTarget(toISODate(addDays(weekStart, 7)));
+                    setShowDup(true);
+                    setAdminEditsOpen(false);
+                  }}
+                  className="btn btn-gold text-xs w-full justify-start"
+                >
+                  <CopySimple size={16} /> Duplicate Week →
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
