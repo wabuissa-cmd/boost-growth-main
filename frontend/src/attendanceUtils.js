@@ -153,6 +153,17 @@ export function sortInvoicesByRecent(invoiceList) {
   });
 }
 
+/** Oldest first (Excel / Drive sheet order — latest date at bottom). */
+export function sortSessionsByDateAsc(sessions) {
+  return [...(sessions || [])].sort((a, b) => {
+    const da = String(a.session_date || "").slice(0, 10);
+    const db = String(b.session_date || "").slice(0, 10);
+    const cmp = da.localeCompare(db);
+    if (cmp !== 0) return cmp;
+    return String(a.start_time || "").localeCompare(String(b.start_time || ""));
+  });
+}
+
 export function computeSsWeekSummary(sessions, anchorISO, totalWeeks = 4) {
   const groups = groupSessionsBySchoolWeeks(sessions, anchorISO, totalWeeks);
   return groups.map(w => {

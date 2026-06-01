@@ -18,6 +18,7 @@ import {
   filterSessionsForInvoice,
   filterInvoicesForServiceTab,
   sortInvoicesByRecent,
+  sortSessionsByDateAsc,
   fmtDate, dayShort, dayNameFromDate, WEEK_ROW_BG,
   normalizeServiceTypeCode, inferDefaultServiceType,
   pickLatestOpenInvoice, computeSsTotals, ssSessionDayValue,
@@ -90,7 +91,7 @@ function ServiceTypeToggle({ value, onChange, tabState }) {
   );
 }
 
-function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdit, onDeleted, rowBg, billingKind, hideHours }) {
+function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdit, onDeleted, rowBg, billingKind, hideHours, locked = false }) {
   const stColor = s.status === "Completed" ? "#3D4F35" :
     s.status === "Cancelled" ? "#6B5218" :
     s.status === "No Show" ? "#8A3F27" : "#5C6853";
@@ -98,7 +99,7 @@ function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdi
     s.status === "Cancelled" ? "#FAF0D1" :
     s.status === "No Show" ? "#F8EBE7" : "#F0EDE9";
   const tNames = (s.therapist_ids || []).map(id => findT(id)?.name?.replace("Ms. ", "")).filter(Boolean).join(" - ");
-  const canEdit = isAdmin || isSupervisorForClient(user, client.file_no) || (s.therapist_ids || []).includes(currentUserId);
+  const canEdit = !locked && (isAdmin || isSupervisorForClient(user, client.file_no) || (s.therapist_ids || []).includes(currentUserId));
   const measureVal = billingKind === "SS"
     ? (ssSessionDayValue(s) ? 1 : "—")
     : s.hours;
@@ -335,7 +336,7 @@ export default function Attendance() {
                                 therapists={therapists} isAdmin={isAdmin} user={user} currentUserId={user?.id}
                                 onClose={() => setHistoryFor(null)}
                                 onEdit={(s) => { setEditingSess(s); }}
-                                onDeleted={() => load()}/>
+                                onRefresh={load}/>
       )}
 
       {historyFor && sheetMode === "invoice" && (
@@ -358,13 +359,15 @@ export default function Attendance() {
 }
 
 function LogSessionForm({ client, therapists, currentUser, onClose, onSaved, session }) {
+  const defaultLoc = client?.locations?.[0];
   const [form, setForm] = useState(session ? {...session} : {
     client_id: client.id,
     session_date: new Date().toISOString().slice(0, 10),
     start_time: "14:00", end_time: "16:00", hours: 2,
     status: "Completed",
     therapist_ids: currentUser?.role === "therapist" ? [currentUser.id] : [client.main_therapist_id].filter(Boolean),
-    note: "", location: client.locations?.[0]?.address || "",
+    note: "", location: defaultLoc?.address || "",
+    service_type: defaultLoc?.service || client?.service_type || "HS",
   });
 
   const computeHours = (st, et) => {
@@ -417,7 +420,10 @@ function LogSessionForm({ client, therapists, currentUser, onClose, onSaved, ses
                 data-testid="sess-location"
                 className="modal-input"
                 value={form.location}
-                onChange={e => setForm({ ...form, location: e.target.value })}
+                onChange={e => {
+                  const loc = client.locations.find(l => l.address === e.target.value);
+                  setForm({ ...form, location: e.target.value, service_type: loc?.service || form.service_type || "HS" });
+                }}
               >
                 {client.locations.map((l, i) => (
                   <option key={i} value={l.address}>{l.service} | {l.address}</option>
@@ -522,112 +528,192 @@ function LogSessionForm({ client, therapists, currentUser, onClose, onSaved, ses
   );
 }
 
-function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, currentUserId, onClose, onEdit, onDeleted }) {
+function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, currentUserId, onClose, onEdit, onRefresh }) {
   const findT = id => therapists.find(t => t.id === id);
-  const [invoices, setInvoices] = useState([]);
-  const [filterInvoiceId, setFilterInvoiceId] = useState("");
+  const [allInvoices, setAllInvoices] = useState([]);
+  const [serviceTypeFilter, setServiceTypeFilter] = useState(() =>
+    inferDefaultServiceType([], client, user, sessions) || "HS"
+  );
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState("");
+  const [localSessions, setLocalSessions] = useState(sessions);
+  const invoicesInitialized = useRef(false);
+  const prevServiceFilter = useRef(serviceTypeFilter);
+
+  const tabState = useMemo(() => resolveServiceTabState(client, allInvoices), [client, allInvoices]);
+  const isSchool = serviceTypeFilter === "SS";
+  const invoices = useMemo(
+    () => filterInvoicesForServiceTab(allInvoices, serviceTypeFilter, client),
+    [allInvoices, serviceTypeFilter, client]
+  );
+  const sortedInvoices = useMemo(() => sortInvoicesByRecent(invoices), [invoices]);
+  const selectedInvoice = invoices.find(i => i.id === selectedInvoiceId);
+  const invoiceLocked = !!selectedInvoice?.is_closed;
+
+  const reloadSessions = useCallback(async () => {
+    const params = { client_id: client.id };
+    if (selectedInvoiceId) params.invoice_id = selectedInvoiceId;
+    try {
+      const r = await api.get("/sessions", { params });
+      setLocalSessions(r.data || []);
+    } catch {
+      setLocalSessions([]);
+    }
+  }, [client.id, selectedInvoiceId]);
 
   useEffect(() => {
-    api.get(`/clients/${client.id}/invoices`).then(r => setInvoices(r.data || [])).catch(() => setInvoices([]));
+    api.get(`/clients/${client.id}/invoices`).then(r => setAllInvoices(r.data || [])).catch(() => setAllInvoices([]));
+    invoicesInitialized.current = false;
   }, [client.id]);
 
-  const filteredSessions = sessions.filter(s => {
-    if (!filterInvoiceId) return true;
-    const inv = invoices.find(i => i.id === filterInvoiceId);
-    if (!inv) return true;
-    const invNum = (inv.invoice_number || "").trim();
-    return s.invoice_id === filterInvoiceId ||
-      (s.source_invoice && s.source_invoice.trim() === invNum);
-  });
+  useEffect(() => {
+    if (!allInvoices.length && invoicesInitialized.current) return;
+    if (!invoicesInitialized.current) {
+      invoicesInitialized.current = true;
+      const def = inferDefaultServiceType(allInvoices, client, user, sessions) || "HS";
+      setServiceTypeFilter(def);
+      const filtered = tabState.showToggle
+        ? filterInvoicesForServiceTab(allInvoices, def, client)
+        : allInvoices;
+      const pick = pickLatestOpenInvoice(filtered);
+      setSelectedInvoiceId(pick?.id || "");
+    }
+  }, [allInvoices, client, user, sessions, tabState.showToggle]);
 
-  const resetAt = client.package_reset_at;
-  const pkg = client.package_hours || 24;
-  const used = filteredSessions.filter(s => s.status === "Completed")
-    .filter(s => !resetAt || (s.session_date && s.session_date >= resetAt.slice(0, 10)))
-    .reduce((sum, s) => sum + (parseFloat(s.hours) || 0), 0);
-  const sorted = [...filteredSessions].sort((a, b) => new Date(a.session_date) - new Date(b.session_date));
-  const dayShort = (d) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" });
-  const fmtDate = (d) => {
-    const dt = new Date(d);
-    return `${dt.getDate()}/${dt.getMonth() + 1}/${dt.getFullYear()}`;
-  };
-  const removeSess = async (sid) => {
-    if (!window.confirm("Delete this session?")) return;
-    await api.delete(`/sessions/${sid}`);
-    onDeleted();
-  };
+  useEffect(() => {
+    if (prevServiceFilter.current !== serviceTypeFilter) {
+      prevServiceFilter.current = serviceTypeFilter;
+      const filtered = tabState.showToggle
+        ? filterInvoicesForServiceTab(allInvoices, serviceTypeFilter, client)
+        : allInvoices;
+      const pick = pickLatestOpenInvoice(filtered);
+      setSelectedInvoiceId(pick?.id || "");
+    }
+  }, [serviceTypeFilter, allInvoices, tabState.showToggle, client]);
+
+  useEffect(() => { reloadSessions(); }, [reloadSessions]);
+  useEffect(() => { reloadSessions(); }, [sessions]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const cycleSessions = useMemo(
+    () => filterSessionsForInvoice(localSessions, selectedInvoice, allInvoices),
+    [localSessions, selectedInvoice, allInvoices]
+  );
+  const hsTotals = useMemo(
+    () => computeHsInvoiceTotals(cycleSessions, selectedInvoice?.package_size || client.package_hours || 24),
+    [cycleSessions, selectedInvoice?.package_size, client.package_hours]
+  );
+  const ssTotals = useMemo(() => computeSsTotals(cycleSessions), [cycleSessions]);
+  const sorted = useMemo(() => sortSessionsByDateAsc(cycleSessions), [cycleSessions]);
+
+  const pkgLabel = isSchool
+    ? `Weeks: ${ssTotals.completed || 0} attended`
+    : `Package: ${hsTotals.pkg}h · Used: ${hsTotals.hoursUsed.toFixed(1)}h`;
 
   return (
     <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={onClose}>
       <div className="card p-0 w-full max-w-4xl modal-card max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-3 border-b border-[#E8E4DE]">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-[#E8E4DE] flex-wrap gap-2">
           <div className="font-bold text-sm" style={{ color: "#2C3625" }}>Attendance History · {client.name}</div>
-          <button onClick={onClose} className="btn btn-ghost p-2"><X size={20}/></button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {tabState.showToggle && (
+              <ServiceTypeToggle value={serviceTypeFilter} onChange={setServiceTypeFilter} tabState={tabState} />
+            )}
+            <button onClick={onClose} className="btn btn-ghost p-2 min-h-[44px] min-w-[44px]"><X size={20}/></button>
+          </div>
         </div>
+
+        {invoiceLocked && (
+          <div className="px-5 py-2 text-xs font-bold no-print flex items-center gap-2"
+            style={{ background: "#F5F5F5", color: "#5C6853", borderBottom: "1px solid #E0E0E0" }}>
+            🔒 This invoice is closed — view only. Re-open from Invoice Sheet to edit.
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto">
-          <div className="px-8 pt-8 pb-4 text-center border-b-2" style={{ borderColor: "#7A8A6A" }}>
+          <div className="px-8 pt-6 pb-4 text-center border-b-2" style={{ borderColor: "#7A8A6A" }}>
             <div className="w-16 h-16 rounded-xl mx-auto mb-3 flex items-center justify-center p-2" style={{ background: "#7A8A6A" }}>
               <img src="/bg-logo.png" alt="" className="w-full h-full object-contain"/>
             </div>
             <div className="font-display text-2xl font-semibold" style={{ color: "#2C3625" }}>{client.name}</div>
-            <div className="text-sm mt-2" style={{ color: "#5C6853" }}>
-              Package: <strong>{pkg}h</strong> · Used: <strong>{used.toFixed(1)}h</strong>
-            </div>
-            {invoices.length > 0 && (
-              <div className="mt-4 max-w-xs mx-auto">
-                <select className="select text-xs w-full" value={filterInvoiceId} onChange={e => setFilterInvoiceId(e.target.value)}>
-                  <option value="">All Invoices</option>
-                  {invoices.map(inv => (
-                    <option key={inv.id} value={inv.id}>{inv.invoice_number}</option>
-                  ))}
-                </select>
+            <div className="text-sm mt-2" style={{ color: "#5C6853" }}>{pkgLabel}</div>
+
+            {sortedInvoices.length > 0 ? (
+              <div className="mt-4 flex flex-col items-center gap-2 max-w-sm mx-auto">
+                <div className="flex items-center gap-2 flex-wrap justify-center">
+                  {selectedInvoice && (
+                    <span className="pill text-[10px] font-bold px-2 py-1"
+                      style={{
+                        background: selectedInvoice.is_closed ? "#F0EDE9" : "#E5EBE1",
+                        color: selectedInvoice.is_closed ? "#5C6853" : "#3D4F35",
+                        border: `1px solid ${selectedInvoice.is_closed ? "#E8E4DE" : "#B4C2A9"}`,
+                      }}>
+                      {selectedInvoice.invoice_number} · {selectedInvoice.is_closed ? "Closed" : "Open"}
+                    </span>
+                  )}
+                  <span className="pill text-[10px]" style={{ background: "#F4EDE3", color: "#6B5430" }}>
+                    {formatServiceTypeDisplay(serviceTypeFilter) || serviceTypeFilter}
+                  </span>
+                </div>
+                {sortedInvoices.length > 1 && (
+                  <select
+                    className="select text-xs w-full min-h-[44px]"
+                    value={selectedInvoiceId}
+                    onChange={e => setSelectedInvoiceId(e.target.value)}
+                  >
+                    {sortedInvoices.map(inv => (
+                      <option key={inv.id} value={inv.id}>
+                        {inv.invoice_number} · {inv.is_closed ? "Closed" : "Open"}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
+            ) : (
+              <div className="mt-3 text-xs" style={{ color: "#8B9E7A" }}>No invoice for {serviceTypeFilter} yet</div>
             )}
           </div>
+
           {sorted.length === 0 ? (
-            <div className="p-12 text-center" style={{ color: "#8B9E7A" }}>No sessions logged yet</div>
+            <div className="p-12 text-center" style={{ color: "#8B9E7A" }}>No sessions for this invoice yet</div>
           ) : (
-            <table className="w-full text-xs">
-              <thead style={{ background: "#F0E9D8" }}>
-                <tr style={{ color: "#2C3625" }}>
-                  <th className="p-2 text-left font-bold">Day</th>
-                  <th className="p-2 text-left font-bold">Date</th>
-                  <th className="p-2 text-left font-bold">Status</th>
-                  <th className="p-2 text-left font-bold">Time</th>
-                  <th className="p-2 text-left font-bold">Hours</th>
-                  <th className="p-2 text-left font-bold">Therapist</th>
-                  <th className="p-2"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map(s => {
-                  const canEdit = isAdmin || isSupervisorForClient(user, client.file_no) || (s.therapist_ids || []).includes(currentUserId);
-                  const tNames = (s.therapist_ids || []).map(id => findT(id)?.name?.replace("Ms. ", "")).filter(Boolean).join(" - ");
-                  const stBg = s.status === "Completed" ? "#E5EBE1" : s.status === "No Show" ? "#F8EBE7" : "#F0EDE9";
-                  const stColor = s.status === "Completed" ? "#3D4F35" : s.status === "No Show" ? "#8A3F27" : "#5C6853";
-                  return (
-                    <tr key={s.id} className="border-t border-[#E8E4DE]">
-                      <td className="p-2 font-bold">{dayShort(s.session_date)}</td>
-                      <td className="p-2">{fmtDate(s.session_date)}</td>
-                      <td className="p-2"><span className="pill text-[10px]" style={{ background: stBg, color: stColor }}>{s.status}</span></td>
-                      <td className="p-2">{s.start_time && s.end_time ? `${s.start_time} - ${s.end_time}` : "—"}</td>
-                      <td className="p-2 font-bold">{s.hours}</td>
-                      <td className="p-2">{tNames || "—"}</td>
-                      <td className="p-2 text-right">
-                        {canEdit && <button onClick={() => onEdit(s)} className="btn btn-ghost p-1.5"><PencilSimple size={14}/></button>}
-                        {canEdit && isAdmin && <button onClick={() => removeSess(s.id)} className="btn btn-ghost p-1.5 text-red-700"><Trash size={14}/></button>}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <div className="table-scroll overflow-x-auto">
+              <table className="w-full text-xs min-w-[640px]">
+                <thead style={{ background: "#F0E9D8" }}>
+                  <tr style={{ color: "#2C3625" }}>
+                    <th className="p-2 text-left font-bold">Day</th>
+                    <th className="p-2 text-left font-bold">Date</th>
+                    <th className="p-2 text-left font-bold">Status</th>
+                    <th className="p-2 text-left font-bold">Time</th>
+                    <th className="p-2 text-left font-bold">{isSchool ? "Day" : "Hours"}</th>
+                    <th className="p-2 text-left font-bold">Therapist</th>
+                    {!invoiceLocked && <th className="p-2 no-print"></th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sorted.map(s => (
+                    <SessionTableRow
+                      key={s.id}
+                      s={s}
+                      findT={findT}
+                      isAdmin={isAdmin}
+                      user={user}
+                      client={client}
+                      currentUserId={currentUserId}
+                      onEdit={onEdit}
+                      onDeleted={() => { onRefresh && onRefresh(); reloadSessions(); }}
+                      billingKind={isSchool ? "SS" : "HS"}
+                      locked={invoiceLocked}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </div>
     </div>
   );
 }
+
 
 function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUserId, onClose, onEdit, onDeleted, onClientUpdated, initialService, autoNewInvoice }) {
   const [closed, setClosed] = useState(false);
@@ -784,7 +870,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
     const params = { client_id: client.id };
     if (selectedInvoiceId) params.invoice_id = selectedInvoiceId;
     api.get("/sessions", { params }).then(r => setLocalSessions(r.data || [])).catch(() => setLocalSessions([]));
-  }, [client.id, selectedInvoiceId]);
+  }, [client.id, selectedInvoiceId, sessions]);
 
   // When user picks an invoice from the dropdown, populate the form fields with that invoice's data
   useEffect(() => {
@@ -947,7 +1033,11 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
 
   const fmtDateLocal = fmtDate;
   const dayShortLocal = dayShort;
-  const sortedInvoiceSessions = [...cycleSessions].sort((a, b) => new Date(a.session_date) - new Date(b.session_date));
+  const sortedInvoiceSessions = useMemo(
+    () => sortSessionsByDateAsc(cycleSessions),
+    [cycleSessions]
+  );
+  const invoiceLocked = !!selectedInvoice?.is_closed;
 
   return (
     <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={onClose}>
@@ -1097,6 +1187,13 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                style={{background: "#FAE8C8", color: "#8B6918", borderBottom: "1px solid #E5C387"}}>
             <Warning size={16} weight="fill"/>
             <span>Payment Pending</span>
+          </div>
+        )}
+
+        {invoiceLocked && (
+          <div className="px-5 py-2 text-xs font-bold no-print flex items-center gap-2"
+            style={{ background: "#F5F5F5", color: "#5C6853", borderBottom: "1px solid #E0E0E0" }}>
+            🔒 Invoice closed — sessions are view-only. Re-open from Invoice Details to edit.
           </div>
         )}
 
@@ -1252,7 +1349,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                         </tr>
                       </thead>
                       <tbody>
-                        {group.sessions.map(s => (
+                        {sortSessionsByDateAsc(group.sessions).map(s => (
                           <SessionTableRow
                             key={s.id}
                             s={s}
@@ -1266,6 +1363,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                             rowBg={WEEK_ROW_BG[(group.weekNumber - 1) % WEEK_ROW_BG.length]}
                             billingKind="SS"
                             hideHours
+                            locked={invoiceLocked}
                           />
                         ))}
                       </tbody>
@@ -1303,6 +1401,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                     onEdit={onEdit}
                     onDeleted={onDeleted}
                     billingKind="HS"
+                    locked={invoiceLocked}
                   />
                 ))}
               </tbody>

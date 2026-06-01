@@ -236,6 +236,7 @@ class SessionIn(BaseModel):
     therapist_ids: List[str] = []
     note: Optional[str] = None
     location: Optional[str] = None  # which location used (HS / SS)
+    service_type: Optional[str] = None  # HS / SS — links session to open invoice
 
 class RequestIn(BaseModel):
     title: str
@@ -2669,19 +2670,66 @@ async def list_sessions(client_id: Optional[str] = None, invoice_id: Optional[st
         items = [s for s in items if uid in (s.get("therapist_ids") or [])]
     return _sessions_with_day_names(items)
 
+def _service_code_for_new_session(client: dict, payload: SessionIn) -> str:
+    if payload.service_type:
+        st = _normalize_service_type(payload.service_type)
+        if st in ("HS", "SS"):
+            return st
+    if payload.location and client:
+        for loc in client.get("locations") or []:
+            if loc.get("address") == payload.location:
+                st = _normalize_service_type(loc.get("service"))
+                if st in ("HS", "SS"):
+                    return st
+    cst = _normalize_service_type(client.get("service_type") if client else None)
+    if cst in ("HS", "SS"):
+        return cst
+    return "HS"
+
+
+def _attach_open_invoice_to_session(doc: dict, client: dict, invoices: list) -> dict:
+    """Link new session to the client's open invoice for the service type."""
+    if doc.get("invoice_id"):
+        return doc
+    payload_st = doc.get("service_type")
+    st_code = _normalize_service_type(payload_st) if payload_st else None
+    if st_code not in ("HS", "SS"):
+        fake = SessionIn(
+            client_id=doc["client_id"],
+            session_date=doc.get("session_date") or now_iso()[:10],
+            location=doc.get("location"),
+            service_type=payload_st,
+        )
+        st_code = _service_code_for_new_session(client, fake)
+    open_inv = _last_open_invoice(invoices, st_code)
+    if not open_inv:
+        for code in ("HS", "SS"):
+            open_inv = _last_open_invoice(invoices, code)
+            if open_inv:
+                break
+    if open_inv:
+        doc["invoice_id"] = open_inv["id"]
+        inv_num = (open_inv.get("invoice_number") or "").strip()
+        if inv_num:
+            doc["source_invoice"] = inv_num
+    return doc
+
+
 @api.post("/sessions")
 async def create_session(payload: SessionIn, user=Depends(get_current_user)):
     sid = str(uuid.uuid4())
     therapist_ids = payload.therapist_ids or []
     if user.get("role") == "therapist" and user["id"] not in therapist_ids:
         therapist_ids.append(user["id"])
+    client = await db.clients.find_one(_active_client_filter({"id": payload.client_id}), {"_id": 0})
+    invs = await db.invoices.find({"client_id": payload.client_id}, {"_id": 0}).to_list(200)
     doc = {"id": sid, **payload.model_dump(), "therapist_ids": therapist_ids,
            "created_by": user["id"], "created_by_role": user["role"],
            "created_at": now_iso()}
+    doc = _attach_open_invoice_to_session(doc, client or {}, invs)
     await db.sessions.insert_one(doc)
     doc.pop("_id", None)
     # Admin alerts
-    client = await db.clients.find_one(_active_client_filter({"id": payload.client_id}), {"_id": 0})
     cname = client.get("name") if client else "—"
     if user.get("role") == "therapist":
         await _notify_admins("session_log", f"New session logged ({payload.status})",
