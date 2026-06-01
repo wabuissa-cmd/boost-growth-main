@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api, { startOfWeek, toISODate } from "../api";
+import { cachedGet } from "../dataCache";
 import { useAuth, showAdminNav } from "../auth";
 import {
   CalendarBlank, ClipboardText, UsersThree, ListChecks, Plant, ArrowRight, Sparkle,
@@ -32,18 +33,18 @@ export default function Home() {
         const asList = (r) => (Array.isArray(r?.data) ? r.data : []);
 
         const [c, t, r, s, sess] = await Promise.all([
-          api.get("/clients").catch(() => ({ data: [] })),
-          api.get("/therapists").catch(() => ({ data: [] })),
-          api.get("/requests").catch(() => ({ data: [] })),
-          api.get("/schedule", { params: { week_start: weekISO } }).catch(() => ({ data: [] })),
-          api.get("/sessions").catch(() => ({ data: [] })),
+          cachedGet("/clients").catch(() => []),
+          cachedGet("/therapists").catch(() => []),
+          cachedGet("/requests").catch(() => []),
+          cachedGet("/schedule", { params: { week_start: weekISO } }).catch(() => []),
+          cachedGet("/sessions").catch(() => []),
         ]);
 
-        const clients = asList(c);
-        const therapists = asList(t);
-        const requests = asList(r);
-        const schedule = asList(s);
-        const sessions = asList(sess);
+        const clients = asList({ data: c });
+        const therapists = asList({ data: t });
+        const requests = asList({ data: r });
+        const schedule = asList({ data: s });
+        const sessions = asList({ data: sess });
 
         // Schedule cells for the displayed week, scoped to current user
         const myCells = isPortalAdminUser

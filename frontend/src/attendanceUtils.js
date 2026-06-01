@@ -633,7 +633,7 @@ export function ssWeekAlertText(ssRow) {
 }
 
 /** Card view: HS + SS progress, week boxes, combined urgency. */
-export function enrichClientForCardView(client, packageRows, invoices, sessions) {
+export function enrichClientForCardView(client, packageRows) {
   const base = enrichClientFromPackageStatus(client, packageRows);
   const rows = (packageRows || []).filter(r => r.client_id === client.id);
   const hsRow = rows.find(r => r.service_type === "HS") || null;
@@ -641,15 +641,7 @@ export function enrichClientForCardView(client, packageRows, invoices, sessions)
   const worst = worstPkgStatus([hsRow, ssRow]);
   const cardStatus = mapPkgStatusToCardStatus(worst);
 
-  const clientSessions = (sessions || []).filter(s => s.client_id === client.id);
-  const clientInvoices = (invoices || []).filter(i => i.client_id === client.id);
-
-  let ssWeeks = null;
-  if (ssRow?.status && ssRow.status !== "none") {
-    const inv = clientInvoices.find(i => i.id === ssRow.invoice_id);
-    const invSessions = filterSessionsForInvoice(clientSessions, inv, clientInvoices);
-    ssWeeks = computeSsWeekSummary(invSessions, inv?.start_date || client.cycle_start_date, ssRow.total_weeks || 4);
-  }
+  const ssWeeks = ssRow?.week_summary || null;
 
   let hsProgress = null;
   if (hsRow?.status && hsRow.status !== "none") {

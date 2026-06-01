@@ -16,6 +16,7 @@ import jwt
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr
 
@@ -1625,6 +1626,36 @@ def _weeks_done_for_invoice(sessions: list, anchor_iso: str, total_weeks: int) -
     return done
 
 
+def _ss_week_summary_for_invoice(sessions: list, anchor_iso: str, total_weeks: int = 4) -> list:
+    """Per-week status for attendance cards (matches frontend computeSsWeekSummary)."""
+    windows = _school_week_windows(anchor_iso, total_weeks)
+    completed = [s for s in (sessions or []) if s.get("status") == "Completed" and s.get("session_date")]
+    out = []
+    for w in windows:
+        wnum = w["week_number"]
+        dates = w.get("dates") or []
+        school_days = len(dates) or 5
+        attended = sum(1 for s in completed if str(s["session_date"])[:10] in dates)
+        week_sessions = [s for s in (sessions or []) if str(s.get("session_date") or "")[:10] in dates]
+        if not week_sessions:
+            week_status = "Not started"
+        elif attended >= min(5, school_days):
+            week_status = "Completed"
+        else:
+            week_status = "In Progress"
+        label = "(upcoming)"
+        if dates:
+            label = f"{dates[0]} - {dates[-1]}"
+        out.append({
+            "weekNumber": wnum,
+            "weekStatus": week_status,
+            "label": label,
+            "attended": attended,
+            "schoolDays": school_days,
+        })
+    return out
+
+
 def _package_status_level_hs(remaining: float, total: float) -> str:
     if total <= 0 or remaining <= 0:
         return "expired"
@@ -1743,6 +1774,7 @@ def _compute_package_status_row(client: dict, service_code: str, invoices: list,
         label = "Last week!"
     else:
         label = f"Wk {current_w} of {total_weeks}"
+    week_summary = _ss_week_summary_for_invoice(inv_sessions, anchor, total_weeks)
     return {
         **base,
         "invoice_id": inv["id"],
@@ -1756,6 +1788,7 @@ def _compute_package_status_row(client: dict, service_code: str, invoices: list,
         "label": label,
         "current_week": current_w,
         "total_weeks": total_weeks,
+        "week_summary": week_summary,
         **pay_fields,
     }
 
@@ -5313,6 +5346,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=800)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -5499,8 +5533,13 @@ async def _run_startup():
         await db.users.create_index("email", unique=True)
         await db.therapists.create_index("id", unique=True)
         await db.schedule_cells.create_index([("week_start", 1), ("therapist_id", 1)])
+        await db.schedule_cells.create_index("week_start")
         await db.notifications.create_index("user_id")
         await db.sessions.create_index([("client_id", 1), ("session_date", -1)])
+        await db.sessions.create_index("invoice_id")
+        await db.clients.create_index("id")
+        await db.clients.create_index([("deleted", 1), ("file_no", 1)])
+        await db.invoices.create_index([("client_id", 1), ("start_date", -1)])
 
         admin_email = os.environ["ADMIN_EMAIL"].lower()
         admin_password = os.environ["ADMIN_PASSWORD"]

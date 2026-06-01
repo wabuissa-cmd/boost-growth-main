@@ -136,21 +136,35 @@ export default function PreparationClientCard({
         </div>
       )}
 
-      <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-[#F0EDE9]">
+      <div className="mt-3 pt-3 border-t border-[#F0EDE9] space-y-2">
         <button
           type="button"
           data-testid={`log-${client.id}`}
           onClick={onLog}
-          className="btn btn-primary text-xs flex-1 min-h-[40px]"
+          className="btn btn-primary text-sm w-full min-h-[44px]"
         >
-          <Plus size={14} /> Log Session
+          <Plus size={16} weight="bold" /> Log Session
         </button>
-        <button type="button" onClick={onHistory} className="btn btn-ghost p-2 min-h-[40px] min-w-[40px]" title="History">
-          <ClockCounterClockwise size={16} />
-        </button>
-        <button type="button" onClick={onInvoice} className="btn btn-ghost p-2 min-h-[40px] min-w-[40px]" title="Invoice Sheet">
-          <ClipboardText size={16} />
-        </button>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={onHistory}
+            className="flex flex-col items-center justify-center gap-1 rounded-xl border-2 min-h-[56px] py-2 px-2 transition hover:bg-[#E5EBE1]"
+            style={{ borderColor: "#B8C8A8", background: "#FAFAF7", color: "#3D4F35" }}
+          >
+            <ClockCounterClockwise size={22} weight="duotone" />
+            <span className="text-[11px] font-bold leading-none">History</span>
+          </button>
+          <button
+            type="button"
+            onClick={onInvoice}
+            className="flex flex-col items-center justify-center gap-1 rounded-xl border-2 min-h-[56px] py-2 px-2 transition hover:bg-[#FAF0D1]"
+            style={{ borderColor: "#E5C387", background: "#FFFBF3", color: "#6B5218" }}
+          >
+            <ClipboardText size={22} weight="duotone" />
+            <span className="text-[11px] font-bold leading-none">Invoice Sheet</span>
+          </button>
+        </div>
       </div>
     </div>
   );

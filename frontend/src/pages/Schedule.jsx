@@ -9,13 +9,15 @@ import { useAuth, hasOpsAccess } from "../auth";
 import {
   CaretLeft, CaretRight, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
   MagnifyingGlassPlus, MagnifyingGlassMinus, Printer, Info, GridFour,
-  CopySimple, Table, CalendarBlank
+  CopySimple, Table, CalendarBlank, CheckCircle
 } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
 import ScheduleCellPanel from "../components/ScheduleCellPanel";
+import TrackerBanner from "../components/TrackerBanner";
+import { cachedGet } from "../dataCache";
 
 function getSheetCellStyle(cell, clients) {
   if (!cell) return { background: "#E5E7EB", borderColor: "#D1D5DB", height: 38, minHeight: 38, padding: "2px 1px", fontSize: 10 };
@@ -200,18 +202,21 @@ export default function Schedule() {
     alert(`Week duplicated to ${dupTarget}. Navigate to that week to view.`);
   };
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     const yr = weekStart.getFullYear();
     const [c, t, cl, lv] = await Promise.all([
-      api.get("/schedule", { params: { week_start: weekStartISO } }),
-      api.get("/therapists").catch(() => ({ data: [] })),
-      api.get("/clients").catch(() => ({ data: [] })),
-      api.get("/leaves", { params: { year: yr } }).catch(() => ({ data: [] })),
+      cachedGet("/schedule", { params: { week_start: weekStartISO }, force }),
+      cachedGet("/therapists", { force }).catch(() => []),
+      cachedGet("/clients", { force }).catch(() => []),
+      cachedGet("/leaves", { params: { year: yr }, force }).catch(() => []),
     ]);
-    setCells(c.data); setTherapists(t.data); setClients(cl.data); setLeaves(lv.data || []);
+    setCells(Array.isArray(c) ? c : []);
+    setTherapists(Array.isArray(t) ? t : []);
+    setClients(Array.isArray(cl) ? cl : []);
+    setLeaves(Array.isArray(lv) ? lv : []);
     try {
-      const st = await api.get("/schedule/week-status", { params: { week_start: weekStartISO } });
-      setWeekStatus(st.data?.status || "published");
+      const st = await cachedGet("/schedule/week-status", { params: { week_start: weekStartISO }, force });
+      setWeekStatus(st?.status || "published");
     } catch (_) { setWeekStatus("published"); }
   }, [weekStartISO, weekStart]);
   useEffect(() => { load(); }, [load]);
@@ -791,13 +796,51 @@ export default function Schedule() {
   return (
     <div className="relative">
         <div className={`transition-all ${panelOpen && isAdmin ? "lg:mr-[420px]" : ""}`}>
-      <div className="flex items-start flex-wrap gap-3 mb-5">
-        <div className="flex-1 min-w-[240px]">
-          <h1 className="font-display text-3xl font-semibold" style={{ color: "#2C3625" }}>Weekly Schedule</h1>
-          <div className="text-sm" style={{ color: "#5C6853" }}>
-            {isAdmin ? "Right-click any cell for actions · Click to edit" : "Your weekly schedule (read-only)"}
+      <TrackerBanner
+        title="Weekly Schedule"
+        subtitle={isAdmin ? "Right-click any cell for actions · Click to edit · Drag to select multiple slots" : "Your weekly schedule (read-only)"}
+        badge={isAdmin ? (
+          weekStatus === "draft" ? (
+            <span className="pill text-xs px-3 py-1.5 font-bold bg-[#FAF0D1] text-[#6B5218] border border-[#E5C387]">
+              Draft
+            </span>
+          ) : (
+            <span className="pill text-xs px-3 py-1.5 font-bold bg-white/15 text-white border border-white/25 flex items-center gap-1">
+              <CheckCircle size={14} weight="fill" /> Published
+            </span>
+          )
+        ) : null}
+        stats={[
+          { n: formatDateRange(weekStart), label: "This Week", accent: "#fff" },
+          { n: view === "blocks" ? "Per Therapist" : "Sheet", label: "View", accent: "#D4E4C8" },
+          { n: visibleTherapists.length, label: "Therapists", accent: "#F5D78E" },
+          { n: clients.length, label: "Clients", accent: "#B8D4A8" },
+        ]}
+        footer={(
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <Info size={14} style={{ color: "#5C6853" }} />
+              <span className="text-xs font-bold uppercase tracking-wide" style={{ color: "#5C6853" }}>Service codes &amp; cancellations</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {SERVICE_CODES.map(s => (
+                <span key={s.id} className={`pill text-[10px] ${s.cls}`}>{s.short}</span>
+              ))}
+              <span className="pill text-[10px]" style={{ background: "#FFF4C4", color: "#6B5218", border: "1px solid #E8C572" }}>
+                ✕ Therapist Cancel
+              </span>
+              <span className="pill text-[10px]" style={{ background: "#FCE0E8", color: "#8B3A55", border: "1px solid #E8A4BD" }}>
+                ✕ Client Cancel
+              </span>
+            </div>
+            <p className="text-[11px] mt-2 mb-0" style={{ color: "#8B9E7A" }}>
+              Each child has a unique color · Long-press on mobile for cell menu · Zoom {zoom}%
+            </p>
           </div>
-        </div>
+        )}
+      />
+
+      <div className="flex items-center flex-wrap gap-2 mb-5">
         <div className="flex items-center gap-1.5 card p-1.5">
           <button data-testid="view-sheet-btn" onClick={() => setView("sheet")} className={`btn ${view === "sheet" ? "btn-primary" : "btn-ghost"} text-xs`}><Table size={14} /> Sheet</button>
           <button data-testid="view-blocks-btn" onClick={() => setView("blocks")} className={`btn ${view === "blocks" ? "btn-primary" : "btn-ghost"} text-xs`}><GridFour size={14} /> Per Therapist</button>
@@ -824,24 +867,11 @@ export default function Schedule() {
         </div>
         {isAdmin && (
           <>
-            {weekStatus === "draft" ? (
-              <span className="pill text-xs px-2 py-1" style={{ background: "#FAF0D1", color: "#6B5218" }}>Draft — not visible to therapists</span>
-            ) : (
-              <span className="pill text-xs px-2 py-1" style={{ background: "#E5EBE1", color: "#3D4F35" }}>Published</span>
-            )}
             <button type="button" onClick={setDraft} className="btn btn-outline text-xs">Save as Draft</button>
             <button type="button" onClick={publishWeek} className="btn btn-primary text-xs">Publish Week</button>
             <button data-testid="duplicate-week-btn" onClick={() => { setDupTarget(toISODate(addDays(weekStart, 7))); setShowDup(true); }} className="btn btn-gold"><CopySimple size={16} /> Duplicate Week →</button>
           </>
         )}
-      </div>
-
-      <div className="card p-3 mb-4 flex items-center flex-wrap gap-3 text-xs">
-        <div className="font-bold flex items-center gap-1" style={{ color: "#5C6853" }}><Info size={14} /> Legend:</div>
-        {SERVICE_CODES.map(s => (<span key={s.id} className={`pill ${s.cls}`}>{s.short}</span>))}
-        <span className="pill" style={{ background: "#FFF4C4", color: "#6B5218", border: "1px solid #E8C572" }}>✕ Therapist Cancel</span>
-        <span className="pill" style={{ background: "#FCE0E8", color: "#8B3A55", border: "1px solid #E8A4BD" }}>✕ Client Cancel</span>
-        <span className="ml-auto text-[11px]" style={{ color: "#8B9E7A" }}>Each child = unique color · {clients.length} clients</span>
       </div>
 
       {clipboard && isAdmin && (

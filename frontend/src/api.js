@@ -1,4 +1,5 @@
 import axios from "axios";
+import { invalidateForMutation } from "./dataCache";
 
 // Production (single Railway service): leave REACT_APP_BACKEND_URL unset → use /api on same host.
 // Local dev: set REACT_APP_BACKEND_URL=http://localhost:8000 in frontend/.env
@@ -12,6 +13,10 @@ api.interceptors.response.use(
     const d = res.data;
     if (typeof d === "string" && d.trimStart().startsWith("<!")) {
       return Promise.reject(new Error("Server returned HTML instead of JSON — API not reachable"));
+    }
+    const method = (res.config?.method || "get").toUpperCase();
+    if (method !== "GET" && res.config?.url) {
+      invalidateForMutation(method, res.config.url);
     }
     return res;
   },

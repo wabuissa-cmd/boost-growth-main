@@ -26,6 +26,8 @@ import {
 } from "../attendanceUtils";
 import { PackageAlertBanner } from "../components/PackageStatusBadge";
 import PreparationClientCard from "../components/PreparationClientCard";
+import TrackerBanner from "../components/TrackerBanner";
+import { cachedGet } from "../dataCache";
 
 const SUPERVISOR_CLIENTS = {
   msMaha: ["035", "037", "038", "040", "041", "042", "047", "052", "054", "060", "063", "065", "070"],
@@ -128,8 +130,8 @@ export default function Attendance() {
   const [clients, setClients] = useState([]);
   const [therapists, setTherapists] = useState([]);
   const [sessions, setSessions] = useState([]);
-  const [invoices, setInvoices] = useState([]);
   const [packageRows, setPackageRows] = useState([]);
+  const [cardsReady, setCardsReady] = useState(false);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [logFor, setLogFor] = useState(null); // client OR null OR "__pick__"
@@ -141,17 +143,17 @@ export default function Attendance() {
   const deepService = searchParams.get("service");
   const deepNewInvoice = searchParams.get("newInvoice") === "1";
 
-  const load = useCallback(async () => {
-    const [c, t, s, pkg, inv] = await Promise.all([
-      api.get("/clients"),
-      api.get("/therapists").catch(() => ({ data: [] })),
-      api.get("/sessions"),
-      api.get("/clients/package-status").catch(() => ({ data: [] })),
-      api.get("/invoices").catch(() => ({ data: [] })),
+  const load = useCallback(async (force = false) => {
+    const [c, t, pkg] = await Promise.all([
+      cachedGet("/clients", { force }),
+      cachedGet("/therapists", { force }).catch(() => []),
+      cachedGet("/clients/package-status", { force }).catch(() => []),
     ]);
-    setClients(c.data); setTherapists(t.data); setSessions(s.data);
-    setPackageRows(pkg.data || []);
-    setInvoices(inv.data || []);
+    setClients(Array.isArray(c) ? c : []);
+    setTherapists(Array.isArray(t) ? t : []);
+    setPackageRows(Array.isArray(pkg) ? pkg : []);
+    setCardsReady(true);
+    cachedGet("/sessions", { force }).then(s => setSessions(Array.isArray(s) ? s : [])).catch(() => {});
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -170,8 +172,8 @@ export default function Attendance() {
   };
 
   const enriched = useMemo(
-    () => clients.map(c => enrichClientForCardView(c, packageRows, invoices, sessions)),
-    [clients, packageRows, invoices, sessions]
+    () => clients.map(c => enrichClientForCardView(c, packageRows)),
+    [clients, packageRows]
   );
 
   const filtered = useMemo(() => {
@@ -203,31 +205,21 @@ export default function Attendance() {
 
   return (
     <div>
-      {/* Tracker header + stats bar */}
-      <div className="rounded-2xl overflow-hidden mb-5 shadow-sm border border-[#E8E4DE]">
-        <div className="bg-sage-hero px-5 py-4 flex items-center justify-between gap-3">
-          <div>
-            <div className="text-white/75 text-xs font-medium">Package &amp; Sessions Tracker</div>
-            <h1 className="font-display text-2xl font-semibold text-white m-0">Boost Growth</h1>
-          </div>
+      <TrackerBanner
+        title="Session Preparation"
+        subtitle="Log sessions, track packages, and manage invoice sheets"
+        badge={(
           <div className="hidden sm:flex items-center gap-1.5 pill px-3 py-1.5 text-xs font-bold bg-white/15 text-white border border-white/20">
             <CheckCircle size={14} weight="fill" /> Synced
           </div>
-        </div>
-        <div className="grid grid-cols-4 divide-x divide-white/10" style={{ background: "#48543E" }}>
-          {[
-            { n: counts.all, label: "Total", accent: "#fff" },
-            { n: counts.urgent, label: "Urgent", accent: "#F4A89A" },
-            { n: counts.warning, label: "Warning", accent: "#F5D78E" },
-            { n: counts.ok, label: "Safe", accent: "#B8D4A8" },
-          ].map(s => (
-            <div key={s.label} className="py-3 px-2 text-center">
-              <div className="text-2xl font-bold leading-none" style={{ color: s.accent }}>{s.n}</div>
-              <div className="text-[10px] uppercase tracking-wider mt-1 font-bold text-white/50">{s.label}</div>
-            </div>
-          ))}
-        </div>
-      </div>
+        )}
+        stats={[
+          { n: counts.all, label: "Total", accent: "#fff" },
+          { n: counts.urgent, label: "Urgent", accent: "#F4A89A" },
+          { n: counts.warning, label: "Warning", accent: "#F5D78E" },
+          { n: counts.ok, label: "Safe", accent: "#B8D4A8" },
+        ]}
+      />
 
       {/* Toolbar: filters + search + actions */}
       <div className="flex flex-wrap items-center gap-2 mb-5">
@@ -270,10 +262,15 @@ export default function Attendance() {
 
       {/* Client card grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 stagger">
-        {filtered.length === 0 && (
+        {!cardsReady && (
+          <div className="card p-12 text-center col-span-full" style={{ color: "#8B9E7A" }}>
+            <div className="spinner mx-auto mb-3" /> Loading clients…
+          </div>
+        )}
+        {cardsReady && filtered.length === 0 && (
           <div className="card p-12 text-center col-span-full" style={{ color: "#8B9E7A" }}>No clients</div>
         )}
-        {filtered.map(c => (
+        {cardsReady && filtered.map(c => (
           <PreparationClientCard
             key={c.id}
             client={c}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api";
+import { cachedGet } from "../dataCache";
 import { useAuth, hasOpsAccess } from "../auth";
 import { Plus, PencilSimple, Trash, MagnifyingGlass, MapPin, User, Phone, Hash, ArrowSquareOut } from "@phosphor-icons/react";
 import { PackageStatusBadge } from "../components/PackageStatusBadge";
@@ -33,16 +34,20 @@ export default function Clients() {
   };
 
   const load = async () => {
-    const [c, t] = await Promise.all([api.get("/clients"), api.get("/therapists").catch(() => ({data:[]}))]);
-    setItems(c.data); setTherapists(t.data);
+    const [c, t] = await Promise.all([
+      cachedGet("/clients"),
+      cachedGet("/therapists").catch(() => []),
+    ]);
+    setItems(Array.isArray(c) ? c : []);
+    setTherapists(Array.isArray(t) ? t : []);
   };
   useEffect(() => { load(); }, []);
 
   useEffect(() => {
     refreshPrSummaries();
-    api.get("/clients/package-status").then(r => {
+    cachedGet("/clients/package-status").then(rows => {
       const map = {};
-      for (const row of r.data || []) {
+      for (const row of rows || []) {
         if (!map[row.client_id]) map[row.client_id] = [];
         map[row.client_id].push(row);
       }

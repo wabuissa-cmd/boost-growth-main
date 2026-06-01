@@ -1,11 +1,40 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth, showAdminNav, isClientLead } from "../auth";
-import api from "../api";
+import api, { startOfWeek, toISODate } from "../api";
+import { prefetch } from "../dataCache";
 import {
   House, CalendarBlank, ClipboardText, UsersThree,
   Bell, SignOut, ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, CaretDown, Folder, UserCircle
 } from "@phosphor-icons/react";
+
+const ROUTE_PREFETCH = {
+  "/home": () => {
+    const weekISO = toISODate(startOfWeek(new Date()));
+    prefetch("/clients");
+    prefetch("/therapists");
+    prefetch("/schedule", { week_start: weekISO });
+  },
+  "/schedule": () => {
+    prefetch("/schedule", { week_start: toISODate(startOfWeek(new Date())) });
+    prefetch("/clients");
+    prefetch("/therapists");
+  },
+  "/attendance": () => {
+    prefetch("/clients");
+    prefetch("/clients/package-status");
+    prefetch("/therapists");
+  },
+  "/clients": () => {
+    prefetch("/clients");
+    prefetch("/therapists");
+    prefetch("/clients/package-status");
+  },
+};
+
+function warmRoute(path) {
+  ROUTE_PREFETCH[path]?.();
+}
 
 export default function Shell() {
   const { user, logout } = useAuth();
@@ -21,6 +50,12 @@ export default function Shell() {
   };
   useEffect(() => { loadNotifs(); const t = setInterval(loadNotifs, 30000); return () => clearInterval(t); }, [loc.pathname]);
   useEffect(() => { setMobileNav(false); setShowNotif(false); }, [loc.pathname]);
+  useEffect(() => {
+    if (!user) return;
+    prefetch("/clients");
+    prefetch("/therapists");
+  }, [user]);
+  useEffect(() => { warmRoute(loc.pathname); }, [loc.pathname]);
 
   const unread = notifs.filter(n => !n.read).length;
 
@@ -84,6 +119,7 @@ export default function Shell() {
             <nav className="hidden lg:flex items-center gap-1 flex-1 ml-4">
               {baseLinks.map(l => (
                 <NavLink key={l.to} to={l.to} data-testid={l.testid}
+                         onMouseEnter={() => warmRoute(l.to)}
                          className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
                   {l.icon}<span>{l.label}</span>
                 </NavLink>
@@ -232,7 +268,9 @@ export default function Shell() {
 
       <main className="flex-1 min-w-0">
         <div className="max-w-[1600px] mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 page-enter" key={loc.pathname}>
-          <Outlet />
+          <Suspense fallback={<div className="flex justify-center py-16"><div className="spinner" /></div>}>
+            <Outlet />
+          </Suspense>
         </div>
       </main>
       {user?.must_change_password && <ChangePasswordModal />}

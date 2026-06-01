@@ -1,22 +1,23 @@
-import { Component } from "react";
+import { Component, lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth, isClientLead } from "./auth";
 import Login from "./pages/Login";
 import Shell from "./pages/Shell";
-import Home from "./pages/Home";
-import Schedule from "./pages/Schedule";
-import Attendance from "./pages/Attendance";
-import Clients from "./pages/Clients";
-import Requests from "./pages/Requests";
-import Directory from "./pages/Directory";
-import Intake from "./pages/Intake";
-import Resources from "./pages/Resources";
-import Admin from "./pages/Admin";
-import Reports from "./pages/Reports";
-import ImportPage from "./pages/Import";
-import LeaveBalance from "./pages/LeaveBalance";
-import LeaveRequests from "./pages/LeaveRequests";
 import "./App.css";
+
+const Home = lazy(() => import("./pages/Home"));
+const Schedule = lazy(() => import("./pages/Schedule"));
+const Attendance = lazy(() => import("./pages/Attendance"));
+const Clients = lazy(() => import("./pages/Clients"));
+const Requests = lazy(() => import("./pages/Requests"));
+const Directory = lazy(() => import("./pages/Directory"));
+const Intake = lazy(() => import("./pages/Intake"));
+const Resources = lazy(() => import("./pages/Resources"));
+const Admin = lazy(() => import("./pages/Admin"));
+const Reports = lazy(() => import("./pages/Reports"));
+const ImportPage = lazy(() => import("./pages/Import"));
+const LeaveBalance = lazy(() => import("./pages/LeaveBalance"));
+const LeaveRequests = lazy(() => import("./pages/LeaveRequests"));
 
 function Loading() {
   return <div className="min-h-screen flex items-center justify-center bg-organic"><div className="spinner"/></div>;

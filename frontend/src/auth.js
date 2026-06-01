@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import api from "./api";
+import { clearDataCache } from "./dataCache";
 
 const AuthCtx = createContext(null);
 
@@ -40,6 +41,7 @@ export function AuthProvider({ children }) {
   const logout = async () => {
     try { await api.post("/auth/logout"); } catch (_e) { /* ignore */ }
     localStorage.removeItem("bg_token");
+    clearDataCache();
     setUser(false);
   };
 
