@@ -159,7 +159,7 @@ export default function Schedule() {
     return (
       <button
         type="button"
-        className="schedule-cell-menu-btn lg:hidden"
+        className="schedule-cell-menu-btn"
         aria-label="Cell options"
         onClick={(e) => {
           e.stopPropagation();
@@ -638,9 +638,9 @@ export default function Schedule() {
         <table className="text-xs border-collapse sched-sheet sched-sheet-v2" style={{ minWidth: 980 }}>
           <thead>
             <tr>
-              <th className="sheet-th" style={{ minWidth: 32, width: 32 }}>#</th>
-              <th className="sheet-th sheet-th-sticky" style={{ minWidth: 96 }}>Therapist</th>
-              <th className="sheet-th" style={{ minWidth: 58 }}>Day</th>
+              <th className="sheet-th sheet-idx" style={{ minWidth: 32, width: 32 }}>#</th>
+              <th className="sheet-th sheet-therapist" style={{ minWidth: 96 }}>Therapist</th>
+              <th className="sheet-th sheet-day" style={{ minWidth: 58 }}>Day</th>
               {TIME_SLOTS.map(ts => (
                 <th key={ts} className="sheet-th" style={{ minWidth: 68 }}>
                   {ts.replace(' AM', 'a').replace(' PM', 'p').replace(' - ', '–')}
@@ -902,7 +902,7 @@ export default function Schedule() {
       {ctxMenu && isAdmin && (
         <div
           ref={ctxMenuRef}
-          className="fixed z-[70] bg-white rounded-xl shadow-2xl border py-1 min-w-[220px] text-sm"
+          className="fixed z-[70] schedule-ctx-menu bg-white rounded-xl shadow-2xl border py-1 min-w-[220px] text-sm"
           style={{
             left: ctxMenuPos.ready ? ctxMenuPos.left : ctxMenu.x,
             top: ctxMenuPos.ready ? ctxMenuPos.top : ctxMenu.y,

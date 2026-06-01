@@ -15,6 +15,8 @@ import {
   enrichClientFromPackageStatus, resolveClientBillingMode, formatServiceTypeDisplay,
   resolveCycleAnchor, computeSsWeekSummary, groupSessionsBySchoolWeeks,
   computeHsInvoiceTotals,
+  filterSessionsForInvoice,
+  sortInvoicesByRecent,
   fmtDate, dayShort, dayNameFromDate, WEEK_ROW_BG,
   normalizeServiceTypeCode, inferDefaultServiceType,
   pickLatestOpenInvoice, computeSsTotals, ssSessionDayValue,
@@ -647,19 +649,9 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   const [exportOpen, setExportOpen] = useState(false);
   const [newInvMenuOpen, setNewInvMenuOpen] = useState(false);
   const [localSessions, setLocalSessions] = useState(sessions);
-  const [pkgStatuses, setPkgStatuses] = useState([]);
   const invoicesInitialized = useRef(false);
   const prevServiceFilter = useRef(serviceTypeFilter);
   const autoNewInvDone = useRef(false);
-
-  useEffect(() => {
-    api.get(`/clients/${client.id}/package-status`).then(r => setPkgStatuses(r.data || [])).catch(() => setPkgStatuses([]));
-  }, [client.id]);
-
-  const currentPkgStatus = useMemo(
-    () => pkgStatuses.find(s => s.service_type === serviceTypeFilter),
-    [pkgStatuses, serviceTypeFilter]
-  );
 
   useEffect(() => {
     if (initialService && (initialService === "HS" || initialService === "SS")) {
@@ -678,7 +670,11 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   const tabState = useMemo(() => resolveServiceTabState(client, allInvoices), [client, allInvoices]);
   const isSchool = serviceTypeFilter === "SS";
   const selectedInvoice = invoices.find(i => i.id === selectedInvoiceId);
-  const cycleSessions = localSessions;
+  const sortedInvoices = useMemo(() => sortInvoicesByRecent(invoices), [invoices]);
+  const cycleSessions = useMemo(
+    () => filterSessionsForInvoice(localSessions, selectedInvoice),
+    [localSessions, selectedInvoice]
+  );
   const cycleWeeks = 4;
   const cycleAnchor = useMemo(
     () => (selectedInvoice ? resolveCycleAnchor(client, selectedInvoice, cycleSessions) : null),
@@ -704,6 +700,22 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   const noServiceCount = hsTotals.noServiceCount;
   const completed = hsTotals.completedCount;
   const noShows = hsTotals.noShowCount;
+
+  const selectedInvoiceAlert = useMemo(() => {
+    if (!selectedInvoice || selectedInvoice.is_closed || isSchool) return null;
+    const pkgSize = parseFloat(selectedInvoice.package_size) || pkg;
+    if (pkgSize <= 0 || rem <= 0) return null;
+    const pctRem = (rem / pkgSize) * 100;
+    if (pctRem > 15) return null;
+    return {
+      service_type: serviceTypeFilter,
+      remaining: rem,
+      package_size: pkgSize,
+      status: "critical",
+      unit: "hours",
+    };
+  }, [selectedInvoice, isSchool, rem, pkg, serviceTypeFilter]);
+
   const currentWeekInfo = useMemo(
     () => ssWeekSummary.find(w => w.weekStatus === "In Progress") || ssWeekSummary.find(w => w.weekStatus === "Not started") || ssWeekSummary[ssWeekSummary.length - 1],
     [ssWeekSummary]
@@ -948,16 +960,27 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                 tabState={tabState}
               />
             )}
-            {invoices.length > 0 ? (
+            {sortedInvoices.length > 0 ? (
+              <div className="flex items-center gap-2 flex-wrap">
               <select data-testid="invoice-dropdown" value={selectedInvoiceId} onChange={e => setSelectedInvoiceId(e.target.value)}
-                      className="select text-xs" style={{maxWidth: 220}}>
-                {invoices.map(inv => (
+                      className="select text-xs min-h-[44px]" style={{maxWidth: 260}}>
+                {sortedInvoices.map(inv => (
                   <option key={inv.id} value={inv.id}>
-                    {inv.invoice_number}
-                    {inv.is_closed ? " (Closed)" : ""}
+                    {inv.invoice_number} · {inv.is_closed ? "Closed" : "Open"}
                   </option>
                 ))}
               </select>
+              {selectedInvoice && (
+                <span className="pill text-[10px] font-bold px-2 py-1 min-h-[28px] flex items-center"
+                  style={{
+                    background: selectedInvoice.is_closed ? "#F0EDE9" : "#E5EBE1",
+                    color: selectedInvoice.is_closed ? "#5C6853" : "#3D4F35",
+                    border: `1px solid ${selectedInvoice.is_closed ? "#E8E4DE" : "#B4C2A9"}`,
+                  }}>
+                  {selectedInvoice.is_closed ? "Closed" : "Open"}
+                </span>
+              )}
+              </div>
             ) : tabState.showToggle ? (
               <span className="text-[11px] italic px-2 py-1.5" style={{color: "#8B6918", background: "#FAE8C8", borderRadius: 8}}>
                 No {serviceTypeFilter} invoices
@@ -983,13 +1006,13 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                 </button>
                 {newInvMenuOpen && (
                   <div
-                    className="absolute right-0 mt-1 z-50 min-w-[200px] shadow-lg rounded-xl border overflow-hidden"
+                    className="absolute right-0 mt-1 z-50 min-w-[200px] shadow-lg rounded-xl border overflow-hidden mobile-action-menu"
                     style={{ background: "#FFFFFF", borderColor: "#EDE9E3" }}
                   >
                     <button
                       type="button"
                       onClick={() => { setShowNewInvModal(true); setNewInvMenuOpen(false); }}
-                      className="w-full text-left px-4 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] transition"
+                      className="w-full text-left px-4 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] transition min-h-[44px]"
                       style={{ color: "#374151" }}
                     >
                       New Invoice
@@ -997,7 +1020,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                     <button
                       type="button"
                       onClick={() => { setShowResetConfirm(true); setNewInvMenuOpen(false); }}
-                      className="w-full text-left px-4 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] transition border-t"
+                      className="w-full text-left px-4 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] transition border-t min-h-[44px]"
                       style={{ color: "#374151", borderColor: "#EDE9E3" }}
                     >
                       Start New Package
@@ -1009,9 +1032,9 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
             <div className="relative">
               <button onClick={() => setExportOpen(o => !o)} className="btn btn-gold text-xs min-h-[44px] min-w-[44px]">Export <CaretDown size={12}/></button>
               {exportOpen && (
-                <div className="absolute right-0 mt-1 card p-1 z-50 min-w-[180px] shadow-lg">
-                  <button data-testid="export-excel-btn" onClick={exportExcel} className="btn btn-ghost w-full justify-start text-xs"><FileXls size={14}/> Export as Excel</button>
-                  <button onClick={() => { window.print(); setExportOpen(false); }} className="btn btn-ghost w-full justify-start text-xs"><Printer size={14}/> Export as PDF</button>
+                <div className="absolute right-0 mt-1 card p-1 z-50 min-w-[180px] shadow-lg mobile-action-menu">
+                  <button data-testid="export-excel-btn" onClick={exportExcel} className="btn btn-ghost w-full justify-start text-xs min-h-[44px]"><FileXls size={14}/> Export as Excel</button>
+                  <button onClick={() => { window.print(); setExportOpen(false); }} className="btn btn-ghost w-full justify-start text-xs min-h-[44px]"><Printer size={14}/> Export as PDF</button>
                   {isAdmin && selectedInvoice && (
                     <button onClick={() => { savePackageInfo(); setExportOpen(false); }} className="btn btn-ghost w-full justify-start text-xs">Save</button>
                   )}
@@ -1023,7 +1046,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
         </div>
 
         <PackageAlertBanner
-          row={currentPkgStatus}
+          row={selectedInvoiceAlert}
           onNewInvoice={isAdmin ? () => setShowNewInvModal(true) : undefined}
           onViewDetails={() => setShowInvoiceDetails(true)}
         />

@@ -1415,7 +1415,8 @@ async def admin_clear_all_requests(body: ClearRequestsIn, _=Depends(admin_only))
 # ------------------- Invoices (per client; manual numbers) -------------------
 @api.get("/clients/{cid}/invoices")
 async def list_invoices(cid: str, service_type: Optional[str] = None, user=Depends(get_current_user)):
-    items = await db.invoices.find({"client_id": cid}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    items = await db.invoices.find({"client_id": cid}, {"_id": 0}).to_list(200)
+    items = _sort_invoices_by_date(items)
     if service_type:
         code = _normalize_service_type(service_type)
         if code:
@@ -1547,7 +1548,7 @@ def _package_status_level_hs(remaining: float, total: float) -> str:
     if total <= 0 or remaining <= 0:
         return "expired"
     pct = (remaining / total) * 100
-    if pct <= 10:
+    if pct <= 15:
         return "critical"
     if pct <= 30:
         return "low"
@@ -1606,7 +1607,7 @@ def _compute_package_status_row(client: dict, service_code: str, invoices: list,
             for s in inv_sessions
             if s.get("status") in ("Completed", "Cancelled")
         )
-        remaining = round(pkg - used, 2)
+        remaining = max(0, round(pkg - used, 2))
         pct = round((remaining / pkg) * 100, 1) if pkg > 0 else 0
         level = _package_status_level_hs(remaining, pkg)
         if inv.get("is_closed"):
@@ -2478,7 +2479,7 @@ def _sessions_with_day_names(sessions: list) -> list:
 
 
 async def _sessions_for_invoice_query(client_id: str, invoice_id: str) -> list:
-    """Match sessions by invoice_id, source_invoice, or date window fallback."""
+    """Sessions for ONE invoice only — by invoice_id or matching source_invoice number."""
     inv = await db.invoices.find_one({"id": invoice_id}, {"_id": 0})
     if not inv:
         return []
@@ -2486,37 +2487,10 @@ async def _sessions_for_invoice_query(client_id: str, invoice_id: str) -> list:
     q_or = [{"invoice_id": invoice_id}]
     if inv_num:
         q_or.append({"source_invoice": inv_num})
-    items = await db.sessions.find(
+    return await db.sessions.find(
         {"client_id": client_id, "$or": q_or},
         {"_id": 0},
     ).sort("session_date", 1).to_list(2000)
-    if items:
-        return items
-    start = (inv.get("start_date") or "")[:10]
-    if not start:
-        return []
-    all_invs = await db.invoices.find({"client_id": client_id}, {"_id": 0}).to_list(200)
-    inv_st = _normalize_service_type(inv.get("service_type"))
-    same_type = [
-        i for i in all_invs
-        if _normalize_service_type(i.get("service_type")) == inv_st or not inv_st
-    ]
-    same_type.sort(key=lambda i: (i.get("start_date") or i.get("created_at") or ""))
-    end = None
-    passed = False
-    for i in same_type:
-        if i.get("id") == invoice_id:
-            passed = True
-            continue
-        if passed:
-            ist = (i.get("start_date") or "")[:10]
-            if ist and ist > start:
-                end = ist
-                break
-    date_q = {"client_id": client_id, "session_date": {"$gte": start}}
-    if end:
-        date_q["session_date"]["$lt"] = end
-    return await db.sessions.find(date_q, {"_id": 0}).sort("session_date", 1).to_list(2000)
 
 
 @api.get("/sessions")

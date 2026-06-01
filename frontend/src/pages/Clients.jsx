@@ -108,8 +108,8 @@ export default function Clients() {
                 </div>
                 {isAdmin && (
                   <div className="flex flex-col gap-0.5">
-                    <button onClick={() => setEdit({...c, co_therapist_ids: c.co_therapist_ids || [], locations: c.locations || []})} className="btn btn-ghost p-1"><PencilSimple size={13}/></button>
-                    <button onClick={() => remove(c.id)} className="btn btn-ghost p-1 text-red-700"><Trash size={13}/></button>
+                    <button onClick={() => setEdit({...c, co_therapist_ids: c.co_therapist_ids || [], locations: c.locations || []})} className="btn btn-ghost p-2 min-w-[44px] min-h-[44px] flex items-center justify-center"><PencilSimple size={16}/></button>
+                    <button onClick={() => remove(c.id)} className="btn btn-ghost p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-red-700"><Trash size={16}/></button>
                   </div>
                 )}
               </div>
@@ -291,7 +291,7 @@ export default function Clients() {
 function SectionBtn({ icon, label, onClick, testId }) {
   return (
     <button type="button" data-testid={testId} onClick={onClick} title={label}
-      className="flex-1 min-h-[36px] py-1.5 px-1 rounded-md border hover:bg-[#F0EDE9] transition flex items-center justify-center gap-0.5"
+      className="flex-1 min-h-[44px] sm:min-h-[36px] py-1.5 px-1 rounded-md border hover:bg-[#F0EDE9] transition flex items-center justify-center gap-0.5"
       style={{ borderColor: "#E0DCC4", color: "#3D4F35", background: "white", fontSize: "10px" }}>
       <span className="text-sm leading-none">{icon}</span>
       <span className="font-semibold hidden sm:inline">{label}</span>
@@ -304,7 +304,7 @@ function ProgressTracker({ summary, onOpen }) {
   const allDone = s.uploaded && s.reviewed && s.resolved;
   return (
     <button type="button" onClick={onOpen} title="Progress Report"
-      className="flex-1 min-h-[36px] py-1.5 px-1 rounded-md border hover:bg-[#F0EDE9] transition flex items-center justify-center gap-0.5"
+      className="flex-1 min-h-[44px] sm:min-h-[36px] py-1.5 px-1 rounded-md border hover:bg-[#F0EDE9] transition flex items-center justify-center gap-0.5"
       style={{ borderColor: allDone ? "#86EFAC" : "#E0DCC4", background: allDone ? "#F0FDF4" : "white", fontSize: "10px" }}>
       <span className="text-sm">📊</span>
       <span className="font-semibold hidden sm:inline">PR{s.count > 0 ? ` (${s.count})` : ""}</span>

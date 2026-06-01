@@ -266,18 +266,41 @@ main, .page-enter { min-width: 0; }
     font-size: 12px; font-weight: 800;
     color: #5C6853; width: 32px; min-width: 32px;
     border-right: 1px solid #E8E4DE;
+    position: sticky;
+    left: 0;
+    z-index: 4;
 }
 .sched-sheet .sheet-therapist {
     background: #FAFAF7;
     min-width: 96px; max-width: 96px;
     text-align: center;
     border-right: 2px solid #E8E4DE;
+    position: sticky;
+    left: 32px;
+    z-index: 4;
 }
 .sched-sheet .sheet-day {
     background: #F6F4F0;
     min-width: 58px; width: 58px;
     text-align: center;
     border-right: 1px solid #E8E4DE;
+    position: sticky;
+    left: 128px;
+    z-index: 4;
+    box-shadow: 4px 0 6px -2px rgba(44, 54, 37, 0.12);
+}
+.sched-sheet thead .sheet-th.sheet-idx {
+    left: 0;
+    z-index: 6;
+}
+.sched-sheet thead .sheet-th.sheet-therapist {
+    left: 32px;
+    z-index: 6;
+}
+.sched-sheet thead .sheet-th.sheet-day {
+    left: 128px;
+    z-index: 6;
+    box-shadow: 4px 0 6px -2px rgba(44, 54, 37, 0.12);
 }
 .sched-sheet .sheet-slot { min-width: 68px; cursor: default; position: relative; }
 /* Clear separation between each therapist block */
@@ -331,12 +354,20 @@ main, .page-enter { min-width: 0; }
 }
 .schedule-cell-menu-btn {
     position: absolute; top: 2px; right: 2px; z-index: 4;
-    min-width: 28px; min-height: 28px; padding: 0 4px;
+    min-width: 36px; min-height: 36px; padding: 0 4px;
     border-radius: 6px; border: 1px solid rgba(0,0,0,0.08);
     background: rgba(255,255,255,0.92); color: #5C6853;
     font-size: 14px; line-height: 1; font-weight: 700;
     display: flex; align-items: center; justify-content: center;
     box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.login-mobile-bg {
+    background: linear-gradient(180deg, #7A8A6A 0%, #6B7A5C 35%, #5C6A50 100%);
+}
+@media (min-width: 768px) {
+    .login-mobile-bg {
+        background: var(--bg-base);
+    }
 }
 .cell-base { position: relative; }
 .sched-sheet .sheet-slot.editable { cursor: pointer; }
@@ -359,11 +390,13 @@ main, .page-enter { min-width: 0; }
     /* Schedule sheet: shrink cells, smaller fonts, allow horizontal scroll */
     .sched-sheet { font-size: 10px; }
     .sched-sheet .sheet-th { font-size: 9px; padding: 4px 3px; min-width: 88px !important; }
-    .sched-sheet .sheet-th-sticky { position: sticky; left: 0; z-index: 4; background: #EFE8D2; }
     .sched-sheet .sheet-td { padding: 3px 2px; height: 38px; min-height: 38px; font-size: 9.5px; }
-    .sched-sheet .sheet-idx { width: 26px !important; min-width: 26px !important; padding: 2px !important; font-size: 10px; }
-    .sched-sheet .sheet-therapist { min-width: 88px !important; padding: 2px 4px; position: sticky; left: 26px; z-index: 2; }
-    .sched-sheet .sheet-day { width: 56px !important; min-width: 56px !important; padding: 1px 2px; }
+    .sched-sheet .sheet-idx { width: 26px !important; min-width: 26px !important; padding: 2px !important; font-size: 10px; left: 0 !important; }
+    .sched-sheet .sheet-therapist { min-width: 88px !important; padding: 2px 4px; left: 26px !important; }
+    .sched-sheet .sheet-day { width: 56px !important; min-width: 56px !important; padding: 1px 2px; left: 114px !important; }
+    .sched-sheet thead .sheet-th.sheet-idx { left: 0 !important; }
+    .sched-sheet thead .sheet-th.sheet-therapist { left: 26px !important; }
+    .sched-sheet thead .sheet-th.sheet-day { left: 114px !important; }
     .sched-sheet .sheet-slot { min-width: 88px !important; }
     .sched-sheet .sheet-therapist .w-7 { width: 22px; height: 22px; font-size: 9px; }
     .sched-sheet .sheet-therapist span { font-size: 10px !important; line-height: 1.1; }
@@ -405,6 +438,68 @@ main, .page-enter { min-width: 0; }
 
     /* Prevent fixed badge from covering bottom buttons on phones */
     #emergent-badge { bottom: 8px !important; right: 8px !important; transform: scale(0.85); transform-origin: bottom right; }
+
+    /* Full-screen modals on mobile */
+    .modal-mobile-full .modal-shell {
+        max-width: 100% !important;
+        width: 100% !important;
+        max-height: 100dvh !important;
+        height: 100dvh !important;
+        border-radius: 0 !important;
+        margin: 0 !important;
+    }
+    .modal-mobile-full .modal-center-wrap {
+        padding: 0 !important;
+        align-items: stretch !important;
+    }
+    .modal-mobile-full .modal-footer-sticky {
+        position: sticky;
+        bottom: 0;
+        z-index: 2;
+        box-shadow: 0 -4px 12px rgba(0,0,0,0.06);
+    }
+    .modal-input, .input, .select, .textarea {
+        font-size: 16px !important;
+        min-height: 44px !important;
+    }
+
+    /* Schedule context menu as bottom sheet */
+    .schedule-ctx-menu {
+        left: 0 !important;
+        right: 0 !important;
+        top: auto !important;
+        bottom: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        border-radius: 16px 16px 0 0 !important;
+        padding-bottom: env(safe-area-inset-bottom, 12px) !important;
+    }
+    .schedule-ctx-menu button {
+        min-height: 44px;
+        padding-top: 12px !important;
+        padding-bottom: 12px !important;
+    }
+
+    /* Admin dropdown menus as bottom sheet on mobile */
+    .mobile-action-menu {
+        position: fixed !important;
+        left: 0 !important;
+        right: 0 !important;
+        top: auto !important;
+        bottom: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        margin: 0 !important;
+        border-radius: 16px 16px 0 0 !important;
+        padding-bottom: env(safe-area-inset-bottom, 12px) !important;
+    }
+    .mobile-action-menu button {
+        min-height: 44px;
+        font-size: 14px !important;
+        padding: 12px 16px !important;
+    }
 }
 
 @media (max-width: 480px) {

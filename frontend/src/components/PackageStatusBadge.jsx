@@ -25,7 +25,7 @@ export function PackageStatusBadge({ row, clientId, onClick, className = "" }) {
 }
 
 export function PackageAlertBanner({ row, onNewInvoice, onViewDetails }) {
-  if (!row || !["critical", "low"].includes(row.status)) return null;
+  if (!row || row.is_closed || !["critical", "low"].includes(row.status)) return null;
   const st = pkgStatusStyle(row.status);
   const isCritical = row.status === "critical";
   const title = row.service_type === "HS"

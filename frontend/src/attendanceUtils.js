@@ -112,6 +112,24 @@ export function computeHsInvoiceTotals(sessions, packageSize) {
   };
 }
 
+/** Keep only sessions belonging to a specific invoice (by id or legacy source_invoice). */
+export function filterSessionsForInvoice(sessions, invoice) {
+  if (!invoice) return [];
+  const invId = invoice.id;
+  const invNum = (invoice.invoice_number || "").trim();
+  return (sessions || []).filter(s =>
+    s.invoice_id === invId || (invNum && (s.source_invoice || "").trim() === invNum)
+  );
+}
+
+export function sortInvoicesByRecent(invoiceList) {
+  return [...(invoiceList || [])].sort((a, b) => {
+    const da = a.start_date || a.created_at || "";
+    const db = b.start_date || b.created_at || "";
+    return String(db).localeCompare(String(da));
+  });
+}
+
 export function computeSsWeekSummary(sessions, anchorISO, totalWeeks = 4) {
   const groups = groupSessionsBySchoolWeeks(sessions, anchorISO, totalWeeks);
   return groups.map(w => {
@@ -387,11 +405,7 @@ export function inferDefaultServiceType(allInvoices, client, user, sessions) {
 }
 
 export function pickLatestOpenInvoice(invoiceList) {
-  const sorted = [...(invoiceList || [])].sort((a, b) => {
-    const da = a.start_date || a.created_at || "";
-    const db = b.start_date || b.created_at || "";
-    return String(db).localeCompare(String(da));
-  });
+  const sorted = sortInvoicesByRecent(invoiceList);
   const open = sorted.filter(i => !i.is_closed);
   return open[0] || sorted[0] || null;
 }
@@ -459,7 +473,7 @@ export function enrichClientFromPackageStatus(client, packageRows) {
   if (primary.service_type === "HS" || primary.unit === "hours") {
     const pkg = primary.package_size ?? 24;
     const used = primary.used ?? 0;
-    const rem = primary.remaining ?? 0;
+    const rem = Math.max(0, primary.remaining ?? 0);
     return {
       ...client,
       billing_mode: "hours",

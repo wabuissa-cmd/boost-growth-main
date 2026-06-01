@@ -15,15 +15,15 @@ export function ModalBase({ title, subtitle, onClose, children, footer, size = "
 
   return (
     <div
-      className={`fixed inset-0 ${elevated ? "z-[60]" : "z-50"} overflow-y-auto`}
+      className={`fixed inset-0 ${elevated ? "z-[60]" : "z-50"} overflow-y-auto modal-mobile-full`}
       style={{ background: "rgba(30,40,25,0.45)", backdropFilter: "blur(4px)" }}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
     >
-      <div className="flex min-h-full items-center justify-center p-4 sm:p-6">
+      <div className="flex min-h-full items-center justify-center p-4 sm:p-6 modal-center-wrap">
         <div
-          className="bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden w-full my-auto"
+          className="modal-shell bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden w-full my-auto"
           style={{ maxWidth: `min(${maxWidth}px, calc(100vw - 32px))`, maxHeight: "min(90dvh, calc(100dvh - 24px))" }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -64,7 +64,7 @@ export function ModalBase({ title, subtitle, onClose, children, footer, size = "
           {/* FOOTER */}
           {footer && (
             <div
-              className="px-5 sm:px-8 py-4 sm:py-5 border-t flex items-center justify-end gap-2 sm:gap-3 flex-wrap flex-shrink-0"
+              className="modal-footer-sticky px-5 sm:px-8 py-4 sm:py-5 border-t flex items-center justify-end gap-2 sm:gap-3 flex-wrap flex-shrink-0"
               style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}
             >
               {footer}
