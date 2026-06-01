@@ -353,12 +353,13 @@ main, .page-enter { min-width: 0; }
     background: #FAFAF7 !important;
 }
 .schedule-cell-menu-btn {
+    display: none;
     position: absolute; top: 2px; right: 2px; z-index: 4;
     min-width: 36px; min-height: 36px; padding: 0 4px;
     border-radius: 6px; border: 1px solid rgba(0,0,0,0.08);
     background: rgba(255,255,255,0.92); color: #5C6853;
     font-size: 14px; line-height: 1; font-weight: 700;
-    display: flex; align-items: center; justify-content: center;
+    align-items: center; justify-content: center;
     box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
 .login-mobile-bg {
@@ -397,19 +398,27 @@ main, .page-enter { min-width: 0; }
 
 /* Mobile responsive (≤768px) */
 @media (max-width: 768px) {
-    /* Schedule sheet: shrink cells, smaller fonts, allow horizontal scroll */
+    /* Schedule sheet: scroll whole table on mobile (no sticky columns) */
     .sched-sheet { font-size: 10px; }
-    .sched-sheet .sheet-th { font-size: 9px; padding: 4px 3px; min-width: 88px !important; }
+    .sched-sheet .sheet-th { font-size: 9px; padding: 4px 3px; min-width: 72px !important; }
     .sched-sheet .sheet-td { padding: 3px 2px; height: 38px; min-height: 38px; font-size: 9.5px; }
-    .sched-sheet .sheet-idx { width: 26px !important; min-width: 26px !important; padding: 2px !important; font-size: 10px; left: 0 !important; }
-    .sched-sheet .sheet-therapist { min-width: 88px !important; padding: 2px 4px; left: 26px !important; }
-    .sched-sheet .sheet-day { width: 56px !important; min-width: 56px !important; padding: 1px 2px; left: 114px !important; }
-    .sched-sheet thead .sheet-th.sheet-idx { left: 0 !important; }
-    .sched-sheet thead .sheet-th.sheet-therapist { left: 26px !important; }
-    .sched-sheet thead .sheet-th.sheet-day { left: 114px !important; }
-    .sched-sheet .sheet-slot { min-width: 88px !important; }
+    .sched-sheet .sheet-idx,
+    .sched-sheet .sheet-therapist,
+    .sched-sheet .sheet-day,
+    .sched-sheet thead .sheet-th.sheet-idx,
+    .sched-sheet thead .sheet-th.sheet-therapist,
+    .sched-sheet thead .sheet-th.sheet-day {
+        position: static !important;
+        left: auto !important;
+        box-shadow: none !important;
+    }
+    .sched-sheet .sheet-idx { width: 32px !important; min-width: 32px !important; padding: 2px !important; font-size: 10px; }
+    .sched-sheet .sheet-therapist { min-width: 96px !important; max-width: none !important; padding: 2px 6px; }
+    .sched-sheet .sheet-day { width: 58px !important; min-width: 58px !important; padding: 1px 4px; }
+    .sched-sheet .sheet-slot { min-width: 72px !important; }
     .sched-sheet .sheet-therapist .w-7 { width: 22px; height: 22px; font-size: 9px; }
     .sched-sheet .sheet-therapist span { font-size: 10px !important; line-height: 1.1; }
+    .schedule-cell-menu-btn { display: flex; }
 
     /* Cards & general spacing */
     .card { padding: 12px !important; }

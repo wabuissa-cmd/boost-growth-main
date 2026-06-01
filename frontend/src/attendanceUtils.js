@@ -112,14 +112,37 @@ export function computeHsInvoiceTotals(sessions, packageSize) {
   };
 }
 
-/** Keep only sessions belonging to a specific invoice (by id or legacy source_invoice). */
-export function filterSessionsForInvoice(sessions, invoice) {
+/** Keep only sessions belonging to a specific invoice (by id, source_invoice, or date window for orphans). */
+export function filterSessionsForInvoice(sessions, invoice, allInvoices = []) {
   if (!invoice) return [];
   const invId = invoice.id;
   const invNum = (invoice.invoice_number || "").trim();
-  return (sessions || []).filter(s =>
-    s.invoice_id === invId || (invNum && (s.source_invoice || "").trim() === invNum)
-  );
+  const cid = invoice.client_id;
+  const sorted = [...(allInvoices || [])]
+    .filter(i => i.client_id === cid)
+    .sort((a, b) => String(a.start_date || a.created_at || "").localeCompare(String(b.start_date || b.created_at || "")));
+
+  const out = [];
+  const seen = new Set();
+  for (const s of sessions || []) {
+    if (s.invoice_id === invId || (invNum && (s.source_invoice || "").trim() === invNum)) {
+      if (!seen.has(s.id)) {
+        out.push(s);
+        seen.add(s.id);
+      }
+    }
+  }
+  if (sorted.length) {
+    for (const s of sessions || []) {
+      if (seen.has(s.id)) continue;
+      if (sessionHasInvoiceLink(s)) continue;
+      if (sessionInInvoiceDateWindow(s, invoice, sorted)) {
+        out.push(s);
+        seen.add(s.id);
+      }
+    }
+  }
+  return out;
 }
 
 export function sortInvoicesByRecent(invoiceList) {
@@ -299,6 +322,47 @@ export function normalizeServiceTypeCode(serviceType) {
 
 export function invoiceMatchesServiceType(invoice, code) {
   return normalizeServiceTypeCode(invoice?.service_type) === code;
+}
+
+/** Include legacy invoices without service_type so they are not hidden from the dropdown. */
+export function filterInvoicesForServiceTab(invoices, serviceFilter, client) {
+  if (!serviceFilter) return [...(invoices || [])];
+  const profile = normalizeClientServiceType(client?.service_type);
+  return (invoices || []).filter(inv => {
+    const code = normalizeServiceTypeCode(inv.service_type);
+    if (code === serviceFilter) return true;
+    if (!code && !inv.service_type) {
+      if (profile === "HS+SS") return true;
+      if (profile === "HS") return serviceFilter === "HS";
+      if (profile === "SS") return serviceFilter === "SS";
+      return true;
+    }
+    return false;
+  });
+}
+
+function invoiceWindowBounds(invoice, sortedClientInvoices) {
+  const start = (invoice.start_date || invoice.created_at || "0000-00-00").slice(0, 10);
+  let end = null;
+  const idx = sortedClientInvoices.findIndex(i => i.id === invoice.id);
+  if (idx >= 0 && idx + 1 < sortedClientInvoices.length) {
+    const nxt = (sortedClientInvoices[idx + 1].start_date || "").slice(0, 10);
+    if (nxt) end = nxt;
+  }
+  return { start, end };
+}
+
+function sessionHasInvoiceLink(s) {
+  return !!(s.invoice_id || (s.source_invoice || "").trim());
+}
+
+function sessionInInvoiceDateWindow(s, invoice, sortedClientInvoices) {
+  const d = String(s.session_date || "").slice(0, 10);
+  if (!d) return false;
+  const { start, end } = invoiceWindowBounds(invoice, sortedClientInvoices);
+  if (d < start) return false;
+  if (end && d >= end) return false;
+  return true;
 }
 
 export function clientHasServiceInvoices(invoices, code) {

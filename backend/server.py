@@ -1441,18 +1441,78 @@ def _last_open_invoice(invoices: list, service_code: str) -> Optional[dict]:
     return None
 
 
-def _sessions_for_invoice(inv: dict, sessions: list) -> list:
+def _sorted_invoices_for_client(client_id: str, invoices: list) -> list:
+    client_invs = [i for i in (invoices or []) if i.get("client_id") == client_id]
+    return sorted(client_invs, key=lambda i: (i.get("start_date") or i.get("created_at") or ""))
+
+
+def _invoice_window_bounds(inv: dict, sorted_client_invoices: list) -> tuple:
+    start = (inv.get("start_date") or inv.get("created_at") or "0000-00-00")[:10]
+    end = None
+    for idx, i in enumerate(sorted_client_invoices):
+        if i.get("id") == inv.get("id"):
+            if idx + 1 < len(sorted_client_invoices):
+                nxt = (sorted_client_invoices[idx + 1].get("start_date") or "")[:10]
+                if nxt:
+                    end = nxt
+            break
+    return start, end
+
+
+def _session_linked_to_invoice(s: dict, inv: dict) -> bool:
+    inv_id = inv.get("id")
+    inv_num = (inv.get("invoice_number") or "").strip()
+    if s.get("invoice_id") == inv_id:
+        return True
+    if inv_num and (s.get("source_invoice") or "").strip() == inv_num:
+        return True
+    return False
+
+
+def _session_has_invoice_link(s: dict) -> bool:
+    return bool(s.get("invoice_id") or (s.get("source_invoice") or "").strip())
+
+
+def _session_in_invoice_date_window(s: dict, inv: dict, sorted_client_invoices: list) -> bool:
+    d = str(s.get("session_date") or "")[:10]
+    if not d:
+        return False
+    start, end = _invoice_window_bounds(inv, sorted_client_invoices)
+    if d < start:
+        return False
+    if end and d >= end:
+        return False
+    return True
+
+
+def _sessions_for_invoice(inv: dict, sessions: list, client_invoices: list = None) -> list:
     inv_id = inv.get("id")
     inv_num = (inv.get("invoice_number") or "").strip()
     cid = inv.get("client_id")
+    sorted_invs = _sorted_invoices_for_client(cid, client_invoices or [])
     out = []
+    seen = set()
     for s in sessions:
         if s.get("client_id") != cid:
             continue
-        if s.get("invoice_id") == inv_id:
-            out.append(s)
-        elif inv_num and (s.get("source_invoice") or "").strip() == inv_num:
-            out.append(s)
+        if _session_linked_to_invoice(s, inv):
+            sid = s.get("id")
+            if sid and sid not in seen:
+                out.append(s)
+                seen.add(sid)
+    if sorted_invs:
+        for s in sessions:
+            if s.get("client_id") != cid:
+                continue
+            sid = s.get("id")
+            if sid in seen:
+                continue
+            if _session_has_invoice_link(s):
+                continue
+            if _session_in_invoice_date_window(s, inv, sorted_invs):
+                out.append(s)
+                if sid:
+                    seen.add(sid)
     return out
 
 
@@ -1598,7 +1658,7 @@ def _compute_package_status_row(client: dict, service_code: str, invoices: list,
     if not inv:
         return base
 
-    inv_sessions = _sessions_for_invoice(inv, sessions)
+    inv_sessions = _sessions_for_invoice(inv, sessions, invoices)
     pkg = float(inv.get("package_size") or (24 if service_code == "HS" else 4))
 
     if service_code == "HS":
@@ -2479,7 +2539,7 @@ def _sessions_with_day_names(sessions: list) -> list:
 
 
 async def _sessions_for_invoice_query(client_id: str, invoice_id: str) -> list:
-    """Sessions for ONE invoice only — by invoice_id or matching source_invoice number."""
+    """Sessions for ONE invoice — by invoice_id, source_invoice, or date window (orphans only)."""
     inv = await db.invoices.find_one({"id": invoice_id}, {"_id": 0})
     if not inv:
         return []
@@ -2487,10 +2547,45 @@ async def _sessions_for_invoice_query(client_id: str, invoice_id: str) -> list:
     q_or = [{"invoice_id": invoice_id}]
     if inv_num:
         q_or.append({"source_invoice": inv_num})
-    return await db.sessions.find(
+    direct = await db.sessions.find(
         {"client_id": client_id, "$or": q_or},
         {"_id": 0},
     ).sort("session_date", 1).to_list(2000)
+
+    all_invs = await db.invoices.find({"client_id": client_id}, {"_id": 0}).to_list(200)
+    sorted_invs = _sorted_invoices_for_client(client_id, all_invs)
+    start, end = _invoice_window_bounds(inv, sorted_invs)
+
+    orphan_q = {
+        "client_id": client_id,
+        "session_date": {"$gte": start},
+        "$and": [
+            {"$or": [{"invoice_id": None}, {"invoice_id": ""}, {"invoice_id": {"$exists": False}}]},
+            {"$or": [{"source_invoice": None}, {"source_invoice": ""}, {"source_invoice": {"$exists": False}}]},
+        ],
+    }
+    if end:
+        orphan_q["session_date"]["$lt"] = end
+    orphans = await db.sessions.find(orphan_q, {"_id": 0}).sort("session_date", 1).to_list(2000)
+
+    seen = {s["id"] for s in direct if s.get("id")}
+    merged = list(direct)
+    for s in orphans:
+        sid = s.get("id")
+        if sid and sid in seen:
+            continue
+        if _session_in_invoice_date_window(s, inv, sorted_invs):
+            merged.append(s)
+            if sid:
+                seen.add(sid)
+                # Self-heal: link orphan session to this invoice for future queries
+                patch = {"invoice_id": invoice_id}
+                if inv_num:
+                    patch["source_invoice"] = inv_num
+                await db.sessions.update_one({"id": sid}, {"$set": patch})
+
+    merged.sort(key=lambda x: str(x.get("session_date") or ""))
+    return merged
 
 
 @api.get("/sessions")
@@ -2542,7 +2637,7 @@ async def create_session(payload: SessionIn, user=Depends(get_current_user)):
             inv_sessions = await db.sessions.find(
                 {"client_id": payload.client_id}, {"_id": 0}
             ).to_list(5000)
-            matched = _sessions_for_invoice(open_hs, inv_sessions)
+            matched = _sessions_for_invoice(open_hs, inv_sessions, invs)
             used_h = sum(
                 float(s.get("hours") or 0)
                 for s in matched
@@ -3672,24 +3767,29 @@ async def admin_migrate_progress_report_urls(_=Depends(admin_only)):
 
 @api.post("/admin/repair-session-invoices")
 async def admin_repair_session_invoices(_=Depends(admin_only)):
-    """Backfill invoice_id on sessions; fix HS service_type for HS-only clients."""
-    invoices = await db.invoices.find({}, {"_id": 0, "id": 1, "client_id": 1, "invoice_number": 1}).to_list(5000)
+    """Backfill invoice_id on sessions; fix HS service_type; link orphans by date window."""
+    invoices = await db.invoices.find({}, {"_id": 0}).to_list(5000)
     inv_by_num = {}
     for inv in invoices:
         num = (inv.get("invoice_number") or "").strip()
         if num:
             inv_by_num[f"{inv['client_id']}|{num}"] = inv["id"]
-    sessions = await db.sessions.find({}, {"_id": 0, "id": 1, "client_id": 1, "invoice_id": 1, "source_invoice": 1, "service_type": 1}).to_list(20000)
-    linked = typed = 0
+    sessions = await db.sessions.find({}, {"_id": 0}).to_list(20000)
+    linked = typed = window_linked = 0
     clients = {c["id"]: c for c in await db.clients.find(_active_client_filter(), {"_id": 0, "id": 1, "service_type": 1}).to_list(500)}
+    invs_by_client = {}
+    for inv in invoices:
+        invs_by_client.setdefault(inv["client_id"], []).append(inv)
+
     for s in sessions:
         patch = {}
+        cid = s.get("client_id")
         if not s.get("invoice_id") and s.get("source_invoice"):
-            key = f"{s['client_id']}|{(s.get('source_invoice') or '').strip()}"
+            key = f"{cid}|{(s.get('source_invoice') or '').strip()}"
             if key in inv_by_num:
                 patch["invoice_id"] = inv_by_num[key]
                 linked += 1
-        client = clients.get(s.get("client_id"))
+        client = clients.get(cid)
         if client and _normalize_service_type(client.get("service_type")) == "HS":
             if _normalize_service_type(s.get("service_type")) != "HS":
                 patch["service_type"] = "HS"
@@ -3697,7 +3797,32 @@ async def admin_repair_session_invoices(_=Depends(admin_only)):
                 typed += 1
         if patch:
             await db.sessions.update_one({"id": s["id"]}, {"$set": patch})
-    return {"invoice_ids_linked": linked, "service_types_fixed": typed}
+
+    # Date-window backfill for sessions still without invoice link
+    for cid, client_invs in invs_by_client.items():
+        sorted_invs = _sorted_invoices_for_client(cid, client_invs)
+        client_sessions = [s for s in sessions if s.get("client_id") == cid]
+        for inv in sorted_invs:
+            inv_num = (inv.get("invoice_number") or "").strip()
+            for s in client_sessions:
+                if _session_has_invoice_link(s):
+                    continue
+                if not _session_in_invoice_date_window(s, inv, sorted_invs):
+                    continue
+                patch = {"invoice_id": inv["id"]}
+                if inv_num:
+                    patch["source_invoice"] = inv_num
+                await db.sessions.update_one({"id": s["id"]}, {"$set": patch})
+                s["invoice_id"] = inv["id"]
+                if inv_num:
+                    s["source_invoice"] = inv_num
+                window_linked += 1
+
+    return {
+        "invoice_ids_linked": linked,
+        "service_types_fixed": typed,
+        "window_linked": window_linked,
+    }
 
 
 # ------------------- Cancel-Notify (in-app + queued email) -------------------

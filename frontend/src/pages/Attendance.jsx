@@ -16,6 +16,7 @@ import {
   resolveCycleAnchor, computeSsWeekSummary, groupSessionsBySchoolWeeks,
   computeHsInvoiceTotals,
   filterSessionsForInvoice,
+  filterInvoicesForServiceTab,
   sortInvoicesByRecent,
   fmtDate, dayShort, dayNameFromDate, WEEK_ROW_BG,
   normalizeServiceTypeCode, inferDefaultServiceType,
@@ -672,8 +673,8 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   const selectedInvoice = invoices.find(i => i.id === selectedInvoiceId);
   const sortedInvoices = useMemo(() => sortInvoicesByRecent(invoices), [invoices]);
   const cycleSessions = useMemo(
-    () => filterSessionsForInvoice(localSessions, selectedInvoice),
-    [localSessions, selectedInvoice]
+    () => filterSessionsForInvoice(localSessions, selectedInvoice, allInvoices),
+    [localSessions, selectedInvoice, allInvoices]
   );
   const cycleWeeks = 4;
   const cycleAnchor = useMemo(
@@ -754,7 +755,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
         const def = inferDefaultServiceType(list, client, user, sessions) || "HS";
         setServiceTypeFilter(def);
         const filtered = tabState.showToggle
-          ? list.filter(i => normalizeServiceTypeCode(i.service_type) === def)
+          ? filterInvoicesForServiceTab(list, def, client)
           : list;
         const pick = pickLatestOpenInvoice(filtered);
         setSelectedInvoiceId(pick?.id || "");
@@ -768,7 +769,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
       return;
     }
     const filtered = tabState.showToggle
-      ? allInvoices.filter(i => normalizeServiceTypeCode(i.service_type) === serviceTypeFilter)
+      ? filterInvoicesForServiceTab(allInvoices, serviceTypeFilter, client)
       : allInvoices;
     setInvoices(filtered);
     if (prevServiceFilter.current !== serviceTypeFilter) {
@@ -938,7 +939,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   };
 
   const showNoOpenWarning = useMemo(() => {
-    const forType = allInvoices.filter(i => normalizeServiceTypeCode(i.service_type) === serviceTypeFilter);
+    const forType = filterInvoicesForServiceTab(allInvoices, serviceTypeFilter, client);
     return forType.length > 0 && !hasOpenInvoice(forType);
   }, [allInvoices, serviceTypeFilter]);
 
