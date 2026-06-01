@@ -32,6 +32,9 @@
 */
 
 * { box-sizing: border-box; }
+html {
+    height: -webkit-fill-available;
+}
 html, body {
     font-family: 'DM Sans', 'Inter', system-ui, sans-serif;
     margin: 0; padding: 0;
@@ -39,10 +42,22 @@ html, body {
     color: var(--text-primary);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    min-height: 100vh;
+    min-height: 100dvh;
     /* Fix 1: prevent the entire page from scrolling horizontally on laptop.
        Wide tables remain scrollable inside their own overflow-x-auto wrappers. */
     overflow-x: hidden;
     max-width: 100vw;
+}
+#root {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+}
+.login-page {
+    min-height: 100vh;
+    min-height: 100dvh;
 }
 /* Ensure inner page content can't force the layout wider than the viewport */
 main, .page-enter { min-width: 0; }
@@ -377,6 +392,19 @@ main, .page-enter { min-width: 0; }
 
     /* Reduce zoom controls / week nav grouping on mobile */
     .stagger > * { animation-delay: 0ms !important; }
+
+    /* Page headers & import cards */
+    .import-type-grid { grid-template-columns: 1fr !important; }
+    .page-header-row { flex-direction: column; align-items: stretch !important; }
+    .page-header-row .input { max-width: 100% !important; width: 100%; }
+    .page-header-row .btn { width: 100%; justify-content: center; }
+
+    /* Touch-friendly controls */
+    button, .btn, a.btn { min-height: 44px; }
+    select, .select { min-height: 44px; }
+
+    /* Prevent fixed badge from covering bottom buttons on phones */
+    #emergent-badge { bottom: 8px !important; right: 8px !important; transform: scale(0.85); transform-origin: bottom right; }
 }
 
 @media (max-width: 480px) {

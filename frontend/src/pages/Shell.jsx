@@ -65,7 +65,7 @@ export default function Shell() {
   };
 
   return (
-    <div className="min-h-screen bg-organic flex flex-col">
+    <div className="min-h-screen min-h-[100dvh] bg-organic flex flex-col">
       {/* Top Nav */}
       <header className="sticky top-0 z-40 bg-white/85 backdrop-blur-md border-b border-[#E8E4DE]">
         <div className="max-w-[1600px] mx-auto px-4 lg:px-6">
@@ -222,7 +222,7 @@ export default function Shell() {
       )}
 
       <main className="flex-1 min-w-0">
-        <div className="max-w-[1600px] mx-auto px-4 lg:px-6 py-6 page-enter" key={loc.pathname}>
+        <div className="max-w-[1600px] mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 page-enter" key={loc.pathname}>
           <Outlet />
         </div>
       </main>

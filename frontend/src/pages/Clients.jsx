@@ -55,7 +55,7 @@ export default function Clients() {
     else await api.post("/clients", edit);
     setEdit(null); load();
   };
-  const remove = async (id) => { if (!window.confirm("Delete client and all their files?")) return; await api.delete(`/clients/${id}`); load(); };
+  const remove = async (id) => { if (!window.confirm("Remove this client from the active list? (Can be restored from Admin)")) return; await api.delete(`/clients/${id}`); load(); };
   const findT = id => therapists.find(t => t.id === id);
 
   const filtered = items.filter(c =>
@@ -65,7 +65,7 @@ export default function Clients() {
 
   return (
     <div>
-      <div className="flex items-center mb-5 gap-3 flex-wrap">
+      <div className="flex items-center mb-5 gap-3 flex-wrap page-header-row">
         <div className="flex-1">
           <h1 className="font-display text-3xl font-semibold" style={{color: "#2C3625"}}>Clients</h1>
           <div className="text-sm" style={{color: "#5C6853"}}>{items.length} clients · all profile information</div>
@@ -77,68 +77,63 @@ export default function Clients() {
         {isAdmin && <button data-testid="add-client-btn" onClick={() => setEdit({ name: "", file_no: "", package_hours: 24, color: "#A2C4C9", main_therapist_id: "", co_therapist_ids: [], locations: [] })} className="btn btn-primary"><Plus size={16}/> New Child</button>}
       </div>
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 stagger">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 stagger">
         {filtered.length === 0 && <div className="card p-12 text-center col-span-full" style={{color: "#8B9E7A"}}>No clients</div>}
         {filtered.map(c => (
           <div key={c.id} className="card card-hover p-0 overflow-hidden">
-            <div className="h-2" style={{background: c.color || "#7A8A6A"}}/>
-            <div className="p-5">
-              <div className="flex items-start gap-3">
-                <div className="w-14 h-14 rounded-xl flex items-center justify-center text-2xl font-bold shrink-0" style={{background: c.color || "#E5EBE1", color: "#2C3625"}}>
+            <div className="h-1.5" style={{background: c.color || "#7A8A6A"}}/>
+            <div className="p-3">
+              <div className="flex items-start gap-2.5">
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold shrink-0" style={{background: c.color || "#E5EBE1", color: "#2C3625"}}>
                   {c.name?.charAt(0)}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="font-bold text-lg truncate flex-1" style={{color: "#2C3625"}}>{c.name}</div>
-                    <div className="flex flex-col items-end gap-1 shrink-0 max-w-[48%]">
+                    <div className="font-semibold text-base truncate flex-1 leading-tight" style={{color: "#2C3625", fontSize: "16px"}}>{c.name}</div>
+                    <div className="flex flex-col items-end gap-0.5 shrink-0 max-w-[48%]">
                       {(pkgByClient[c.id] || []).map(row => (
                         <PackageStatusBadge key={`${c.id}-${row.service_type}`} row={row} clientId={c.id}
                           onClick={() => navigate(`/attendance?client=${c.id}&service=${row.service_type}`)} />
                       ))}
                     </div>
                   </div>
-                  <div className="text-xs flex items-center gap-1 flex-wrap" style={{color: "#8B9E7A"}}>
-                    <Hash size={10}/>{c.file_no || "—"}
+                  <div className="text-[11px] flex items-center gap-1 flex-wrap mt-0.5" style={{color: "#8B9E7A"}}>
+                    <Hash size={9}/>{c.file_no || "—"}
                     {c.billing_mode === "weeks" ? (
-                      <span className="pill text-[9px] px-1.5 py-0.5" style={{background:"#FAF0D1", color:"#6B5218"}}>📅 {c.cycle_weeks || 4}-week cycle</span>
+                      <span className="pill text-[9px] px-1 py-0" style={{background:"#FAF0D1", color:"#6B5218"}}>📅 {c.cycle_weeks || 4}wk</span>
                     ) : (
-                      <span>· Pkg {c.package_hours || 24}h</span>
+                      <span>· {c.package_hours || 24}h</span>
                     )}
                   </div>
                 </div>
                 {isAdmin && (
-                  <div className="flex flex-col gap-1">
-                    <button onClick={() => setEdit({...c, co_therapist_ids: c.co_therapist_ids || [], locations: c.locations || []})} className="btn btn-ghost p-1.5"><PencilSimple size={14}/></button>
-                    <button onClick={() => remove(c.id)} className="btn btn-ghost p-1.5 text-red-700"><Trash size={14}/></button>
+                  <div className="flex flex-col gap-0.5">
+                    <button onClick={() => setEdit({...c, co_therapist_ids: c.co_therapist_ids || [], locations: c.locations || []})} className="btn btn-ghost p-1"><PencilSimple size={13}/></button>
+                    <button onClick={() => remove(c.id)} className="btn btn-ghost p-1 text-red-700"><Trash size={13}/></button>
                   </div>
                 )}
               </div>
 
-              <div className="mt-4 space-y-1.5 text-xs">
-                {c.supervisor && <div style={{color: "#5C6853"}}><User size={12} className="inline mr-1.5"/><strong>Supervisor:</strong> {c.supervisor}</div>}
-                {c.main_therapist_id && <div style={{color: "#5C6853"}}><User size={12} className="inline mr-1.5"/><strong>Main:</strong> {findT(c.main_therapist_id)?.name || "—"}</div>}
-                {c.co_therapist_ids?.length > 0 && (
-                  <div style={{color: "#5C6853"}}><User size={12} className="inline mr-1.5"/><strong>Co:</strong> {c.co_therapist_ids.map(id => findT(id)?.name?.replace("Ms. ", "")).filter(Boolean).join(", ")}</div>
-                )}
-                {c.parent_phone && <div style={{color: "#5C6853"}}><Phone size={12} className="inline mr-1.5"/>{c.parent_phone}</div>}
+              <div className="mt-2 space-y-0.5 text-[11px]">
+                {c.supervisor && <div className="truncate" style={{color: "#5C6853"}}><User size={10} className="inline mr-1"/><strong>Sup:</strong> {c.supervisor}</div>}
+                {c.main_therapist_id && <div className="truncate" style={{color: "#5C6853"}}><User size={10} className="inline mr-1"/><strong>Main:</strong> {findT(c.main_therapist_id)?.name || "—"}</div>}
+                {c.parent_phone && <div style={{color: "#5C6853"}}><Phone size={10} className="inline mr-1"/>{c.parent_phone}</div>}
               </div>
 
               {c.locations?.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-[#F0EDE9] space-y-1.5">
-                  {c.locations.map((l, i) => (
-                    <div key={i} className="text-xs flex items-start gap-1.5">
-                      <span className="pill text-[9px] py-0.5 px-1.5" style={{background: l.service === "SS" ? "#E5EBE1" : "#EAF0F3", color: l.service === "SS" ? "#3D4F35" : "#375568"}}>{l.service}</span>
-                      <span style={{color: "#5C6853"}}><MapPin size={11} className="inline mr-0.5"/>{l.address}</span>
-                    </div>
-                  ))}
+                <div className="mt-2 pt-2 border-t border-[#F0EDE9]">
+                  <div className="text-[11px] truncate" style={{color: "#5C6853"}}>
+                    <MapPin size={10} className="inline mr-0.5"/>
+                    {c.locations[0].service} · {c.locations[0].address}
+                    {c.locations.length > 1 && ` +${c.locations.length - 1}`}
+                  </div>
                 </div>
               )}
 
-              {/* Four equal section buttons */}
-              <div className="mt-3 pt-3 border-t border-[#F0EDE9] grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                <SectionBtn icon="📍" label="Location" testId={`btn-loc-${c.id}`} onClick={() => openPanel(c, "location")} />
-                <SectionBtn icon="📎" label="Attachments" testId={`btn-att-${c.id}`} onClick={() => openPanel(c, "attachments")} />
-                <SectionBtn icon="📋" label="Case Details" testId={`btn-details-${c.id}`} onClick={() => openPanel(c, "details")} />
+              <div className="mt-2 pt-2 border-t border-[#F0EDE9] flex items-center gap-1">
+                <SectionBtn icon="📍" label="Loc" testId={`btn-loc-${c.id}`} onClick={() => openPanel(c, "location")} />
+                <SectionBtn icon="📎" label="Att" testId={`btn-att-${c.id}`} onClick={() => openPanel(c, "attachments")} />
+                <SectionBtn icon="📋" label="Case" testId={`btn-details-${c.id}`} onClick={() => openPanel(c, "details")} />
                 <ProgressTracker clientId={c.id} summary={prSummaries[c.id]} onOpen={() => openPanel(c, "progress")} />
               </div>
             </div>
@@ -295,36 +290,24 @@ export default function Clients() {
 // ----- Helper components for client cards -----
 function SectionBtn({ icon, label, onClick, testId }) {
   return (
-    <button type="button" data-testid={testId} onClick={onClick}
-      className="text-[10px] sm:text-[11px] py-2 px-1.5 rounded-lg border hover:bg-[#F0EDE9] transition text-center min-h-[52px] flex flex-col items-center justify-center gap-0.5"
-      style={{ borderColor: "#E0DCC4", color: "#3D4F35", background: "white" }}>
-      <span className="text-base leading-none">{icon}</span>
-      <span className="font-semibold leading-tight">{label}</span>
+    <button type="button" data-testid={testId} onClick={onClick} title={label}
+      className="flex-1 min-h-[36px] py-1.5 px-1 rounded-md border hover:bg-[#F0EDE9] transition flex items-center justify-center gap-0.5"
+      style={{ borderColor: "#E0DCC4", color: "#3D4F35", background: "white", fontSize: "10px" }}>
+      <span className="text-sm leading-none">{icon}</span>
+      <span className="font-semibold hidden sm:inline">{label}</span>
     </button>
   );
 }
 
 function ProgressTracker({ summary, onOpen }) {
   const s = summary || { uploaded: false, reviewed: false, resolved: false, count: 0 };
-  const steps = [
-    { key: "uploaded", label: "Uploaded" },
-    { key: "reviewed", label: "Reviewed" },
-    { key: "resolved", label: "Resolved" },
-  ];
   const allDone = s.uploaded && s.reviewed && s.resolved;
-  const lastLine = s.count > 0
-    ? steps.map(st => `${s[st.key] ? "✓" : "○"} ${st.label}`).join(" · ")
-    : "No reports yet";
   return (
-    <button type="button" onClick={onOpen}
-      className="text-left py-2 px-1.5 rounded-lg border hover:bg-[#F0EDE9] transition w-full min-h-[52px] flex flex-col justify-center"
-      style={{ borderColor: allDone ? "#86EFAC" : "#E0DCC4", background: allDone ? "#F0FDF4" : "white" }}>
-      <div className="text-[10px] sm:text-[11px] font-bold text-center leading-tight" style={{ color: "#3D4F35" }}>
-        <span className="text-base">📊</span> Progress Report
-      </div>
-      <div className="text-[9px] text-center mt-0.5 leading-snug" style={{ color: "#5C6853" }}>
-        {s.count > 0 ? `${s.count} report${s.count !== 1 ? "s" : ""} · Last: ${lastLine}` : lastLine}
-      </div>
+    <button type="button" onClick={onOpen} title="Progress Report"
+      className="flex-1 min-h-[36px] py-1.5 px-1 rounded-md border hover:bg-[#F0EDE9] transition flex items-center justify-center gap-0.5"
+      style={{ borderColor: allDone ? "#86EFAC" : "#E0DCC4", background: allDone ? "#F0FDF4" : "white", fontSize: "10px" }}>
+      <span className="text-sm">📊</span>
+      <span className="font-semibold hidden sm:inline">PR{s.count > 0 ? ` (${s.count})` : ""}</span>
     </button>
   );
 }

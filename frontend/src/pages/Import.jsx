@@ -14,6 +14,21 @@ export default function ImportPage() {
   const [availableSheets, setAvailableSheets] = useState([]);
   const [restoreConfirm, setRestoreConfirm] = useState("");
   const [restoreResult, setRestoreResult] = useState(null);
+  const [dedupeResult, setDedupeResult] = useState(null);
+  const [deduping, setDeduping] = useState(false);
+
+  const dedupeIntake = async () => {
+    if (!window.confirm("Remove duplicate intake records (same child name + type)?")) return;
+    setDeduping(true);
+    setDedupeResult(null);
+    try {
+      const { data } = await api.post("/admin/dedupe-intake");
+      setDedupeResult(data);
+    } catch (e) {
+      setDedupeResult({ message: e.response?.data?.detail || e.message, ok: false });
+    }
+    setDeduping(false);
+  };
 
   // When schedule file is picked, list its sheet names so user can choose
   useEffect(() => {
@@ -48,7 +63,7 @@ export default function ImportPage() {
       const msg = type === "schedule"
         ? `${data.cells_inserted} cells inserted for week ${data.week_start}`
         : type === "intake"
-        ? [data.message, data.hint, data.rows_in_file != null ? `${data.rows_in_file} rows in file (${data.pre_count || 0} pre + ${data.post_count || 0} post)` : ''].filter(Boolean).join(' — ')
+        ? [data.message, data.hint].filter(Boolean).join(' — ')
         : `${data.created} created, ${data.skipped} skipped`;
       setResult({ ok: true, msg });
       setFile(null);
@@ -91,7 +106,7 @@ export default function ImportPage() {
         <div className="text-sm" style={{color: "#5C6853"}}>Bulk-import clients, intake records, or historical schedules</div>
       </div>
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5 import-type-grid">
         {[
           { id: "clients", label: "Clients", desc: "Excel/CSV with name, file_no, package_hours, etc.", icon: <UserList size={26} weight="duotone"/>, color: "#7A8A6A", bg: "#E5EBE1" },
           { id: "intake", label: "Intake", desc: "Pre/Post intake list (Excel/CSV)", icon: <FileXls size={26} weight="duotone"/>, color: "#D4A64A", bg: "#FAF0D1" },
@@ -148,6 +163,11 @@ export default function ImportPage() {
             </div>
             <div className="text-xs mb-4 p-3 rounded-xl border border-[#E8E4DE]" style={{background: "#FAFAF7", color: "#5C6853"}}>
               <strong>Required column for {type}:</strong> {type === "clients" ? "name (required), file_no, package_hours, supervisor, parent_name, phone, color, age, notes, main_therapist (matches Ms. Name)" : "Child Name (or name / child_name), phone, service, district, diagnosis, intake_type (pre/post). Header row is auto-detected."}
+              {type === "intake" && (
+                <div className="mt-2 p-2 rounded-lg" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+                  Re-uploading the same file updates existing cases by name — it should not create duplicates. Intake is separate from Clients.
+                </div>
+              )}
             </div>
             <label className="btn btn-outline w-full justify-start cursor-pointer mb-3">
               <UploadSimple size={18}/> {file ? file.name : "Choose Excel or CSV..."}
@@ -185,6 +205,23 @@ export default function ImportPage() {
           </div>
         )}
       </div>
+
+      {type === "intake" && (
+        <div className="card p-6 mt-5 border-2" style={{ borderColor: "#C4D4B8" }}>
+          <div className="font-bold mb-1" style={{ color: "#2C3625" }}>Clean Duplicate Intake Records</div>
+          <div className="text-sm mb-4" style={{ color: "#5C6853" }}>
+            If the intake list grew after repeated imports, this removes duplicates (same child name + pre/post type) and keeps one record each.
+          </div>
+          <button type="button" onClick={dedupeIntake} disabled={deduping} className="btn btn-secondary text-sm">
+            {deduping ? <span className="spinner" /> : "Remove Duplicates"}
+          </button>
+          {dedupeResult && (
+            <div className="text-xs p-3 rounded-xl mt-3" style={{ background: dedupeResult.ok === false ? "#F8EBE7" : "#E5EBE1", color: "#3D4F35" }}>
+              {dedupeResult.message}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="card p-6 mt-5 border-2" style={{ borderColor: "#C9BB91" }}>
         <div className="font-bold mb-1" style={{ color: "#2C3625" }}>Restore Official Clients (25)</div>

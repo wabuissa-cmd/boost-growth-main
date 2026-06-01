@@ -27,6 +27,13 @@ client = AsyncIOMotorClient(
 )
 db = client[os.environ['DB_NAME']]
 
+def _active_client_filter(extra: Optional[dict] = None) -> dict:
+    """Exclude soft-deleted clients from normal queries."""
+    q = {"deleted": {"$ne": True}}
+    if extra:
+        q.update(extra)
+    return q
+
 UPLOAD_DIR = ROOT_DIR / 'uploads'
 UPLOAD_DIR.mkdir(exist_ok=True)
 
@@ -635,6 +642,9 @@ async def seed_master_data(_=Depends(admin_only)):
     # 2) Clients
     for (file_no, name, main_k, co_ks, pkg, sup_k, service, address) in MASTER_CLIENTS:
         match = await db.clients.find_one({"file_no": file_no})
+        if match and match.get("deleted"):
+            results["clients"]["skipped"].append({"file_no": file_no, "name": name, "reason": "soft-deleted"})
+            continue
         main_id = key_to_id.get(main_k)
         co_ids = [key_to_id[k] for k in co_ks if k in key_to_id]
         sup_id = key_to_id.get(sup_k)
@@ -828,9 +838,9 @@ async def schedule_notification_receipts(cid: str, _=Depends(ops_or_admin)):
 @api.get("/clients")
 async def list_clients(user=Depends(get_current_user)):
     if _has_full_client_access(user):
-        return await db.clients.find({}, {"_id": 0}).sort("file_no", 1).to_list(500)
+        return await db.clients.find(_active_client_filter(), {"_id": 0}).sort("file_no", 1).to_list(500)
     # therapist: see only assigned (main or co)
-    items = await db.clients.find({}, {"_id": 0}).sort("file_no", 1).to_list(500)
+    items = await db.clients.find(_active_client_filter(), {"_id": 0}).sort("file_no", 1).to_list(500)
     uid = user["id"]
     return [c for c in items if c.get("main_therapist_id") == uid or uid in (c.get("co_therapist_ids") or [])]
 
@@ -849,7 +859,7 @@ async def update_client(cid: str, payload: ClientIn, _=Depends(ops_or_admin)):
     data = payload.model_dump()
     data["locations"] = [l for l in (data.get("locations") or [])]
     await db.clients.update_one({"id": cid}, {"$set": data})
-    return await db.clients.find_one({"id": cid}, {"_id": 0})
+    return await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
 
 class ClientScheduleColorIn(BaseModel):
     color: Optional[str] = None
@@ -857,7 +867,7 @@ class ClientScheduleColorIn(BaseModel):
 @api.put("/clients/{cid}/schedule-color")
 async def update_client_schedule_color(cid: str, body: ClientScheduleColorIn, _=Depends(ops_or_admin)):
     """Set schedule_color on client and propagate to all schedule cells with matching child_name."""
-    client = await db.clients.find_one({"id": cid}, {"_id": 0})
+    client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     color = body.color
@@ -872,10 +882,36 @@ async def update_client_schedule_color(cid: str, body: ClientScheduleColorIn, _=
 
 @api.delete("/clients/{cid}")
 async def delete_client(cid: str, _=Depends(ops_or_admin)):
-    await db.clients.delete_one({"id": cid})
+    """Soft-delete: mark deleted=true; sessions/invoices are preserved."""
+    client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0, "id": 1})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    await db.clients.update_one({"id": cid}, {"$set": {"deleted": True, "deleted_at": now_iso()}})
+    return {"ok": True}
+
+@api.get("/admin/clients/deleted")
+async def list_deleted_clients(_=Depends(admin_only)):
+    return await db.clients.find({"deleted": True}, {"_id": 0}).sort("deleted_at", -1).to_list(500)
+
+@api.post("/admin/clients/{cid}/restore")
+async def restore_client(cid: str, _=Depends(admin_only)):
+    result = await db.clients.update_one(
+        {"id": cid, "deleted": True},
+        {"$set": {"deleted": False}, "$unset": {"deleted_at": ""}},
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Deleted client not found")
+    return {"ok": True}
+
+@api.delete("/admin/clients/{cid}/permanent")
+async def permanent_delete_client(cid: str, _=Depends(admin_only)):
+    client = await db.clients.find_one({"id": cid, "deleted": True}, {"_id": 0, "id": 1})
+    if not client:
+        raise HTTPException(status_code=404, detail="Deleted client not found")
     await db.sessions.delete_many({"client_id": cid})
     await db.invoices.delete_many({"client_id": cid})
     await db.progress_reports.delete_many({"client_id": cid})
+    await db.clients.delete_one({"id": cid})
     return {"ok": True}
 
 # ------------------- Progress Reports (per client) -------------------
@@ -911,7 +947,7 @@ SUPERVISOR_CLIENT_FILES = {
 }
 
 async def _client_file_no(client_id: str) -> Optional[str]:
-    c = await db.clients.find_one({"id": client_id}, {"_id": 0, "file_no": 1})
+    c = await db.clients.find_one(_active_client_filter({"id": client_id}), {"_id": 0, "file_no": 1})
     if not c or not c.get("file_no"):
         return None
     return str(c["file_no"]).zfill(3)
@@ -936,7 +972,7 @@ async def _can_edit_progress_step(user: dict, report_id: str, step: str) -> bool
         if user.get("role") != "therapist":
             return False
         client = await db.clients.find_one(
-            {"id": doc["client_id"]},
+            _active_client_filter({"id": doc["client_id"]}),
             {"_id": 0, "main_therapist_id": 1, "co_therapist_ids": 1},
         )
         if not client:
@@ -975,7 +1011,7 @@ async def get_progress_reports_summary(user=Depends(get_current_user)):
 async def list_progress_reports(cid: str, user=Depends(get_current_user)):
     if not _has_full_client_access(user):
         client = await db.clients.find_one(
-            {"id": cid},
+            _active_client_filter({"id": cid}),
             {"_id": 0, "main_therapist_id": 1, "co_therapist_ids": 1, "file_no": 1},
         )
         if not client:
@@ -1076,7 +1112,7 @@ async def update_progress_report_steps(rid: str, payload: ProgressStepsIn, user=
         await db.progress_reports.update_one({"id": rid}, {"$set": update})
         if any(k in update for k in ("uploaded", "reviewed", "resolved")):
             client = await db.clients.find_one(
-                {"id": report["client_id"]},
+                _active_client_filter({"id": report["client_id"]}),
                 {"_id": 0, "name": 1, "main_therapist_id": 1},
             )
             if client and client.get("main_therapist_id"):
@@ -1109,7 +1145,7 @@ async def _can_access_progress_report(user: dict, report: dict) -> bool:
     if _has_full_client_access(user):
         return True
     client = await db.clients.find_one(
-        {"id": report["client_id"]},
+        _active_client_filter({"id": report["client_id"]}),
         {"_id": 0, "main_therapist_id": 1, "co_therapist_ids": 1, "file_no": 1},
     )
     if not client:
@@ -1211,7 +1247,7 @@ async def _find_client_by_file_no(file_no: str) -> Optional[dict]:
     raw = str(file_no or "").strip()
     padded = raw.zfill(3)
     for candidate in {raw, padded, raw.lstrip("0") or raw}:
-        hit = await db.clients.find_one({"file_no": candidate}, {"_id": 0, "id": 1, "file_no": 1, "name": 1})
+        hit = await db.clients.find_one(_active_client_filter({"file_no": candidate}), {"_id": 0, "id": 1, "file_no": 1, "name": 1})
         if hit:
             return hit
     return None
@@ -1628,7 +1664,7 @@ def _package_status_for_client(client: dict, invoices: list, sessions: list) -> 
 @api.get("/clients/package-status")
 async def list_clients_package_status(user=Depends(get_current_user)):
     clients = await db.clients.find(
-        {"status": {"$ne": "Inactive"}}, {"_id": 0}
+        _active_client_filter({"status": {"$ne": "Inactive"}}), {"_id": 0}
     ).sort("name", 1).to_list(500)
     if not _has_full_client_access(user):
         uid = user["id"]
@@ -1651,7 +1687,7 @@ async def list_clients_package_status(user=Depends(get_current_user)):
 
 @api.get("/clients/{cid}/package-status")
 async def get_client_package_status(cid: str, user=Depends(get_current_user)):
-    client = await db.clients.find_one({"id": cid}, {"_id": 0})
+    client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     if not _has_full_client_access(user):
@@ -1732,7 +1768,7 @@ async def sync_invoices_from_excel(cid: str, file: UploadFile = File(...), user=
     Idempotent: matches invoices by invoice_number, sessions by (client_id, session_date, start_time).
     """
     import openpyxl, io
-    client = await db.clients.find_one({"id": cid}, {"_id": 0})
+    client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     try:
@@ -1759,7 +1795,7 @@ async def sync_invoices_from_drive(cid: str, payload: SyncFromDriveIn, user=Depe
     import io
     import urllib.request
     import openpyxl
-    client = await db.clients.find_one({"id": cid}, {"_id": 0})
+    client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     url = (payload.drive_url or "").strip()
@@ -2423,7 +2459,7 @@ async def reset_package(cid: str, user=Depends(ops_or_admin)):
     Existing sessions are kept; the frontend filters out sessions before this timestamp
     when computing used hours for the current cycle. Safe and reversible.
     """
-    client = await db.clients.find_one({"id": cid}, {"_id": 0})
+    client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     ts = now_iso()
@@ -2516,7 +2552,7 @@ async def create_session(payload: SessionIn, user=Depends(get_current_user)):
     await db.sessions.insert_one(doc)
     doc.pop("_id", None)
     # Admin alerts
-    client = await db.clients.find_one({"id": payload.client_id}, {"_id": 0})
+    client = await db.clients.find_one(_active_client_filter({"id": payload.client_id}), {"_id": 0})
     cname = client.get("name") if client else "—"
     if user.get("role") == "therapist":
         await _notify_admins("session_log", f"New session logged ({payload.status})",
@@ -2745,7 +2781,7 @@ async def client_billing_progress(cid: str, user=Depends(get_current_user)):
     weeks-based: counts distinct weeks (Sun-Thu) where at least 1 Completed session exists,
                  since cycle_start_date; cycle ends when weeks_completed >= cycle_weeks.
     """
-    client = await db.clients.find_one({"id": cid}, {"_id": 0})
+    client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
     if not client:
         raise HTTPException(status_code=404, detail="Not found")
     sessions = await db.sessions.find({"client_id": cid}, {"_id": 0}).to_list(2000)
@@ -2812,7 +2848,7 @@ async def export_sessions_excel(cid: str, user=Depends(get_current_user)):
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from io import BytesIO
 
-    client = await db.clients.find_one({"id": cid}, {"_id": 0})
+    client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     if user.get("role") == "therapist" and user["id"] not in (client.get("co_therapist_ids") or []) + ([client.get("main_therapist_id")] if client.get("main_therapist_id") else []):
@@ -3671,7 +3707,7 @@ async def admin_repair_session_invoices(_=Depends(admin_only)):
             inv_by_num[f"{inv['client_id']}|{num}"] = inv["id"]
     sessions = await db.sessions.find({}, {"_id": 0, "id": 1, "client_id": 1, "invoice_id": 1, "source_invoice": 1, "service_type": 1}).to_list(20000)
     linked = typed = 0
-    clients = {c["id"]: c for c in await db.clients.find({}, {"_id": 0, "id": 1, "service_type": 1}).to_list(500)}
+    clients = {c["id"]: c for c in await db.clients.find(_active_client_filter(), {"_id": 0, "id": 1, "service_type": 1}).to_list(500)}
     for s in sessions:
         patch = {}
         if not s.get("invoice_id") and s.get("source_invoice"):
@@ -3835,14 +3871,28 @@ async def list_intake(_=Depends(admin_only)):
 @api.post("/intake")
 async def create_intake(payload: IntakeIn, _=Depends(admin_only)):
     iid = str(uuid.uuid4())
-    doc = {"id": iid, **payload.model_dump(), "created_at": now_iso()}
+    data = payload.model_dump()
+    name = (data.get("child_name") or "").strip()
+    itype = data.get("intake_type") or "pre"
+    doc = {
+        "id": iid,
+        **data,
+        "child_name": name,
+        "name_key": _intake_name_key(name, itype),
+        "created_at": now_iso(),
+    }
     await db.intake.insert_one(doc)
     doc.pop("_id", None)
     return doc
 
 @api.put("/intake/{iid}")
 async def update_intake(iid: str, payload: IntakeIn, _=Depends(admin_only)):
-    await db.intake.update_one({"id": iid}, {"$set": payload.model_dump()})
+    data = payload.model_dump()
+    name = (data.get("child_name") or "").strip()
+    itype = data.get("intake_type") or "pre"
+    data["child_name"] = name
+    data["name_key"] = _intake_name_key(name, itype)
+    await db.intake.update_one({"id": iid}, {"$set": data})
     return await db.intake.find_one({"id": iid}, {"_id": 0})
 
 @api.delete("/intake/{iid}")
@@ -3850,20 +3900,45 @@ async def delete_intake(iid: str, _=Depends(admin_only)):
     await db.intake.delete_one({"id": iid})
     return {"ok": True}
 
+@api.post("/admin/dedupe-intake")
+async def admin_dedupe_intake(_=Depends(admin_only)):
+    """Remove duplicate intake rows (same child name + pre/post type)."""
+    removed = await _dedupe_intake_records()
+    total = await db.intake.count_documents({})
+    return {"ok": True, "removed": removed, "total": total, "message": f"Removed {removed} duplicate(s). {total} intake records remain."}
+
 @api.post("/admin/seed-intake-master")
-async def seed_intake_master(_=Depends(admin_only)):
-    """Upsert INTAKE_SEED records by child_name + intake_type. Does not delete existing rows."""
+async def seed_intake_master(replace: bool = True, _=Depends(admin_only)):
+    """Replace intake list from INTAKE_SEED (default) or upsert without deleting when replace=false."""
+    if replace:
+        await db.intake.delete_many({})
+        created = 0
+        for item in INTAKE_SEED:
+            name = item.get("child_name", "").strip()
+            itype = item.get("intake_type", "pre")
+            if not name:
+                continue
+            await db.intake.insert_one({
+                "id": str(uuid.uuid4()),
+                "status": item.get("status") or "new",
+                "priority": bool(item.get("priority")),
+                "created_at": now_iso(),
+                **item,
+                "child_name": name,
+                "intake_type": itype,
+                "name_key": _intake_name_key(name, itype),
+            })
+            created += 1
+        return {"created": created, "updated": 0, "total_seed": len(INTAKE_SEED), "replaced": True}
+
     created, updated = 0, 0
     for item in INTAKE_SEED:
         name = item.get("child_name", "").strip()
         itype = item.get("intake_type", "pre")
         if not name:
             continue
-        match = await db.intake.find_one(
-            {"child_name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}, "intake_type": itype},
-            {"_id": 0, "id": 1},
-        )
-        doc = {**item, "child_name": name, "intake_type": itype}
+        match = await _find_intake_for_upsert(name, itype)
+        doc = {**item, "child_name": name, "intake_type": itype, "name_key": _intake_name_key(name, itype)}
         if match:
             await db.intake.update_one({"id": match["id"]}, {"$set": doc})
             updated += 1
@@ -3876,13 +3951,13 @@ async def seed_intake_master(_=Depends(admin_only)):
                 **doc,
             })
             created += 1
-    return {"created": created, "updated": updated, "total_seed": len(INTAKE_SEED)}
+    return {"created": created, "updated": updated, "total_seed": len(INTAKE_SEED), "replaced": False}
 
 # ------------------- Reports -------------------
 @api.get("/reports/dashboard")
 async def reports_dashboard(_=Depends(admin_only)):
     sessions = await db.sessions.find({}, {"_id": 0}).to_list(5000)
-    clients = await db.clients.find({}, {"_id": 0}).to_list(500)
+    clients = await db.clients.find(_active_client_filter(), {"_id": 0}).to_list(500)
     therapists = await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).to_list(50)
     requests = await db.requests.find({}, {"_id": 0}).to_list(500)
     cells = await db.schedule_cells.find({}, {"_id": 0}).to_list(5000)
@@ -3982,6 +4057,59 @@ def _clean_str(value) -> Optional[str]:
     if not s or s.lower() in ("nan", "none", "nat"):
         return None
     return s
+
+
+def _normalize_intake_name(name: str) -> str:
+    """Collapse spaces/punctuation so 'Yazeed Bu Sheet' matches 'yazeed bu sheet'."""
+    if not name:
+        return ""
+    s = str(name).strip().lower()
+    s = re.sub(r"\s+", " ", s)
+    s = re.sub(r"[^\w\s]", "", s, flags=re.UNICODE)
+    return s.strip()
+
+
+def _intake_name_key(name: str, intake_type: str) -> str:
+    itype = (intake_type or "pre").lower()
+    itype = "post" if "post" in itype else "pre"
+    return f"{_normalize_intake_name(name)}|{itype}"
+
+
+async def _find_intake_for_upsert(name: str, intake_type: str) -> Optional[dict]:
+    key = _intake_name_key(name, intake_type)
+    match = await db.intake.find_one({"name_key": key}, {"_id": 0, "id": 1, "created_at": 1})
+    if match:
+        return match
+    itype = "post" if "post" in (intake_type or "").lower() else "pre"
+    norm = _normalize_intake_name(name)
+    if not norm:
+        return None
+    for row in await db.intake.find({"intake_type": itype}, {"_id": 0, "id": 1, "child_name": 1, "created_at": 1}).to_list(500):
+        if _normalize_intake_name(row.get("child_name", "")) == norm:
+            return row
+    return None
+
+
+async def _dedupe_intake_records() -> int:
+    """Remove duplicate intake rows; keep oldest record per normalized name + type."""
+    rows = await db.intake.find({}, {"_id": 0, "id": 1, "child_name": 1, "intake_type": 1, "name_key": 1, "created_at": 1}).to_list(2000)
+    groups: dict = {}
+    for row in rows:
+        key = row.get("name_key") or _intake_name_key(row.get("child_name", ""), row.get("intake_type", "pre"))
+        groups.setdefault(key, []).append(row)
+    removed = 0
+    for key, bucket in groups.items():
+        if len(bucket) == 1:
+            if not bucket[0].get("name_key"):
+                await db.intake.update_one({"id": bucket[0]["id"]}, {"$set": {"name_key": key}})
+            continue
+        bucket.sort(key=lambda r: r.get("created_at") or "")
+        keep_id = bucket[0]["id"]
+        for dup in bucket[1:]:
+            await db.intake.delete_one({"id": dup["id"]})
+            removed += 1
+        await db.intake.update_one({"id": keep_id}, {"$set": {"name_key": key}})
+    return removed
 
 def _normalize_table_column(name) -> str:
     """Excel headers like 'Child Name' / \"Child's Name\" / 'DOB/Age' → child_name / dob_age."""
@@ -4268,10 +4396,11 @@ def _read_intake_rows(content: bytes, filename: str) -> tuple:
     seen: set = set()
     unique: List[dict] = []
     for doc in parsed:
-        key = (doc["child_name"].lower().strip(), doc["intake_type"])
+        key = (_normalize_intake_name(doc["child_name"]), doc["intake_type"])
         if key in seen:
             continue
         seen.add(key)
+        doc["name_key"] = _intake_name_key(doc["child_name"], doc["intake_type"])
         unique.append(doc)
 
     meta = f"{len(unique)} records from {len(meta_parts)} sheet(s) — " + ", ".join(meta_parts)
@@ -4378,7 +4507,10 @@ async def import_clients(file: UploadFile = File(...), _=Depends(admin_only)):
             "notes": r.get("notes"),
             "billing_mode": "hours",
         }
-        match = await db.clients.find_one({"file_no": file_no}, {"_id": 0, "id": 1})
+        match = await db.clients.find_one({"file_no": file_no}, {"_id": 0, "id": 1, "deleted": 1})
+        if match and match.get("deleted"):
+            skipped += 1
+            continue
         if match:
             await db.clients.update_one({"id": match["id"]}, {"$set": doc})
             updated += 1
@@ -4404,25 +4536,19 @@ async def import_intake(file: UploadFile = File(...), _=Depends(admin_only)):
     pre_count = sum(1 for d in rows if d.get("intake_type") == "pre")
     post_count = sum(1 for d in rows if d.get("intake_type") == "post")
     for doc in rows:
-        name = doc.get("child_name")
+        name = (doc.get("child_name") or "").strip()
         if not name:
             skipped += 1
             continue
         intake_type = doc.get("intake_type") or "pre"
-        phone = doc.get("phone")
-        match_q = {
-            "child_name": {"$regex": f"^{re.escape(name)}$", "$options": "i"},
-            "intake_type": intake_type,
-        }
-        match = await db.intake.find_one(match_q, {"_id": 0, "id": 1})
-        if not match and phone:
-            match = await db.intake.find_one(
-                {"child_name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}, "phone": phone},
-                {"_id": 0, "id": 1},
-            )
+        name_key = _intake_name_key(name, intake_type)
+        match = await _find_intake_for_upsert(name, intake_type)
         db_doc = {k: v for k, v in doc.items() if v is not None}
+        db_doc["child_name"] = name
+        db_doc["name_key"] = name_key
         if match:
             await db.intake.update_one({"id": match["id"]}, {"$set": db_doc})
+            await db.intake.delete_many({"name_key": name_key, "id": {"$ne": match["id"]}})
             updated += 1
         else:
             try:
@@ -4435,6 +4561,8 @@ async def import_intake(file: UploadFile = File(...), _=Depends(admin_only)):
             except Exception as e:
                 logger.warning(f"Intake insert skipped for {name}: {e}")
                 skipped += 1
+    deduped = await _dedupe_intake_records()
+    total_in_db = await db.intake.count_documents({})
     hint = None
     if not rows:
         hint = f"No intake rows found ({parse_meta}). Columns seen: {', '.join(detected_columns[:12])}"
@@ -4442,12 +4570,14 @@ async def import_intake(file: UploadFile = File(...), _=Depends(admin_only)):
         "created": created,
         "updated": updated,
         "skipped": skipped,
+        "deduped": deduped,
+        "total_in_db": total_in_db,
         "rows_in_file": len(rows),
         "pre_count": pre_count,
         "post_count": post_count,
         "detected_columns": detected_columns,
         "parse_meta": parse_meta,
-        "message": f"{updated} updated, {created} added ({pre_count} pre + {post_count} post from file, {skipped} skipped)",
+        "message": f"{updated} updated, {created} added, {skipped} skipped, {deduped} duplicates removed · {total_in_db} total in list",
         "hint": hint,
     }
 
@@ -4783,7 +4913,7 @@ async def _import_schedule_grid(grid: List[List[str]], week_start: str, t_by_nam
                                 skip_until = slot_idx + duration - 1
                             cell_color = None
                             if child:
-                                cl = await db.clients.find_one({"name": child}, {"_id": 0, "schedule_color": 1, "color": 1})
+                                cl = await db.clients.find_one(_active_client_filter({"name": child}), {"_id": 0, "schedule_color": 1, "color": 1})
                                 if cl:
                                     cell_color = cl.get("schedule_color") or cl.get("color")
                             await db.schedule_cells.insert_one({
@@ -4936,7 +5066,20 @@ async def app_version():
             js_hash = m.group(1)
     return {"build": build_id, "js": js_hash, "status": "ok"}
 
-app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=[
+        "https://staff.boostgrowth.org",
+        "http://staff.boostgrowth.org",
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -5019,7 +5162,9 @@ async def restore_official_clients(body: RestoreClientsIn, _=Depends(admin_only)
 
     created, updated = 0, 0
     for seed in CLIENT_SEED:
-        match = await db.clients.find_one({"file_no": seed["file_no"]}, {"_id": 0, "id": 1})
+        match = await db.clients.find_one({"file_no": seed["file_no"]}, {"_id": 0, "id": 1, "deleted": 1})
+        if match and match.get("deleted"):
+            continue
         fields = {
             "file_no": seed["file_no"],
             "name": seed["name"],
@@ -5045,7 +5190,7 @@ async def restore_official_clients(body: RestoreClientsIn, _=Depends(admin_only)
             })
             created += 1
 
-    total = await db.clients.count_documents({})
+    total = await db.clients.count_documents(_active_client_filter())
     return {
         "ok": True,
         "deleted_count": len(deleted),
@@ -5062,40 +5207,39 @@ async def restore_official_clients(body: RestoreClientsIn, _=Depends(admin_only)
 
 # ------------------- Intake Seed (from Waiting_List_v4.xlsx) -------------------
 INTAKE_SEED = [
-    # Pre-Intake
-    {"intake_type":"pre","child_name":"Reema Idrees","service":"HS","phone":"546272994","district":"Iraqi","age":"2021","time_pref":"Morning","diagnosis":"PWS"},
-    {"intake_type":"pre","child_name":"Abdulaziz Alrajab","service":"HS","phone":"500252211","district":"Al Malqa","age":"2023","time_pref":"Any","diagnosis":"NA","notes":"Online CONCL"},
-    {"intake_type":"pre","child_name":"Mansour","service":"HS","phone":"507247881","district":"Alyasmeen","age":"2022","time_pref":"Any","diagnosis":"Speech delay"},
-    {"intake_type":"pre","child_name":"Leen","service":"SS","phone":"503225528","district":"Al Raed","age":"2010","time_pref":"Morning","diagnosis":"NA","notes":"3 hours at school"},
-    {"intake_type":"pre","child_name":"Ebrahim Alnami","service":"SS","phone":"564443542","district":"Alsulimania","age":"2022","time_pref":"Morning","diagnosis":"Premature - 29 weeks"},
-    {"intake_type":"pre","child_name":"Naif Alblawi","service":"HS","phone":"535544260","district":"Qurtubah","age":"2020","time_pref":"Evening","diagnosis":"ADHD"},
-    {"intake_type":"pre","child_name":"Saad Alajaji","service":"HS","phone":"555955342","district":"AL-Suwaidi","age":"2021","time_pref":"Evening","diagnosis":"NA"},
-    {"intake_type":"pre","child_name":"Reema Alotaibi","service":"HS","phone":"503553339","district":"AlArid","time_pref":"Evening","diagnosis":"Speech delay","priority": True},
-    {"intake_type":"pre","child_name":"Feras AlFouzan","service":"SS","district":"AlFalah","age":"2019","diagnosis":"ASD nonverbal"},
-    {"intake_type":"pre","child_name":"Saud Alshrafi","service":"SS","district":"Alyasmeen","age":"2020","diagnosis":"ADHD"},
-    {"intake_type":"pre","child_name":"Khalid Abunayyan","service":"HS","district":"Diriyah","age":"2021","diagnosis":"ADD"},
-    {"intake_type":"pre","child_name":"Fahad Abdullatif","service":"HS","district":"Sidrah","age":"2020","diagnosis":"ADHD"},
-    {"intake_type":"pre","child_name":"Mela Mohammed","service":"SS","district":"Tuwiq","age":"2022","diagnosis":"ADHD"},
-    {"intake_type":"pre","child_name":"Mansour Tonkar","service":"SS","district":"Al-Moroj","age":"2019","diagnosis":"ASD"},
-    {"intake_type":"pre","child_name":"Waseem Aljohani","service":"HS / SS","phone":"594744884","district":"Alnarjis","age":"2019","diagnosis":"ADHD","notes":"DR.Turki"},
-    {"intake_type":"pre","child_name":"Sultan Bandar","service":"HS","phone":"555579702","district":"Alyasmeen","age":"2019","time_pref":"Any","diagnosis":"Speech delay - ADHD"},
-    # Post-Intake
-    {"intake_type":"post","child_name":"Mohammed alnoweser","service":"HS","district":"King Fahad","age":"3 year","language":"English"},
-    {"intake_type":"post","child_name":"Mohammed Alofi","service":"HS","phone":"554505400","district":"AlAridh","age":"6","language":"English / Arabic"},
-    {"intake_type":"post","child_name":"Rakan Alaqel","service":"HS","phone":"538154083","district":"Alnarjis","age":"2019","language":"Arabic"},
-    {"intake_type":"post","child_name":"Nawaf Alshweeb","service":"HS","district":"Um Alhamam","age":"5.5","language":"ASD"},
-    {"intake_type":"post","child_name":"Abdulkareem Kaki","service":"HS","language":"Arabic"},
-    {"intake_type":"post","child_name":"Abdulaziz Alzahrani","service":"HS","phone":"555341092","district":"Almalqa","age":"4"},
-    {"intake_type":"post","child_name":"Yazeed Bu sheet","service":"SS","phone":"555009662","district":"Hitten","diagnosis":"Autism"},
-    {"intake_type":"post","child_name":"Misk Alsadoon","service":"HS","district":"Qurtubah"},
-    {"intake_type":"post","child_name":"Omar ALImazrou","service":"HS","phone":"534888855","district":"AlArid","age":"2023","diagnosis":"Autism","priority": True},
-    {"intake_type":"post","child_name":"Fahad Suliman","service":"HS","phone":"966500566235","district":"Al-Sahafa","age":"2019","diagnosis":"ADD"},
-    {"intake_type":"post","child_name":"Naif Alwhibi","service":"SS / HS","phone":"506128118","district":"Ar Rabi","age":"2020","diagnosis":"ASD","priority": True},
-    {"intake_type":"post","child_name":"Ahmad Alshalfan","service":"SS / HS","phone":"505287407","district":"Almalqa","age":"2020","diagnosis":"ADHD and GDD","priority": True},
-    {"intake_type":"post","child_name":"Abdulelah Almuhana","service":"HS","phone":"966565544999","district":"Al-Taawun","age":"2021","priority": True},
-    {"intake_type":"post","child_name":"Faisal Alzghaibi","service":"HS","district":"Alyasmeen","age":"1445"},
-    {"intake_type":"post","child_name":"Sultan Abalkhail","service":"HS/SS","district":"Al-Mursalat","age":"2019"},
-    {"intake_type":"post","child_name":"Leena Alshahrani","service":"HS","phone":"530511175","district":"Alnarjis"},
+    # Pre-Intake (16 — waiting for assessment)
+    {"intake_type": "pre", "child_name": "Reema Idrees", "service": "HS", "district": "Irqah", "age": "2021", "diagnosis": "PWS", "priority": False},
+    {"intake_type": "pre", "child_name": "Abdulaziz Alrajab", "service": "HS", "district": "Al Malqa", "age": "2023", "notes": "Online consultation", "priority": False},
+    {"intake_type": "pre", "child_name": "Mansour", "service": "HS", "district": "Alyasmeen", "age": "2022", "diagnosis": "Speech delay", "priority": False},
+    {"intake_type": "pre", "child_name": "Leen", "service": "HS", "district": "Al Raed", "age": "2010", "notes": "3hrs at school", "priority": False},
+    {"intake_type": "pre", "child_name": "Ebrahim Alnami", "service": "SS", "district": "Alsulimania", "age": "2022", "diagnosis": "Premature 29 weeks", "time_pref": "Morning", "priority": False},
+    {"intake_type": "pre", "child_name": "Naif Alblawi", "service": "SS", "district": "Qurtubah", "age": "2020", "diagnosis": "ADHD", "time_pref": "Evening", "priority": False},
+    {"intake_type": "pre", "child_name": "Saad Alajaji", "service": "SS", "district": "AL-Suwaidi", "age": "2021", "time_pref": "Evening", "priority": False},
+    {"intake_type": "pre", "child_name": "Reema Alotaibi", "service": "HS", "district": "AlArid", "diagnosis": "Speech delay", "time_pref": "Evening", "priority": True},
+    {"intake_type": "pre", "child_name": "Waseem Aljohani", "service": "HS/SS", "district": "Alnarjis", "age": "2019", "diagnosis": "ADHD", "notes": "Dr.Turki", "priority": False},
+    {"intake_type": "pre", "child_name": "Sultan Bandar", "service": "HS", "district": "Alyasmeen", "age": "2019", "diagnosis": "Speech delay/ADHD", "priority": False},
+    {"intake_type": "pre", "child_name": "Feras AlFouzan", "service": "SS", "district": "AlFalah", "age": "2019", "diagnosis": "ASD level 1 nonverbal", "notes": "English, Ms.Jenan", "priority": False},
+    {"intake_type": "pre", "child_name": "Saud Alshrafi", "service": "SS", "district": "Alyasmeen", "age": "2020", "diagnosis": "ADHD", "time_pref": "Morning", "priority": False},
+    {"intake_type": "pre", "child_name": "Khalid Abunayyan", "service": "HS", "district": "Diriyah", "age": "2021", "diagnosis": "ADD", "notes": "English/Arabic", "priority": False},
+    {"intake_type": "pre", "child_name": "Fahad Abdullatif", "service": "HS", "district": "Sidrah", "age": "2020", "diagnosis": "ADHD", "notes": "4:30 PM", "priority": False},
+    {"intake_type": "pre", "child_name": "Mela Mohammed", "service": "SS", "district": "Tuwiq", "age": "2022", "diagnosis": "ADHD", "time_pref": "Morning", "priority": False},
+    {"intake_type": "pre", "child_name": "Mansour Tonkar", "service": "SS", "district": "Al-Moroj", "age": "2019", "diagnosis": "ASD", "notes": "English", "priority": False},
+    # Post-Intake (15 — assessed, waiting for slot)
+    {"intake_type": "post", "child_name": "Mohammed Alnoweser", "service": "HS", "district": "King Fahad", "age": "3 yrs", "priority": False},
+    {"intake_type": "post", "child_name": "Mohammed Alofi", "service": "HS", "phone": "554505400", "district": "AlAridh", "age": "6", "priority": False},
+    {"intake_type": "post", "child_name": "Rakan Alaqel", "service": "HS", "phone": "538154083", "district": "Alnarjis", "age": "2019", "priority": False},
+    {"intake_type": "post", "child_name": "Nawaf Alshweeb", "service": "HS", "district": "Um Alhamam", "age": "5.5 / ASD", "priority": False},
+    {"intake_type": "post", "child_name": "Abdulkareem Kaki", "service": "HS", "priority": False},
+    {"intake_type": "post", "child_name": "Abdulaziz Alzahrani", "service": "HS", "phone": "555341092", "district": "Almalqa", "age": "4", "priority": False},
+    {"intake_type": "post", "child_name": "Yazeed Bu Sheet", "service": "SS", "phone": "555009662", "district": "Hitten", "diagnosis": "Autism", "priority": False},
+    {"intake_type": "post", "child_name": "Misk Alsadoon", "service": "HS", "district": "Qurtubah", "notes": "with Ms.Fahda", "priority": False},
+    {"intake_type": "post", "child_name": "Omar AlImazrou", "service": "HS", "phone": "534888855", "district": "AlArid", "age": "2023", "diagnosis": "Autism", "priority": True},
+    {"intake_type": "post", "child_name": "Naif Alwhibi", "service": "SS/HS", "phone": "506128118", "district": "Ar Rabi", "age": "2020 / ASD", "priority": True},
+    {"intake_type": "post", "child_name": "Ahmad Alshalfan", "service": "SS/HS", "phone": "505287407", "district": "Almalqa", "age": "2020", "diagnosis": "ADHD and GDD", "priority": True},
+    {"intake_type": "post", "child_name": "Abdulelah Almuhana", "service": "HS", "phone": "966565544999", "district": "Al-Taawun", "age": "2021", "priority": True},
+    {"intake_type": "post", "child_name": "Faisal Alzghaibi", "service": "HS", "phone": "966507479800", "district": "Alyasmeen", "age": "1445", "priority": False},
+    {"intake_type": "post", "child_name": "Sultan Abalkhail", "service": "HS/SS", "district": "Al-Mursalat", "age": "2019", "priority": False},
+    {"intake_type": "post", "child_name": "Leena Alshahrani", "service": "HS", "phone": "530511175", "district": "Alnarjis", "priority": False},
 ]
 
 # ------------------- Directory Seed (Internal Team) -------------------
@@ -5192,11 +5336,13 @@ async def _run_startup():
         if settings_doc:
             _apply_email_settings(settings_doc)
 
-        # Seed clients ONLY on first-time setup (count==0). Preserves user edits.
-        cl_count = await db.clients.count_documents({})
+        # Seed clients ONLY on first-time setup (no active clients). Preserves user edits and soft-deletions.
+        cl_count = await db.clients.count_documents(_active_client_filter())
         if cl_count == 0:
             therapists_map = {t["name"]: t["id"] async for t in db.therapists.find({}, {"_id": 0, "name": 1, "id": 1})}
             for c in CLIENT_SEED:
+                if await db.clients.find_one({"file_no": c["file_no"]}, {"_id": 0, "id": 1}):
+                    continue
                 await db.clients.insert_one({
                     "id": str(uuid.uuid4()),
                     "file_no": c["file_no"], "name": c["name"],
@@ -5215,12 +5361,16 @@ async def _run_startup():
         # Seed Intake (only if empty — admin may manage manually)
         if await db.intake.count_documents({}) == 0:
             for item in INTAKE_SEED:
+                name = item.get("child_name", "").strip()
+                itype = item.get("intake_type", "pre")
                 await db.intake.insert_one({
                     "id": str(uuid.uuid4()),
                     "status": "new",
-                    "priority": False,
+                    "priority": bool(item.get("priority")),
                     "created_at": now_iso(),
                     **item,
+                    "child_name": name,
+                    "name_key": _intake_name_key(name, itype),
                 })
             logger.info(f"Seeded {len(INTAKE_SEED)} intake records from waiting list")
 

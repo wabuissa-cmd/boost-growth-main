@@ -100,8 +100,8 @@ export default function Intake() {
         </div>
       </div>
 
-      <div className="card p-0 overflow-x-auto">
-        <table className="w-full text-sm">
+      <div className="card p-0 overflow-x-auto table-scroll" style={{ WebkitOverflowScrolling: "touch" }}>
+        <table className="w-full text-sm min-w-[720px]">
           <thead style={{ background: "#F0E9D8" }}>
             <tr>
               <th className="p-3 text-center font-bold w-10" style={{ color: "#2C3625" }}>⭐</th>

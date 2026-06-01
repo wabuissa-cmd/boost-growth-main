@@ -66,7 +66,7 @@ function ServiceTypeToggle({ value, onChange, tabState }) {
         disabled={disabled}
         title={tooltip}
         onClick={() => !disabled && onChange(code)}
-        className="px-3 py-1.5 text-xs font-bold rounded-lg border-2 transition shrink-0"
+        className="px-3 py-1.5 text-xs font-bold rounded-lg border-2 transition shrink-0 min-h-[44px] min-w-[44px]"
         style={
           active
             ? { background: "#7A8A6A", color: "#fff", borderColor: "#7A8A6A" }
@@ -939,8 +939,8 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
       <div className="card p-0 w-full max-w-5xl modal-card max-h-[92vh] flex flex-col printable" onClick={e=>e.stopPropagation()}>
         {/* Action bar */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-[#E8E4DE] no-print flex-wrap gap-2">
-          <div className="font-bold text-sm" style={{color: "#2C3625"}}>Invoice Sheet · {client.name}</div>
-          <div className="flex gap-2 flex-wrap items-center">
+          <div className="font-bold text-sm w-full sm:w-auto" style={{color: "#2C3625"}}>Invoice Sheet · {client.name}</div>
+          <div className="flex gap-2 flex-wrap items-center w-full sm:w-auto">
             {tabState.showToggle && (
               <ServiceTypeToggle
                 value={serviceTypeFilter}
@@ -973,12 +973,12 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                        data-testid="sync-xlsx-input"
                        onChange={e => { const f = e.target.files?.[0]; if (f) { syncFromExcel(f); } e.target.value = ""; }}/>
                 <button data-testid="sync-xlsx-btn" onClick={() => document.getElementById(`sync-xlsx-${client.id}`).click()}
-                        className="btn btn-secondary text-xs"><FileXls size={14}/> Sync from Excel</button>
+                        className="btn btn-secondary text-xs min-h-[44px] min-w-[44px]"><FileXls size={14}/> Sync from Excel</button>
               </>
             )}
             {isAdmin && (
               <div className="relative">
-                <button data-testid="new-invoice-btn" onClick={() => setNewInvMenuOpen(o => !o)} className="btn btn-primary text-xs">
+                <button data-testid="new-invoice-btn" onClick={() => setNewInvMenuOpen(o => !o)} className="btn btn-primary text-xs min-h-[44px] min-w-[44px]">
                   <Plus size={14}/> New Invoice <CaretDown size={12}/>
                 </button>
                 {newInvMenuOpen && (
@@ -1007,7 +1007,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               </div>
             )}
             <div className="relative">
-              <button onClick={() => setExportOpen(o => !o)} className="btn btn-gold text-xs">Export <CaretDown size={12}/></button>
+              <button onClick={() => setExportOpen(o => !o)} className="btn btn-gold text-xs min-h-[44px] min-w-[44px]">Export <CaretDown size={12}/></button>
               {exportOpen && (
                 <div className="absolute right-0 mt-1 card p-1 z-50 min-w-[180px] shadow-lg">
                   <button data-testid="export-excel-btn" onClick={exportExcel} className="btn btn-ghost w-full justify-start text-xs"><FileXls size={14}/> Export as Excel</button>
@@ -1110,19 +1110,19 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
           </div>
 
           {/* Patient info row */}
-          <div className="px-8 py-4 border-b border-[#E8E4DE] text-sm">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3">
+          <div className="px-4 sm:px-8 py-4 border-b border-[#E8E4DE] text-sm">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-3">
               <div>
                 <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PATIENT'S NAME</div>
-                <div className="font-bold text-base" style={{color: "#2C3625"}}>{client.name}</div>
+                <div className="font-bold text-sm sm:text-base" style={{color: "#2C3625"}}>{client.name}</div>
               </div>
               <div>
                 <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>FILE NO.</div>
-                <div className="font-bold text-base" style={{color: "#2C3625"}}>{client.file_no || "—"}</div>
+                <div className="font-bold text-sm sm:text-base" style={{color: "#2C3625"}}>{client.file_no || "—"}</div>
               </div>
-              <div className="md:col-span-2">
+              <div className="col-span-2">
                 <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>SERVICE TYPE</div>
-                <div className="font-bold text-lg mt-0.5" style={{color: isSchool ? "#2C5035" : "#6B5430"}}>
+                <div className="font-bold text-base sm:text-lg mt-0.5" style={{color: isSchool ? "#2C5035" : "#6B5430"}}>
                   {serviceDisplay}
                 </div>
                 {isSchool && currentWeekInfo && (
@@ -1132,7 +1132,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                 )}
               </div>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-3 border-t border-[#E8E4DE]">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 pt-3 border-t border-[#E8E4DE]">
               {isSchool ? (
                 <>
                   <div>
@@ -1212,7 +1212,8 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                       {group.startISO ? "No sessions this week" : "Upcoming"}
                     </div>
                   ) : (
-                    <table className="w-full text-xs">
+                    <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+                    <table className="w-full text-xs min-w-[520px]">
                       <thead style={{ background: "#F6F9F3" }}>
                         <tr style={{ color: "#2C3625" }}>
                           <th className="p-2 text-left font-bold">Day</th>
@@ -1243,12 +1244,14 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                         ))}
                       </tbody>
                     </table>
+                    </div>
                   )}
                 </div>
               ))}
             </div>
           ) : (
-            <table className="w-full text-xs">
+            <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+            <table className="w-full text-xs min-w-[640px]">
               <thead style={{background: "#F0E9D8"}}>
                 <tr style={{color: "#2C3625"}}>
                   <th className="p-2 text-left font-bold">Day</th>
@@ -1278,6 +1281,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                 ))}
               </tbody>
             </table>
+            </div>
           )}
 
           {/* Footer summary */}

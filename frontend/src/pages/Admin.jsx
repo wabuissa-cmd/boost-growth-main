@@ -91,6 +91,44 @@ export default function Admin() {
   const [clearRequestsConfirm, setClearRequestsConfirm] = useState("");
   const [clearRequestsResult, setClearRequestsResult] = useState(null);
   const [clearingRequests, setClearingRequests] = useState(false);
+  const [deletedClients, setDeletedClients] = useState([]);
+  const [intakeSeedResult, setIntakeSeedResult] = useState(null);
+  const [intakeSeeding, setIntakeSeeding] = useState(false);
+
+  const loadDeletedClients = async () => {
+    try {
+      const { data } = await api.get("/admin/clients/deleted");
+      setDeletedClients(data || []);
+    } catch {
+      setDeletedClients([]);
+    }
+  };
+
+  const restoreClient = async (id, name) => {
+    if (!window.confirm(`Restore ${name}?`)) return;
+    await api.post(`/admin/clients/${id}/restore`);
+    loadDeletedClients();
+  };
+
+  const permanentDeleteClient = async (id, name) => {
+    if (!window.confirm(`Permanently delete ${name} and ALL their sessions/invoices? This cannot be undone.`)) return;
+    await api.delete(`/admin/clients/${id}/permanent`);
+    loadDeletedClients();
+  };
+
+  const seedIntakeMaster = async () => {
+    if (!window.confirm("Replace ALL intake records with the official 31-case list (16 pre + 15 post)?")) return;
+    setIntakeSeeding(true);
+    setIntakeSeedResult(null);
+    try {
+      const { data } = await api.post("/admin/seed-intake-master?replace=true");
+      setIntakeSeedResult(data);
+    } catch (e) {
+      setIntakeSeedResult({ message: e.response?.data?.detail || e.message, ok: false });
+    } finally {
+      setIntakeSeeding(false);
+    }
+  };
 
   const load = async () => {
     const [t, e, q] = await Promise.all([
@@ -576,6 +614,39 @@ export default function Admin() {
           {seedResult && (
             <div className="text-xs p-2 rounded-lg" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
               Therapists: +{seedResult.therapists.created.length} · Clients: +{seedResult.clients.created.length}
+            </div>
+          )}
+          <ToolRow title="Replace Intake List (31 cases)" desc="Clears intake DB and loads official pre/post waiting list. Safe for production sync.">
+            <button type="button" onClick={seedIntakeMaster} disabled={intakeSeeding} className="btn btn-secondary text-sm">
+              {intakeSeeding ? <span className="spinner" /> : "Replace Intake"}
+            </button>
+          </ToolRow>
+          {intakeSeedResult && (
+            <div className="text-xs p-2 rounded-lg mb-3" style={{ background: intakeSeedResult.ok === false ? "#F8EBE7" : "#E5EBE1", color: "#3D4F35" }}>
+              {intakeSeedResult.message || `${intakeSeedResult.created || 0} intake records loaded`}
+            </div>
+          )}
+          <ToolRow title="Deleted Clients" desc="Soft-deleted clients — restore or permanently remove.">
+            <button type="button" onClick={loadDeletedClients} className="btn btn-secondary text-sm">Refresh</button>
+          </ToolRow>
+          {deletedClients.length === 0 ? (
+            <div className="text-xs p-3 rounded-lg mb-3" style={{ background: "#FAFAF7", color: "#8B9E7A" }}>
+              No deleted clients. Click Refresh to load.
+            </div>
+          ) : (
+            <div className="space-y-2 mb-3 max-h-64 overflow-y-auto">
+              {deletedClients.map(c => (
+                <div key={c.id} className="flex items-center justify-between gap-2 p-2 rounded-lg border border-[#E8E4DE] text-xs" style={{ background: "#FAFAF7" }}>
+                  <div>
+                    <span className="font-bold" style={{ color: "#2C3625" }}>{c.name}</span>
+                    <span className="ml-2" style={{ color: "#8B9E7A" }}>#{c.file_no || "—"}</span>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <button type="button" onClick={() => restoreClient(c.id, c.name)} className="btn btn-secondary text-[10px] py-1 px-2">Restore</button>
+                    <button type="button" onClick={() => permanentDeleteClient(c.id, c.name)} className="btn text-[10px] py-1 px-2" style={{ background: "#C97B5C", color: "#fff" }}>Delete Forever</button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
