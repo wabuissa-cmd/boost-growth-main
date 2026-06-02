@@ -562,6 +562,36 @@ main, .page-enter { min-width: 0; }
     height: 100dvh;
     background: #FAFAF7;
     border-right: 1px solid var(--border, #E8E4DE);
+    transition: width 200ms ease;
+}
+.app-sidebar--collapsed {
+    width: 4rem;
+}
+.app-sidebar--collapsed .sidebar-brand {
+    justify-content: center;
+    padding-left: 0.65rem;
+    padding-right: 0.65rem;
+}
+.app-sidebar--collapsed .sidebar-section-label,
+.app-sidebar--collapsed .sidebar-section-head {
+    display: none;
+}
+.app-sidebar--collapsed .sidebar-section-items {
+    padding: 0 0.35rem;
+}
+.app-sidebar--collapsed .sidebar-link {
+    justify-content: center;
+    padding: 0.5rem;
+}
+.app-sidebar--collapsed .sidebar-link span {
+    display: none;
+}
+.app-sidebar--collapsed .sidebar-footer {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+}
+.schedule-toolbar .btn {
+    min-height: 0;
 }
 .app-main-column {
     flex: 1;

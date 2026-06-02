@@ -5,6 +5,7 @@ import { useAuth, hasOpsAccess } from "../auth";
 import { Plus, MagnifyingGlass } from "@phosphor-icons/react";
 import ClientInfoCard from "../components/ClientInfoCard";
 import ClientDrawer from "../components/ClientDrawer";
+import PageBanner from "../components/PageBanner";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -81,39 +82,51 @@ export default function Clients() {
     setDrawerClient(null);
   };
 
+  const activeCount = items.filter(c => (c.status || "Active") !== "Inactive").length;
+
   return (
     <div>
-      <div className="flex items-center mb-4 gap-3 flex-wrap page-header-row">
-        <div className="flex-1 min-w-[200px]">
-          <h1 className="ui-page-title">Client Info</h1>
-          <div className="ui-caption">{items.filter(c => (c.status || "Active") !== "Inactive").length} active · {items.length} total</div>
-        </div>
-        <div className="flex gap-1.5 flex-wrap">
-          {["active", "inactive"].map(id => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setStatusTab(id)}
-              className={`pill px-3 py-2 text-sm font-semibold border min-h-[40px] capitalize ${
-                statusTab === id ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E8E4DE] text-[#5C6853]"
-              }`}
-            >
-              {id}
-            </button>
-          ))}
-        </div>
-        {isAdmin && (
-          <select className="select text-sm min-h-[40px] max-w-[160px]" value={therapistFilter} onChange={e => setTherapistFilter(e.target.value)}>
-            <option value="">All therapists</option>
-            {therapists.map(t => <option key={t.id} value={t.id}>{t.name?.replace("Ms. ", "")}</option>)}
-          </select>
+      <PageBanner
+        title="Client Info"
+        subtitle={`${activeCount} active · ${items.length} total`}
+        stats={[
+          { label: "Active", n: activeCount, color: "#3D4F35" },
+          { label: "Inactive", n: items.length - activeCount, color: "#5C6853" },
+          { label: "Total", n: items.length, color: "#2C3625" },
+          { label: "Showing", n: filtered.length, color: "#6B5218" },
+        ]}
+        toolbar={(
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="inline-flex rounded-lg border border-[#E8E4DE] p-0.5 bg-[#FAFAF7]">
+              {["active", "inactive"].map(id => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setStatusTab(id)}
+                  className={`pill px-2.5 py-1 text-[11px] font-semibold border-0 min-h-0 capitalize ${
+                    statusTab === id ? "bg-[#7A8A6A] text-white" : "bg-transparent text-[#5C6853]"
+                  }`}
+                >
+                  {id}
+                </button>
+              ))}
+            </div>
+            {isAdmin && (
+              <select className="select text-[11px] min-h-0 h-7 py-0 max-w-[140px]" value={therapistFilter} onChange={e => setTherapistFilter(e.target.value)}>
+                <option value="">All therapists</option>
+                {therapists.map(t => <option key={t.id} value={t.id}>{t.name?.replace("Ms. ", "")}</option>)}
+              </select>
+            )}
+            <div className="relative flex-1 min-w-[120px] max-w-[200px]">
+              <MagnifyingGlass size={13} className="absolute top-1/2 -translate-y-1/2 left-2" style={{color: "#8B9E7A"}}/>
+              <input className="input pl-7 w-full text-[11px] min-h-0 h-7" placeholder="Search name or file #…" value={search} onChange={e=>setSearch(e.target.value)}/>
+            </div>
+            {isAdmin && (
+              <button data-testid="add-client-btn" onClick={() => setEdit({ name: "", file_no: "", package_hours: 24, color: "#A2C4C9", main_therapist_id: "", co_therapist_ids: [], locations: [] })} className="btn btn-primary text-[11px] px-2.5 py-1 min-h-0 ml-auto"><Plus size={14}/> New Child</button>
+            )}
+          </div>
         )}
-        <div className="relative flex-1 min-w-[180px] max-w-xs">
-          <MagnifyingGlass size={16} className="absolute top-1/2 -translate-y-1/2 left-3" style={{color: "#8B9E7A"}}/>
-          <input className="input pl-9 w-full text-sm min-h-[40px]" placeholder="Search name or file #…" value={search} onChange={e=>setSearch(e.target.value)}/>
-        </div>
-        {isAdmin && <button data-testid="add-client-btn" onClick={() => setEdit({ name: "", file_no: "", package_hours: 24, color: "#A2C4C9", main_therapist_id: "", co_therapist_ids: [], locations: [] })} className="btn btn-primary text-sm min-h-[40px]"><Plus size={16}/> New Child</button>}
-      </div>
+      />
 
       <div className="max-w-5xl mx-auto">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 stagger">

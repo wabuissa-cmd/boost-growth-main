@@ -12,6 +12,7 @@ import {
 import SidebarNav from "../components/SidebarNav";
 
 const NAV_LAYOUT_KEY = "bg_nav_layout";
+const SIDEBAR_COLLAPSED_KEY = "bg_sidebar_collapsed";
 
 const ROUTE_PREFETCH = {
   "/home": () => {
@@ -51,6 +52,9 @@ export default function Shell() {
   const [mobileNav, setMobileNav] = useState(false);
   const [navLayout, setNavLayout] = useState(() => {
     try { return localStorage.getItem(NAV_LAYOUT_KEY) || "sidebar"; } catch { return "sidebar"; }
+  });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1"; } catch { return false; }
   });
   const loc = useLocation();
   const portalAdmin = showAdminNav(user);
@@ -140,6 +144,14 @@ export default function Shell() {
     setNavLayout(next);
   };
 
+  const toggleSidebarCollapsed = () => {
+    setSidebarCollapsed(c => {
+      const next = !c;
+      try { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? "1" : "0"); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
   const useSidebar = navLayout === "sidebar";
 
   const markAllRead = async () => { await api.post("/notifications/read-all"); loadNotifs(); };
@@ -151,15 +163,17 @@ export default function Shell() {
   return (
     <div className={`min-h-screen min-h-[100dvh] bg-organic ${useSidebar ? "app-shell-sidebar" : "flex flex-col"}`}>
       {useSidebar && (
-        <aside className="app-sidebar hidden lg:flex flex-col shrink-0">
-          <NavLink to="/home" className="sidebar-brand">
-            <div className="w-9 h-9 rounded-xl bg-[#7A8A6A] flex items-center justify-center p-1.5">
+        <aside className={`app-sidebar hidden lg:flex flex-col shrink-0${sidebarCollapsed ? " app-sidebar--collapsed" : ""}`}>
+          <NavLink to="/home" className="sidebar-brand" title={sidebarCollapsed ? "Boost Growth" : undefined}>
+            <div className="w-9 h-9 rounded-xl bg-[#7A8A6A] flex items-center justify-center p-1.5 shrink-0">
               <img src="/bg-logo.png" alt="BG" className="w-full h-full object-contain"/>
             </div>
+            {!sidebarCollapsed && (
             <div>
               <div className="text-[13px] font-bold leading-tight" style={{ color: "#2C3625" }}>Boost Growth</div>
               <div className="text-[9px] font-bold tracking-[0.18em]" style={{ color: "#8B9E7A" }}>STAFF PORTAL</div>
             </div>
+            )}
           </NavLink>
           <div className="flex-1 overflow-y-auto px-1">
             <SidebarNav
@@ -172,9 +186,11 @@ export default function Shell() {
               therapistOnly={therapistOnly}
               loc={loc}
               onItemHover={warmRoute}
+              collapsed={sidebarCollapsed}
             />
           </div>
           <div className="sidebar-footer p-3 border-t border-[#E8E4DE]">
+            {!sidebarCollapsed && (
             <div className="flex items-center gap-2 mb-2">
               <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-white text-xs shrink-0"
                    style={{ background: user?.color || "#D4A64A" }}>
@@ -185,8 +201,17 @@ export default function Shell() {
                 <div style={{ color: "#8B9E7A" }}>{portalAdmin ? "Admin" : "Therapist"}</div>
               </div>
             </div>
-            <button type="button" onClick={logout} className="sidebar-link w-full text-[13px]">
-              <SignOut size={16}/><span>Sign out</span>
+            )}
+            {sidebarCollapsed && (
+              <div className="flex justify-center mb-2" title={user?.name || user?.email}>
+                <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-white text-xs shrink-0"
+                     style={{ background: user?.color || "#D4A64A" }}>
+                  {user?.name?.replace("Ms. ", "").charAt(0) || "U"}
+                </div>
+              </div>
+            )}
+            <button type="button" onClick={logout} className="sidebar-link w-full text-[13px]" title={sidebarCollapsed ? "Sign out" : undefined}>
+              <SignOut size={16}/>{!sidebarCollapsed && <span>Sign out</span>}
             </button>
           </div>
         </aside>
@@ -210,9 +235,20 @@ export default function Shell() {
             )}
 
             {useSidebar && (
+              <>
+              <button
+                type="button"
+                onClick={toggleSidebarCollapsed}
+                title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                className="hidden lg:inline-flex btn btn-ghost p-2 text-[#5C6853]"
+                data-testid="sidebar-collapse-toggle"
+              >
+                <List size={20} weight="duotone"/>
+              </button>
               <div className="hidden lg:block text-sm font-bold truncate" style={{ color: "#2C3625" }}>
                 Staff Portal
               </div>
+              </>
             )}
 
             {/* Desktop top nav (legacy layout) */}

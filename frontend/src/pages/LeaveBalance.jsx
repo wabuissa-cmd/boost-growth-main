@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
+import PageBanner from "../components/PageBanner";
 import { useAuth, showAdminNav } from "../auth";
 import api from "../api";
-import { Scales } from "@phosphor-icons/react";
 import LeaveBalanceTable from "../components/LeaveBalanceTable";
 
 export default function LeaveBalance() {
@@ -27,17 +27,15 @@ export default function LeaveBalance() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-        <div>
-          <h1 className="font-display text-3xl font-semibold flex items-center gap-2" style={{ color: "#2C3625" }}>
-            <Scales size={28} weight="duotone" /> Leave Balance
-          </h1>
-          <div className="text-sm" style={{ color: "#5C6853" }}>Annual leave balances — HR overview</div>
-        </div>
-        <select className="select max-w-[120px]" value={year} onChange={e => setYear(parseInt(e.target.value, 10))}>
-          {[currentYear - 1, currentYear, currentYear + 1].map(y => <option key={y} value={y}>{y}</option>)}
-        </select>
-      </div>
+      <PageBanner
+        title="Leave Balance"
+        subtitle="Annual leave balances — HR overview"
+        badge={(
+          <select className="select text-[11px] max-w-[90px] min-h-0 h-7 py-0" value={year} onChange={e => setYear(parseInt(e.target.value, 10))}>
+            {[currentYear - 1, currentYear, currentYear + 1].map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        )}
+      />
 
       <LeaveBalanceTable year={year} leaves={leaves} showYearSelect={false} onRefresh={load} />
     </div>

@@ -7,6 +7,7 @@ import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
+import PageBanner from "../components/PageBanner";
 import { LEAVE_STATUS, LEAVE_TYPES, diffDays, fmtDateRange } from "../leaveUtils";
 
 const STATUS_MAP = {
@@ -142,18 +143,30 @@ export default function Requests({ personal = false }) {
 
   return (
     <div>
-      <div className="flex items-center mb-5 gap-3 flex-wrap">
-        <div className="flex-1">
-          <h1 className="font-display text-3xl font-semibold" style={{color: "#2C3625"}}>{isAdmin ? "Requests" : "My Requests"}</h1>
-          <div className="text-sm" style={{color: "#5C6853"}}>{isAdmin ? "Manage all team requests" : "Submit and track your staff requests"}</div>
-        </div>
-        {!isAdmin && <button data-testid="new-request-btn" onClick={() => { setEdit({ title: "", description: "", request_type: "general", priority: "normal" }); setStep(1); }} className="btn btn-primary"><Plus size={16}/> New Request</button>}
-        {isAdmin && (
-          <button data-testid="submit-leave-btn" onClick={() => setLeaveModal(emptyLeaveForm())} className="btn btn-secondary">
-            <Plus size={16}/> Submit Leave Request
-          </button>
+      <PageBanner
+        title={isAdmin ? "Requests" : "My Requests"}
+        subtitle={isAdmin ? "Manage all team requests" : "Submit and track your staff requests"}
+        badge={(
+          <>
+            {!isAdmin && (
+              <button data-testid="new-request-btn" onClick={() => { setEdit({ title: "", description: "", request_type: "general", priority: "normal" }); setStep(1); }} className="btn btn-primary text-[11px] px-2.5 py-1 min-h-0">
+                <Plus size={13}/> New Request
+              </button>
+            )}
+            {isAdmin && (
+              <button data-testid="submit-leave-btn" onClick={() => setLeaveModal(emptyLeaveForm())} className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0">
+                <Plus size={13}/> Submit Leave Request
+              </button>
+            )}
+          </>
         )}
-      </div>
+        stats={[
+          { label: "Total", n: items.length, color: "#2C3625" },
+          { label: "Pending", n: items.filter(r => r.status === "pending").length, color: "#6B5218" },
+          { label: "In progress", n: items.filter(r => r.status === "in_progress").length, color: "#375568" },
+          { label: "Done", n: items.filter(r => r.status === "done").length, color: "#3D4F35" },
+        ]}
+      />
 
       <div className="flex gap-2 flex-wrap mb-4">
         <button onClick={() => setFilter("all")} className={`pill ${filter==="all" ? "bg-[#7A8A6A] text-white" : "bg-[#F0E9D8]"}`}>All ({items.length})</button>

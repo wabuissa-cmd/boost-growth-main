@@ -6,6 +6,7 @@ import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
+import PageBanner from "../components/PageBanner";
 
 const STATUS = { new: "New", contacted: "Contacted", scheduled: "Scheduled", completed: "Completed" };
 const STATUS_COLORS = {
@@ -62,42 +63,26 @@ export default function Intake() {
 
   return (
     <div>
-      <div className="flex items-center mb-5 flex-wrap gap-3">
-        <div className="flex-1">
-          <h1 className="font-display text-3xl font-semibold" style={{ color: "#2C3625" }}>Intake List</h1>
-          <div className="text-sm" style={{ color: "#5C6853" }}>Pre-Intake & Post-Intake registrations</div>
-        </div>
-        {isAdmin && (
+      <PageBanner
+        title="Intake List"
+        subtitle="Pre-Intake & Post-Intake registrations"
+        badge={isAdmin ? (
           <>
-            <button data-testid="add-pre-intake" onClick={() => setEdit(emptyItem("pre"))} className="btn btn-primary"><Plus size={16} /> Pre-Intake</button>
-            <button data-testid="add-post-intake" onClick={() => setEdit(emptyItem("post"))} className="btn btn-secondary"><Plus size={16} /> Post-Intake</button>
+            <button data-testid="add-pre-intake" onClick={() => setEdit(emptyItem("pre"))} className="btn btn-primary text-xs px-2.5 py-1.5 min-h-0"><Plus size={14} /> Pre-Intake</button>
+            <button data-testid="add-post-intake" onClick={() => setEdit(emptyItem("post"))} className="btn btn-secondary text-xs px-2.5 py-1.5 min-h-0"><Plus size={14} /> Post-Intake</button>
           </>
-        )}
-      </div>
+        ) : null}
+        stats={[
+          { label: "Total", n: filtered.length, color: "#2C3625" },
+          { label: "HS", n: hsCount, color: "#375568" },
+          { label: "SS", n: ssCount, color: "#3D4F35" },
+          { label: "Priority", n: priCount, color: "#D4A64A" },
+        ]}
+      />
 
       <div className="flex gap-2 mb-4 flex-wrap">
         <button data-testid="tab-pre" onClick={() => setTab("pre")} className={`pill px-5 py-2.5 text-sm transition-all ${tab === "pre" ? "bg-[#7A8A6A] text-white" : "bg-[#F0E9D8]"}`}>📋 Pre-Intake ({totalPre})</button>
         <button data-testid="tab-post" onClick={() => setTab("post")} className={`pill px-5 py-2.5 text-sm transition-all ${tab === "post" ? "bg-[#7A8A6A] text-white" : "bg-[#F0E9D8]"}`}>✅ Post-Intake ({totalPost})</button>
-      </div>
-
-      {/* Summary row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <div className="card p-4">
-          <div className="text-[11px] tracking-widest" style={{ color: "#8B9E7A" }}>TOTAL</div>
-          <div className="text-2xl font-display font-semibold" style={{ color: "#2C3625" }}>{filtered.length}</div>
-        </div>
-        <div className="card p-4">
-          <div className="text-[11px] tracking-widest" style={{ color: "#8B9E7A" }}>HS</div>
-          <div className="text-2xl font-display font-semibold" style={{ color: "#375568" }}>{hsCount}</div>
-        </div>
-        <div className="card p-4">
-          <div className="text-[11px] tracking-widest" style={{ color: "#8B9E7A" }}>SS</div>
-          <div className="text-2xl font-display font-semibold" style={{ color: "#3D4F35" }}>{ssCount}</div>
-        </div>
-        <div className="card p-4">
-          <div className="text-[11px] tracking-widest" style={{ color: "#8B9E7A" }}>⭐ PRIORITY</div>
-          <div className="text-2xl font-display font-semibold" style={{ color: "#D4A64A" }}>{priCount}</div>
-        </div>
       </div>
 
       <div className="card p-0 overflow-x-auto table-scroll" style={{ WebkitOverflowScrolling: "touch" }}>

@@ -26,6 +26,7 @@ import {
 } from "../attendanceUtils";
 import { PackageAlertBanner } from "../components/PackageStatusBadge";
 import PreparationClientRow from "../components/PreparationClientRow";
+import PageBanner from "../components/PageBanner";
 import SsWeekStatusRow, { SsWeekLegend } from "../components/SsWeekStatusRow";
 import { cachedGet } from "../dataCache";
 
@@ -200,26 +201,16 @@ export default function Attendance() {
 
   return (
     <div>
-      <div className="flex items-center mb-3 flex-wrap gap-3">
-        <div className="flex-1 min-w-[200px]">
-          <h1 className="ui-page-title">Session Preparation</h1>
-          <div className="ui-caption">Log sessions and track package progress</div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-        {[
+      <PageBanner
+        title="Session Preparation"
+        subtitle="Log sessions and track package progress"
+        stats={[
           { label: "Total", n: counts.all, color: "#2C3625" },
           { label: "Urgent", n: counts.urgent, color: "#8A3F27" },
           { label: "Warning", n: counts.warning, color: "#6B5218" },
           { label: "Safe", n: counts.ok, color: "#3D4F35" },
-        ].map(s => (
-          <div key={s.label} className="card px-3 py-2.5">
-            <div className="text-[10px] tracking-widest font-bold" style={{ color: "#8B9E7A" }}>{s.label.toUpperCase()}</div>
-            <div className="text-xl font-display font-semibold leading-tight mt-0.5" style={{ color: s.color }}>{s.n}</div>
-          </div>
-        ))}
-      </div>
+        ]}
+      />
 
       {/* Toolbar: filters + search + actions */}
       <div className="flex flex-wrap items-center gap-2 mb-5">

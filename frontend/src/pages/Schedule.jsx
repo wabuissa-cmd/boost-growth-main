@@ -8,8 +8,7 @@ import {
 import { useAuth, hasOpsAccess } from "../auth";
 import {
   CaretLeft, CaretRight, CaretDown, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
-  MagnifyingGlassPlus, MagnifyingGlassMinus, Printer, GridFour,
-  CopySimple, Table, CalendarBlank, CheckCircle, PencilSimple
+  CopySimple, Table, CalendarBlank, CheckCircle, PencilSimple, GridFour, Printer,
 } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
@@ -18,6 +17,8 @@ import {
 import ScheduleCellPanel from "../components/ScheduleCellPanel";
 import SchedulePageHeader from "../components/SchedulePageHeader";
 import { cachedGet } from "../dataCache";
+
+const SCHEDULE_ZOOM = 80;
 
 function getSheetCellStyle(cell, clients) {
   if (!cell) return { background: "#F5F5F2", borderColor: "#E8E4DE", height: 38, minHeight: 38, padding: "2px 1px", fontSize: 10 };
@@ -105,11 +106,6 @@ export default function Schedule() {
   const [panelSaving, setPanelSaving] = useState(false);
   const [notify, setNotify] = useState(null);
   const [notifyReceipts, setNotifyReceipts] = useState([]);
-  const [zoom, setZoom] = useState(() => {
-    if (typeof window === "undefined") return 100;
-    const stored = parseInt(localStorage.getItem("scheduleZoom") || "100", 10);
-    return Number.isFinite(stored) ? Math.max(70, Math.min(130, stored)) : 100;
-  });
   const [showDup, setShowDup] = useState(false);
   const [dupTarget, setDupTarget] = useState(null);
   const [dupClear, setDupClear] = useState(false);
@@ -829,80 +825,60 @@ export default function Schedule() {
           { n: clients.length, label: "Clients", color: "#3D4F35" },
         ]}
         serviceCodes={SERVICE_CODES.filter(s => s.id !== "SS" && s.id !== "HS")}
-        zoom={zoom}
-      />
-
-      <div className="flex items-center flex-wrap gap-2 mb-5">
-        <div className="flex items-center gap-1.5 card p-1.5">
-          <button data-testid="view-sheet-btn" onClick={() => setView("sheet")} className={`btn ${view === "sheet" ? "btn-primary" : "btn-ghost"} text-xs`}><Table size={14} /> Sheet</button>
-          <button data-testid="view-blocks-btn" onClick={() => setView("blocks")} className={`btn ${view === "blocks" ? "btn-primary" : "btn-ghost"} text-xs`}><GridFour size={14} /> Per Therapist</button>
-        </div>
-        <div className="flex items-center gap-1.5 card p-1.5">
-          <button data-testid="prev-week-btn" onClick={() => setWeekStart(addDays(weekStart, -7))} className="btn btn-ghost p-2"><CaretLeft size={18} /></button>
-          <div className="px-3 py-1.5 text-sm font-bold min-w-[160px] text-center" style={{ color: "#2C3625" }}>{formatDateRange(weekStart)}</div>
-          <button data-testid="next-week-btn" onClick={() => setWeekStart(addDays(weekStart, 7))} className="btn btn-ghost p-2"><CaretRight size={18} /></button>
-          <div className="w-px h-6 bg-[#E8E4DE] mx-1" />
-          <button onClick={() => setWeekStart(startOfWeek(new Date()))} className="btn btn-ghost text-xs"><House size={14} /> Today</button>
-          <input type="date" title="Jump to week" className="input text-xs w-[130px] py-1.5"
-            onChange={e => { if (e.target.value) setWeekStart(startOfWeek(new Date(e.target.value + "T12:00:00"))); }} />
-        </div>
-        <div className="flex items-center gap-1.5 card p-1.5">
-          <button data-testid="zoom-out-btn"
-                  onClick={() => setZoom(z => { const n = Math.max(70, z - 10); localStorage.setItem("scheduleZoom", String(n)); return n; })}
-                  className="btn btn-ghost p-2"><MagnifyingGlassMinus size={16} /></button>
-          <div className="px-2 text-xs font-bold min-w-[40px] text-center" data-testid="zoom-value">{zoom}%</div>
-          <button data-testid="zoom-in-btn"
-                  onClick={() => setZoom(z => { const n = Math.min(130, z + 10); localStorage.setItem("scheduleZoom", String(n)); return n; })}
-                  className="btn btn-ghost p-2"><MagnifyingGlassPlus size={16} /></button>
-          <div className="w-px h-6 bg-[#E8E4DE] mx-1" />
-          <button onClick={() => window.print()} className="btn btn-ghost p-2"><Printer size={16} /></button>
-        </div>
-        {isAdmin && (
-          <div className="relative ml-auto" ref={adminEditsRef}>
-            <button
-              type="button"
-              data-testid="schedule-admin-edits"
-              onClick={() => setAdminEditsOpen(o => !o)}
-              className="btn btn-outline text-xs flex items-center gap-1.5 min-h-[44px]"
-              aria-expanded={adminEditsOpen}
-            >
-              <PencilSimple size={16} />
-              Edits
-              <CaretDown size={14} className={`transition-transform ${adminEditsOpen ? "rotate-180" : ""}`} />
-            </button>
-            {adminEditsOpen && (
-              <div className="absolute right-0 top-full mt-1.5 z-30 card p-2 min-w-[220px] shadow-lg border border-[#E8E4DE] flex flex-col gap-1.5">
+        toolbar={(
+          <div className="flex items-center gap-1.5 flex-wrap schedule-toolbar">
+            <div className="inline-flex items-center rounded-lg border border-[#E8E4DE] p-0.5 bg-[#FAFAF7] shrink-0">
+              <button data-testid="view-sheet-btn" onClick={() => setView("sheet")} className={`btn ${view === "sheet" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`}><Table size={13} /> Sheet</button>
+              <button data-testid="view-blocks-btn" onClick={() => setView("blocks")} className={`btn ${view === "blocks" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`}><GridFour size={13} /> Per Therapist</button>
+            </div>
+            <div className="inline-flex items-center rounded-lg border border-[#E8E4DE] px-0.5 bg-[#FAFAF7] shrink-0">
+              <button data-testid="prev-week-btn" onClick={() => setWeekStart(addDays(weekStart, -7))} className="btn btn-ghost p-1 min-h-0"><CaretLeft size={14} /></button>
+              <div className="px-2 text-[11px] font-bold whitespace-nowrap" style={{ color: "#2C3625" }}>{formatDateRange(weekStart)}</div>
+              <button data-testid="next-week-btn" onClick={() => setWeekStart(addDays(weekStart, 7))} className="btn btn-ghost p-1 min-h-0"><CaretRight size={14} /></button>
+              <div className="w-px h-4 bg-[#E8E4DE] mx-0.5" />
+              <button onClick={() => setWeekStart(startOfWeek(new Date()))} className="btn btn-ghost text-[10px] px-1.5 py-1 min-h-0"><House size={12} /> Today</button>
+              <input type="date" title="Jump to week" className="input text-[10px] w-[108px] py-1 px-1.5 min-h-0 border-0 bg-transparent"
+                onChange={e => { if (e.target.value) setWeekStart(startOfWeek(new Date(e.target.value + "T12:00:00"))); }} />
+            </div>
+            {isAdmin && (view === "blocks" || view === "sheet") && (
+              <div className="relative flex-1 min-w-[100px] max-w-[160px]">
+                <MagnifyingGlass size={13} className="absolute top-1/2 -translate-y-1/2 left-2" style={{ color: "#8B9E7A" }} />
+                <input data-testid="schedule-search-input" className="input pl-7 py-1 text-[11px] min-h-0 h-7" placeholder="Search therapist…" value={search} onChange={e => setSearch(e.target.value)} />
+              </div>
+            )}
+            <button onClick={() => window.print()} className="btn btn-ghost p-1.5 min-h-0 shrink-0" title="Print"><Printer size={14} /></button>
+            {isAdmin && (
+              <div className="relative ml-auto shrink-0" ref={adminEditsRef}>
                 <button
                   type="button"
-                  onClick={() => { setDraft(); setAdminEditsOpen(false); }}
-                  className="btn btn-outline text-xs w-full justify-start"
+                  data-testid="schedule-admin-edits"
+                  onClick={() => setAdminEditsOpen(o => !o)}
+                  className="btn btn-outline text-[11px] flex items-center gap-1 px-2 py-1 min-h-0"
+                  aria-expanded={adminEditsOpen}
                 >
-                  Save as Draft
+                  <PencilSimple size={13} />
+                  Edits
+                  <CaretDown size={11} className={`transition-transform ${adminEditsOpen ? "rotate-180" : ""}`} />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => { publishWeek(); setAdminEditsOpen(false); }}
-                  className="btn btn-primary text-xs w-full justify-start"
-                >
-                  Publish Week
-                </button>
-                <button
-                  type="button"
-                  data-testid="duplicate-week-btn"
-                  onClick={() => {
-                    setDupTarget(toISODate(addDays(weekStart, 7)));
-                    setShowDup(true);
-                    setAdminEditsOpen(false);
-                  }}
-                  className="btn btn-gold text-xs w-full justify-start"
-                >
-                  <CopySimple size={16} /> Duplicate Week →
-                </button>
+                {adminEditsOpen && (
+                  <div className="absolute right-0 top-full mt-1 z-30 card p-2 min-w-[220px] shadow-lg border border-[#E8E4DE] flex flex-col gap-1.5">
+                    <button type="button" onClick={() => { setDraft(); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start">Save as Draft</button>
+                    <button type="button" onClick={() => { publishWeek(); setAdminEditsOpen(false); }} className="btn btn-primary text-xs w-full justify-start">Publish Week</button>
+                    <button
+                      type="button"
+                      data-testid="duplicate-week-btn"
+                      onClick={() => { setDupTarget(toISODate(addDays(weekStart, 7))); setShowDup(true); setAdminEditsOpen(false); }}
+                      className="btn btn-gold text-xs w-full justify-start"
+                    >
+                      <CopySimple size={14} /> Duplicate Week →
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
         )}
-      </div>
+      />
 
       {clipboard && isAdmin && (
         <div className="card p-3 mb-4 flex items-center gap-3 text-sm" style={{ background: "#FFF7E1", borderColor: "#E8C572" }} data-testid="clipboard-banner">
@@ -915,14 +891,7 @@ export default function Schedule() {
         </div>
       )}
 
-      {isAdmin && (view === "blocks" || view === "sheet") && (
-        <div className="relative max-w-sm mb-5">
-          <MagnifyingGlass size={18} className="absolute top-3 left-3" style={{ color: "#8B9E7A" }} />
-          <input data-testid="schedule-search-input" className="input pl-10" placeholder="Search therapist..." value={search} onChange={e => setSearch(e.target.value)} />
-        </div>
-      )}
-
-      <div className="sched-zoom" style={{ "--sched-zoom": zoom / 100 }}>
+      <div className="sched-zoom" style={{ "--sched-zoom": SCHEDULE_ZOOM / 100 }}>
         {cells.length === 0 && (
           <div className="card p-10 text-center mb-4" style={{ background: "linear-gradient(135deg, #FAF5E8 0%, #F0E9D8 100%)", borderColor: "#E8C572" }}>
             <CalendarBlank size={42} weight="duotone" className="mx-auto mb-3" style={{ color: "#8B6918" }} />

@@ -4,7 +4,7 @@ import api from "../api";
 import { cachedGet } from "../dataCache";
 import { useAuth, showAdminNav } from "../auth";
 import { HistoryModal } from "./Attendance";
-import TrackerBanner from "../components/TrackerBanner";
+import PageBanner from "../components/PageBanner";
 import BillingProgressStrip from "../components/BillingProgressStrip";
 import { ModalBase, FormSection, FormField, ModalBtnPrimary, ModalBtnSecondary } from "../components/Modal";
 import { formatMoney, paymentStatusLabel, paymentStatusStyle } from "../billingUtils";
@@ -236,32 +236,30 @@ export default function Billing() {
 
   return (
     <div>
-      <TrackerBanner
+      <PageBanner
         title="Billing & Payments"
-        subtitle="Invoices, payment tracking, and installment reminders — all in one place"
+        subtitle="Invoices, payment tracking, and installment reminders"
         badge={(
           <button
             type="button"
             onClick={sendReminders}
             disabled={sending}
-            className="hidden sm:inline-flex items-center gap-1.5 pill px-3 py-1.5 text-xs font-bold bg-white/15 text-white border border-white/20 hover:bg-white/25 transition"
+            className="hidden sm:inline-flex items-center gap-1.5 pill px-2.5 py-1 text-[11px] font-bold bg-[#E5EBE1] text-[#3D4F35] border border-[#B8C8A8] hover:bg-[#D8E4D0] transition"
           >
-            <EnvelopeSimple size={14} /> {sending ? "Sending…" : "Send reminders"}
+            <EnvelopeSimple size={13} /> {sending ? "Sending…" : "Send reminders"}
           </button>
         )}
         stats={[
-          { n: summary.unpaid, label: "Unpaid", accent: "#F4A89A" },
-          { n: summary.partial, label: "Partial", accent: "#F5D78E" },
-          { n: summary.reminders_soon, label: "Reminders soon", accent: "#fff" },
-          { n: (data.items || []).length, label: "Open items", accent: "#B8D4A8" },
+          { label: "Unpaid", n: summary.unpaid, color: "#8A3F27" },
+          { label: "Partial", n: summary.partial, color: "#6B5218" },
+          { label: "Reminders soon", n: summary.reminders_soon, color: "#5C6853" },
+          { label: "Open items", n: (data.items || []).length, color: "#3D4F35" },
         ]}
-        footer={(
-          <p className="text-xs m-0" style={{ color: "#5C6853" }}>
-            Open <strong>Invoice Sheet</strong> for full billing details and session logs per invoice.
-            Reminder emails go to admin and Walaa <strong>1–2 days before</strong> the next payment date on partial invoices.
-          </p>
-        )}
-      />
+      >
+        <p className="ui-caption m-0">
+          Open <strong>Invoice Sheet</strong> for full billing details. Reminder emails go to admin and Walaa <strong>1–2 days before</strong> the next payment date on partial invoices.
+        </p>
+      </PageBanner>
 
       <div className="mb-4">
         <BillingProgressStrip summary={summary} items={data.items || []} />

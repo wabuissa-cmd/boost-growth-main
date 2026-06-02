@@ -8,6 +8,7 @@ import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
+import PageBanner from "../components/PageBanner";
 import LeaveBalanceTable from "../components/LeaveBalanceTable";
 
 const STATUS = {
@@ -98,22 +99,20 @@ export default function Leaves() {
 
   return (
     <div>
-      <div className="flex items-center mb-5 flex-wrap gap-3">
-        <div className="flex-1 min-w-[240px]">
-          <h1 className="font-display text-3xl font-semibold flex items-center gap-2" style={{ color: "#2C3625" }}>
-            <Airplane size={28} weight="duotone" /> {isAdmin ? "Leaves & Vacations" : "My Leaves"}
-          </h1>
-          <div className="text-sm" style={{ color: "#5C6853" }}>
-            {isAdmin ? "Track team vacations · approve requests · monitor balances" : "Your leave requests, balance, and approval status"}
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5 card p-1.5">
-          <select className="select text-sm border-0 bg-transparent" value={year} onChange={e => setYear(parseInt(e.target.value))} data-testid="leaves-year-select">
-            {[currentYear, currentYear - 1, currentYear - 2].map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-        </div>
-        <button data-testid="add-leave-btn" onClick={() => setEdit(emptyLeave(isAdmin ? "" : user?.id))} className="btn btn-primary"><Plus size={16} /> {isAdmin ? "New Leave" : "Request Leave"}</button>
-      </div>
+      <PageBanner
+        title={isAdmin ? "Leaves & Vacations" : "My Leaves"}
+        subtitle={isAdmin ? "Track team vacations · approve requests · monitor balances" : "Your leave requests, balance, and approval status"}
+        badge={(
+          <>
+            <select className="select text-[11px] border-0 bg-transparent min-h-0 h-7 py-0 max-w-[80px]" value={year} onChange={e => setYear(parseInt(e.target.value))} data-testid="leaves-year-select">
+              {[currentYear, currentYear - 1, currentYear - 2].map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <button data-testid="add-leave-btn" onClick={() => setEdit(emptyLeave(isAdmin ? "" : user?.id))} className="btn btn-primary text-[11px] px-2.5 py-1 min-h-0">
+              <Plus size={13} /> {isAdmin ? "New Leave" : "Request Leave"}
+            </button>
+          </>
+        )}
+      />
 
       {/* My balance card (therapist) */}
       {!isAdmin && myBalance && (

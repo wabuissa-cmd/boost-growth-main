@@ -6,6 +6,7 @@ import {
   Plus, X, CheckCircle, XCircle, FilePdf, UploadSimple, Eye, Trash,
   UserMinus, MagnifyingGlass, Export, CaretDown, CaretRight, FileText, PencilSimple
 } from "@phosphor-icons/react";
+import PageBanner from "../components/PageBanner";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -622,36 +623,34 @@ export default function LeaveRequests({ personal = false }) {
 
   return (
     <div>
-      <div className="flex items-center mb-5 flex-wrap gap-3">
-        <div className="flex-1 min-w-[240px]">
-          {therapistProfileView && (
-            <Link to="/leave-balance" className="text-xs font-bold mb-1 inline-block hover:underline" style={{ color: "#7A8A6A" }}>
-              ← Back to Leave Balance
-            </Link>
-          )}
-          <h1 className="font-display text-3xl font-semibold flex items-center gap-2" style={{ color: "#2C3625" }}>
-            <FileText size={28} weight="duotone" /> {therapistProfileView ? filteredTherapist?.name || "Therapist Leaves" : (isAdmin ? "Leave Requests" : "My Leaves")}
-          </h1>
-          <div className="text-sm" style={{ color: "#5C6853" }}>
-            {therapistProfileView
-              ? "Annual balance and full leave history"
-              : isAdmin
-                ? (filteredTherapist ? `Leave records for ${filteredTherapist.name}` : "Approve requests · track documents · mark absences")
-                : "Annual balance · leave history · upload medical documents"}
-          </div>
-        </div>
-        <select className="select text-sm max-w-[100px]" value={year} onChange={e => setYear(parseInt(e.target.value, 10))}>
-          {[currentYear, currentYear - 1, currentYear - 2].map(y => <option key={y} value={y}>{y}</option>)}
-        </select>
-        {isAdmin && (
-          <button type="button" onClick={() => setShowMarkAbsence(true)} className="btn btn-secondary text-sm">
-            <UserMinus size={16} /> Mark Absence
-          </button>
+      <PageBanner
+        title={therapistProfileView ? filteredTherapist?.name || "Therapist Leaves" : (isAdmin ? "Leave Requests" : "My Leaves")}
+        subtitle={therapistProfileView
+          ? "Annual balance and full leave history"
+          : isAdmin
+            ? (filteredTherapist ? `Leave records for ${filteredTherapist.name}` : "Approve requests · track documents · mark absences")
+            : "Annual balance · leave history · upload medical documents"}
+        badge={(
+          <>
+            <select className="select text-[11px] max-w-[80px] min-h-0 h-7 py-0" value={year} onChange={e => setYear(parseInt(e.target.value, 10))}>
+              {[currentYear, currentYear - 1, currentYear - 2].map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            {isAdmin && (
+              <button type="button" onClick={() => setShowMarkAbsence(true)} className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0">
+                <UserMinus size={13} /> Mark Absence
+              </button>
+            )}
+            <button data-testid="add-leave-btn" onClick={() => setEdit(emptyLeave(isAdmin ? "" : user?.id))} className="btn btn-primary text-[11px] px-2.5 py-1 min-h-0">
+              <Plus size={13} /> {isAdmin ? "New Request" : "Request Leave"}
+            </button>
+          </>
         )}
-        <button data-testid="add-leave-btn" onClick={() => setEdit(emptyLeave(isAdmin ? "" : user?.id))} className="btn btn-primary">
-          <Plus size={16} /> {isAdmin ? "New Request" : "Request Leave"}
-        </button>
-      </div>
+      />
+      {therapistProfileView && (
+        <Link to="/leave-balance" className="text-xs font-bold mb-3 inline-block hover:underline" style={{ color: "#7A8A6A" }}>
+          ← Back to Leave Balance
+        </Link>
+      )}
 
       {(personal || therapistFilter) && (
         <div className="card p-5 sm:p-6 mb-5" style={{ background: "linear-gradient(135deg, #7A8A6A 0%, #606E52 100%)", borderColor: "transparent", color: "white" }}>
