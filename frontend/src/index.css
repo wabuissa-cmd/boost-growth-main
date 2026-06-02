@@ -656,18 +656,30 @@ main, .page-enter { min-width: 0; }
 }
 .ui-pill-muted { background: #F0EDE9; color: #5C6853; }
 
-/* Client info list */
-.client-info-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  transition: background 150ms ease;
-  border: none;
-  background: transparent;
+/* Client info cards — compact grid (Welly-style) */
+.client-info-card {
+  display: block;
+  width: 100%;
+  border-radius: 1rem;
+  border: 1px solid #E8E4DE;
+  background: #fff;
+  overflow: hidden;
   cursor: pointer;
+  transition: box-shadow 180ms ease, border-color 180ms ease, transform 180ms ease;
+  box-shadow: 0 1px 3px rgba(44, 54, 37, 0.04);
 }
-.client-info-row:hover { background: #F6F9F3; }
+.client-info-card:hover {
+  border-color: #B8C8A8;
+  box-shadow: 0 8px 24px rgba(72, 84, 62, 0.1);
+  transform: translateY(-1px);
+}
+.client-info-card-accent {
+  height: 3px;
+  width: 100%;
+}
+.client-info-card-body {
+  padding: 0.85rem 0.9rem 1rem;
+}
 
 /* Client drawer */
 .drawer-backdrop {

@@ -3,7 +3,7 @@ import api from "../api";
 import { cachedGet } from "../dataCache";
 import { useAuth, hasOpsAccess } from "../auth";
 import { Plus, MagnifyingGlass } from "@phosphor-icons/react";
-import ClientInfoRow from "../components/ClientInfoRow";
+import ClientInfoCard from "../components/ClientInfoCard";
 import ClientDrawer from "../components/ClientDrawer";
 import {
   ModalBase, FormSection, FormField,
@@ -115,19 +115,21 @@ export default function Clients() {
         {isAdmin && <button data-testid="add-client-btn" onClick={() => setEdit({ name: "", file_no: "", package_hours: 24, color: "#A2C4C9", main_therapist_id: "", co_therapist_ids: [], locations: [] })} className="btn btn-primary text-sm min-h-[40px]"><Plus size={16}/> New Child</button>}
       </div>
 
-      <div className="card p-0 overflow-hidden divide-y divide-[#F0EDE9]">
-        {filtered.length === 0 && (
-          <div className="p-12 text-center ui-caption">No clients in this list</div>
-        )}
-        {filtered.map(c => (
-          <ClientInfoRow
-            key={c.id}
-            client={c}
-            therapistName={findT(c.main_therapist_id)?.name?.replace("Ms. ", "") || ""}
-            pkgRows={pkgByClient[c.id] || []}
-            onView={openDrawer}
-          />
-        ))}
+      <div className="max-w-5xl mx-auto">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 stagger">
+          {filtered.length === 0 && (
+            <div className="card p-12 text-center ui-caption col-span-full">No clients in this list</div>
+          )}
+          {filtered.map(c => (
+            <ClientInfoCard
+              key={c.id}
+              client={c}
+              therapistName={findT(c.main_therapist_id)?.name?.replace("Ms. ", "") || ""}
+              pkgRows={pkgByClient[c.id] || []}
+              onView={openDrawer}
+            />
+          ))}
+        </div>
       </div>
 
       {drawerClient && (

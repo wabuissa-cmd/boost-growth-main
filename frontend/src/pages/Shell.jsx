@@ -109,10 +109,22 @@ export default function Shell() {
     { to: "/admin", label: "Admin", testid: "nav-admin", icon: <Gear size={17} weight="duotone"/> },
   ] : [];
 
+  const hrDropdownItems = [
+    ...requestsItems,
+    ...(showBilling ? [{ to: "/billing", label: "Billing", testid: "nav-billing" }] : []),
+  ];
+
   const homeLink = baseLinks[0];
-  const billingLink = showBilling ? {
-    to: "/billing", label: "Billing", testid: "nav-billing", icon: <Receipt size={17} weight="duotone"/>,
-  } : null;
+  const hrNavItems = [
+    ...requestsItems.map(it => ({
+      ...it,
+      icon: it.to === "/leave-balance"
+        ? <UserList size={17} weight="duotone"/>
+        : <ListChecks size={17} weight="duotone"/>,
+    })),
+    ...(showBilling ? [{ to: "/billing", label: "Billing", testid: "nav-billing", icon: <Receipt size={17} weight="duotone"/> }] : []),
+  ];
+
   const personalNavItems = myPortalItems.map(it => ({
     ...it,
     icon: <UserCircle size={17} weight="duotone"/>,
@@ -120,12 +132,6 @@ export default function Shell() {
   const referralsNavItems = referralsItems.map(it => ({
     ...it,
     icon: <Folder size={17} weight="duotone"/>,
-  }));
-  const hrNavItems = requestsItems.map(it => ({
-    ...it,
-    icon: it.to === "/leave-balance"
-      ? <UserList size={17} weight="duotone"/>
-      : <ListChecks size={17} weight="duotone"/>,
   }));
 
   const toggleNavLayout = () => {
@@ -159,7 +165,6 @@ export default function Shell() {
             <SidebarNav
               homeLink={{ ...homeLink, icon: <House size={17} weight="duotone"/> }}
               operationsItems={operationsItems}
-              billingLink={billingLink}
               personalItems={personalNavItems}
               referralsItems={referralsNavItems}
               hrItems={hrNavItems}
@@ -232,12 +237,9 @@ export default function Shell() {
                 <NavDropdown testid="nav-operations" label="Operations" icon={<CalendarBlank size={18} weight="duotone"/>}
                              items={operationsItems} loc={loc} onItemHover={warmRoute}/>
               )}
-              {showBilling && (
-                <NavLink to="/billing" data-testid="nav-billing"
-                         onMouseEnter={() => warmRoute("/billing")}
-                         className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
-                  <Receipt size={18} weight="duotone"/><span>Billing</span>
-                </NavLink>
+              {hrDropdownItems.length > 0 && (
+                <NavDropdown testid="nav-hr" label="HR" icon={<UsersThree size={18} weight="duotone"/>}
+                             items={hrDropdownItems} loc={loc} onItemHover={warmRoute}/>
               )}
               {myPortalItems.length > 0 && (
                 <NavDropdown testid="nav-my-portal" label="Personal" icon={<UserCircle size={18} weight="duotone"/>}
@@ -246,10 +248,6 @@ export default function Shell() {
               {referralsItems.length > 0 && (
                 <NavDropdown testid="nav-referrals" label="Referrals" icon={<Folder size={18} weight="duotone"/>}
                              items={referralsItems} loc={loc} onItemHover={warmRoute}/>
-              )}
-              {requestsItems.length > 0 && (
-                <NavDropdown testid="nav-hr" label="HR" icon={<UsersThree size={18} weight="duotone"/>}
-                             items={requestsItems} loc={loc} onItemHover={warmRoute}/>
               )}
               {adminTools.length > 0 && (
                 <NavDropdown testid="nav-admin-tools" label="Administration" icon={<Gear size={18} weight="duotone"/>}
@@ -347,7 +345,6 @@ export default function Shell() {
               <SidebarNav
                 homeLink={{ ...homeLink, icon: <House size={17} weight="duotone"/> }}
                 operationsItems={operationsItems}
-                billingLink={billingLink}
                 personalItems={personalNavItems}
                 referralsItems={referralsNavItems}
                 hrItems={hrNavItems}

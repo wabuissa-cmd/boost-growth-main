@@ -49,7 +49,6 @@ function SidebarSection({ title, items, loc, defaultOpen = true, onItemHover }) 
 export default function SidebarNav({
   homeLink,
   operationsItems,
-  billingLink,
   personalItems,
   referralsItems,
   hrItems,
@@ -105,20 +104,6 @@ export default function SidebarNav({
         />
       )}
 
-      {billingLink && (
-        <div className="sidebar-section-items px-2">
-          <NavLink
-            to={billingLink.to}
-            data-testid={billingLink.testid}
-            onMouseEnter={() => onItemHover?.(billingLink.to)}
-            className={({ isActive }) => `sidebar-link ${isActive ? "active" : ""}`}
-          >
-            {billingLink.icon}
-            <span>{billingLink.label}</span>
-          </NavLink>
-        </div>
-      )}
-
       {personalItems.length > 0 && (
         <SidebarSection
           title="Personal"
@@ -130,7 +115,7 @@ export default function SidebarNav({
       )}
 
       <SidebarSection title="Referrals" items={referralsItems} loc={loc} onItemHover={onItemHover} />
-      <SidebarSection title="HR" items={hrItems} loc={loc} onItemHover={onItemHover} />
+      <SidebarSection title="HR" items={hrItems} loc={loc} defaultOpen={Boolean(hrItems.some(it => it.to === "/billing"))} onItemHover={onItemHover} />
       <SidebarSection title="Administration" items={adminItems} loc={loc} onItemHover={onItemHover} />
     </nav>
   );
