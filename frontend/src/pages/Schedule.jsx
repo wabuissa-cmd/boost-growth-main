@@ -8,7 +8,7 @@ import {
 import { useAuth, hasOpsAccess } from "../auth";
 import {
   CaretLeft, CaretRight, CaretDown, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
-  MagnifyingGlassPlus, MagnifyingGlassMinus, Printer, Info, GridFour,
+  MagnifyingGlassPlus, MagnifyingGlassMinus, Printer, GridFour,
   CopySimple, Table, CalendarBlank, CheckCircle, PencilSimple
 } from "@phosphor-icons/react";
 import {
@@ -16,8 +16,7 @@ import {
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
 import ScheduleCellPanel from "../components/ScheduleCellPanel";
-import ScheduleLegend from "../components/ScheduleLegend";
-import TrackerBanner from "../components/TrackerBanner";
+import SchedulePageHeader from "../components/SchedulePageHeader";
 import { cachedGet } from "../dataCache";
 
 function getSheetCellStyle(cell, clients) {
@@ -810,51 +809,28 @@ export default function Schedule() {
   return (
     <div className="relative">
         <div className={`transition-all ${panelOpen && isAdmin ? "lg:mr-[420px]" : ""}`}>
-      <TrackerBanner
-        title="Weekly Schedule"
+      <SchedulePageHeader
         subtitle={isAdmin ? "Right-click any cell for actions · Click to edit · Drag to select multiple slots" : "Your weekly schedule (read-only)"}
         badge={isAdmin ? (
           weekStatus === "draft" ? (
-            <span className="pill text-xs px-3 py-1.5 font-bold bg-[#FAF0D1] text-[#6B5218] border border-[#E5C387]">
+            <span className="pill text-[10px] px-2 py-1 font-bold bg-[#FAF0D1] text-[#6B5218] border border-[#E5C387]">
               Draft
             </span>
           ) : (
-            <span className="pill text-xs px-3 py-1.5 font-bold bg-white/15 text-white border border-white/25 flex items-center gap-1">
-              <CheckCircle size={14} weight="fill" /> Published
+            <span className="pill text-[10px] px-2 py-1 font-bold bg-[#E5EBE1] text-[#3D4F35] border border-[#B8C8A8] flex items-center gap-1">
+              <CheckCircle size={12} weight="fill" /> Published
             </span>
           )
         ) : null}
         stats={[
-          { n: formatDateRange(weekStart), label: "This Week", accent: "#fff" },
-          { n: view === "blocks" ? "Per Therapist" : "Sheet", label: "View", accent: "#D4E4C8" },
-          { n: visibleTherapists.length, label: "Therapists", accent: "#F5D78E" },
-          { n: clients.length, label: "Clients", accent: "#B8D4A8" },
+          { n: formatDateRange(weekStart), label: "This Week", color: "#2C3625" },
+          { n: view === "blocks" ? "Per Therapist" : "Sheet", label: "View", color: "#5C6853" },
+          { n: visibleTherapists.length, label: "Therapists", color: "#6B5218" },
+          { n: clients.length, label: "Clients", color: "#3D4F35" },
         ]}
-        footer={(
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Info size={14} style={{ color: "#5C6853" }} />
-              <span className="text-xs font-bold uppercase tracking-wide" style={{ color: "#5C6853" }}>Service codes &amp; cancellations</span>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {SERVICE_CODES.map(s => (
-                <span key={s.id} className={`pill text-[10px] ${s.cls}`}>{s.short}</span>
-              ))}
-              <span className="pill text-[10px]" style={{ background: "#FFF4C4", color: "#6B5218", border: "1px solid #E8C572" }}>
-                ✕ Therapist Cancel
-              </span>
-              <span className="pill text-[10px]" style={{ background: "#FCE0E8", color: "#8B3A55", border: "1px solid #E8A4BD" }}>
-                ✕ Client Cancel
-              </span>
-            </div>
-            <p className="text-[11px] mt-2 mb-0" style={{ color: "#8B9E7A" }}>
-              Each child has a unique color · Long-press on mobile for cell menu · Zoom {zoom}%
-            </p>
-          </div>
-        )}
+        serviceCodes={SERVICE_CODES.filter(s => s.id !== "SS" && s.id !== "HS")}
+        zoom={zoom}
       />
-
-      <ScheduleLegend />
 
       <div className="flex items-center flex-wrap gap-2 mb-5">
         <div className="flex items-center gap-1.5 card p-1.5">
