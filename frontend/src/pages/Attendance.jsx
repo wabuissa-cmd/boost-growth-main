@@ -25,7 +25,7 @@ import {
   resolveServiceTabState, hasOpenInvoice, countSsWeeksDone, nextWeekOverride,
 } from "../attendanceUtils";
 import { PackageAlertBanner } from "../components/PackageStatusBadge";
-import PreparationClientCard from "../components/PreparationClientCard";
+import PreparationClientRow from "../components/PreparationClientRow";
 import TrackerBanner from "../components/TrackerBanner";
 import SsWeekStatusRow, { SsWeekLegend } from "../components/SsWeekStatusRow";
 import { cachedGet } from "../dataCache";
@@ -256,18 +256,18 @@ export default function Attendance() {
         )}
       </div>
 
-      {/* Client card grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 stagger">
+      {/* Client list — tracking rows */}
+      <div className="space-y-3 stagger">
         {!cardsReady && (
-          <div className="card p-12 text-center col-span-full" style={{ color: "#8B9E7A" }}>
+          <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>
             <div className="spinner mx-auto mb-3" /> Loading clients…
           </div>
         )}
         {cardsReady && filtered.length === 0 && (
-          <div className="card p-12 text-center col-span-full" style={{ color: "#8B9E7A" }}>No clients</div>
+          <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>No clients</div>
         )}
         {cardsReady && filtered.map(c => (
-          <PreparationClientCard
+          <PreparationClientRow
             key={c.id}
             client={c}
             therapistName={findT(c.main_therapist_id)?.name || ""}

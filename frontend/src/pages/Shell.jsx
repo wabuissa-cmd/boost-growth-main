@@ -5,8 +5,13 @@ import api, { startOfWeek, toISODate } from "../api";
 import { prefetch } from "../dataCache";
 import {
   House, CalendarBlank, ClipboardText, UsersThree, Receipt,
-  Bell, SignOut, ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, CaretDown, Folder, UserCircle
+  Bell, SignOut, ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, CaretDown, Folder, UserCircle,
+  SidebarSimple, Rows,
 } from "@phosphor-icons/react";
+
+import SidebarNav from "../components/SidebarNav";
+
+const NAV_LAYOUT_KEY = "bg_nav_layout";
 
 const ROUTE_PREFETCH = {
   "/home": () => {
@@ -44,6 +49,9 @@ export default function Shell() {
   const [notifs, setNotifs] = useState([]);
   const [showNotif, setShowNotif] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
+  const [navLayout, setNavLayout] = useState(() => {
+    try { return localStorage.getItem(NAV_LAYOUT_KEY) || "sidebar"; } catch { return "sidebar"; }
+  });
   const loc = useLocation();
   const portalAdmin = showAdminNav(user);
   const showPersonal = !portalAdmin;
@@ -96,10 +104,37 @@ export default function Shell() {
 
   // Admin tools — Reports, Import, Admin page
   const adminTools = portalAdmin ? [
-    { to: "/reports", label: "Reports", testid: "nav-reports" },
-    { to: "/import", label: "Import", testid: "nav-import" },
-    { to: "/admin", label: "Admin", testid: "nav-admin" },
+    { to: "/reports", label: "Reports", testid: "nav-reports", icon: <ChartBar size={17} weight="duotone"/> },
+    { to: "/import", label: "Import", testid: "nav-import", icon: <UploadSimple size={17} weight="duotone"/> },
+    { to: "/admin", label: "Admin", testid: "nav-admin", icon: <Gear size={17} weight="duotone"/> },
   ] : [];
+
+  const homeLink = baseLinks[0];
+  const billingLink = showBilling ? {
+    to: "/billing", label: "Billing", testid: "nav-billing", icon: <Receipt size={17} weight="duotone"/>,
+  } : null;
+  const personalNavItems = myPortalItems.map(it => ({
+    ...it,
+    icon: <UserCircle size={17} weight="duotone"/>,
+  }));
+  const referralsNavItems = referralsItems.map(it => ({
+    ...it,
+    icon: <Folder size={17} weight="duotone"/>,
+  }));
+  const hrNavItems = requestsItems.map(it => ({
+    ...it,
+    icon: it.to === "/leave-balance"
+      ? <UserList size={17} weight="duotone"/>
+      : <ListChecks size={17} weight="duotone"/>,
+  }));
+
+  const toggleNavLayout = () => {
+    const next = navLayout === "sidebar" ? "top" : "sidebar";
+    try { localStorage.setItem(NAV_LAYOUT_KEY, next); } catch { /* ignore */ }
+    setNavLayout(next);
+  };
+
+  const useSidebar = navLayout === "sidebar";
 
   const markAllRead = async () => { await api.post("/notifications/read-all"); loadNotifs(); };
   const acknowledge = async (nid) => {
@@ -108,11 +143,56 @@ export default function Shell() {
   };
 
   return (
-    <div className="min-h-screen min-h-[100dvh] bg-organic flex flex-col">
-      {/* Top Nav */}
+    <div className={`min-h-screen min-h-[100dvh] bg-organic ${useSidebar ? "app-shell-sidebar" : "flex flex-col"}`}>
+      {useSidebar && (
+        <aside className="app-sidebar hidden lg:flex flex-col shrink-0">
+          <NavLink to="/home" className="sidebar-brand">
+            <div className="w-9 h-9 rounded-xl bg-[#7A8A6A] flex items-center justify-center p-1.5">
+              <img src="/bg-logo.png" alt="BG" className="w-full h-full object-contain"/>
+            </div>
+            <div>
+              <div className="text-[13px] font-bold leading-tight" style={{ color: "#2C3625" }}>Boost Growth</div>
+              <div className="text-[9px] font-bold tracking-[0.18em]" style={{ color: "#8B9E7A" }}>STAFF PORTAL</div>
+            </div>
+          </NavLink>
+          <div className="flex-1 overflow-y-auto px-1">
+            <SidebarNav
+              homeLink={{ ...homeLink, icon: <House size={17} weight="duotone"/> }}
+              operationsItems={operationsItems}
+              billingLink={billingLink}
+              personalItems={personalNavItems}
+              referralsItems={referralsNavItems}
+              hrItems={hrNavItems}
+              adminItems={adminTools}
+              therapistOnly={therapistOnly}
+              loc={loc}
+              onItemHover={warmRoute}
+            />
+          </div>
+          <div className="sidebar-footer p-3 border-t border-[#E8E4DE]">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-white text-xs shrink-0"
+                   style={{ background: user?.color || "#D4A64A" }}>
+                {user?.name?.replace("Ms. ", "").charAt(0) || "U"}
+              </div>
+              <div className="min-w-0 text-xs">
+                <div className="font-bold truncate" style={{ color: "#2C3625" }}>{user?.name?.replace("Ms. ", "") || user?.email}</div>
+                <div style={{ color: "#8B9E7A" }}>{portalAdmin ? "Admin" : "Therapist"}</div>
+              </div>
+            </div>
+            <button type="button" onClick={logout} className="sidebar-link w-full text-[13px]">
+              <SignOut size={16}/><span>Sign out</span>
+            </button>
+          </div>
+        </aside>
+      )}
+
+      <div className={`flex flex-col flex-1 min-w-0 ${useSidebar ? "app-main-column" : ""}`}>
+      {/* Top bar */}
       <header className="sticky top-0 z-40 bg-white/85 backdrop-blur-md border-b border-[#E8E4DE]">
         <div className="max-w-[1600px] mx-auto px-4 lg:px-6">
-          <div className="h-16 flex items-center gap-4">
+          <div className="h-14 lg:h-16 flex items-center gap-3">
+            {!useSidebar && (
             <NavLink to="/home" className="flex items-center gap-2.5 shrink-0">
               <div className="w-10 h-10 rounded-xl bg-[#7A8A6A] flex items-center justify-center p-1.5 shadow-sm">
                 <img src="/bg-logo.png" alt="BG" className="w-full h-full object-contain"/>
@@ -122,8 +202,16 @@ export default function Shell() {
                 <div className="text-[9px] sm:text-[10px] font-bold tracking-[0.15em] sm:tracking-[0.2em]" style={{color: "#8B9E7A"}}>STAFF PORTAL</div>
               </div>
             </NavLink>
+            )}
 
-            {/* Desktop nav */}
+            {useSidebar && (
+              <div className="hidden lg:block text-sm font-bold truncate" style={{ color: "#2C3625" }}>
+                Staff Portal
+              </div>
+            )}
+
+            {/* Desktop top nav (legacy layout) */}
+            {!useSidebar && (
             <nav className="hidden lg:flex items-center gap-1 flex-1 ml-4">
               {baseLinks.map(l => (
                 <NavLink key={l.to} to={l.to} data-testid={l.testid}
@@ -168,8 +256,19 @@ export default function Shell() {
                              items={adminTools} loc={loc} onItemHover={warmRoute}/>
               )}
             </nav>
+            )}
 
             <div className="flex-1 lg:hidden"/>
+
+            <button
+              type="button"
+              onClick={toggleNavLayout}
+              title={useSidebar ? "Switch to top navigation" : "Switch to sidebar navigation"}
+              className="hidden lg:inline-flex btn btn-ghost p-2 text-[#5C6853]"
+              data-testid="nav-layout-toggle"
+            >
+              {useSidebar ? <Rows size={20} weight="duotone"/> : <SidebarSimple size={20} weight="duotone"/>}
+            </button>
 
             {/* Notifications */}
             <div className="relative">
@@ -206,6 +305,8 @@ export default function Shell() {
 
             {/* Profile */}
             <div className="hidden md:flex items-center gap-2 pl-3 border-l border-[#E8E4DE]">
+              {!useSidebar && (
+              <>
               <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-white text-sm" style={{background: user?.color || "#D4A64A"}}>
                 {user?.name?.replace("Ms. ", "").charAt(0) || "U"}
               </div>
@@ -213,7 +314,14 @@ export default function Shell() {
                 <div className="font-bold truncate max-w-[120px]" style={{color: "#2C3625"}}>{user?.name?.replace("Ms. ", "") || user?.email}</div>
                 <div style={{color: "#8B9E7A"}}>{portalAdmin ? "Admin" : "Therapist"}</div>
               </div>
+              </>
+              )}
+              {useSidebar && (
+                <button data-testid="logout-btn" onClick={logout} className="btn btn-ghost p-2 lg:hidden"><SignOut size={18}/></button>
+              )}
+              {!useSidebar && (
               <button data-testid="logout-btn" onClick={logout} className="btn btn-ghost p-2"><SignOut size={18}/></button>
+              )}
             </div>
 
             {/* Mobile burger */}
@@ -222,99 +330,34 @@ export default function Shell() {
         </div>
       </header>
 
-      {/* Mobile drawer */}
+      {/* Mobile drawer — sidebar-style list */}
       {mobileNav && (
         <div className="fixed inset-0 z-50 bg-black/40 modal-backdrop lg:hidden" onClick={() => setMobileNav(false)}>
-          <div className="absolute right-0 top-0 h-full w-72 max-w-full mobile-nav-drawer shadow-2xl modal-card overflow-y-auto" onClick={e=>e.stopPropagation()}
-            style={{ background: "linear-gradient(180deg, #7A8A6A 0%, #606E52 40%, #FAFAF7 40%)" }}>
-            <div className="p-4 text-white flex items-center justify-between">
+          <div className="absolute left-0 top-0 h-full w-72 max-w-[88vw] shadow-2xl overflow-y-auto bg-[#FAFAF7]" onClick={e=>e.stopPropagation()}>
+            <div className="p-4 flex items-center justify-between border-b border-[#E8E4DE]">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center p-1.5" style={{ background: "rgba(255,255,255,0.2)" }}>
+                <div className="w-9 h-9 rounded-xl bg-[#7A8A6A] flex items-center justify-center p-1.5">
                   <img src="/bg-logo.png" alt="" className="w-full h-full object-contain"/>
                 </div>
-                <div>
-                  <div className="font-bold text-sm leading-tight">Boost Growth</div>
-                  <div className="text-[9px] tracking-[0.2em] opacity-85 font-bold">STAFF PORTAL</div>
-                </div>
+                <div className="font-bold text-sm" style={{ color: "#2C3625" }}>Boost Growth</div>
               </div>
-              <button onClick={() => setMobileNav(false)} className="btn btn-ghost p-2 text-white min-w-[44px] min-h-[44px]"><X size={20}/></button>
+              <button onClick={() => setMobileNav(false)} className="btn btn-ghost p-2 min-w-[44px] min-h-[44px]"><X size={20}/></button>
             </div>
-            <div className="bg-[#FAFAF7] min-h-full p-3 flex flex-col gap-1 rounded-t-2xl">
-              {baseLinks.map(l => (
-                <NavLink key={l.to} to={l.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
-                  {l.icon}<span>{l.label}</span>
-                </NavLink>
-              ))}
-              {therapistOnly ? (
-                operationsItems.map(s => (
-                  <NavLink key={s.to} to={s.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
-                    {s.icon}<span>{s.label}</span>
-                  </NavLink>
-                ))
-              ) : (
-                <div className="mt-1">
-                  <div className="text-[10px] tracking-widest px-3 mt-2 mb-1" style={{color: "#8B9E7A"}}>OPERATIONS</div>
-                  {operationsItems.map(s => (
-                    <NavLink key={s.to} to={s.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
-                      {s.icon}<span>{s.label}</span>
-                    </NavLink>
-                  ))}
-                </div>
-              )}
-              {showBilling && (
-                <NavLink to="/billing" className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
-                  <Receipt size={16} weight="duotone"/><span>Billing</span>
-                </NavLink>
-              )}
-              {myPortalItems.length > 0 && (
-                <div className="mt-1">
-                  <div className="text-[10px] tracking-widest px-3 mt-2 mb-1" style={{color: "#8B9E7A"}}>PERSONAL</div>
-                  {myPortalItems.map(s => (
-                    <NavLink key={s.to} to={s.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
-                      <UserCircle size={16} weight="duotone"/><span>{s.label}</span>
-                    </NavLink>
-                  ))}
-                </div>
-              )}
-              {referralsItems.length > 0 && (
-                <div className="mt-1">
-                  <div className="text-[10px] tracking-widest px-3 mt-2 mb-1" style={{color: "#8B9E7A"}}>REFERRALS</div>
-                  {referralsItems.map(s => (
-                    <NavLink key={s.to} to={s.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
-                      <Folder size={16} weight="duotone"/><span>{s.label}</span>
-                    </NavLink>
-                  ))}
-                </div>
-              )}
-              {requestsItems.length > 0 && (
-              <div className="mt-1">
-                <div className="text-[10px] tracking-widest px-3 mt-2 mb-1" style={{color: "#8B9E7A"}}>HR</div>
-                {requestsItems.map(s => (
-                  <NavLink key={s.to} to={s.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
-                    {s.to === "/leaves" ? <ListChecks size={16} weight="duotone"/> :
-                     s.to === "/requests" ? <ListChecks size={16} weight="duotone"/> :
-                     s.to === "/leave-balance" ? <UserList size={16} weight="duotone"/> :
-                     <UserList size={16} weight="duotone"/>}
-                    <span>{s.label}</span>
-                  </NavLink>
-                ))}
-              </div>
-              )}
-              {adminTools.length > 0 && (
-              <div className="mt-1">
-                <div className="text-[10px] tracking-widest px-3 mt-2 mb-1" style={{color: "#8B9E7A"}}>ADMINISTRATION</div>
-                {adminTools.map(s => (
-                  <NavLink key={s.to} to={s.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
-                    {s.to === "/reports" ? <ChartBar size={16} weight="duotone"/> :
-                     s.to === "/import" ? <UploadSimple size={16} weight="duotone"/> :
-                     <Gear size={16} weight="duotone"/>}
-                    <span>{s.label}</span>
-                  </NavLink>
-                ))}
-              </div>
-              )}
+            <div className="p-2">
+              <SidebarNav
+                homeLink={{ ...homeLink, icon: <House size={17} weight="duotone"/> }}
+                operationsItems={operationsItems}
+                billingLink={billingLink}
+                personalItems={personalNavItems}
+                referralsItems={referralsNavItems}
+                hrItems={hrNavItems}
+                adminItems={adminTools}
+                therapistOnly={therapistOnly}
+                loc={loc}
+                onItemHover={warmRoute}
+              />
               <div className="divider my-3"/>
-              <button onClick={logout} className="nav-link"><SignOut size={18}/> Sign out</button>
+              <button onClick={logout} className="sidebar-link w-full"><SignOut size={16}/> Sign out</button>
             </div>
           </div>
         </div>
@@ -327,6 +370,7 @@ export default function Shell() {
           </Suspense>
         </div>
       </main>
+      </div>
       {user?.must_change_password && <ChangePasswordModal />}
     </div>
   );
