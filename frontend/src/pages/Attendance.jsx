@@ -95,7 +95,7 @@ function ServiceTypeToggle({ value, onChange, tabState }) {
   );
 }
 
-function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdit, onDeleted, rowBg, billingKind, hideHours, locked = false }) {
+function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdit, onDeleted, rowBg, billingKind, hideHours, locked = false, bordered = false }) {
   const stColor = s.status === "Completed" ? "#3D4F35" :
     s.status === "Cancelled" ? "#6B5218" :
     s.status === "No Show" ? "#8A3F27" : "#5C6853";
@@ -107,20 +107,34 @@ function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdi
   const measureVal = billingKind === "SS"
     ? (ssSessionDayValue(s) ? 1 : "—")
     : s.hours;
+  const cell = bordered ? "p-2 border border-[#E0E8DC]" : "p-2";
   return (
-    <tr key={s.id} className="border-t border-[#E8E4DE]" style={{ background: rowBg || undefined }}>
-      <td className="p-2 font-bold">{dayNameFromDate(s.session_date)}</td>
-      <td className="p-2 font-bold">{fmtDate(s.session_date)}</td>
-      <td className="p-2"><span className="pill text-[10px] uppercase" style={{ background: stBg, color: stColor }}>{s.status}</span></td>
-      <td className="p-2">{s.start_time && s.end_time ? `${s.start_time} - ${s.end_time}` : "—"}</td>
-      {!hideHours && <td className="p-2 font-bold">{measureVal}</td>}
-      <td className="p-2">{tNames || "—"}</td>
-      <td className="p-2 italic" style={{ color: "#5C6853" }}>{s.note || ""}</td>
-      <td className="p-2 text-right whitespace-nowrap no-print">
-        {canEdit && <button onClick={() => onEdit(s)} className="btn btn-ghost p-1.5"><PencilSimple size={14}/></button>}
-        {canEdit && <button onClick={async () => { if (window.confirm("Delete?")) { await api.delete(`/sessions/${s.id}`); onDeleted(); } }} className="btn btn-ghost p-1.5 text-red-700"><Trash size={14}/></button>}
-      </td>
+    <tr key={s.id} className={bordered ? "" : "border-t border-[#E8E4DE]"} style={{ background: rowBg || undefined }}>
+      <td className={`${cell} font-bold`}>{dayNameFromDate(s.session_date)}</td>
+      <td className={`${cell} font-bold`}>{fmtDate(s.session_date)}</td>
+      <td className={cell}><span className="pill text-[10px] uppercase" style={{ background: stBg, color: stColor }}>{s.status}</span></td>
+      <td className={cell}>{s.start_time && s.end_time ? `${s.start_time} - ${s.end_time}` : "—"}</td>
+      {!hideHours && <td className={`${cell} font-bold`}>{measureVal}</td>}
+      <td className={cell}>{tNames || "—"}</td>
+      <td className={`${cell} italic`} style={{ color: "#5C6853" }}>{s.note || ""}</td>
+      {!locked && (
+        <td className={`${cell} text-right whitespace-nowrap no-print`}>
+          {canEdit && <button onClick={() => onEdit(s)} className="btn btn-ghost p-1.5"><PencilSimple size={14}/></button>}
+          {canEdit && <button onClick={async () => { if (window.confirm("Delete?")) { await api.delete(`/sessions/${s.id}`); onDeleted(); } }} className="btn btn-ghost p-1.5 text-red-700"><Trash size={14}/></button>}
+        </td>
+      )}
     </tr>
+  );
+}
+
+function HistoryTableHead({ cols, bordered = false }) {
+  const cell = bordered ? "p-2 text-left font-bold border border-[#E0E8DC]" : "p-2 text-left font-bold";
+  return (
+    <thead style={{ background: bordered ? "#F6F9F3" : "#F0E9D8" }}>
+      <tr style={{ color: "#2C3625" }}>
+        {cols.map((c, i) => <th key={i} className={`${cell}${!c ? " no-print" : ""}`}>{c}</th>)}
+      </tr>
+    </thead>
   );
 }
 
@@ -599,36 +613,12 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
       : []),
     [isSchool, cycleSessions, cycleAnchor, selectedInvoice?.week_overrides]
   );
-  const hsTotals = useMemo(
-    () => computeHsInvoiceTotals(cycleSessions, selectedInvoice?.package_size || client.package_hours || 24),
-    [cycleSessions, selectedInvoice?.package_size, client.package_hours]
-  );
   const sorted = useMemo(() => sortSessionsByDateAsc(cycleSessions), [cycleSessions]);
 
   const ssWeekGroups = useMemo(
     () => (isSchool && cycleAnchor ? groupSessionsBySchoolWeeks(cycleSessions, cycleAnchor, 4) : []),
     [isSchool, cycleSessions, cycleAnchor]
   );
-  const currentWeekInfo = useMemo(
-    () => ssWeekSummary.find(w => w.weekStatus === "In Progress")
-      || ssWeekSummary.find(w => w.weekStatus === "Open")
-      || ssWeekSummary.find(w => w.weekStatus === "Not started")
-      || ssWeekSummary[ssWeekSummary.length - 1],
-    [ssWeekSummary]
-  );
-  const weeksDone = countSsWeeksDone(ssWeekSummary);
-  const cycleWeeks = 4;
-  const serviceDisplay = useMemo(
-    () => formatServiceTypeDisplay(selectedInvoice?.service_type || serviceTypeFilter) || serviceTypeFilter,
-    [selectedInvoice?.service_type, serviceTypeFilter]
-  );
-  const paymentStatus = selectedInvoice?.payment_status || client.payment_status || "pending";
-  const completed = hsTotals.completedCount;
-  const hoursDelivered = hsTotals.hoursDelivered;
-  const noServiceCount = hsTotals.noServiceCount;
-  const rem = hsTotals.hoursRemaining;
-  const pkg = hsTotals.pkg;
-  const used = hsTotals.hoursUsed;
 
   const reloadInvoices = useCallback(async () => {
     const r = await api.get(`/clients/${client.id}/invoices`).catch(() => ({ data: [] }));
@@ -654,61 +644,57 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
     }
   };
 
+  const actionCol = invoiceLocked ? [] : [""];
+  const hsHistoryCols = ["Day", "Date", "Status", "Time", "# Hours", "Therapist", "Note", ...actionCol];
+  const ssHistoryCols = ["Day", "Date", "Status", "Time", "Therapist", "Note", ...actionCol];
+
   return (
-    <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-3 z-50" onClick={onClose}>
-      <div className="card p-0 w-full max-w-4xl modal-card max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-2 border-b border-[#E8E4DE] flex-wrap gap-2 no-print">
-          <div className="font-bold text-sm" style={{ color: "#2C3625" }}>History · {client.name}</div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {tabState.showToggle && (
-              <ServiceTypeToggle value={serviceTypeFilter} onChange={setServiceTypeFilter} tabState={tabState} />
-            )}
-            {sortedInvoices.length > 1 && (
-              <select
-                className="select text-xs min-h-[36px] min-w-[140px]"
-                value={selectedInvoiceId}
-                onChange={e => setSelectedInvoiceId(e.target.value)}
-              >
-                {sortedInvoices.map(inv => (
-                  <option key={inv.id} value={inv.id}>
-                    {inv.invoice_number} · {inv.is_closed ? "Closed" : "Open"}
-                  </option>
-                ))}
-              </select>
-            )}
-            <button onClick={onClose} className="btn btn-ghost p-2 min-h-[40px] min-w-[40px]"><X size={18}/></button>
+    <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-2 z-50" onClick={onClose}>
+      <div className="card p-0 relative w-full max-w-3xl modal-card max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="absolute top-1.5 right-1.5 z-20 btn btn-ghost p-1.5 min-h-[32px] min-w-[32px] rounded-lg no-print"
+        >
+          <X size={18}/>
+        </button>
+
+        <div className="flex items-center gap-2 px-3 py-1.5 pr-10 border-b border-[#E8E4DE] no-print shrink-0">
+          <div className="font-bold text-sm truncate min-w-0 flex-1" style={{ color: "#2C3625" }}>
+            History · {client.name}
           </div>
+          {tabState.showToggle && (
+            <ServiceTypeToggle value={serviceTypeFilter} onChange={setServiceTypeFilter} tabState={tabState} />
+          )}
+          {sortedInvoices.length > 1 ? (
+            <select
+              className="select text-xs min-h-[32px] max-w-[150px] shrink-0"
+              value={selectedInvoiceId}
+              onChange={e => setSelectedInvoiceId(e.target.value)}
+            >
+              {sortedInvoices.map(inv => (
+                <option key={inv.id} value={inv.id}>
+                  {inv.invoice_number} · {inv.is_closed ? "Closed" : "Open"}
+                </option>
+              ))}
+            </select>
+          ) : selectedInvoice ? (
+            <span className="text-[10px] shrink-0 pill px-1.5 py-0.5" style={{ background: "#F0EDE9", color: "#5C6853" }}>
+              {selectedInvoice.invoice_number}
+            </span>
+          ) : null}
         </div>
 
         {invoiceLocked && (
-          <div className="px-4 py-1.5 text-[11px] font-bold no-print"
+          <div className="px-3 py-1 text-[10px] font-bold no-print shrink-0"
             style={{ background: "#F5F5F5", color: "#5C6853", borderBottom: "1px solid #E0E0E0" }}>
             🔒 Closed invoice — view only
           </div>
         )}
 
-        {selectedInvoice && (
-          <div className="px-4 py-1.5 flex flex-wrap items-center gap-2 border-b border-[#F0EDE9] text-xs no-print" style={{ background: "#FAFAF7" }}>
-            <span className="font-bold" style={{ color: "#2C3625" }}>{selectedInvoice.invoice_number}</span>
-            <span className="pill text-[10px]" style={{ background: isSchool ? "#E0EBD8" : "#F4EDE3", color: isSchool ? "#2C5035" : "#6B5430" }}>
-              {serviceDisplay}
-            </span>
-            <span className="pill text-[10px] font-bold" style={{
-              background: selectedInvoice.is_closed ? "#F0EDE9" : "#E5EBE1",
-              color: selectedInvoice.is_closed ? "#5C6853" : "#3D4F35",
-            }}>
-              {selectedInvoice.is_closed ? "Closed" : "Open"}
-            </span>
-            {isSchool ? (
-              <span style={{ color: "#5C6853" }}>Week {currentWeekInfo?.weekNumber || 1}/{cycleWeeks} · {weeksDone}/{cycleWeeks} weeks done</span>
-            ) : (
-              <span style={{ color: "#5C6853" }}>{rem.toFixed(1)}h remaining · {used.toFixed(1)}/{pkg}h</span>
-            )}
-          </div>
-        )}
-
         {isSchool && ssWeekSummary.length > 0 && (
-          <div className="px-4 py-2 border-b border-[#F0EDE9] no-print" style={{ background: "#FAFAF7" }}>
+          <div className="px-3 py-1.5 border-b border-[#F0EDE9] no-print shrink-0" style={{ background: "#FAFAF7" }}>
             {isAdmin && !invoiceLocked && <SsWeekLegend compact />}
             <SsWeekStatusRow
               weeks={ssWeekSummary}
@@ -719,113 +705,30 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto min-h-0 bg-white">
-          {/* Centered logo header */}
-          <div className="px-4 pt-5 pb-3 text-center border-b-2" style={{ borderColor: "#7A8A6A" }}>
-            <div className="w-14 h-14 rounded-xl mx-auto flex items-center justify-center p-2" style={{ background: "#7A8A6A" }}>
+        <div className="flex-1 overflow-y-auto min-h-0 bg-[#FAFAF7]">
+          <div className="px-3 pt-3 pb-2 text-center bg-white border-b border-[#E8E4DE]">
+            <div className="w-10 h-10 rounded-lg mx-auto flex items-center justify-center p-1.5" style={{ background: "#7A8A6A" }}>
               <img src="/bg-logo.png" alt="" className="w-full h-full object-contain"/>
             </div>
-            <div className="font-display text-xl font-semibold mt-2" style={{ color: "#2C3625" }}>Boost Growth</div>
-            <div className="text-[10px] tracking-[0.15em] font-bold mt-0.5" style={{ color: "#8B9E7A" }}>SESSION HISTORY · ABA SERVICES</div>
-            {selectedInvoice && (
-              <div className="flex items-center justify-center gap-2 mt-2 flex-wrap">
-                <span className="pill text-[10px]" style={{ background: "#F4EDE3", color: "#6B5430" }}>{selectedInvoice.invoice_number}</span>
-                <span className="pill text-[10px]" style={{
-                  background: selectedInvoice.is_closed ? "#F0EDE9" : "#E5EBE1",
-                  color: selectedInvoice.is_closed ? "#5C6853" : "#3D4F35",
-                }}>
-                  {selectedInvoice.is_closed ? "Closed" : "Open"}
-                </span>
-              </div>
-            )}
+            <div className="font-display text-base font-semibold mt-1 leading-tight" style={{ color: "#2C3625" }}>Boost Growth</div>
+            <div className="text-[9px] tracking-[0.12em] font-bold" style={{ color: "#8B9E7A" }}>SESSION HISTORY</div>
           </div>
 
-          {/* Patient info */}
-          <div className="px-4 py-2 border-b border-[#E8E4DE] text-sm">
-            <div className="grid grid-cols-2 gap-2 sm:gap-3 mb-2">
-              <div>
-                <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>PATIENT&apos;S NAME</div>
-                <div className="font-bold text-sm sm:text-base" style={{ color: "#2C3625" }}>{client.name}</div>
-              </div>
-              <div>
-                <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>FILE NO.</div>
-                <div className="font-bold text-sm sm:text-base" style={{ color: "#2C3625" }}>{client.file_no || "—"}</div>
-              </div>
-              <div className="col-span-2">
-                <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>SERVICE TYPE</div>
-                <div className="font-bold text-base sm:text-lg mt-0.5" style={{ color: isSchool ? "#2C5035" : "#6B5430" }}>
-                  {serviceDisplay}
-                </div>
-                {isSchool && currentWeekInfo && (
-                  <div className="text-[11px] mt-0.5" style={{ color: "#8B9E7A" }}>
-                    4-week cycle · Week {currentWeekInfo.weekNumber} of {cycleWeeks}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:gap-3 pt-2 border-t border-[#E8E4DE]">
-              {isSchool ? (
-                <>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>PACKAGE</div>
-                    <div className="font-bold" style={{ color: "#2C3625" }}>{cycleWeeks} Weeks</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>CURRENT WEEK</div>
-                    <div className="font-bold" style={{ color: "#2C3625" }}>Week {currentWeekInfo?.weekNumber || 1}</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>WEEKS COMPLETED</div>
-                    <div className="font-bold" style={{ color: "#2C3625" }}>{weeksDone} / {cycleWeeks}</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>PAYMENT</div>
-                    <div className="font-bold" style={{ color: paymentStatus === "complete" ? "#3D4F35" : "#8B6918" }}>
-                      {paymentStatus === "complete" ? "Paid" : "Pending"}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>PACKAGE</div>
-                    <div className="font-bold" style={{ color: "#2C3625" }}>{pkg}h</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>HOURS USED</div>
-                    <div className="font-bold" style={{ color: "#2C3625" }}>{used.toFixed(1)}h</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>HOURS REMAINING</div>
-                    <div className="font-bold" style={{ color: rem <= pkg * 0.2 ? "#C97B5C" : "#2C3625" }}>{rem.toFixed(1)}h</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>PAYMENT</div>
-                    <div className="font-bold" style={{ color: paymentStatus === "complete" ? "#3D4F35" : "#8B6918" }}>
-                      {paymentStatus === "complete" ? "Paid" : "Pending"}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Sessions */}
           {!selectedInvoice ? (
-            <div className="p-6 text-center text-sm" style={{ color: "#8B9E7A" }}>Select an invoice to view sessions</div>
+            <div className="p-4 text-center text-sm" style={{ color: "#8B9E7A" }}>No invoice selected</div>
           ) : cycleSessions.length === 0 && !isSchool ? (
-            <div className="p-6 text-center text-sm" style={{ color: "#8B9E7A" }}>No sessions for this invoice yet</div>
+            <div className="p-4 text-center text-sm" style={{ color: "#8B9E7A" }}>No sessions for this invoice yet</div>
           ) : isSchool ? (
-            <div className="p-3 space-y-3">
+            <div className="p-2 space-y-2">
               {ssWeekGroups.map((group) => {
                 const wk = ssWeekSummary[group.weekNumber - 1];
                 const st = wk?.weekStatus || "Not started";
                 const badgeBg = st === "Completed" ? "#E5EBE1" : st === "Open" ? "#FAF0D1" : st === "In Progress" ? "#FAF0D1" : "#FAFAF7";
                 return (
-                  <div key={`week-${group.weekNumber}`} className="border rounded-xl overflow-hidden" style={{ borderColor: "#C4D4B8" }}>
-                    <div className="px-3 py-1.5 flex items-center justify-between flex-wrap gap-2" style={{ background: "#EDF4E8" }}>
-                      <span className="font-bold text-sm" style={{ color: "#2C5035" }}>WEEK {group.weekNumber}</span>
-                      <span className="text-xs" style={{ color: "#5C6853" }}>{group.label}</span>
+                  <div key={`week-${group.weekNumber}`} className="border rounded-lg overflow-hidden bg-white" style={{ borderColor: "#C4D4B8" }}>
+                    <div className="px-2.5 py-1 flex items-center justify-between flex-wrap gap-1.5" style={{ background: "#EDF4E8" }}>
+                      <span className="font-bold text-xs" style={{ color: "#2C5035" }}>WEEK {group.weekNumber}</span>
+                      <span className="text-[10px]" style={{ color: "#5C6853" }}>{group.label}</span>
                       {wk && (
                         <span className="pill text-[10px] font-bold" style={{ background: badgeBg, color: "#3D4F35" }}>
                           {st}
@@ -834,23 +737,13 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
                       )}
                     </div>
                     {group.sessions.length === 0 ? (
-                      <div className="p-4 text-center text-xs italic" style={{ color: "#8B9E7A" }}>
+                      <div className="p-3 text-center text-xs italic" style={{ color: "#8B9E7A" }}>
                         {group.startISO ? "No sessions this week" : "Upcoming"}
                       </div>
                     ) : (
-                      <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-                        <table className="w-full text-xs min-w-[520px]">
-                          <thead style={{ background: "#F6F9F3" }}>
-                            <tr style={{ color: "#2C3625" }}>
-                              <th className="p-2 text-left font-bold">Day</th>
-                              <th className="p-2 text-left font-bold">Date</th>
-                              <th className="p-2 text-left font-bold">Status</th>
-                              <th className="p-2 text-left font-bold">Time</th>
-                              <th className="p-2 text-left font-bold">Therapist</th>
-                              <th className="p-2 text-left font-bold">Note</th>
-                              {!invoiceLocked && <th className="p-2 no-print"></th>}
-                            </tr>
-                          </thead>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs min-w-[480px] border-collapse">
+                          <HistoryTableHead cols={ssHistoryCols} bordered />
                           <tbody>
                             {sortSessionsByDateAsc(group.sessions).map(s => (
                               <SessionTableRow
@@ -867,6 +760,7 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
                                 billingKind="SS"
                                 hideHours
                                 locked={invoiceLocked}
+                                bordered
                               />
                             ))}
                           </tbody>
@@ -878,82 +772,37 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
               })}
             </div>
           ) : (
-            <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-              <table className="w-full text-xs min-w-[640px]">
-                <thead style={{ background: "#F0E9D8" }}>
-                  <tr style={{ color: "#2C3625" }}>
-                    <th className="p-2 text-left font-bold">Day</th>
-                    <th className="p-2 text-left font-bold">Date</th>
-                    <th className="p-2 text-left font-bold">Status</th>
-                    <th className="p-2 text-left font-bold">Time</th>
-                    <th className="p-2 text-left font-bold"># Hours</th>
-                    <th className="p-2 text-left font-bold">Therapist</th>
-                    <th className="p-2 text-left font-bold">Note</th>
-                    {!invoiceLocked && <th className="p-2 no-print"></th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sorted.map(s => (
-                    <SessionTableRow
-                      key={s.id}
-                      s={s}
-                      findT={findT}
-                      isAdmin={isAdmin}
-                      user={user}
-                      client={client}
-                      currentUserId={currentUserId}
-                      onEdit={onEdit}
-                      onDeleted={() => { onRefresh && onRefresh(); reloadSessions(); }}
-                      billingKind="HS"
-                      locked={invoiceLocked}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Footer summary */}
-          {selectedInvoice && (
-            <div className="px-4 py-3 border-t-2 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm" style={{ borderColor: "#7A8A6A", background: "#FAFAF7" }}>
-              {isSchool ? (
-                <>
-                  {ssWeekSummary.map(w => (
-                    <div key={`sum-${w.weekNumber}`}>
-                      <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>WEEK {w.weekNumber}</div>
-                      <div className="font-bold text-sm" style={{ color: "#3D4F35" }}>
-                        {w.weekStatus === "Completed" ? "✓" : w.weekStatus === "Open" ? "○" : w.weekStatus === "In Progress" ? "…" : "—"} {w.weekStatus}
-                        {w.sessions?.length > 0 && ` (${w.attended}/${w.dates?.length || 5} days)`}
-                      </div>
-                    </div>
-                  ))}
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>PAYMENT</div>
-                    <div className="font-bold text-sm" style={{ color: paymentStatus === "complete" ? "#3D4F35" : "#8B6918" }}>
-                      {paymentStatus === "complete" ? "Paid" : "Pending"}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>TOTAL SESSIONS COMPLETED</div>
-                    <div className="font-display text-2xl" style={{ color: "#3D4F35" }}>{completed}</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>TOTAL HOURS DELIVERED</div>
-                    <div className="font-display text-2xl" style={{ color: "#3D4F35" }}>{hoursDelivered.toFixed(1)}h</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>TOTAL NO SERVICE DAYS</div>
-                    <div className="font-display text-2xl" style={{ color: "#5C6853" }}>{noServiceCount}</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>HOURS REMAINING</div>
-                    <div className="font-display text-2xl" style={{ color: rem <= pkg * 0.2 ? "#C97B5C" : "#3D4F35" }}>{rem.toFixed(1)}h</div>
-                  </div>
-                </>
-              )}
+            <div className="p-2">
+              <div className="border rounded-lg overflow-hidden bg-white" style={{ borderColor: "#C4D4B8" }}>
+                <div className="px-2.5 py-1 flex items-center justify-between" style={{ background: "#EDF4E8" }}>
+                  <span className="font-bold text-xs" style={{ color: "#2C5035" }}>HOME SESSIONS</span>
+                  <span className="text-[10px]" style={{ color: "#5C6853" }}>{sorted.length} session{sorted.length !== 1 ? "s" : ""}</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs min-w-[520px] border-collapse">
+                    <HistoryTableHead cols={hsHistoryCols} bordered />
+                    <tbody>
+                      {sorted.map((s, i) => (
+                        <SessionTableRow
+                          key={s.id}
+                          s={s}
+                          findT={findT}
+                          isAdmin={isAdmin}
+                          user={user}
+                          client={client}
+                          currentUserId={currentUserId}
+                          onEdit={onEdit}
+                          onDeleted={() => { onRefresh && onRefresh(); reloadSessions(); }}
+                          rowBg={WEEK_ROW_BG[i % WEEK_ROW_BG.length]}
+                          billingKind="HS"
+                          locked={invoiceLocked}
+                          bordered
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -1307,12 +1156,20 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-3 z-50" onClick={onClose}>
-      <div className="card p-0 w-full max-w-4xl modal-card max-h-[85vh] flex flex-col printable" onClick={e=>e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-2 z-50" onClick={onClose}>
+      <div className="card p-0 relative w-full max-w-4xl modal-card max-h-[80vh] flex flex-col printable" onClick={e=>e.stopPropagation()}>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="absolute top-1.5 right-1.5 z-20 btn btn-ghost p-1.5 min-h-[32px] min-w-[32px] rounded-lg no-print"
+        >
+          <X size={20}/>
+        </button>
         {/* Action bar */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#E8E4DE] no-print flex-wrap gap-2">
-          <div className="font-bold text-sm w-full sm:w-auto" style={{color: "#2C3625"}}>Invoice Sheet · {client.name}</div>
-          <div className="flex gap-2 flex-wrap items-center w-full sm:w-auto">
+        <div className="flex items-center gap-2 px-3 py-1.5 pr-10 border-b border-[#E8E4DE] no-print shrink-0">
+          <div className="font-bold text-sm truncate min-w-0 flex-1" style={{color: "#2C3625"}}>Invoice Sheet · {client.name}</div>
+          <div className="flex gap-1.5 flex-wrap items-center shrink-0">
             {tabState.showToggle && (
               <ServiceTypeToggle
                 value={serviceTypeFilter}
@@ -1401,7 +1258,6 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                 </div>
               )}
             </div>
-            <button onClick={onClose} className="btn btn-ghost p-2"><X size={20}/></button>
           </div>
         </div>
 
@@ -1654,38 +1510,37 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               );})}
             </div>
           ) : (
-            <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-            <table className="w-full text-xs min-w-[640px]">
-              <thead style={{background: "#F0E9D8"}}>
-                <tr style={{color: "#2C3625"}}>
-                  <th className="p-2 text-left font-bold">Day</th>
-                  <th className="p-2 text-left font-bold">Date</th>
-                  <th className="p-2 text-left font-bold">Status</th>
-                  <th className="p-2 text-left font-bold">Time</th>
-                  <th className="p-2 text-left font-bold"># Hours</th>
-                  <th className="p-2 text-left font-bold">Therapist</th>
-                  <th className="p-2 text-left font-bold">Note</th>
-                  <th className="p-2 no-print"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedInvoiceSessions.map(s => (
-                  <SessionTableRow
-                    key={s.id}
-                    s={s}
-                    findT={findT}
-                    isAdmin={isAdmin}
-                    user={user}
-                    client={client}
-                    currentUserId={currentUserId}
-                    onEdit={onEdit}
-                    onDeleted={onDeleted}
-                    billingKind="HS"
-                    locked={invoiceLocked}
-                  />
-                ))}
-              </tbody>
-            </table>
+            <div className="p-2">
+              <div className="border rounded-lg overflow-hidden bg-white" style={{ borderColor: "#C4D4B8" }}>
+                <div className="px-2.5 py-1 flex items-center justify-between" style={{ background: "#EDF4E8" }}>
+                  <span className="font-bold text-xs" style={{ color: "#2C5035" }}>HOME SESSIONS</span>
+                  <span className="text-[10px]" style={{ color: "#5C6853" }}>{sortedInvoiceSessions.length} session{sortedInvoiceSessions.length !== 1 ? "s" : ""}</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs min-w-[520px] border-collapse">
+                    <HistoryTableHead cols={["Day", "Date", "Status", "Time", "# Hours", "Therapist", "Note", ""]} bordered />
+                    <tbody>
+                      {sortedInvoiceSessions.map((s, i) => (
+                        <SessionTableRow
+                          key={s.id}
+                          s={s}
+                          findT={findT}
+                          isAdmin={isAdmin}
+                          user={user}
+                          client={client}
+                          currentUserId={currentUserId}
+                          onEdit={onEdit}
+                          onDeleted={onDeleted}
+                          rowBg={WEEK_ROW_BG[i % WEEK_ROW_BG.length]}
+                          billingKind="HS"
+                          locked={invoiceLocked}
+                          bordered
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           )}
 
