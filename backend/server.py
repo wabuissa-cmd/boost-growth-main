@@ -1496,15 +1496,58 @@ def _session_has_invoice_link(s: dict) -> bool:
     return bool(s.get("invoice_id") or (s.get("source_invoice") or "").strip())
 
 
+def _normalize_session_date_iso(raw) -> str:
+    """Canonical YYYY-MM-DD for sorting and window checks."""
+    if not raw:
+        return ""
+    s = str(raw).strip()
+    m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})", s)
+    if m:
+        y, mo, d = m.group(1), m.group(2).zfill(2), m.group(3).zfill(2)
+        return f"{y}-{mo}-{d}"
+    m = re.match(r"^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})", s)
+    if m:
+        d, mo, y = m.group(1).zfill(2), m.group(2).zfill(2), m.group(3)
+        return f"{y}-{mo}-{d}"
+    return s[:10]
+
+
+def _session_date_sort_key(s: dict):
+    iso = _normalize_session_date_iso(s.get("session_date"))
+    return iso or "9999-99-99"
+
+
 def _session_in_invoice_date_window(s: dict, inv: dict, sorted_client_invoices: list) -> bool:
-    d = str(s.get("session_date") or "")[:10]
+    d = _normalize_session_date_iso(s.get("session_date"))
     if not d:
         return False
     start, end = _invoice_window_bounds(inv, sorted_client_invoices)
+    start = _normalize_session_date_iso(start) or start
     if d < start:
         return False
-    if end and d >= end:
+    if end:
+        end = _normalize_session_date_iso(end) or end
+        if d >= end:
+            return False
+    return True
+
+
+def _orphan_belongs_to_invoice(s: dict, inv: dict, sorted_client_invoices: list) -> bool:
+    if _session_has_invoice_link(s):
         return False
+    if not _session_in_invoice_date_window(s, inv, sorted_client_invoices):
+        return False
+    d = _normalize_session_date_iso(s.get("session_date"))
+    for other in sorted_client_invoices:
+        if other.get("id") == inv.get("id"):
+            continue
+        start, end = _invoice_window_bounds(other, sorted_client_invoices)
+        if not end:
+            continue
+        start = _normalize_session_date_iso(start) or start
+        end = _normalize_session_date_iso(end) or end
+        if d >= start and d < end:
+            return False
     return True
 
 
@@ -1518,6 +1561,9 @@ def _sessions_for_invoice(inv: dict, sessions: list, client_invoices: list = Non
     for s in sessions:
         if s.get("client_id") != cid:
             continue
+        linked_id = s.get("invoice_id")
+        if linked_id and linked_id != inv_id:
+            continue
         if _session_linked_to_invoice(s, inv):
             sid = s.get("id")
             if sid and sid not in seen:
@@ -1530,12 +1576,11 @@ def _sessions_for_invoice(inv: dict, sessions: list, client_invoices: list = Non
             sid = s.get("id")
             if sid in seen:
                 continue
-            if _session_has_invoice_link(s):
-                continue
-            if _session_in_invoice_date_window(s, inv, sorted_invs):
+            if _orphan_belongs_to_invoice(s, inv, sorted_invs):
                 out.append(s)
                 if sid:
                     seen.add(sid)
+    out.sort(key=_session_date_sort_key)
     return out
 
 
@@ -2778,7 +2823,7 @@ async def _sessions_for_invoice_query(client_id: str, invoice_id: str) -> list:
                     patch["source_invoice"] = inv_num
                 await db.sessions.update_one({"id": sid}, {"$set": patch})
 
-    merged.sort(key=lambda x: str(x.get("session_date") or ""))
+    merged.sort(key=_session_date_sort_key)
     return merged
 
 

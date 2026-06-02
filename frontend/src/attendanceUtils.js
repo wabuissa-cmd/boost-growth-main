@@ -4,7 +4,33 @@ export const WEEK_ROW_BG = ["#FFFFFF", "#F6F9F3", "#EDF4E8", "#E4EDE0"];
 
 export function parseISO(iso) {
   if (!iso) return new Date();
-  return new Date(`${String(iso).slice(0, 10)}T12:00:00`);
+  const key = normalizeSessionDateKey(iso);
+  return new Date(`${key}T12:00:00`);
+}
+
+/** Canonical YYYY-MM-DD for sort/compare — handles ISO, DD/MM/YYYY, and loose strings. */
+export function normalizeSessionDateKey(raw) {
+  if (raw == null || raw === "") return "";
+  const s = String(raw).trim();
+  const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) {
+    const [, y, m, d] = iso;
+    return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+  const dmy = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/);
+  if (dmy) {
+    const [, d, m, y] = dmy;
+    return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  return s.slice(0, 10);
+}
+
+export function sessionDateSortKey(session) {
+  const iso = normalizeSessionDateKey(session?.session_date);
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso || "9999-99-99";
+  const t = new Date(`${iso}T12:00:00`).getTime();
+  return Number.isNaN(t) ? iso : t;
 }
 
 export function addDays(date, days) {
@@ -19,7 +45,10 @@ export function toISO(d) {
 
 export function fmtDate(iso) {
   const dt = parseISO(iso);
-  return `${dt.getDate()}/${dt.getMonth() + 1}/${dt.getFullYear()}`;
+  const d = dt.getDate();
+  const m = dt.getMonth() + 1;
+  const y = dt.getFullYear();
+  return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`;
 }
 
 export function dayShort(iso) {
@@ -79,12 +108,10 @@ export function computeSchoolWeekWindows(anchorISO, totalWeeks = 4) {
 
 export function groupSessionsBySchoolWeeks(sessions, anchorISO, totalWeeks = 4) {
   const windows = computeSchoolWeekWindows(anchorISO, totalWeeks);
-  const sorted = [...(sessions || [])].sort((a, b) =>
-    String(a.session_date).localeCompare(String(b.session_date))
-  );
+  const sorted = sortSessionsByDateAsc(sessions);
   return windows.map(w => ({
     ...w,
-    sessions: sorted.filter(s => w.dates.includes(String(s.session_date).slice(0, 10))),
+    sessions: sorted.filter(s => w.dates.includes(normalizeSessionDateKey(s.session_date))),
   }));
 }
 
@@ -125,6 +152,8 @@ export function filterSessionsForInvoice(sessions, invoice, allInvoices = []) {
   const out = [];
   const seen = new Set();
   for (const s of sessions || []) {
+    if (s.invoice_id && s.invoice_id !== invId) continue;
+    if (invNum && (s.source_invoice || "").trim() && (s.source_invoice || "").trim() !== invNum && s.invoice_id) continue;
     if (s.invoice_id === invId || (invNum && (s.source_invoice || "").trim() === invNum)) {
       if (!seen.has(s.id)) {
         out.push(s);
@@ -135,14 +164,13 @@ export function filterSessionsForInvoice(sessions, invoice, allInvoices = []) {
   if (sorted.length) {
     for (const s of sessions || []) {
       if (seen.has(s.id)) continue;
-      if (sessionHasInvoiceLink(s)) continue;
-      if (sessionInInvoiceDateWindow(s, invoice, sorted)) {
+      if (orphanBelongsToInvoice(s, invoice, sorted)) {
         out.push(s);
         seen.add(s.id);
       }
     }
   }
-  return out;
+  return sortSessionsByDateAsc(out);
 }
 
 export function sortInvoicesByRecent(invoiceList) {
@@ -153,14 +181,16 @@ export function sortInvoicesByRecent(invoiceList) {
   });
 }
 
-/** Oldest first (Excel / Drive sheet order — latest date at bottom). */
+/** Oldest first (chronological — latest at bottom). */
 export function sortSessionsByDateAsc(sessions) {
   return [...(sessions || [])].sort((a, b) => {
-    const da = String(a.session_date || "").slice(0, 10);
-    const db = String(b.session_date || "").slice(0, 10);
-    const cmp = da.localeCompare(db);
-    if (cmp !== 0) return cmp;
-    return String(a.start_time || "").localeCompare(String(b.start_time || ""));
+    const ka = sessionDateSortKey(a);
+    const kb = sessionDateSortKey(b);
+    if (ka !== kb) return ka < kb ? -1 : 1;
+    const ta = String(a.start_time || "");
+    const tb = String(b.start_time || "");
+    if (ta !== tb) return ta.localeCompare(tb);
+    return String(a.id || "").localeCompare(String(b.id || ""));
   });
 }
 
@@ -405,11 +435,31 @@ function sessionHasInvoiceLink(s) {
 }
 
 function sessionInInvoiceDateWindow(s, invoice, sortedClientInvoices) {
-  const d = String(s.session_date || "").slice(0, 10);
+  const d = normalizeSessionDateKey(s.session_date);
   if (!d) return false;
   const { start, end } = invoiceWindowBounds(invoice, sortedClientInvoices);
-  if (d < start) return false;
-  if (end && d >= end) return false;
+  const startKey = normalizeSessionDateKey(start) || start;
+  if (d < startKey) return false;
+  if (end) {
+    const endKey = normalizeSessionDateKey(end) || end;
+    if (d >= endKey) return false;
+  }
+  return true;
+}
+
+/** Orphan session belongs to this invoice only if not inside another invoice's bounded window. */
+function orphanBelongsToInvoice(s, invoice, sortedClientInvoices) {
+  if (sessionHasInvoiceLink(s)) return false;
+  if (!sessionInInvoiceDateWindow(s, invoice, sortedClientInvoices)) return false;
+  const d = normalizeSessionDateKey(s.session_date);
+  for (const other of sortedClientInvoices) {
+    if (other.id === invoice.id) continue;
+    const { start, end } = invoiceWindowBounds(other, sortedClientInvoices);
+    if (!end) continue;
+    const startKey = normalizeSessionDateKey(start) || start;
+    const endKey = normalizeSessionDateKey(end) || end;
+    if (d >= startKey && d < endKey) return false;
+  }
   return true;
 }
 

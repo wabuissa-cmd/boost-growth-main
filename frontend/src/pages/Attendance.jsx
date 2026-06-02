@@ -541,8 +541,8 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
     inferDefaultServiceType([], client, user, sessions) || "HS"
   );
   const [selectedInvoiceId, setSelectedInvoiceId] = useState("");
-  const [localSessions, setLocalSessions] = useState(sessions);
-  const invoicesInitialized = useRef(false);
+  const [localSessions, setLocalSessions] = useState(() => sessions || []);
+  const [loading, setLoading] = useState(true);
   const prevServiceFilter = useRef(serviceTypeFilter);
 
   const tabState = useMemo(() => resolveServiceTabState(client, allInvoices), [client, allInvoices]);
@@ -555,49 +555,70 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
   const selectedInvoice = invoices.find(i => i.id === selectedInvoiceId);
   const invoiceLocked = !!selectedInvoice?.is_closed;
 
-  const reloadSessions = useCallback(async () => {
+  const fetchSessionsForInvoice = useCallback(async (invoiceId) => {
     const params = { client_id: client.id };
-    if (selectedInvoiceId) params.invoice_id = selectedInvoiceId;
+    if (invoiceId) params.invoice_id = invoiceId;
     try {
       const r = await api.get("/sessions", { params });
-      setLocalSessions(r.data || []);
+      return r.data || [];
     } catch {
-      setLocalSessions([]);
+      return [];
     }
-  }, [client.id, selectedInvoiceId]);
-
-  useEffect(() => {
-    api.get(`/clients/${client.id}/invoices`).then(r => setAllInvoices(r.data || [])).catch(() => setAllInvoices([]));
-    invoicesInitialized.current = false;
   }, [client.id]);
 
-  useEffect(() => {
-    if (!allInvoices.length && invoicesInitialized.current) return;
-    if (!invoicesInitialized.current) {
-      invoicesInitialized.current = true;
-      const def = inferDefaultServiceType(allInvoices, client, user, sessions) || "HS";
+  const bootstrapModal = useCallback(async () => {
+    setLoading(true);
+    try {
+      const invRes = await api.get(`/clients/${client.id}/invoices`);
+      const list = invRes.data || [];
+      setAllInvoices(list);
+      const def = inferDefaultServiceType(list, client, user, sessions) || "HS";
       setServiceTypeFilter(def);
-      const filtered = tabState.showToggle
-        ? filterInvoicesForServiceTab(allInvoices, def, client)
-        : allInvoices;
+      const tab = resolveServiceTabState(client, list);
+      const filtered = tab.showToggle ? filterInvoicesForServiceTab(list, def, client) : list;
       const pick = pickLatestOpenInvoice(filtered);
-      setSelectedInvoiceId(pick?.id || "");
+      const invId = pick?.id || "";
+      setSelectedInvoiceId(invId);
+      prevServiceFilter.current = def;
+      const data = await fetchSessionsForInvoice(invId);
+      setLocalSessions(data);
+    } catch {
+      setAllInvoices([]);
+      setLocalSessions([]);
+    } finally {
+      setLoading(false);
     }
-  }, [allInvoices, client, user, sessions, tabState.showToggle]);
+  }, [client, user, sessions, fetchSessionsForInvoice]);
 
   useEffect(() => {
-    if (prevServiceFilter.current !== serviceTypeFilter) {
-      prevServiceFilter.current = serviceTypeFilter;
-      const filtered = tabState.showToggle
-        ? filterInvoicesForServiceTab(allInvoices, serviceTypeFilter, client)
-        : allInvoices;
-      const pick = pickLatestOpenInvoice(filtered);
-      setSelectedInvoiceId(pick?.id || "");
-    }
-  }, [serviceTypeFilter, allInvoices, tabState.showToggle, client]);
+    bootstrapModal();
+  }, [client.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { reloadSessions(); }, [reloadSessions]);
-  useEffect(() => { reloadSessions(); }, [sessions]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (prevServiceFilter.current === serviceTypeFilter) return;
+    prevServiceFilter.current = serviceTypeFilter;
+    const filtered = tabState.showToggle
+      ? filterInvoicesForServiceTab(allInvoices, serviceTypeFilter, client)
+      : allInvoices;
+    const pick = pickLatestOpenInvoice(filtered);
+    const invId = pick?.id || "";
+    setSelectedInvoiceId(invId);
+    setLoading(true);
+    fetchSessionsForInvoice(invId).then(data => {
+      setLocalSessions(data);
+      setLoading(false);
+    });
+  }, [serviceTypeFilter, allInvoices, tabState.showToggle, client, fetchSessionsForInvoice]);
+
+  const reloadSessions = useCallback(async () => {
+    const data = await fetchSessionsForInvoice(selectedInvoiceId);
+    setLocalSessions(data);
+  }, [fetchSessionsForInvoice, selectedInvoiceId]);
+
+  useEffect(() => {
+    if (loading) return;
+    reloadSessions();
+  }, [sessions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cycleSessions = useMemo(
     () => filterSessionsForInvoice(localSessions, selectedInvoice, allInvoices),
@@ -671,7 +692,15 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
             <select
               className="select text-xs min-h-[32px] max-w-[150px] shrink-0"
               value={selectedInvoiceId}
-              onChange={e => setSelectedInvoiceId(e.target.value)}
+              onChange={e => {
+                const id = e.target.value;
+                setSelectedInvoiceId(id);
+                setLoading(true);
+                fetchSessionsForInvoice(id).then(data => {
+                  setLocalSessions(data);
+                  setLoading(false);
+                });
+              }}
             >
               {sortedInvoices.map(inv => (
                 <option key={inv.id} value={inv.id}>
@@ -716,6 +745,8 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
 
           {!selectedInvoice ? (
             <div className="p-4 text-center text-sm" style={{ color: "#8B9E7A" }}>No invoice selected</div>
+          ) : loading ? (
+            <div className="p-4 text-center text-sm" style={{ color: "#8B9E7A" }}>Loading sessions…</div>
           ) : cycleSessions.length === 0 && !isSchool ? (
             <div className="p-4 text-center text-sm" style={{ color: "#8B9E7A" }}>No sessions for this invoice yet</div>
           ) : isSchool ? (
