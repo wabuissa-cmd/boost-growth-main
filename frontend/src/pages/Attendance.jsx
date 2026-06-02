@@ -603,12 +603,32 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
     () => computeHsInvoiceTotals(cycleSessions, selectedInvoice?.package_size || client.package_hours || 24),
     [cycleSessions, selectedInvoice?.package_size, client.package_hours]
   );
-  const ssTotals = useMemo(() => computeSsTotals(cycleSessions), [cycleSessions]);
   const sorted = useMemo(() => sortSessionsByDateAsc(cycleSessions), [cycleSessions]);
 
-  const pkgLabel = isSchool
-    ? `${countSsWeeksDone(ssWeekSummary)}/4 weeks done`
-    : `Package: ${hsTotals.pkg}h · Used: ${hsTotals.hoursUsed.toFixed(1)}h`;
+  const ssWeekGroups = useMemo(
+    () => (isSchool && cycleAnchor ? groupSessionsBySchoolWeeks(cycleSessions, cycleAnchor, 4) : []),
+    [isSchool, cycleSessions, cycleAnchor]
+  );
+  const currentWeekInfo = useMemo(
+    () => ssWeekSummary.find(w => w.weekStatus === "In Progress")
+      || ssWeekSummary.find(w => w.weekStatus === "Open")
+      || ssWeekSummary.find(w => w.weekStatus === "Not started")
+      || ssWeekSummary[ssWeekSummary.length - 1],
+    [ssWeekSummary]
+  );
+  const weeksDone = countSsWeeksDone(ssWeekSummary);
+  const cycleWeeks = 4;
+  const serviceDisplay = useMemo(
+    () => formatServiceTypeDisplay(selectedInvoice?.service_type || serviceTypeFilter) || serviceTypeFilter,
+    [selectedInvoice?.service_type, serviceTypeFilter]
+  );
+  const paymentStatus = selectedInvoice?.payment_status || client.payment_status || "pending";
+  const completed = hsTotals.completedCount;
+  const hoursDelivered = hsTotals.hoursDelivered;
+  const noServiceCount = hsTotals.noServiceCount;
+  const rem = hsTotals.hoursRemaining;
+  const pkg = hsTotals.pkg;
+  const used = hsTotals.hoursUsed;
 
   const reloadInvoices = useCallback(async () => {
     const r = await api.get(`/clients/${client.id}/invoices`).catch(() => ({ data: [] }));
@@ -636,15 +656,25 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
 
   return (
     <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-3 z-50" onClick={onClose}>
-      <div className="card p-0 w-full max-w-3xl modal-card max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#E8E4DE] flex-wrap gap-2">
-          <div>
-            <div className="font-bold text-sm" style={{ color: "#2C3625" }}>History · {client.name}</div>
-            <div className="text-[11px]" style={{ color: "#8B9E7A" }}>{pkgLabel}</div>
-          </div>
+      <div className="card p-0 w-full max-w-4xl modal-card max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-2 border-b border-[#E8E4DE] flex-wrap gap-2 no-print">
+          <div className="font-bold text-sm" style={{ color: "#2C3625" }}>History · {client.name}</div>
           <div className="flex items-center gap-2 flex-wrap">
             {tabState.showToggle && (
               <ServiceTypeToggle value={serviceTypeFilter} onChange={setServiceTypeFilter} tabState={tabState} />
+            )}
+            {sortedInvoices.length > 1 && (
+              <select
+                className="select text-xs min-h-[36px] min-w-[140px]"
+                value={selectedInvoiceId}
+                onChange={e => setSelectedInvoiceId(e.target.value)}
+              >
+                {sortedInvoices.map(inv => (
+                  <option key={inv.id} value={inv.id}>
+                    {inv.invoice_number} · {inv.is_closed ? "Closed" : "Open"}
+                  </option>
+                ))}
+              </select>
             )}
             <button onClick={onClose} className="btn btn-ghost p-2 min-h-[40px] min-w-[40px]"><X size={18}/></button>
           </div>
@@ -657,39 +687,28 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
           </div>
         )}
 
-        <div className="px-4 py-2 flex flex-wrap items-center gap-2 border-b border-[#F0EDE9] text-xs">
-          {selectedInvoice && (
-            <span className="pill text-[10px] font-bold px-2 py-0.5"
-              style={{
-                background: selectedInvoice.is_closed ? "#F0EDE9" : "#E5EBE1",
-                color: selectedInvoice.is_closed ? "#5C6853" : "#3D4F35",
-              }}>
-              {selectedInvoice.invoice_number} · {selectedInvoice.is_closed ? "Closed" : "Open"}
+        {selectedInvoice && (
+          <div className="px-4 py-1.5 flex flex-wrap items-center gap-2 border-b border-[#F0EDE9] text-xs no-print" style={{ background: "#FAFAF7" }}>
+            <span className="font-bold" style={{ color: "#2C3625" }}>{selectedInvoice.invoice_number}</span>
+            <span className="pill text-[10px]" style={{ background: isSchool ? "#E0EBD8" : "#F4EDE3", color: isSchool ? "#2C5035" : "#6B5430" }}>
+              {serviceDisplay}
             </span>
-          )}
-          <span className="pill text-[10px]" style={{ background: "#F4EDE3", color: "#6B5430" }}>
-            {formatServiceTypeDisplay(serviceTypeFilter) || serviceTypeFilter}
-          </span>
-          {sortedInvoices.length > 1 && (
-            <select
-              className="select text-xs min-h-[36px] flex-1 min-w-[140px]"
-              value={selectedInvoiceId}
-              onChange={e => setSelectedInvoiceId(e.target.value)}
-            >
-              {sortedInvoices.map(inv => (
-                <option key={inv.id} value={inv.id}>
-                  {inv.invoice_number} · {inv.is_closed ? "Closed" : "Open"}
-                </option>
-              ))}
-            </select>
-          )}
-          {!sortedInvoices.length && (
-            <span style={{ color: "#8B9E7A" }}>No {serviceTypeFilter} invoice</span>
-          )}
-        </div>
+            <span className="pill text-[10px] font-bold" style={{
+              background: selectedInvoice.is_closed ? "#F0EDE9" : "#E5EBE1",
+              color: selectedInvoice.is_closed ? "#5C6853" : "#3D4F35",
+            }}>
+              {selectedInvoice.is_closed ? "Closed" : "Open"}
+            </span>
+            {isSchool ? (
+              <span style={{ color: "#5C6853" }}>Week {currentWeekInfo?.weekNumber || 1}/{cycleWeeks} · {weeksDone}/{cycleWeeks} weeks done</span>
+            ) : (
+              <span style={{ color: "#5C6853" }}>{rem.toFixed(1)}h remaining · {used.toFixed(1)}/{pkg}h</span>
+            )}
+          </div>
+        )}
 
         {isSchool && ssWeekSummary.length > 0 && (
-          <div className="px-4 py-2 border-b border-[#F0EDE9]" style={{ background: "#FAFAF7" }}>
+          <div className="px-4 py-2 border-b border-[#F0EDE9] no-print" style={{ background: "#FAFAF7" }}>
             {isAdmin && !invoiceLocked && <SsWeekLegend compact />}
             <SsWeekStatusRow
               weeks={ssWeekSummary}
@@ -700,11 +719,166 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto min-h-0">
-          {sorted.length === 0 ? (
+        <div className="flex-1 overflow-y-auto min-h-0 bg-white">
+          {/* Centered logo header */}
+          <div className="px-4 pt-5 pb-3 text-center border-b-2" style={{ borderColor: "#7A8A6A" }}>
+            <div className="w-14 h-14 rounded-xl mx-auto flex items-center justify-center p-2" style={{ background: "#7A8A6A" }}>
+              <img src="/bg-logo.png" alt="" className="w-full h-full object-contain"/>
+            </div>
+            <div className="font-display text-xl font-semibold mt-2" style={{ color: "#2C3625" }}>Boost Growth</div>
+            <div className="text-[10px] tracking-[0.15em] font-bold mt-0.5" style={{ color: "#8B9E7A" }}>SESSION HISTORY · ABA SERVICES</div>
+            {selectedInvoice && (
+              <div className="flex items-center justify-center gap-2 mt-2 flex-wrap">
+                <span className="pill text-[10px]" style={{ background: "#F4EDE3", color: "#6B5430" }}>{selectedInvoice.invoice_number}</span>
+                <span className="pill text-[10px]" style={{
+                  background: selectedInvoice.is_closed ? "#F0EDE9" : "#E5EBE1",
+                  color: selectedInvoice.is_closed ? "#5C6853" : "#3D4F35",
+                }}>
+                  {selectedInvoice.is_closed ? "Closed" : "Open"}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Patient info */}
+          <div className="px-4 py-2 border-b border-[#E8E4DE] text-sm">
+            <div className="grid grid-cols-2 gap-2 sm:gap-3 mb-2">
+              <div>
+                <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>PATIENT&apos;S NAME</div>
+                <div className="font-bold text-sm sm:text-base" style={{ color: "#2C3625" }}>{client.name}</div>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>FILE NO.</div>
+                <div className="font-bold text-sm sm:text-base" style={{ color: "#2C3625" }}>{client.file_no || "—"}</div>
+              </div>
+              <div className="col-span-2">
+                <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>SERVICE TYPE</div>
+                <div className="font-bold text-base sm:text-lg mt-0.5" style={{ color: isSchool ? "#2C5035" : "#6B5430" }}>
+                  {serviceDisplay}
+                </div>
+                {isSchool && currentWeekInfo && (
+                  <div className="text-[11px] mt-0.5" style={{ color: "#8B9E7A" }}>
+                    4-week cycle · Week {currentWeekInfo.weekNumber} of {cycleWeeks}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:gap-3 pt-2 border-t border-[#E8E4DE]">
+              {isSchool ? (
+                <>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>PACKAGE</div>
+                    <div className="font-bold" style={{ color: "#2C3625" }}>{cycleWeeks} Weeks</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>CURRENT WEEK</div>
+                    <div className="font-bold" style={{ color: "#2C3625" }}>Week {currentWeekInfo?.weekNumber || 1}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>WEEKS COMPLETED</div>
+                    <div className="font-bold" style={{ color: "#2C3625" }}>{weeksDone} / {cycleWeeks}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>PAYMENT</div>
+                    <div className="font-bold" style={{ color: paymentStatus === "complete" ? "#3D4F35" : "#8B6918" }}>
+                      {paymentStatus === "complete" ? "Paid" : "Pending"}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>PACKAGE</div>
+                    <div className="font-bold" style={{ color: "#2C3625" }}>{pkg}h</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>HOURS USED</div>
+                    <div className="font-bold" style={{ color: "#2C3625" }}>{used.toFixed(1)}h</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>HOURS REMAINING</div>
+                    <div className="font-bold" style={{ color: rem <= pkg * 0.2 ? "#C97B5C" : "#2C3625" }}>{rem.toFixed(1)}h</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>PAYMENT</div>
+                    <div className="font-bold" style={{ color: paymentStatus === "complete" ? "#3D4F35" : "#8B6918" }}>
+                      {paymentStatus === "complete" ? "Paid" : "Pending"}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Sessions */}
+          {!selectedInvoice ? (
+            <div className="p-6 text-center text-sm" style={{ color: "#8B9E7A" }}>Select an invoice to view sessions</div>
+          ) : cycleSessions.length === 0 && !isSchool ? (
             <div className="p-6 text-center text-sm" style={{ color: "#8B9E7A" }}>No sessions for this invoice yet</div>
+          ) : isSchool ? (
+            <div className="p-3 space-y-3">
+              {ssWeekGroups.map((group) => {
+                const wk = ssWeekSummary[group.weekNumber - 1];
+                const st = wk?.weekStatus || "Not started";
+                const badgeBg = st === "Completed" ? "#E5EBE1" : st === "Open" ? "#FAF0D1" : st === "In Progress" ? "#FAF0D1" : "#FAFAF7";
+                return (
+                  <div key={`week-${group.weekNumber}`} className="border rounded-xl overflow-hidden" style={{ borderColor: "#C4D4B8" }}>
+                    <div className="px-3 py-1.5 flex items-center justify-between flex-wrap gap-2" style={{ background: "#EDF4E8" }}>
+                      <span className="font-bold text-sm" style={{ color: "#2C5035" }}>WEEK {group.weekNumber}</span>
+                      <span className="text-xs" style={{ color: "#5C6853" }}>{group.label}</span>
+                      {wk && (
+                        <span className="pill text-[10px] font-bold" style={{ background: badgeBg, color: "#3D4F35" }}>
+                          {st}
+                          {group.sessions.length > 0 && ` (${wk.attended}/${group.dates.length || 5} days)`}
+                        </span>
+                      )}
+                    </div>
+                    {group.sessions.length === 0 ? (
+                      <div className="p-4 text-center text-xs italic" style={{ color: "#8B9E7A" }}>
+                        {group.startISO ? "No sessions this week" : "Upcoming"}
+                      </div>
+                    ) : (
+                      <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+                        <table className="w-full text-xs min-w-[520px]">
+                          <thead style={{ background: "#F6F9F3" }}>
+                            <tr style={{ color: "#2C3625" }}>
+                              <th className="p-2 text-left font-bold">Day</th>
+                              <th className="p-2 text-left font-bold">Date</th>
+                              <th className="p-2 text-left font-bold">Status</th>
+                              <th className="p-2 text-left font-bold">Time</th>
+                              <th className="p-2 text-left font-bold">Therapist</th>
+                              <th className="p-2 text-left font-bold">Note</th>
+                              {!invoiceLocked && <th className="p-2 no-print"></th>}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sortSessionsByDateAsc(group.sessions).map(s => (
+                              <SessionTableRow
+                                key={s.id}
+                                s={s}
+                                findT={findT}
+                                isAdmin={isAdmin}
+                                user={user}
+                                client={client}
+                                currentUserId={currentUserId}
+                                onEdit={onEdit}
+                                onDeleted={() => { onRefresh && onRefresh(); reloadSessions(); }}
+                                rowBg={WEEK_ROW_BG[(group.weekNumber - 1) % WEEK_ROW_BG.length]}
+                                billingKind="SS"
+                                hideHours
+                                locked={invoiceLocked}
+                              />
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           ) : (
-            <div className="table-scroll overflow-x-auto">
+            <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
               <table className="w-full text-xs min-w-[640px]">
                 <thead style={{ background: "#F0E9D8" }}>
                   <tr style={{ color: "#2C3625" }}>
@@ -712,8 +886,9 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
                     <th className="p-2 text-left font-bold">Date</th>
                     <th className="p-2 text-left font-bold">Status</th>
                     <th className="p-2 text-left font-bold">Time</th>
-                    <th className="p-2 text-left font-bold">{isSchool ? "Day" : "Hours"}</th>
+                    <th className="p-2 text-left font-bold"># Hours</th>
                     <th className="p-2 text-left font-bold">Therapist</th>
+                    <th className="p-2 text-left font-bold">Note</th>
                     {!invoiceLocked && <th className="p-2 no-print"></th>}
                   </tr>
                 </thead>
@@ -729,12 +904,56 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
                       currentUserId={currentUserId}
                       onEdit={onEdit}
                       onDeleted={() => { onRefresh && onRefresh(); reloadSessions(); }}
-                      billingKind={isSchool ? "SS" : "HS"}
+                      billingKind="HS"
                       locked={invoiceLocked}
                     />
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* Footer summary */}
+          {selectedInvoice && (
+            <div className="px-4 py-3 border-t-2 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm" style={{ borderColor: "#7A8A6A", background: "#FAFAF7" }}>
+              {isSchool ? (
+                <>
+                  {ssWeekSummary.map(w => (
+                    <div key={`sum-${w.weekNumber}`}>
+                      <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>WEEK {w.weekNumber}</div>
+                      <div className="font-bold text-sm" style={{ color: "#3D4F35" }}>
+                        {w.weekStatus === "Completed" ? "✓" : w.weekStatus === "Open" ? "○" : w.weekStatus === "In Progress" ? "…" : "—"} {w.weekStatus}
+                        {w.sessions?.length > 0 && ` (${w.attended}/${w.dates?.length || 5} days)`}
+                      </div>
+                    </div>
+                  ))}
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>PAYMENT</div>
+                    <div className="font-bold text-sm" style={{ color: paymentStatus === "complete" ? "#3D4F35" : "#8B6918" }}>
+                      {paymentStatus === "complete" ? "Paid" : "Pending"}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>TOTAL SESSIONS COMPLETED</div>
+                    <div className="font-display text-2xl" style={{ color: "#3D4F35" }}>{completed}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>TOTAL HOURS DELIVERED</div>
+                    <div className="font-display text-2xl" style={{ color: "#3D4F35" }}>{hoursDelivered.toFixed(1)}h</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>TOTAL NO SERVICE DAYS</div>
+                    <div className="font-display text-2xl" style={{ color: "#5C6853" }}>{noServiceCount}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>HOURS REMAINING</div>
+                    <div className="font-display text-2xl" style={{ color: rem <= pkg * 0.2 ? "#C97B5C" : "#3D4F35" }}>{rem.toFixed(1)}h</div>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -1378,7 +1597,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               {ssWeekGroups.map((group) => {
                 const wk = ssWeekSummary[group.weekNumber - 1];
                 const st = wk?.weekStatus || "Not started";
-                const badgeBg = st === "Completed" ? "#E5EBE1" : st === "Skipped" ? "#F5F5F5" : st === "In Progress" ? "#FAF0D1" : "#FAFAF7";
+                const badgeBg = st === "Completed" ? "#E5EBE1" : st === "Open" ? "#FAF0D1" : st === "In Progress" ? "#FAF0D1" : "#FAFAF7";
                 return (
                 <div key={`week-${group.weekNumber}`} className="border rounded-xl overflow-hidden" style={{ borderColor: "#C4D4B8" }}>
                   <div className="px-3 py-1.5 flex items-center justify-between flex-wrap gap-2" style={{ background: "#EDF4E8" }}>
@@ -1478,7 +1697,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                   <div key={`sum-${w.weekNumber}`}>
                     <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>WEEK {w.weekNumber}</div>
                     <div className="font-bold text-sm" style={{color: "#3D4F35"}}>
-                      {w.weekStatus === "Completed" ? "✓" : w.weekStatus === "Skipped" ? "⊘" : w.weekStatus === "In Progress" ? "…" : "—"} {w.weekStatus}
+                      {w.weekStatus === "Completed" ? "✓" : w.weekStatus === "Open" ? "○" : w.weekStatus === "In Progress" ? "…" : "—"} {w.weekStatus}
                       {w.sessions.length > 0 && ` (${w.attended}/${w.dates.length || 5} days)`}
                     </div>
                   </div>

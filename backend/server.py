@@ -1645,8 +1645,8 @@ def _resolve_ss_week_status(
     session_count: int,
     manual_override: Optional[str] = None,
 ) -> str:
-    if manual_override == "excluded":
-        return "Skipped"
+    if manual_override in ("open", "excluded"):
+        return "Open"
     if manual_override == "completed":
         return "Completed"
     if session_count <= 0:
@@ -1659,7 +1659,7 @@ def _resolve_ss_week_status(
 
 
 def _week_counts_as_done(week_status: str, session_count: int, manual_override: Optional[str]) -> bool:
-    if manual_override == "excluded":
+    if manual_override in ("open", "excluded"):
         return False
     if manual_override == "completed":
         return True
@@ -1702,6 +1702,7 @@ def _ss_week_summary_for_invoice(
         label = "(upcoming)"
         if dates:
             label = f"{dates[0]} - {dates[-1]}"
+        override_key = "open" if manual == "excluded" else manual
         out.append({
             "weekNumber": wnum,
             "weekStatus": week_status,
@@ -1710,8 +1711,8 @@ def _ss_week_summary_for_invoice(
             "schoolDays": school_days,
             "endISO": end_iso,
             "countsAsDone": _week_counts_as_done(week_status, len(week_sessions), manual),
-            "manual": manual in ("excluded", "completed"),
-            "overrideKey": manual,
+            "manual": override_key in ("open", "completed"),
+            "overrideKey": override_key if override_key in ("open", "completed") else None,
         })
     return out
 
@@ -1937,7 +1938,12 @@ async def update_invoice_week_overrides(iid: str, body: dict, _=Depends(ops_or_a
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
     raw = body.get("week_overrides") if isinstance(body.get("week_overrides"), dict) else {}
-    clean = {str(k): v for k, v in raw.items() if v in ("excluded", "completed")}
+    clean = {}
+    for k, v in raw.items():
+        if v == "excluded":
+            clean[str(k)] = "open"
+        elif v in ("open", "completed"):
+            clean[str(k)] = v
     await db.invoices.update_one({"id": iid}, {"$set": {"week_overrides": clean}})
     return {"ok": True, "week_overrides": clean}
 

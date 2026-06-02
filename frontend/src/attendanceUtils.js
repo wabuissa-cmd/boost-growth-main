@@ -172,10 +172,11 @@ export function isSchoolWeekPeriodEnded(endISO) {
 
 /** SS week status — active weeks only; past empty weeks stay Not started (e.g. Eid). */
 export function resolveSsWeekStatus(weekWindow, attended, schoolDays, sessionCount, manualOverride = null) {
-  if (manualOverride === "excluded") {
-    return { weekStatus: "Skipped", countsAsDone: false, manual: true, overrideKey: "excluded" };
+  const manual = manualOverride === "excluded" ? "open" : manualOverride;
+  if (manual === "open") {
+    return { weekStatus: "Open", countsAsDone: false, manual: true, overrideKey: "open" };
   }
-  if (manualOverride === "completed") {
+  if (manual === "completed") {
     return { weekStatus: "Completed", countsAsDone: true, manual: true, overrideKey: "completed" };
   }
   if (!sessionCount) {
@@ -206,9 +207,11 @@ export function countSsWeeksDone(weekSummary) {
   return (weekSummary || []).filter(w => w.countsAsDone).length;
 }
 
+/** Admin tap cycle: Auto → force Closed → force Open → Auto */
 export function nextWeekOverride(current) {
-  if (!current) return "excluded";
-  if (current === "excluded") return "completed";
+  const key = current === "excluded" ? "open" : current;
+  if (!key) return "completed";
+  if (key === "completed") return "open";
   return null;
 }
 
