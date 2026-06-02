@@ -1610,18 +1610,34 @@ def _day_name_from_date(date_iso: str) -> str:
         return ""
 
 
+def _school_week_period_ended(end_iso: str) -> bool:
+    """True once the last school day (Thu) of the week has passed."""
+    if not end_iso:
+        return False
+    today = now_iso()[:10]
+    return today > str(end_iso)[:10]
+
+
+def _resolve_ss_week_status(end_iso: str, attended: int, school_days: int, session_count: int) -> str:
+    if _school_week_period_ended(end_iso):
+        return "Completed"
+    if session_count == 0:
+        return "Not started"
+    if attended >= min(5, school_days):
+        return "Completed"
+    return "In Progress"
+
+
 def _weeks_done_for_invoice(sessions: list, anchor_iso: str, total_weeks: int) -> int:
-    """Count completed school weeks (5 Sun–Thu blocks from invoice start)."""
+    """Count school weeks whose Sun–Thu window has fully ended (calendar closed)."""
     if not anchor_iso or total_weeks <= 0:
         return 0
     windows = _school_week_windows(anchor_iso, total_weeks)
-    completed = [s for s in sessions if s.get("status") == "Completed" and s.get("session_date")]
     done = 0
     for w in windows:
-        if not w["dates"]:
+        if not w.get("dates"):
             continue
-        attended = sum(1 for s in completed if str(s["session_date"])[:10] in w["dates"])
-        if attended > 0:
+        if _school_week_period_ended(w.get("end")):
             done += 1
     return done
 
@@ -1637,12 +1653,8 @@ def _ss_week_summary_for_invoice(sessions: list, anchor_iso: str, total_weeks: i
         school_days = len(dates) or 5
         attended = sum(1 for s in completed if str(s["session_date"])[:10] in dates)
         week_sessions = [s for s in (sessions or []) if str(s.get("session_date") or "")[:10] in dates]
-        if not week_sessions:
-            week_status = "Not started"
-        elif attended >= min(5, school_days):
-            week_status = "Completed"
-        else:
-            week_status = "In Progress"
+        end_iso = w.get("end")
+        week_status = _resolve_ss_week_status(end_iso, attended, school_days, len(week_sessions))
         label = "(upcoming)"
         if dates:
             label = f"{dates[0]} - {dates[-1]}"
@@ -1652,6 +1664,7 @@ def _ss_week_summary_for_invoice(sessions: list, anchor_iso: str, total_weeks: i
             "label": label,
             "attended": attended,
             "schoolDays": school_days,
+            "endISO": end_iso,
         })
     return out
 

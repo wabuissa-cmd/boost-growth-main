@@ -164,16 +164,28 @@ export function sortSessionsByDateAsc(sessions) {
   });
 }
 
+export function isSchoolWeekPeriodEnded(endISO) {
+  if (!endISO) return false;
+  const today = toISO(new Date());
+  return today > String(endISO).slice(0, 10);
+}
+
+/** SS week status: closed weeks are always Completed (prep window ended). */
+export function resolveSsWeekStatus(weekWindow, attended, schoolDays, sessionCount) {
+  if (isSchoolWeekPeriodEnded(weekWindow?.endISO)) {
+    return "Completed";
+  }
+  if (!sessionCount) return "Not started";
+  if (attended >= Math.min(5, schoolDays)) return "Completed";
+  return "In Progress";
+}
+
 export function computeSsWeekSummary(sessions, anchorISO, totalWeeks = 4) {
   const groups = groupSessionsBySchoolWeeks(sessions, anchorISO, totalWeeks);
   return groups.map(w => {
     const attended = w.sessions.filter(s => s.status === "Completed").length;
     const schoolDays = w.dates.length || 5;
-    let weekStatus = "Not started";
-    if (w.sessions.length > 0) {
-      if (attended >= Math.min(5, schoolDays)) weekStatus = "Completed";
-      else weekStatus = "In Progress";
-    }
+    const weekStatus = resolveSsWeekStatus(w, attended, schoolDays, w.sessions.length);
     return { ...w, attended, schoolDays, weekStatus };
   });
 }
