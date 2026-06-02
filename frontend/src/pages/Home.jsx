@@ -2,21 +2,23 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api, { startOfWeek, toISODate } from "../api";
 import { cachedGet } from "../dataCache";
-import { useAuth, showAdminNav } from "../auth";
+import { useAuth, showAdminNav, hasOpsAccess } from "../auth";
 import {
   CalendarBlank, ClipboardText, UsersThree, ListChecks, Plant, ArrowRight, Sparkle,
-  CheckCircle, Clock, XCircle, CalendarCheck
+  CheckCircle, Clock, XCircle, CalendarCheck, Warning, Receipt,
 } from "@phosphor-icons/react";
 import { quoteOfTheDay } from "../data/quotes";
 
 export default function Home() {
   const { user } = useAuth();
   const isPortalAdminUser = showAdminNav(user);
+  const opsAccess = hasOpsAccess(user);
   const [stats, setStats] = useState({
     clients: 0, therapists: 0, requests: 0,
     weekSessions: 0, weekHours: 0,
     completedThisWeek: 0, hoursThisWeek: 0, cancelledThisWeek: 0, todayUpcoming: 0,
   });
+  const [pkgAlerts, setPkgAlerts] = useState({ critical: 0, low: 0 });
   const quote = quoteOfTheDay();
 
   useEffect(() => {
@@ -32,12 +34,13 @@ export default function Home() {
 
         const asList = (r) => (Array.isArray(r?.data) ? r.data : []);
 
-        const [c, t, r, s, sess] = await Promise.all([
+        const [c, t, r, s, sess, pkg] = await Promise.all([
           cachedGet("/clients").catch(() => []),
           cachedGet("/therapists").catch(() => []),
           cachedGet("/requests").catch(() => []),
           cachedGet("/schedule", { params: { week_start: weekISO } }).catch(() => []),
           cachedGet("/sessions").catch(() => []),
+          cachedGet("/clients/package-status").catch(() => []),
         ]);
 
         const clients = asList({ data: c });
@@ -45,6 +48,11 @@ export default function Home() {
         const requests = asList({ data: r });
         const schedule = asList({ data: s });
         const sessions = asList({ data: sess });
+        const pkgRows = asList({ data: pkg });
+        setPkgAlerts({
+          critical: pkgRows.filter(x => x.status === "critical" || x.status === "expired").length,
+          low: pkgRows.filter(x => x.status === "low").length,
+        });
 
         // Schedule cells for the displayed week, scoped to current user
         const myCells = isPortalAdminUser
@@ -135,6 +143,25 @@ export default function Home() {
         </div>
       </div>
 
+      {opsAccess && (pkgAlerts.critical > 0 || pkgAlerts.low > 0) && (
+        <div className="card p-4 mb-4 flex flex-wrap items-center justify-between gap-3 border-2" style={{ borderColor: "#E5C387", background: "#FFFBF3" }}>
+          <div className="flex items-start gap-2">
+            <Warning size={22} weight="duotone" style={{ color: "#6B5218" }} />
+            <div>
+              <div className="ui-title-sm" style={{ color: "#6B5218" }}>Package attention needed</div>
+              <div className="ui-caption mt-0.5">
+                {pkgAlerts.critical > 0 && <span><strong>{pkgAlerts.critical}</strong> critical · </span>}
+                {pkgAlerts.low > 0 && <span><strong>{pkgAlerts.low}</strong> running low</span>}
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <Link to="/attendance" className="btn btn-primary text-xs min-h-[40px]">Open Attendance</Link>
+            {opsAccess && <Link to="/billing" className="btn btn-outline text-xs min-h-[40px]"><Receipt size={14}/> Billing</Link>}
+          </div>
+        </div>
+      )}
+
       {/* Stats - therapist gets personal stats; admin gets navigation tiles */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 stagger mb-6">
         {isPortalAdminUser
@@ -162,14 +189,19 @@ export default function Home() {
 
       <div className="grid md:grid-cols-2 gap-4">
         <div className="card p-5">
-          <div className="font-bold mb-3" style={{color: "#2C3625"}}>Quick Links</div>
+          <div className="ui-title-sm mb-3">Quick Links</div>
           <div className="grid grid-cols-2 gap-2 text-sm">
             {quickLinks.map(l => (
-              <Link key={l.label} to={l.to} className="btn btn-outline justify-start gap-2">
+              <Link key={l.label} to={l.to} className="btn btn-outline justify-start gap-2 min-h-[44px]">
                 {l.icon}<span>{l.label}</span>
               </Link>
             ))}
           </div>
+          {!isPortalAdminUser && (
+            <Link to="/attendance" className="btn btn-primary w-full mt-3 min-h-[44px] justify-center gap-2">
+              <ClipboardText size={18} weight="duotone"/> Log a session
+            </Link>
+          )}
         </div>
         {/* Daily Quote (rotates by day of year) */}
         <div className="card p-5 relative overflow-hidden" data-testid="daily-quote">

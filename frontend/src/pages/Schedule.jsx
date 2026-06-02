@@ -16,11 +16,12 @@ import {
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
 import ScheduleCellPanel from "../components/ScheduleCellPanel";
+import ScheduleLegend from "../components/ScheduleLegend";
 import TrackerBanner from "../components/TrackerBanner";
 import { cachedGet } from "../dataCache";
 
 function getSheetCellStyle(cell, clients) {
-  if (!cell) return { background: "#E5E7EB", borderColor: "#D1D5DB", height: 38, minHeight: 38, padding: "2px 1px", fontSize: 10 };
+  if (!cell) return { background: "#F5F5F2", borderColor: "#E8E4DE", height: 38, minHeight: 38, padding: "2px 1px", fontSize: 10 };
   const base = getCellStyle(cell, clients);
   return { ...base, height: 38, minHeight: 38, padding: "2px 1px", fontSize: 10 };
 }
@@ -852,6 +853,8 @@ export default function Schedule() {
           </div>
         )}
       />
+
+      <ScheduleLegend />
 
       <div className="flex items-center flex-wrap gap-2 mb-5">
         <div className="flex items-center gap-1.5 card p-1.5">

@@ -38,41 +38,41 @@ export default function PreparationClientRow({
   const avatarFg = readable(avatarBg);
   const track = trackMeta(client);
   const barColor = client.cardStatus === "urgent" ? "#E8A898"
-    : client.cardStatus === "warning" ? "#E8C87A" : "#E8A050";
+    : client.cardStatus === "warning" ? "#E8C87A" : "#D4A64A";
 
   return (
     <article
-      className="prep-row rounded-2xl overflow-hidden border shadow-sm"
+      className="prep-row rounded-2xl overflow-hidden border bg-white shadow-sm"
       style={{ borderColor: client.cardStatus === "ok" ? "#E8E4DE" : meta.border }}
     >
       <div
-        className="prep-row-head px-3 sm:px-4 py-3 flex flex-wrap items-center gap-3"
-        style={{ background: "linear-gradient(135deg, #5C6853 0%, #48543E 100%)" }}
+        className="prep-row-head px-3 sm:px-4 py-3 flex flex-wrap items-center gap-3 border-b border-[#E8E4DE]"
+        style={{ background: "#FAFAF7" }}
       >
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <div
-            className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ring-2 ring-white/20"
+            className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ring-2 ring-[#E5EBE1]"
             style={{ background: avatarBg, color: avatarFg }}
           >
             {client.initials}
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-bold text-sm text-white truncate">{client.name}</span>
+              <span className="font-bold text-sm truncate" style={{ color: "#2C3625" }}>{client.name}</span>
               {client.cardStatus !== "ok" && (
                 <span
                   className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                  style={{ background: meta.bg, color: meta.color }}
+                  style={{ background: meta.bg, color: meta.color, border: `1px solid ${meta.border}` }}
                 >
                   {meta.label}
                 </span>
               )}
             </div>
-            <div className="text-[11px] text-white/70 flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
+            <div className="text-[11px] flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5" style={{ color: "#8B9E7A" }}>
               <span>#{client.file_no}</span>
               {therapistName && (
-                <span className="inline-flex items-center gap-0.5">
-                  <Flower size={10} weight="fill" className="text-[#F4A89A]" />
+                <span className="inline-flex items-center gap-0.5" style={{ color: "#C97B5C" }}>
+                  <Flower size={10} weight="fill" />
                   {therapistName}
                 </span>
               )}
@@ -87,8 +87,8 @@ export default function PreparationClientRow({
         </div>
 
         <div className="hidden md:block min-w-[140px] text-right shrink-0">
-          <div className="text-[11px] font-semibold text-white/90">{track.label}</div>
-          {track.sub && <div className="text-[10px] text-white/55 mt-0.5">{track.sub}</div>}
+          <div className="text-[11px] font-semibold" style={{ color: "#48543E" }}>{track.label}</div>
+          {track.sub && <div className="text-[10px] mt-0.5" style={{ color: "#8B9E7A" }}>{track.sub}</div>}
         </div>
 
         <div className="flex gap-2 shrink-0 w-full sm:w-auto justify-end">
@@ -96,38 +96,37 @@ export default function PreparationClientRow({
             type="button"
             data-testid={`log-${client.id}`}
             onClick={onLog}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold min-h-[40px] transition hover:brightness-110"
-            style={{ background: "#7A8A6A", color: "#fff" }}
+            className="btn btn-primary text-xs min-h-[40px] px-3"
           >
             <Plus size={14} weight="bold" /> Log
           </button>
           <button
             type="button"
             onClick={onHistory}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold min-h-[40px] border border-white/25 text-white/95 hover:bg-white/10 transition"
+            className="btn btn-outline text-xs min-h-[40px] px-3"
           >
             <ClockCounterClockwise size={14} weight="duotone" /> History
           </button>
         </div>
       </div>
 
-      <div className="px-3 sm:px-4 py-2.5" style={{ background: "#3D4F35" }}>
+      <div className="px-3 sm:px-4 py-2.5" style={{ background: "#F6F9F3" }}>
         <div className="flex items-center gap-3">
           <div className="flex-1 min-w-0">
-            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.12)" }}>
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "#E8E4DE" }}>
               <div
                 className="h-full rounded-full transition-all duration-500"
                 style={{ width: `${Math.max(track.pct, 2)}%`, background: barColor }}
               />
             </div>
-            <div className="flex justify-between mt-1 text-[10px] font-bold text-white/50">
+            <div className="flex justify-between mt-1 text-[10px] font-bold" style={{ color: "#8B9E7A" }}>
               <span className="md:hidden truncate pr-2">{track.label}</span>
               <span className="ml-auto shrink-0">{track.pct}%</span>
             </div>
           </div>
         </div>
         {client.hasSs && client.ssWeeks?.length > 0 && (
-          <div className="mt-2 pt-2 border-t border-white/10">
+          <div className="mt-2 pt-2 border-t border-[#E8E4DE]">
             <SsWeekStatusRow weeks={client.ssWeeks} compact />
           </div>
         )}

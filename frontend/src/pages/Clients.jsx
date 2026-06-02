@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import api from "../api";
 import { cachedGet } from "../dataCache";
 import { useAuth, hasOpsAccess } from "../auth";
-import { Plus, PencilSimple, Trash, MagnifyingGlass, MapPin, User, Phone, Hash, ArrowSquareOut } from "@phosphor-icons/react";
-import { PackageStatusBadge } from "../components/PackageStatusBadge";
+import { Plus, MagnifyingGlass } from "@phosphor-icons/react";
+import ClientInfoRow from "../components/ClientInfoRow";
+import ClientDrawer from "../components/ClientDrawer";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -17,10 +17,12 @@ export default function Clients() {
   const [therapists, setTherapists] = useState([]);
   const [edit, setEdit] = useState(null);
   const [search, setSearch] = useState("");
+  const [statusTab, setStatusTab] = useState("active");
+  const [therapistFilter, setTherapistFilter] = useState("");
+  const [drawerClient, setDrawerClient] = useState(null);
   const [panelClient, setPanelClient] = useState(null); // { client, section }
   const [prSummaries, setPrSummaries] = useState({});
   const [pkgByClient, setPkgByClient] = useState({});
-  const navigate = useNavigate();
 
   const refreshPrSummaries = () => {
     api.get("/progress-reports/summary").then(r => setPrSummaries(r.data || {})).catch(() => {});
@@ -63,88 +65,83 @@ export default function Clients() {
   const remove = async (id) => { if (!window.confirm("Remove this client from the active list? (Can be restored from Admin)")) return; await api.delete(`/clients/${id}`); load(); };
   const findT = id => therapists.find(t => t.id === id);
 
-  const filtered = items.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    (c.file_no || "").includes(search)
-  );
+  const filtered = items.filter(c => {
+    const q = search.toLowerCase();
+    const matchSearch = c.name.toLowerCase().includes(q) || (c.file_no || "").includes(search);
+    const isActive = (c.status || "Active") !== "Inactive";
+    const matchTab = statusTab === "active" ? isActive : !isActive;
+    const matchTherapist = !therapistFilter || c.main_therapist_id === therapistFilter;
+    return matchSearch && matchTab && matchTherapist;
+  });
+
+  const openDrawer = (client) => setDrawerClient(client);
+  const openSectionFromDrawer = (section) => {
+    if (!drawerClient) return;
+    setPanelClient({ client: drawerClient, section });
+    setDrawerClient(null);
+  };
 
   return (
     <div>
-      <div className="flex items-center mb-5 gap-3 flex-wrap page-header-row">
-        <div className="flex-1">
-          <h1 className="font-display text-3xl font-semibold" style={{color: "#2C3625"}}>Clients</h1>
-          <div className="text-sm" style={{color: "#5C6853"}}>{items.length} clients · all profile information</div>
+      <div className="flex items-center mb-4 gap-3 flex-wrap page-header-row">
+        <div className="flex-1 min-w-[200px]">
+          <h1 className="ui-page-title">Client Info</h1>
+          <div className="ui-caption">{items.filter(c => (c.status || "Active") !== "Inactive").length} active · {items.length} total</div>
         </div>
-        <div className="relative">
-          <MagnifyingGlass size={18} className="absolute top-3 left-3" style={{color: "#8B9E7A"}}/>
-          <input className="input pl-10 max-w-sm" placeholder="Search by name or file #..." value={search} onChange={e=>setSearch(e.target.value)}/>
+        <div className="flex gap-1.5 flex-wrap">
+          {["active", "inactive"].map(id => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setStatusTab(id)}
+              className={`pill px-3 py-2 text-sm font-semibold border min-h-[40px] capitalize ${
+                statusTab === id ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E8E4DE] text-[#5C6853]"
+              }`}
+            >
+              {id}
+            </button>
+          ))}
         </div>
-        {isAdmin && <button data-testid="add-client-btn" onClick={() => setEdit({ name: "", file_no: "", package_hours: 24, color: "#A2C4C9", main_therapist_id: "", co_therapist_ids: [], locations: [] })} className="btn btn-primary"><Plus size={16}/> New Child</button>}
+        {isAdmin && (
+          <select className="select text-sm min-h-[40px] max-w-[160px]" value={therapistFilter} onChange={e => setTherapistFilter(e.target.value)}>
+            <option value="">All therapists</option>
+            {therapists.map(t => <option key={t.id} value={t.id}>{t.name?.replace("Ms. ", "")}</option>)}
+          </select>
+        )}
+        <div className="relative flex-1 min-w-[180px] max-w-xs">
+          <MagnifyingGlass size={16} className="absolute top-1/2 -translate-y-1/2 left-3" style={{color: "#8B9E7A"}}/>
+          <input className="input pl-9 w-full text-sm min-h-[40px]" placeholder="Search name or file #…" value={search} onChange={e=>setSearch(e.target.value)}/>
+        </div>
+        {isAdmin && <button data-testid="add-client-btn" onClick={() => setEdit({ name: "", file_no: "", package_hours: 24, color: "#A2C4C9", main_therapist_id: "", co_therapist_ids: [], locations: [] })} className="btn btn-primary text-sm min-h-[40px]"><Plus size={16}/> New Child</button>}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 stagger">
-        {filtered.length === 0 && <div className="card p-12 text-center col-span-full" style={{color: "#8B9E7A"}}>No clients</div>}
+      <div className="card p-0 overflow-hidden divide-y divide-[#F0EDE9]">
+        {filtered.length === 0 && (
+          <div className="p-12 text-center ui-caption">No clients in this list</div>
+        )}
         {filtered.map(c => (
-          <div key={c.id} className="card card-hover p-0 overflow-hidden">
-            <div className="h-1.5" style={{background: c.color || "#7A8A6A"}}/>
-            <div className="p-3">
-              <div className="flex items-start gap-2.5">
-                <div className="w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold shrink-0" style={{background: c.color || "#E5EBE1", color: "#2C3625"}}>
-                  {c.name?.charAt(0)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="font-semibold text-base truncate flex-1 leading-tight" style={{color: "#2C3625", fontSize: "16px"}}>{c.name}</div>
-                    <div className="flex flex-col items-end gap-0.5 shrink-0 max-w-[48%]">
-                      {(pkgByClient[c.id] || []).map(row => (
-                        <PackageStatusBadge key={`${c.id}-${row.service_type}`} row={row} clientId={c.id}
-                          onClick={() => navigate(`/billing?client=${c.id}&service=${row.service_type}`)} />
-                      ))}
-                    </div>
-                  </div>
-                  <div className="text-[11px] flex items-center gap-1 flex-wrap mt-0.5" style={{color: "#8B9E7A"}}>
-                    <Hash size={9}/>{c.file_no || "—"}
-                    {c.billing_mode === "weeks" ? (
-                      <span className="pill text-[9px] px-1 py-0" style={{background:"#FAF0D1", color:"#6B5218"}}>📅 {c.cycle_weeks || 4}wk</span>
-                    ) : (
-                      <span>· {c.package_hours || 24}h</span>
-                    )}
-                  </div>
-                </div>
-                {isAdmin && (
-                  <div className="flex flex-col gap-0.5">
-                    <button onClick={() => setEdit({...c, co_therapist_ids: c.co_therapist_ids || [], locations: c.locations || []})} className="btn btn-ghost p-2 min-w-[44px] min-h-[44px] flex items-center justify-center"><PencilSimple size={16}/></button>
-                    <button onClick={() => remove(c.id)} className="btn btn-ghost p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-red-700"><Trash size={16}/></button>
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-2 space-y-0.5 text-[11px]">
-                {c.supervisor && <div className="truncate" style={{color: "#5C6853"}}><User size={10} className="inline mr-1"/><strong>Sup:</strong> {c.supervisor}</div>}
-                {c.main_therapist_id && <div className="truncate" style={{color: "#5C6853"}}><User size={10} className="inline mr-1"/><strong>Main:</strong> {findT(c.main_therapist_id)?.name || "—"}</div>}
-                {c.parent_phone && <div style={{color: "#5C6853"}}><Phone size={10} className="inline mr-1"/>{c.parent_phone}</div>}
-              </div>
-
-              {c.locations?.length > 0 && (
-                <div className="mt-2 pt-2 border-t border-[#F0EDE9]">
-                  <div className="text-[11px] truncate" style={{color: "#5C6853"}}>
-                    <MapPin size={10} className="inline mr-0.5"/>
-                    {c.locations[0].service} · {c.locations[0].address}
-                    {c.locations.length > 1 && ` +${c.locations.length - 1}`}
-                  </div>
-                </div>
-              )}
-
-              <div className="mt-2 pt-2 border-t border-[#F0EDE9] flex items-center gap-1">
-                <SectionBtn icon="📍" label="Loc" testId={`btn-loc-${c.id}`} onClick={() => openPanel(c, "location")} />
-                <SectionBtn icon="📎" label="Att" testId={`btn-att-${c.id}`} onClick={() => openPanel(c, "attachments")} />
-                <SectionBtn icon="📋" label="Case" testId={`btn-details-${c.id}`} onClick={() => openPanel(c, "details")} />
-                <ProgressTracker clientId={c.id} summary={prSummaries[c.id]} onOpen={() => openPanel(c, "progress")} />
-              </div>
-            </div>
-          </div>
+          <ClientInfoRow
+            key={c.id}
+            client={c}
+            therapistName={findT(c.main_therapist_id)?.name?.replace("Ms. ", "") || ""}
+            pkgRows={pkgByClient[c.id] || []}
+            onView={openDrawer}
+          />
         ))}
       </div>
+
+      {drawerClient && (
+        <ClientDrawer
+          client={drawerClient}
+          therapistName={findT(drawerClient.main_therapist_id)?.name || ""}
+          pkgRows={pkgByClient[drawerClient.id] || []}
+          prSummary={prSummaries[drawerClient.id]}
+          isAdmin={isAdmin}
+          onClose={() => setDrawerClient(null)}
+          onEdit={(c) => setEdit({ ...c, co_therapist_ids: c.co_therapist_ids || [], locations: c.locations || [] })}
+          onOpenSection={openSectionFromDrawer}
+        />
+      )}
 
       {panelClient?.section === "location" && (
         <LocationPanelModal client={panelClient.client} onClose={closePanel} />

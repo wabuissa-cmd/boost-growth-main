@@ -5,6 +5,7 @@ import { cachedGet } from "../dataCache";
 import { useAuth, showAdminNav } from "../auth";
 import { HistoryModal } from "./Attendance";
 import TrackerBanner from "../components/TrackerBanner";
+import BillingProgressStrip from "../components/BillingProgressStrip";
 import { ModalBase, FormSection, FormField, ModalBtnPrimary, ModalBtnSecondary } from "../components/Modal";
 import { formatMoney, paymentStatusLabel, paymentStatusStyle } from "../billingUtils";
 import { formatServiceTypeDisplay } from "../attendanceUtils";
@@ -261,6 +262,10 @@ export default function Billing() {
           </p>
         )}
       />
+
+      <div className="mb-4">
+        <BillingProgressStrip summary={summary} items={data.items || []} />
+      </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <div className="flex gap-1.5 flex-wrap">
