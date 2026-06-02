@@ -221,12 +221,22 @@ class InvoiceIn(BaseModel):
     period_from: Optional[str] = None  # ISO date (cycle start)
     period_to: Optional[str] = None    # ISO date (package end date)
     package_size: Optional[float] = None         # number of sessions or hours
-    payment_status: Optional[str] = "pending"    # "complete" | "pending"
+    payment_status: Optional[str] = "pending"    # "complete" | "partial" | "pending"
     start_date: Optional[str] = None             # ISO date - invoice cycle start (for filtering sessions)
     service_type: Optional[str] = None           # "Home Session" | "School Support"
     is_closed: Optional[bool] = False            # whether the invoice is closed
     close_date: Optional[str] = None             # ISO date when closed
     week_overrides: Optional[dict] = None        # {"1": "excluded"|"completed"} manual SS weeks
+    amount_paid: Optional[float] = None          # partial payments received so far
+    next_payment_reminder_at: Optional[str] = None  # ISO date — remind parents about next installment
+    payment_notes: Optional[str] = None
+
+class InvoicePaymentIn(BaseModel):
+    payment_status: Optional[str] = None
+    amount: Optional[float] = None
+    amount_paid: Optional[float] = None
+    next_payment_reminder_at: Optional[str] = None
+    payment_notes: Optional[str] = None
 
 class SessionIn(BaseModel):
     client_id: str
@@ -1446,6 +1456,235 @@ async def list_all_invoices(user=Depends(get_current_user)):
     items = await db.invoices.find({"client_id": {"$in": list(client_ids)}}, {"_id": 0}).to_list(5000)
     return items
 
+# ------------------- Billing / payment tracking -------------------
+BILLING_REMINDER_EMAILS = frozenset({
+    "walaa@boostgrowthsa.com",
+})
+
+
+def _billing_reminder_recipients() -> list:
+    emails = set(BILLING_REMINDER_EMAILS)
+    admin = (os.environ.get("ADMIN_EMAIL") or "").strip().lower()
+    if admin:
+        emails.add(admin)
+    return sorted(emails)
+
+
+def _normalize_payment_status(raw: Optional[str]) -> str:
+    s = (raw or "pending").strip().lower()
+    if s in ("complete", "paid", "done"):
+        return "complete"
+    if s == "partial":
+        return "partial"
+    return "pending"
+
+
+def _effective_payment_status(inv: dict) -> str:
+    status = _normalize_payment_status(inv.get("payment_status"))
+    if status == "complete":
+        return "complete"
+    amount = float(inv.get("amount") or 0)
+    paid = float(inv.get("amount_paid") or 0)
+    if amount > 0 and paid > 0 and paid < amount:
+        return "partial"
+    if status == "partial":
+        return "partial"
+    return "pending"
+
+
+def _days_between(from_iso: str, to_iso: str) -> int:
+    try:
+        a = datetime.fromisoformat(str(from_iso)[:10])
+        b = datetime.fromisoformat(str(to_iso)[:10])
+        return (b - a).days
+    except Exception:
+        return 0
+
+
+def _billing_row(inv: dict, client: dict, today: str) -> dict:
+    status = _effective_payment_status(inv)
+    start = (inv.get("start_date") or inv.get("created_at") or "")[:10]
+    amount = float(inv.get("amount") or 0)
+    paid = float(inv.get("amount_paid") or 0)
+    remaining = round(max(0, amount - paid), 2) if amount > 0 else None
+    reminder = (inv.get("next_payment_reminder_at") or "")[:10] or None
+    days_unpaid = _days_between(start, today) if status in ("pending", "partial") and start else 0
+    days_until_reminder = _days_between(today, reminder) if reminder else None
+    return {
+        "invoice_id": inv.get("id"),
+        "invoice_number": inv.get("invoice_number"),
+        "client_id": client.get("id"),
+        "client_name": client.get("name"),
+        "file_no": client.get("file_no"),
+        "service_type": inv.get("service_type"),
+        "payment_status": status,
+        "amount": amount or None,
+        "amount_paid": paid or None,
+        "amount_remaining": remaining,
+        "start_date": start or None,
+        "days_unpaid": days_unpaid,
+        "next_payment_reminder_at": reminder,
+        "days_until_reminder": days_until_reminder,
+        "payment_notes": inv.get("payment_notes"),
+        "is_closed": bool(inv.get("is_closed")),
+        "package_size": inv.get("package_size"),
+    }
+
+
+async def _process_payment_reminders(force: bool = False) -> dict:
+    """Email admins 1–2 days before next_payment_reminder_at on partial invoices."""
+    today = now_iso()[:10]
+    if not force:
+        meta = await db.meta.find_one({"key": "billing_reminders_last_run"})
+        if meta and meta.get("date") == today:
+            return {"sent": 0, "skipped": True}
+
+    partial_invs = await db.invoices.find(
+        {"is_closed": {"$ne": True}, "next_payment_reminder_at": {"$exists": True, "$ne": None, "$ne": ""}},
+        {"_id": 0},
+    ).to_list(500)
+    sent = 0
+    recipients = _billing_reminder_recipients()
+    for inv in partial_invs:
+        if _effective_payment_status(inv) != "partial":
+            continue
+        reminder = (inv.get("next_payment_reminder_at") or "")[:10]
+        if not reminder:
+            continue
+        days_until = _days_between(today, reminder)
+        if days_until not in (1, 2):
+            continue
+        last_sent = (inv.get("last_payment_reminder_sent_at") or "")[:10]
+        if last_sent == today:
+            continue
+        client = await db.clients.find_one({"id": inv.get("client_id")}, {"_id": 0, "name": 1, "file_no": 1})
+        cname = (client or {}).get("name") or "Client"
+        fno = (client or {}).get("file_no") or "—"
+        inv_no = inv.get("invoice_number") or inv.get("id", "")[:8]
+        amount = float(inv.get("amount") or 0)
+        paid = float(inv.get("amount_paid") or 0)
+        remaining = round(max(0, amount - paid), 2) if amount else None
+        when = "tomorrow" if days_until == 1 else "in 2 days"
+        subj = f"Payment reminder · {cname} · {inv_no}"
+        body = (
+            f"Reminder: follow up with {cname} (File #{fno}) about the next payment installment.\n\n"
+            f"Invoice: {inv_no}\n"
+            f"Reminder date: {reminder} ({when})\n"
+        )
+        if remaining is not None:
+            body += f"Amount remaining: {remaining} SAR\n"
+        if inv.get("payment_notes"):
+            body += f"Notes: {inv.get('payment_notes')}\n"
+        body += "\n— Boost Growth Staff Portal"
+        for email in recipients:
+            await _send_email_stub(email, subj, body)
+        await db.invoices.update_one(
+            {"id": inv["id"]},
+            {"$set": {"last_payment_reminder_sent_at": today}},
+        )
+        sent += 1
+
+    await db.meta.update_one(
+        {"key": "billing_reminders_last_run"},
+        {"$set": {"date": today, "sent": sent, "at": now_iso()}},
+        upsert=True,
+    )
+    return {"sent": sent, "skipped": False}
+
+
+@api.get("/billing/dashboard")
+async def billing_dashboard(user=Depends(ops_or_admin)):
+    """Open invoices needing payment attention — unpaid, partial, reminders."""
+    await _process_payment_reminders()
+    today = now_iso()[:10]
+    clients = await db.clients.find(
+        _active_client_filter({"status": {"$ne": "Inactive"}}),
+        {"_id": 0},
+    ).to_list(500)
+    client_map = {c["id"]: c for c in clients}
+    client_ids = list(client_map.keys())
+    if not client_ids:
+        return {"summary": {"unpaid": 0, "partial": 0, "reminders_soon": 0}, "unpaid": [], "partial": [], "items": []}
+
+    invoices = await db.invoices.find(
+        {"client_id": {"$in": client_ids}, "is_closed": {"$ne": True}},
+        {"_id": 0},
+    ).to_list(5000)
+
+    unpaid, partial, items = [], [], []
+    reminders_soon = 0
+    for inv in invoices:
+        client = client_map.get(inv.get("client_id"))
+        if not client:
+            continue
+        row = _billing_row(inv, client, today)
+        if row["payment_status"] == "complete":
+            continue
+        items.append(row)
+        if row["payment_status"] == "pending":
+            unpaid.append(row)
+        elif row["payment_status"] == "partial":
+            partial.append(row)
+            if row["days_until_reminder"] is not None and 0 <= row["days_until_reminder"] <= 2:
+                reminders_soon += 1
+
+    items.sort(key=lambda r: (-(r.get("days_unpaid") or 0), r.get("client_name") or ""))
+    unpaid.sort(key=lambda r: -(r.get("days_unpaid") or 0))
+    partial.sort(key=lambda r: (r.get("days_until_reminder") if r.get("days_until_reminder") is not None else 999, r.get("client_name") or ""))
+
+    return {
+        "summary": {
+            "unpaid": len(unpaid),
+            "partial": len(partial),
+            "reminders_soon": reminders_soon,
+        },
+        "unpaid": unpaid,
+        "partial": partial,
+        "items": items,
+    }
+
+
+@api.put("/invoices/{iid}/payment")
+async def update_invoice_payment(iid: str, body: InvoicePaymentIn, user=Depends(ops_or_admin)):
+    inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    patch = {}
+    if body.payment_status is not None:
+        patch["payment_status"] = _normalize_payment_status(body.payment_status)
+    if body.amount is not None:
+        patch["amount"] = body.amount
+    if body.amount_paid is not None:
+        patch["amount_paid"] = body.amount_paid
+    if body.next_payment_reminder_at is not None:
+        patch["next_payment_reminder_at"] = body.next_payment_reminder_at or None
+    if body.payment_notes is not None:
+        patch["payment_notes"] = body.payment_notes
+    if not patch:
+        return inv
+    # Auto partial when paid < total
+    amount = float(patch.get("amount", inv.get("amount") or 0))
+    paid = float(patch.get("amount_paid", inv.get("amount_paid") or 0))
+    if patch.get("payment_status") != "complete" and amount > 0 and paid > 0:
+        if paid >= amount:
+            patch["payment_status"] = "complete"
+        elif patch.get("payment_status") != "pending":
+            patch["payment_status"] = "partial"
+        elif paid < amount:
+            patch["payment_status"] = "partial"
+    await db.invoices.update_one({"id": iid}, {"$set": patch})
+    updated = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    if updated and not updated.get("is_closed"):
+        client_patch = {"payment_status": _effective_payment_status(updated)}
+        await db.clients.update_one({"id": updated["client_id"]}, {"$set": client_patch})
+    return updated
+
+
+@api.post("/billing/send-reminders")
+async def billing_send_reminders(_=Depends(ops_or_admin)):
+    """Manual trigger for payment reminder emails (also runs once daily via dashboard)."""
+    return await _process_payment_reminders(force=True)
+
 # ------------------- Package status (last open invoice) -------------------
 def _sort_invoices_by_date(invoices: list) -> list:
     return sorted(
@@ -1969,6 +2208,9 @@ async def create_invoice(cid: str, payload: InvoiceIn, user=Depends(ops_or_admin
         "is_closed": bool(payload.is_closed) if payload.is_closed is not None else False,
         "close_date": payload.close_date,
         "week_overrides": payload.week_overrides or {},
+        "amount_paid": float(payload.amount_paid or 0),
+        "next_payment_reminder_at": payload.next_payment_reminder_at,
+        "payment_notes": payload.payment_notes,
         "created_by": user["id"],
         "created_at": now_iso(),
     }
@@ -2006,17 +2248,25 @@ async def update_invoice(iid: str, payload: InvoiceIn, _=Depends(ops_or_admin)):
         "service_type": _normalize_service_type(payload.service_type) if payload.service_type is not None else None,
         "is_closed": bool(payload.is_closed) if payload.is_closed is not None else False,
         "close_date": payload.close_date,
+        "amount_paid": payload.amount_paid,
+        "next_payment_reminder_at": payload.next_payment_reminder_at,
+        "payment_notes": payload.payment_notes,
     }
     if payload.week_overrides is not None:
         update["week_overrides"] = payload.week_overrides
-    update = {k: v for k, v in update.items() if v is not None or k in ("notes", "amount", "period_from", "period_to", "package_size", "service_type", "close_date")}
+    update = {k: v for k, v in update.items() if v is not None or k in (
+        "notes", "amount", "period_from", "period_to", "package_size", "service_type",
+        "close_date", "amount_paid", "next_payment_reminder_at", "payment_notes",
+    )}
+    if payload.payment_status is not None:
+        update["payment_status"] = _normalize_payment_status(payload.payment_status)
     await db.invoices.update_one({"id": iid}, {"$set": update})
     updated = await db.invoices.find_one({"id": iid}, {"_id": 0})
     # Keep client card payment badge in sync with the active (open) invoice
     if updated and not updated.get("is_closed"):
         client_patch = {}
-        if payload.payment_status is not None:
-            client_patch["payment_status"] = payload.payment_status
+        if payload.payment_status is not None or payload.amount_paid is not None:
+            client_patch["payment_status"] = _effective_payment_status(updated)
         if payload.period_to is not None:
             client_patch["package_end_date"] = payload.period_to
         if client_patch:

@@ -27,6 +27,7 @@ import {
 import { PackageAlertBanner } from "../components/PackageStatusBadge";
 import PreparationClientCard from "../components/PreparationClientCard";
 import TrackerBanner from "../components/TrackerBanner";
+import PaymentAttentionStrip from "../components/PaymentAttentionStrip";
 import SsWeekStatusRow, { SsWeekLegend } from "../components/SsWeekStatusRow";
 import { cachedGet } from "../dataCache";
 
@@ -234,6 +235,7 @@ export default function Attendance() {
           { n: counts.warning, label: "Warning", accent: "#F5D78E" },
           { n: counts.ok, label: "Safe", accent: "#B8D4A8" },
         ]}
+        footer={<PaymentAttentionStrip user={user} />}
       />
 
       {/* Toolbar: filters + search + actions */}
@@ -857,6 +859,10 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   const [selectedInvoiceId, setSelectedInvoiceId] = useState("");
   const [packageEndDate, setPackageEndDate] = useState(client.package_end_date || "");
   const [paymentStatus, setPaymentStatus] = useState(client.payment_status || "pending");
+  const [invoiceAmount, setInvoiceAmount] = useState("");
+  const [amountPaid, setAmountPaid] = useState("");
+  const [nextPaymentReminder, setNextPaymentReminder] = useState("");
+  const [paymentNotes, setPaymentNotes] = useState("");
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showNewInvModal, setShowNewInvModal] = useState(false);
   const [showInvoiceDetails, setShowInvoiceDetails] = useState(false);
@@ -1008,6 +1014,10 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
       setInvoiceNumber(selectedInvoice.invoice_number || "");
       setPackageEndDate(selectedInvoice.period_to || client.package_end_date || "");
       setPaymentStatus(selectedInvoice.payment_status || "pending");
+      setInvoiceAmount(selectedInvoice.amount ?? "");
+      setAmountPaid(selectedInvoice.amount_paid ?? "");
+      setNextPaymentReminder((selectedInvoice.next_payment_reminder_at || "").slice(0, 10));
+      setPaymentNotes(selectedInvoice.payment_notes || "");
       setPackageSize(selectedInvoice.package_size || client.package_hours || 24);
       setClosed(!!selectedInvoice.is_closed);
       setClosureDate(selectedInvoice.close_date || "");
@@ -1016,6 +1026,10 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
       setInvoiceNumber("");
       setPackageEndDate(client.package_end_date || "");
       setPaymentStatus(client.payment_status || "pending");
+      setInvoiceAmount("");
+      setAmountPaid("");
+      setNextPaymentReminder("");
+      setPaymentNotes("");
       setPackageSize(client.package_hours || 24);
       setClosed(false);
       setClosureDate("");
@@ -1089,7 +1103,10 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
           package_size: parseFloat(packageSize) || selectedInvoice.package_size,
           start_date: selectedInvoice.start_date,
           notes: selectedInvoice.notes || null,
-          amount: selectedInvoice.amount || null,
+          amount: invoiceAmount === "" ? selectedInvoice.amount : parseFloat(invoiceAmount),
+          amount_paid: amountPaid === "" ? selectedInvoice.amount_paid : parseFloat(amountPaid),
+          next_payment_reminder_at: nextPaymentReminder || null,
+          payment_notes: paymentNotes || null,
           period_from: selectedInvoice.period_from || null,
           service_type: selectedInvoice.service_type || serviceTypeFilter,
           is_closed: !!closed,
@@ -1744,10 +1761,29 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                       value={paymentStatus}
                       onChange={e => setPaymentStatus(e.target.value)}
                     >
-                      <option value="pending">Pending</option>
-                      <option value="complete">Paid</option>
+                      <option value="pending">Unpaid — service started</option>
+                      <option value="partial">Partial — installment, balance remaining</option>
+                      <option value="complete">Paid in full</option>
                     </select>
                   </FormField>
+                  <div className="grid grid-cols-2 gap-3">
+                    <FormField label="Invoice total (SAR)">
+                      <input type="number" min="0" step="1" className="modal-input" value={invoiceAmount} onChange={e => setInvoiceAmount(e.target.value)} />
+                    </FormField>
+                    <FormField label="Amount paid (SAR)">
+                      <input type="number" min="0" step="1" className="modal-input" value={amountPaid} onChange={e => setAmountPaid(e.target.value)} />
+                    </FormField>
+                  </div>
+                  {(paymentStatus === "partial" || paymentStatus === "pending") && (
+                    <>
+                      <FormField label="Next payment reminder" hint="Email to admin & Walaa 1–2 days before">
+                        <input type="date" className="modal-input" value={nextPaymentReminder} onChange={e => setNextPaymentReminder(e.target.value)} />
+                      </FormField>
+                      <FormField label="Payment notes">
+                        <textarea className="modal-input" rows={2} value={paymentNotes} onChange={e => setPaymentNotes(e.target.value)} placeholder="e.g. 2nd installment after Eid" />
+                      </FormField>
+                    </>
+                  )}
                   <FormField label="Package end date">
                     <input
                       data-testid="pkg-end-input"
@@ -1763,7 +1799,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                   <input
                     className="modal-input"
                     readOnly
-                    value={paymentStatus === "complete" ? "Paid" : "Pending"}
+                    value={paymentStatus === "complete" ? "Paid" : paymentStatus === "partial" ? "Partial" : "Unpaid"}
                   />
                 </FormField>
               )}

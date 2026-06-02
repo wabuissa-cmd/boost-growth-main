@@ -1,6 +1,6 @@
 import { Component, lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth, isClientLead } from "./auth";
+import { AuthProvider, useAuth, isClientLead, hasOpsAccess } from "./auth";
 import Login from "./pages/Login";
 import Shell from "./pages/Shell";
 import "./App.css";
@@ -18,6 +18,7 @@ const Reports = lazy(() => import("./pages/Reports"));
 const ImportPage = lazy(() => import("./pages/Import"));
 const LeaveBalance = lazy(() => import("./pages/LeaveBalance"));
 const LeaveRequests = lazy(() => import("./pages/LeaveRequests"));
+const Billing = lazy(() => import("./pages/Billing"));
 
 function Loading() {
   return <div className="min-h-screen flex items-center justify-center bg-organic"><div className="spinner"/></div>;
@@ -46,6 +47,14 @@ function MyLeavesOnly({ children }) {
   return children;
 }
 
+function OpsOnly({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <Loading/>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!hasOpsAccess(user)) return <Navigate to="/home" replace />;
+  return children;
+}
+
 function AppRoutes() {
   const { user } = useAuth();
   return (
@@ -56,6 +65,7 @@ function AppRoutes() {
         <Route path="/home" element={<Home/>}/>
         <Route path="/schedule" element={<Schedule/>}/>
         <Route path="/attendance" element={<Attendance/>}/>
+        <Route path="/billing" element={<OpsOnly><Billing/></OpsOnly>}/>
         <Route path="/clients" element={<Clients/>}/>
         <Route path="/intake" element={<AdminOnly><Intake/></AdminOnly>}/>
         <Route path="/my-requests" element={<Requests personal/>}/>

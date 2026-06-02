@@ -1,10 +1,10 @@
 import { useEffect, useState, useRef, Suspense } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { useAuth, showAdminNav, isClientLead } from "../auth";
+import { useAuth, showAdminNav, isClientLead, hasOpsAccess } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch } from "../dataCache";
 import {
-  House, CalendarBlank, ClipboardText, UsersThree,
+  House, CalendarBlank, ClipboardText, UsersThree, Receipt,
   Bell, SignOut, ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, CaretDown, Folder, UserCircle
 } from "@phosphor-icons/react";
 
@@ -25,6 +25,9 @@ const ROUTE_PREFETCH = {
     prefetch("/clients/package-status");
     prefetch("/therapists");
   },
+  "/billing": () => {
+    prefetch("/billing/dashboard");
+  },
   "/clients": () => {
     prefetch("/clients");
     prefetch("/therapists");
@@ -44,6 +47,7 @@ export default function Shell() {
   const loc = useLocation();
   const portalAdmin = showAdminNav(user);
   const showPersonal = !portalAdmin;
+  const showBilling = hasOpsAccess(user);
 
   const loadNotifs = async () => {
     try { const { data } = await api.get("/notifications"); setNotifs(data); } catch(_e) { /* ignore */ }
@@ -65,6 +69,7 @@ export default function Shell() {
     { to: "/schedule", icon: <CalendarBlank size={18} weight="duotone"/>, label: "Schedule", testid: "nav-schedule" },
     { to: "/attendance", icon: <ClipboardText size={18} weight="duotone"/>, label: "Attendance", testid: "nav-attendance" },
     { to: "/clients", icon: <UsersThree size={18} weight="duotone"/>, label: "Clients", testid: "nav-clients" },
+    ...(showBilling ? [{ to: "/billing", icon: <Receipt size={18} weight="duotone"/>, label: "Billing", testid: "nav-billing" }] : []),
   ];
 
   // Referrals dropdown (admin only — Intake)
