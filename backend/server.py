@@ -226,6 +226,7 @@ class InvoiceIn(BaseModel):
     service_type: Optional[str] = None           # "Home Session" | "School Support"
     is_closed: Optional[bool] = False            # whether the invoice is closed
     close_date: Optional[str] = None             # ISO date when closed
+    week_overrides: Optional[dict] = None        # {"1": "excluded"|"completed"} manual SS weeks
 
 class SessionIn(BaseModel):
     client_id: str
@@ -1539,20 +1540,39 @@ def _sessions_for_invoice(inv: dict, sessions: list, client_invoices: list = Non
 
 
 def _client_service_codes(client: dict, invoices: list) -> list:
-    codes = set()
+    """HS/SS codes from client profile and locations — never assume both unless profile says so."""
+    codes: set = set()
     cst = _normalize_service_type(client.get("service_type"))
-    raw = (client.get("service_type") or "").upper()
-    if cst == "HS" or "HS" in raw:
+    raw = (client.get("service_type") or "").strip().upper()
+
+    if cst == "HS":
         codes.add("HS")
-    if cst == "SS" or "SS" in raw:
+    elif cst == "SS":
         codes.add("SS")
-    if not codes or cst is None or "HS+SS" in raw or "HS/SS" in raw:
+    elif cst == "AVC":
+        return ["AVC"]
+    elif raw and ("HS+SS" in raw or "HS/SS" in raw or "+" in raw):
         codes.update({"HS", "SS"})
-    for inv in invoices:
-        if not inv.get("is_closed"):
-            st = _normalize_service_type(inv.get("service_type"))
-            if st in ("HS", "SS"):
-                codes.add(st)
+    elif cst is None and raw:
+        if "HOME" in raw:
+            codes.add("HS")
+        if "SCHOOL" in raw:
+            codes.add("SS")
+
+    for loc in client.get("locations") or []:
+        lc = _normalize_service_type(loc.get("service"))
+        if lc in ("HS", "SS"):
+            codes.add(lc)
+
+    if not codes:
+        for inv in invoices:
+            if not inv.get("is_closed"):
+                st = _normalize_service_type(inv.get("service_type"))
+                if st in ("HS", "SS"):
+                    codes.add(st)
+
+    if not codes:
+        codes.add("HS")
     return sorted(codes)
 
 
@@ -1618,32 +1638,53 @@ def _school_week_period_ended(end_iso: str) -> bool:
     return today > str(end_iso)[:10]
 
 
-def _resolve_ss_week_status(end_iso: str, attended: int, school_days: int, session_count: int) -> str:
+def _resolve_ss_week_status(
+    end_iso: str,
+    attended: int,
+    school_days: int,
+    session_count: int,
+    manual_override: Optional[str] = None,
+) -> str:
+    if manual_override == "excluded":
+        return "Skipped"
+    if manual_override == "completed":
+        return "Completed"
+    if session_count <= 0:
+        return "Not started"
     if _school_week_period_ended(end_iso):
         return "Completed"
-    if session_count == 0:
-        return "Not started"
     if attended >= min(5, school_days):
         return "Completed"
     return "In Progress"
 
 
-def _weeks_done_for_invoice(sessions: list, anchor_iso: str, total_weeks: int) -> int:
-    """Count school weeks whose Sun–Thu window has fully ended (calendar closed)."""
-    if not anchor_iso or total_weeks <= 0:
-        return 0
-    windows = _school_week_windows(anchor_iso, total_weeks)
-    done = 0
-    for w in windows:
-        if not w.get("dates"):
-            continue
-        if _school_week_period_ended(w.get("end")):
-            done += 1
-    return done
+def _week_counts_as_done(week_status: str, session_count: int, manual_override: Optional[str]) -> bool:
+    if manual_override == "excluded":
+        return False
+    if manual_override == "completed":
+        return True
+    return week_status == "Completed" and session_count > 0
 
 
-def _ss_week_summary_for_invoice(sessions: list, anchor_iso: str, total_weeks: int = 4) -> list:
+def _weeks_done_for_invoice(
+    sessions: list,
+    anchor_iso: str,
+    total_weeks: int,
+    week_overrides: Optional[dict] = None,
+) -> int:
+    """Count SS weeks credited: active weeks that ended, or manual overrides."""
+    summary = _ss_week_summary_for_invoice(sessions, anchor_iso, total_weeks, week_overrides)
+    return sum(1 for w in summary if w.get("countsAsDone"))
+
+
+def _ss_week_summary_for_invoice(
+    sessions: list,
+    anchor_iso: str,
+    total_weeks: int = 4,
+    week_overrides: Optional[dict] = None,
+) -> list:
     """Per-week status for attendance cards (matches frontend computeSsWeekSummary)."""
+    overrides = week_overrides or {}
     windows = _school_week_windows(anchor_iso, total_weeks)
     completed = [s for s in (sessions or []) if s.get("status") == "Completed" and s.get("session_date")]
     out = []
@@ -1654,7 +1695,10 @@ def _ss_week_summary_for_invoice(sessions: list, anchor_iso: str, total_weeks: i
         attended = sum(1 for s in completed if str(s["session_date"])[:10] in dates)
         week_sessions = [s for s in (sessions or []) if str(s.get("session_date") or "")[:10] in dates]
         end_iso = w.get("end")
-        week_status = _resolve_ss_week_status(end_iso, attended, school_days, len(week_sessions))
+        manual = overrides.get(str(wnum)) or overrides.get(wnum)
+        week_status = _resolve_ss_week_status(
+            end_iso, attended, school_days, len(week_sessions), manual
+        )
         label = "(upcoming)"
         if dates:
             label = f"{dates[0]} - {dates[-1]}"
@@ -1665,6 +1709,9 @@ def _ss_week_summary_for_invoice(sessions: list, anchor_iso: str, total_weeks: i
             "attended": attended,
             "schoolDays": school_days,
             "endISO": end_iso,
+            "countsAsDone": _week_counts_as_done(week_status, len(week_sessions), manual),
+            "manual": manual in ("excluded", "completed"),
+            "overrideKey": manual,
         })
     return out
 
@@ -1777,7 +1824,8 @@ def _compute_package_status_row(client: dict, service_code: str, invoices: list,
     # SS — always 4 school weeks per invoice
     total_weeks = 4
     anchor = inv.get("start_date") or client.get("cycle_start_date") or now_iso()[:10]
-    weeks_done = _weeks_done_for_invoice(inv_sessions, anchor, total_weeks)
+    week_overrides = inv.get("week_overrides") or {}
+    weeks_done = _weeks_done_for_invoice(inv_sessions, anchor, total_weeks, week_overrides)
     remaining_w = max(0, total_weeks - weeks_done)
     current_w = min(total_weeks, weeks_done + 1) if weeks_done < total_weeks else total_weeks
     level = _package_status_level_ss_weeks(remaining_w)
@@ -1787,7 +1835,7 @@ def _compute_package_status_row(client: dict, service_code: str, invoices: list,
         label = "Last week!"
     else:
         label = f"Wk {current_w} of {total_weeks}"
-    week_summary = _ss_week_summary_for_invoice(inv_sessions, anchor, total_weeks)
+    week_summary = _ss_week_summary_for_invoice(inv_sessions, anchor, total_weeks, week_overrides)
     return {
         **base,
         "invoice_id": inv["id"],
@@ -1874,12 +1922,24 @@ async def create_invoice(cid: str, payload: InvoiceIn, user=Depends(ops_or_admin
         "service_type": _normalize_service_type(payload.service_type),
         "is_closed": bool(payload.is_closed) if payload.is_closed is not None else False,
         "close_date": payload.close_date,
+        "week_overrides": payload.week_overrides or {},
         "created_by": user["id"],
         "created_at": now_iso(),
     }
     await db.invoices.insert_one(doc)
     doc.pop("_id", None)
     return doc
+
+@api.put("/invoices/{iid}/week-overrides")
+async def update_invoice_week_overrides(iid: str, body: dict, _=Depends(ops_or_admin)):
+    """Manual SS week marks (holiday skip / force complete)."""
+    inv = await db.invoices.find_one({"id": iid}, {"_id": 0, "id": 1})
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    raw = body.get("week_overrides") if isinstance(body.get("week_overrides"), dict) else {}
+    clean = {str(k): v for k, v in raw.items() if v in ("excluded", "completed")}
+    await db.invoices.update_one({"id": iid}, {"$set": {"week_overrides": clean}})
+    return {"ok": True, "week_overrides": clean}
 
 @api.put("/invoices/{iid}")
 async def update_invoice(iid: str, payload: InvoiceIn, _=Depends(ops_or_admin)):
@@ -1896,7 +1956,8 @@ async def update_invoice(iid: str, payload: InvoiceIn, _=Depends(ops_or_admin)):
         "is_closed": bool(payload.is_closed) if payload.is_closed is not None else False,
         "close_date": payload.close_date,
     }
-    # Don't overwrite stored values with None unless explicitly cleared
+    if payload.week_overrides is not None:
+        update["week_overrides"] = payload.week_overrides
     update = {k: v for k, v in update.items() if v is not None or k in ("notes", "amount", "period_from", "period_to", "package_size", "service_type", "close_date")}
     await db.invoices.update_one({"id": iid}, {"$set": update})
     updated = await db.invoices.find_one({"id": iid}, {"_id": 0})

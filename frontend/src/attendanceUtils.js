@@ -170,24 +170,46 @@ export function isSchoolWeekPeriodEnded(endISO) {
   return today > String(endISO).slice(0, 10);
 }
 
-/** SS week status: closed weeks are always Completed (prep window ended). */
-export function resolveSsWeekStatus(weekWindow, attended, schoolDays, sessionCount) {
-  if (isSchoolWeekPeriodEnded(weekWindow?.endISO)) {
-    return "Completed";
+/** SS week status — active weeks only; past empty weeks stay Not started (e.g. Eid). */
+export function resolveSsWeekStatus(weekWindow, attended, schoolDays, sessionCount, manualOverride = null) {
+  if (manualOverride === "excluded") {
+    return { weekStatus: "Skipped", countsAsDone: false, manual: true, overrideKey: "excluded" };
   }
-  if (!sessionCount) return "Not started";
-  if (attended >= Math.min(5, schoolDays)) return "Completed";
-  return "In Progress";
+  if (manualOverride === "completed") {
+    return { weekStatus: "Completed", countsAsDone: true, manual: true, overrideKey: "completed" };
+  }
+  if (!sessionCount) {
+    return { weekStatus: "Not started", countsAsDone: false, manual: false, overrideKey: null };
+  }
+  if (isSchoolWeekPeriodEnded(weekWindow?.endISO)) {
+    return { weekStatus: "Completed", countsAsDone: true, manual: false, overrideKey: null };
+  }
+  if (attended >= Math.min(5, schoolDays)) {
+    return { weekStatus: "Completed", countsAsDone: true, manual: false, overrideKey: null };
+  }
+  return { weekStatus: "In Progress", countsAsDone: false, manual: false, overrideKey: null };
 }
 
-export function computeSsWeekSummary(sessions, anchorISO, totalWeeks = 4) {
+export function computeSsWeekSummary(sessions, anchorISO, totalWeeks = 4, weekOverrides = {}) {
   const groups = groupSessionsBySchoolWeeks(sessions, anchorISO, totalWeeks);
+  const overrides = weekOverrides || {};
   return groups.map(w => {
     const attended = w.sessions.filter(s => s.status === "Completed").length;
     const schoolDays = w.dates.length || 5;
-    const weekStatus = resolveSsWeekStatus(w, attended, schoolDays, w.sessions.length);
-    return { ...w, attended, schoolDays, weekStatus };
+    const manual = overrides[String(w.weekNumber)] || overrides[w.weekNumber] || null;
+    const resolved = resolveSsWeekStatus(w, attended, schoolDays, w.sessions.length, manual);
+    return { ...w, attended, schoolDays, ...resolved };
   });
+}
+
+export function countSsWeeksDone(weekSummary) {
+  return (weekSummary || []).filter(w => w.countsAsDone).length;
+}
+
+export function nextWeekOverride(current) {
+  if (!current) return "excluded";
+  if (current === "excluded") return "completed";
+  return null;
 }
 
 export function mapPkgStatusToCard(status) {
@@ -418,15 +440,36 @@ export function countServiceInvoices(invoices, code) {
   return (invoices || []).filter(i => invoiceMatchesServiceType(i, code)).length;
 }
 
-/** Tab enable/disable from client profile only (not invoice existence). */
+/** Which HS/SS tabs are allowed from client profile + locations. */
+export function getClientProfileServices(client) {
+  const fromType = getServicesFromType(client?.service_type);
+  if (fromType.length === 1) return fromType;
+  if (fromType.includes("HS") && fromType.includes("SS")) return ["HS", "SS"];
+
+  const locCodes = new Set();
+  for (const loc of client?.locations || []) {
+    const c = normalizeServiceTypeCode(loc?.service);
+    if (c === "HS" || c === "SS") locCodes.add(c);
+  }
+  if (locCodes.size) {
+    const out = [];
+    if (locCodes.has("HS")) out.push("HS");
+    if (locCodes.has("SS")) out.push("SS");
+    return out;
+  }
+  if (fromType.length) return fromType;
+  return ["HS"];
+}
+
+/** Tab enable/disable from client profile + locations (not invoice existence). */
 export function resolveServiceTabState(client, allInvoices) {
+  const profileServices = getClientProfileServices(client);
   const clientType = normalizeClientServiceType(client?.service_type);
-  const profileServices = getServicesFromType(client?.service_type);
   const hsCount = countServiceInvoices(allInvoices, "HS");
   const ssCount = countServiceInvoices(allInvoices, "SS");
   const profileHasHS = profileServices.includes("HS");
   const profileHasSS = profileServices.includes("SS");
-  const showToggle = clientType !== "AVC";
+  const showToggle = profileHasHS && profileHasSS;
 
   return {
     clientType,
@@ -669,6 +712,7 @@ export function enrichClientForCardView(client, packageRows) {
   }
 
   const locEntry = client.locations?.[0];
+  const profileServices = getClientProfileServices(client);
   return {
     ...base,
     cardStatus,
@@ -677,8 +721,8 @@ export function enrichClientForCardView(client, packageRows) {
     ssRow,
     ssWeeks,
     hsProgress,
-    hasSs: Boolean(ssRow?.status && ssRow.status !== "none"),
-    hasHs: Boolean(hsRow?.status && hsRow.status !== "none"),
+    hasSs: profileServices.includes("SS") && Boolean(ssRow?.status && ssRow.status !== "none"),
+    hasHs: profileServices.includes("HS") && Boolean(hsRow?.status && hsRow.status !== "none"),
     location: locEntry?.address || client.address || "",
     locationService: locEntry?.service || "",
     initials: clientInitials(client.name),

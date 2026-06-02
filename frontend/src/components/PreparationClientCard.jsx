@@ -1,36 +1,9 @@
 import {
-  Plus, ClockCounterClockwise, ClipboardText, MapPin, Flower, Check,
+  Plus, ClockCounterClockwise, ClipboardText, MapPin, Flower,
 } from "@phosphor-icons/react";
 import { getChildColor, readable } from "../childColors";
 import { cardStatusMeta } from "../attendanceUtils";
-
-function WeekBoxes({ weeks }) {
-  if (!weeks?.length) return null;
-  return (
-    <div className="flex gap-1.5 mt-1.5">
-      {weeks.map(w => {
-        const done = w.weekStatus === "Completed";
-        const active = w.weekStatus === "In Progress";
-        return (
-          <div
-            key={w.weekNumber}
-            title={w.label || `Week ${w.weekNumber}`}
-            className="flex-1 min-w-0 aspect-square max-w-[52px] rounded-lg border-2 flex flex-col items-center justify-center text-[10px] font-bold transition"
-            style={
-              done
-                ? { background: "#E5EBE1", borderColor: "#B8C8A8", color: "#3D4F35" }
-                : active
-                  ? { background: "#fff", borderColor: "#7A8A6A", color: "#48543E" }
-                  : { background: "#FAFAF7", borderColor: "#E8E4DE", color: "#8B9E7A" }
-            }
-          >
-            {done ? <Check size={14} weight="bold" /> : `W${w.weekNumber}`}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+import SsWeekStatusRow from "./SsWeekStatusRow";
 
 function HoursBar({ progress, barColor }) {
   if (!progress) return null;
@@ -109,7 +82,7 @@ export default function PreparationClientCard({
                 {client.ssAlert}
               </div>
             )}
-            <WeekBoxes weeks={client.ssWeeks} />
+            <SsWeekStatusRow weeks={client.ssWeeks} compact />
           </div>
         )}
 
