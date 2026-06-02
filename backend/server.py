@@ -1459,14 +1459,21 @@ async def list_all_invoices(user=Depends(get_current_user)):
 # ------------------- Billing / payment tracking -------------------
 BILLING_REMINDER_EMAILS = frozenset({
     "walaa@boostgrowthsa.com",
+    "admin@boostgrowthsa.com",
 })
 
 
-def _billing_reminder_recipients() -> list:
+async def _billing_reminder_recipients() -> list:
+    """Walaa + portal admin accounts (ADMIN_EMAIL env + users with role=admin)."""
     emails = set(BILLING_REMINDER_EMAILS)
     admin = (os.environ.get("ADMIN_EMAIL") or "").strip().lower()
     if admin:
         emails.add(admin)
+    admins = await db.users.find({"role": "admin"}, {"_id": 0, "email": 1}).to_list(20)
+    for u in admins:
+        e = (u.get("email") or "").strip().lower()
+        if e:
+            emails.add(e)
     return sorted(emails)
 
 
@@ -1544,7 +1551,7 @@ async def _process_payment_reminders(force: bool = False) -> dict:
         {"_id": 0},
     ).to_list(500)
     sent = 0
-    recipients = _billing_reminder_recipients()
+    recipients = await _billing_reminder_recipients()
     for inv in partial_invs:
         if _effective_payment_status(inv) != "partial":
             continue
@@ -1552,7 +1559,11 @@ async def _process_payment_reminders(force: bool = False) -> dict:
         if not reminder:
             continue
         days_until = _days_between(today, reminder)
-        if days_until not in (1, 2):
+        if force:
+            # Manual send: today through 2 days ahead, or up to 7 days overdue
+            if days_until > 2 or days_until < -7:
+                continue
+        elif days_until not in (1, 2):
             continue
         last_sent = (inv.get("last_payment_reminder_sent_at") or "")[:10]
         if last_sent == today:
@@ -1589,7 +1600,7 @@ async def _process_payment_reminders(force: bool = False) -> dict:
         {"$set": {"date": today, "sent": sent, "at": now_iso()}},
         upsert=True,
     )
-    return {"sent": sent, "skipped": False}
+    return {"sent": sent, "skipped": False, "recipients": recipients}
 
 
 @api.get("/billing/dashboard")
@@ -1683,7 +1694,8 @@ async def update_invoice_payment(iid: str, body: InvoicePaymentIn, user=Depends(
 @api.post("/billing/send-reminders")
 async def billing_send_reminders(_=Depends(ops_or_admin)):
     """Manual trigger for payment reminder emails (also runs once daily via dashboard)."""
-    return await _process_payment_reminders(force=True)
+    result = await _process_payment_reminders(force=True)
+    return result
 
 # ------------------- Package status (last open invoice) -------------------
 def _sort_invoices_by_date(invoices: list) -> list:

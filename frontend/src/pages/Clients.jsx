@@ -98,7 +98,7 @@ export default function Clients() {
                     <div className="flex flex-col items-end gap-0.5 shrink-0 max-w-[48%]">
                       {(pkgByClient[c.id] || []).map(row => (
                         <PackageStatusBadge key={`${c.id}-${row.service_type}`} row={row} clientId={c.id}
-                          onClick={() => navigate(`/attendance?client=${c.id}&service=${row.service_type}`)} />
+                          onClick={() => navigate(`/billing?client=${c.id}&service=${row.service_type}`)} />
                       ))}
                     </div>
                   </div>

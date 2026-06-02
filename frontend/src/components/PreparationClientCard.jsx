@@ -1,5 +1,5 @@
 import {
-  Plus, ClockCounterClockwise, ClipboardText, MapPin, Flower,
+  Plus, ClockCounterClockwise, MapPin, Flower,
 } from "@phosphor-icons/react";
 import { getChildColor, readable } from "../childColors";
 import { cardStatusMeta } from "../attendanceUtils";
@@ -25,7 +25,6 @@ export default function PreparationClientCard({
   therapistName,
   onLog,
   onHistory,
-  onInvoice,
 }) {
   const meta = cardStatusMeta(client.cardStatus);
   const avatarBg = getChildColor(client.name) || meta.bar;
@@ -118,26 +117,15 @@ export default function PreparationClientCard({
         >
           <Plus size={16} weight="bold" /> Log Session
         </button>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={onHistory}
-            className="flex flex-col items-center justify-center gap-1 rounded-xl border-2 min-h-[56px] py-2 px-2 transition hover:bg-[#E5EBE1]"
-            style={{ borderColor: "#B8C8A8", background: "#FAFAF7", color: "#3D4F35" }}
-          >
-            <ClockCounterClockwise size={22} weight="duotone" />
-            <span className="text-[11px] font-bold leading-none">History</span>
-          </button>
-          <button
-            type="button"
-            onClick={onInvoice}
-            className="flex flex-col items-center justify-center gap-1 rounded-xl border-2 min-h-[56px] py-2 px-2 transition hover:bg-[#FAF0D1]"
-            style={{ borderColor: "#E5C387", background: "#FFFBF3", color: "#6B5218" }}
-          >
-            <ClipboardText size={22} weight="duotone" />
-            <span className="text-[11px] font-bold leading-none">Invoice Sheet</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onHistory}
+          className="flex items-center justify-center gap-2 rounded-xl border-2 min-h-[48px] py-2 px-3 transition hover:bg-[#E5EBE1] w-full"
+          style={{ borderColor: "#B8C8A8", background: "#FAFAF7", color: "#3D4F35" }}
+        >
+          <ClockCounterClockwise size={20} weight="duotone" />
+          <span className="text-sm font-bold">Session History</span>
+        </button>
       </div>
     </div>
   );

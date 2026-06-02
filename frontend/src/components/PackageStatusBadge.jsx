@@ -1,15 +1,19 @@
 import { useNavigate } from "react-router-dom";
+import { useAuth, hasOpsAccess } from "../auth";
 import { pkgStatusStyle, formatPkgBadge } from "../packageStatusUtils";
 
 export function PackageStatusBadge({ row, clientId, onClick, className = "" }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
   if (!row) return null;
   const st = pkgStatusStyle(row.status);
   const label = formatPkgBadge(row);
   const handleClick = (e) => {
     e.stopPropagation();
     if (onClick) onClick(row);
-    else if (clientId) navigate(`/attendance?client=${clientId}&service=${row.service_type || "HS"}`);
+    else if (clientId && hasOpsAccess(user)) {
+      navigate(`/billing?client=${clientId}&service=${row.service_type || "HS"}`);
+    }
   };
   return (
     <button

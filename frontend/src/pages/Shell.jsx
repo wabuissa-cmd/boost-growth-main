@@ -48,6 +48,7 @@ export default function Shell() {
   const portalAdmin = showAdminNav(user);
   const showPersonal = !portalAdmin;
   const showBilling = hasOpsAccess(user);
+  const therapistOnly = Boolean(user && !portalAdmin && !showBilling);
 
   const loadNotifs = async () => {
     try { const { data } = await api.get("/notifications"); setNotifs(data); } catch(_e) { /* ignore */ }
@@ -63,13 +64,15 @@ export default function Shell() {
 
   const unread = notifs.filter(n => !n.read).length;
 
-  // ── Top-level links (no Directory / no Resources / no top-level Intake)
+  // ── Grouped navigation
+  const operationsItems = [
+    { to: "/schedule", label: "Schedule", testid: "nav-schedule", icon: <CalendarBlank size={18} weight="duotone"/> },
+    { to: "/attendance", label: "Attendance", testid: "nav-attendance", icon: <ClipboardText size={18} weight="duotone"/> },
+    { to: "/clients", label: "Client Info", testid: "nav-clients", icon: <UsersThree size={18} weight="duotone"/> },
+  ];
+
   const baseLinks = [
     { to: "/home", icon: <House size={18} weight="duotone"/>, label: "Home", testid: "nav-home" },
-    { to: "/schedule", icon: <CalendarBlank size={18} weight="duotone"/>, label: "Schedule", testid: "nav-schedule" },
-    { to: "/attendance", icon: <ClipboardText size={18} weight="duotone"/>, label: "Attendance", testid: "nav-attendance" },
-    { to: "/clients", icon: <UsersThree size={18} weight="duotone"/>, label: "Clients", testid: "nav-clients" },
-    ...(showBilling ? [{ to: "/billing", icon: <Receipt size={18} weight="duotone"/>, label: "Billing", testid: "nav-billing" }] : []),
   ];
 
   // Referrals dropdown (admin only — Intake)
@@ -91,11 +94,11 @@ export default function Shell() {
     requestsItems.push({ to: "/leave-balance", label: "Leave Balance", testid: "nav-leave-balance" });
   }
 
-  // Admin tools (Reports, Import, Admin page)
+  // Admin tools — Reports, Import, Admin page
   const adminTools = portalAdmin ? [
-    { to: "/reports", icon: <ChartBar size={18} weight="duotone"/>, label: "Reports", testid: "nav-reports" },
-    { to: "/import", icon: <UploadSimple size={18} weight="duotone"/>, label: "Import", testid: "nav-import" },
-    { to: "/admin", icon: <Gear size={18} weight="duotone"/>, label: "Admin", testid: "nav-admin" },
+    { to: "/reports", label: "Reports", testid: "nav-reports" },
+    { to: "/import", label: "Import", testid: "nav-import" },
+    { to: "/admin", label: "Admin", testid: "nav-admin" },
   ] : [];
 
   const markAllRead = async () => { await api.post("/notifications/read-all"); loadNotifs(); };
@@ -129,24 +132,41 @@ export default function Shell() {
                   {l.icon}<span>{l.label}</span>
                 </NavLink>
               ))}
+              {therapistOnly ? (
+                operationsItems.map(l => (
+                  <NavLink key={l.to} to={l.to} data-testid={l.testid}
+                           onMouseEnter={() => warmRoute(l.to)}
+                           className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
+                    {l.icon}<span>{l.label}</span>
+                  </NavLink>
+                ))
+              ) : (
+                <NavDropdown testid="nav-operations" label="Operations" icon={<CalendarBlank size={18} weight="duotone"/>}
+                             items={operationsItems} loc={loc} onItemHover={warmRoute}/>
+              )}
+              {showBilling && (
+                <NavLink to="/billing" data-testid="nav-billing"
+                         onMouseEnter={() => warmRoute("/billing")}
+                         className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
+                  <Receipt size={18} weight="duotone"/><span>Billing</span>
+                </NavLink>
+              )}
               {myPortalItems.length > 0 && (
                 <NavDropdown testid="nav-my-portal" label="Personal" icon={<UserCircle size={18} weight="duotone"/>}
-                             items={myPortalItems} loc={loc}/>
+                             items={myPortalItems} loc={loc} onItemHover={warmRoute}/>
               )}
               {referralsItems.length > 0 && (
                 <NavDropdown testid="nav-referrals" label="Referrals" icon={<Folder size={18} weight="duotone"/>}
-                             items={referralsItems} loc={loc}/>
+                             items={referralsItems} loc={loc} onItemHover={warmRoute}/>
               )}
               {requestsItems.length > 0 && (
-                <NavDropdown testid="nav-requests-drop" label="Requests" icon={<ListChecks size={18} weight="duotone"/>}
-                             items={requestsItems} loc={loc}/>
+                <NavDropdown testid="nav-hr" label="HR" icon={<UsersThree size={18} weight="duotone"/>}
+                             items={requestsItems} loc={loc} onItemHover={warmRoute}/>
               )}
-              {adminTools.map(l => (
-                <NavLink key={l.to} to={l.to} data-testid={l.testid}
-                         className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
-                  {l.icon}<span>{l.label}</span>
-                </NavLink>
-              ))}
+              {adminTools.length > 0 && (
+                <NavDropdown testid="nav-admin-tools" label="Administration" icon={<Gear size={18} weight="duotone"/>}
+                             items={adminTools} loc={loc} onItemHover={warmRoute}/>
+              )}
             </nav>
 
             <div className="flex-1 lg:hidden"/>
@@ -225,6 +245,27 @@ export default function Shell() {
                   {l.icon}<span>{l.label}</span>
                 </NavLink>
               ))}
+              {therapistOnly ? (
+                operationsItems.map(s => (
+                  <NavLink key={s.to} to={s.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
+                    {s.icon}<span>{s.label}</span>
+                  </NavLink>
+                ))
+              ) : (
+                <div className="mt-1">
+                  <div className="text-[10px] tracking-widest px-3 mt-2 mb-1" style={{color: "#8B9E7A"}}>OPERATIONS</div>
+                  {operationsItems.map(s => (
+                    <NavLink key={s.to} to={s.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
+                      {s.icon}<span>{s.label}</span>
+                    </NavLink>
+                  ))}
+                </div>
+              )}
+              {showBilling && (
+                <NavLink to="/billing" className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
+                  <Receipt size={16} weight="duotone"/><span>Billing</span>
+                </NavLink>
+              )}
               {myPortalItems.length > 0 && (
                 <div className="mt-1">
                   <div className="text-[10px] tracking-widest px-3 mt-2 mb-1" style={{color: "#8B9E7A"}}>PERSONAL</div>
@@ -247,7 +288,7 @@ export default function Shell() {
               )}
               {requestsItems.length > 0 && (
               <div className="mt-1">
-                <div className="text-[10px] tracking-widest px-3 mt-2 mb-1" style={{color: "#8B9E7A"}}>REQUESTS</div>
+                <div className="text-[10px] tracking-widest px-3 mt-2 mb-1" style={{color: "#8B9E7A"}}>HR</div>
                 {requestsItems.map(s => (
                   <NavLink key={s.to} to={s.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
                     {s.to === "/leaves" ? <ListChecks size={16} weight="duotone"/> :
@@ -259,11 +300,19 @@ export default function Shell() {
                 ))}
               </div>
               )}
-              {adminTools.map(l => (
-                <NavLink key={l.to} to={l.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
-                  {l.icon}<span>{l.label}</span>
-                </NavLink>
-              ))}
+              {adminTools.length > 0 && (
+              <div className="mt-1">
+                <div className="text-[10px] tracking-widest px-3 mt-2 mb-1" style={{color: "#8B9E7A"}}>ADMINISTRATION</div>
+                {adminTools.map(s => (
+                  <NavLink key={s.to} to={s.to} className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
+                    {s.to === "/reports" ? <ChartBar size={16} weight="duotone"/> :
+                     s.to === "/import" ? <UploadSimple size={16} weight="duotone"/> :
+                     <Gear size={16} weight="duotone"/>}
+                    <span>{s.label}</span>
+                  </NavLink>
+                ))}
+              </div>
+              )}
               <div className="divider my-3"/>
               <button onClick={logout} className="nav-link"><SignOut size={18}/> Sign out</button>
             </div>
@@ -283,7 +332,7 @@ export default function Shell() {
   );
 }
 
-function NavDropdown({ testid, label, icon, items, loc }) {
+function NavDropdown({ testid, label, icon, items, loc, onItemHover }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -305,6 +354,7 @@ function NavDropdown({ testid, label, icon, items, loc }) {
             <NavLink key={it.to} to={it.to} data-testid={it.testid}
                      className={({isActive}) => `nav-link text-sm w-full ${isActive ? "active" : ""}`}
                      style={{ display: "flex" }}
+                     onMouseEnter={() => onItemHover?.(it.to)}
                      onClick={() => setOpen(false)}>
               <span>{it.label}</span>
             </NavLink>

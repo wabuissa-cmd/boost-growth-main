@@ -102,12 +102,12 @@ export default function PackageStatusOverview() {
                     <td className="p-2 text-right whitespace-nowrap">
                       {isUrgent && row.status !== "none" ? (
                         <button type="button" className="btn btn-primary text-xs"
-                          onClick={() => navigate(`/attendance?client=${row.client_id}&service=${row.service_type}&newInvoice=1`)}>
+                          onClick={() => navigate(`/billing?client=${row.client_id}&service=${row.service_type}&newInvoice=1`)}>
                           New Invoice
                         </button>
                       ) : (
                         <button type="button" className="btn btn-outline text-xs"
-                          onClick={() => navigate(`/attendance?client=${row.client_id}&service=${row.service_type}`)}>
+                          onClick={() => navigate(`/billing?client=${row.client_id}&service=${row.service_type}`)}>
                           View
                         </button>
                       )}

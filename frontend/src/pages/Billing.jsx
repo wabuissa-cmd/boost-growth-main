@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import api from "../api";
-import { hasOpsAccess } from "../auth";
+import { cachedGet } from "../dataCache";
+import { useAuth, showAdminNav } from "../auth";
+import { HistoryModal } from "./Attendance";
 import TrackerBanner from "../components/TrackerBanner";
 import { ModalBase, FormSection, FormField, ModalBtnPrimary, ModalBtnSecondary } from "../components/Modal";
 import { formatMoney, paymentStatusLabel, paymentStatusStyle } from "../billingUtils";
 import { formatServiceTypeDisplay } from "../attendanceUtils";
 import {
-  Receipt, Warning, Clock, CheckCircle, MagnifyingGlass, EnvelopeSimple, ArrowSquareOut,
+  Receipt, CheckCircle, MagnifyingGlass, EnvelopeSimple, ClipboardText,
 } from "@phosphor-icons/react";
 
-function BillingRow({ row, onEdit, onOpenClient }) {
+function BillingRow({ row, onEdit, onOpenSheet }) {
   const st = paymentStatusStyle(row.payment_status);
   return (
     <div className="card p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3 border" style={{ borderColor: st.border }}>
@@ -48,12 +50,12 @@ function BillingRow({ row, onEdit, onOpenClient }) {
           <div className="text-[11px] mt-1 italic truncate" style={{ color: "#8B9E7A" }}>{row.payment_notes}</div>
         )}
       </div>
-      <div className="flex gap-2 shrink-0">
-        <button type="button" onClick={() => onEdit(row)} className="btn btn-secondary text-xs min-h-[36px]">
-          Update
+      <div className="flex gap-2 shrink-0 flex-wrap">
+        <button type="button" onClick={() => onOpenSheet(row)} className="btn btn-primary text-xs min-h-[36px]">
+          <ClipboardText size={14} /> Invoice Sheet
         </button>
-        <button type="button" onClick={() => onOpenClient(row)} className="btn btn-ghost text-xs min-h-[36px]">
-          <ArrowSquareOut size={14} /> Open
+        <button type="button" onClick={() => onEdit(row)} className="btn btn-secondary text-xs min-h-[36px]">
+          Update Payment
         </button>
       </div>
     </div>
@@ -137,19 +139,40 @@ function PaymentEditModal({ row, onClose, onSaved }) {
 }
 
 export default function Billing() {
-  const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = showAdminNav(user);
   const [params, setParams] = useSearchParams();
   const tab = params.get("tab") || "all";
+  const deepClientId = params.get("client");
+  const deepService = params.get("service");
+  const deepNewInvoice = params.get("newInvoice") === "1";
   const [data, setData] = useState(null);
+  const [clients, setClients] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [therapists, setTherapists] = useState([]);
+  const [sheetClient, setSheetClient] = useState(null);
   const [search, setSearch] = useState("");
   const [editRow, setEditRow] = useState(null);
   const [sending, setSending] = useState(false);
 
-  const load = useCallback(() => {
-    api.get("/billing/dashboard").then(r => setData(r.data)).catch(() => setData(null));
+  const loadSupport = useCallback(() => {
+    cachedGet("/clients", { force: true }).then(c => setClients(Array.isArray(c) ? c : [])).catch(() => {});
+    cachedGet("/therapists", { force: true }).then(t => setTherapists(Array.isArray(t) ? t : [])).catch(() => {});
+    cachedGet("/sessions", { force: true }).then(s => setSessions(Array.isArray(s) ? s : [])).catch(() => {});
   }, []);
 
+  const load = useCallback(() => {
+    api.get("/billing/dashboard").then(r => setData(r.data)).catch(() => setData(null));
+    loadSupport();
+  }, [loadSupport]);
+
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!deepClientId || !clients.length) return;
+    const c = clients.find(x => x.id === deepClientId);
+    if (c) setSheetClient(c);
+  }, [deepClientId, clients]);
 
   const list = useMemo(() => {
     if (!data) return [];
@@ -174,13 +197,30 @@ export default function Billing() {
     setSending(true);
     try {
       const r = await api.post("/billing/send-reminders");
-      alert(`Reminder emails sent: ${r.data?.sent ?? 0}`);
+      const to = (r.data?.recipients || []).join(", ") || "configured recipients";
+      alert(`Reminder emails sent: ${r.data?.sent ?? 0}\nTo: ${to}`);
       load();
     } catch {
       alert("Could not send reminders");
     } finally {
       setSending(false);
     }
+  };
+
+  const closeSheet = () => {
+    setSheetClient(null);
+    if (deepClientId) {
+      const next = new URLSearchParams(params);
+      next.delete("client");
+      next.delete("service");
+      next.delete("newInvoice");
+      setParams(next);
+    }
+  };
+
+  const openSheet = (row) => {
+    const c = clients.find(x => x.id === row.client_id);
+    if (c) setSheetClient(c);
   };
 
   if (!data) {
@@ -197,7 +237,7 @@ export default function Billing() {
     <div>
       <TrackerBanner
         title="Billing & Payments"
-        subtitle="Track unpaid families, partial installments, and payment reminders"
+        subtitle="Invoices, payment tracking, and installment reminders — all in one place"
         badge={(
           <button
             type="button"
@@ -216,8 +256,8 @@ export default function Billing() {
         ]}
         footer={(
           <p className="text-xs m-0" style={{ color: "#5C6853" }}>
+            Open <strong>Invoice Sheet</strong> for full billing details and session logs per invoice.
             Reminder emails go to admin and Walaa <strong>1–2 days before</strong> the next payment date on partial invoices.
-            Unpaid families stay listed until marked paid.
           </p>
         )}
       />
@@ -249,6 +289,14 @@ export default function Billing() {
             onChange={e => setSearch(e.target.value)}
           />
         </div>
+        <button
+          type="button"
+          onClick={sendReminders}
+          disabled={sending}
+          className="sm:hidden btn btn-secondary text-xs min-h-[40px]"
+        >
+          <EnvelopeSimple size={14} /> {sending ? "…" : "Reminders"}
+        </button>
       </div>
 
       {filtered.length === 0 ? (
@@ -266,7 +314,7 @@ export default function Billing() {
               key={row.invoice_id}
               row={row}
               onEdit={setEditRow}
-              onOpenClient={(r) => navigate(`/attendance?client=${r.client_id}`)}
+              onOpenSheet={openSheet}
             />
           ))}
         </div>
@@ -277,6 +325,23 @@ export default function Billing() {
           row={editRow}
           onClose={() => setEditRow(null)}
           onSaved={load}
+        />
+      )}
+
+      {sheetClient && (
+        <HistoryModal
+          client={sheetClient}
+          sessions={sessions.filter(s => s.client_id === sheetClient.id)}
+          therapists={therapists}
+          isAdmin={isAdmin}
+          user={user}
+          currentUserId={user?.id}
+          onClose={closeSheet}
+          onEdit={() => {}}
+          onDeleted={load}
+          onClientUpdated={load}
+          initialService={deepService}
+          autoNewInvoice={deepNewInvoice}
         />
       )}
     </div>

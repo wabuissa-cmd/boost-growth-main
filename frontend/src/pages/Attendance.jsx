@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import api from "../api";
 import { useAuth, hasOpsAccess } from "../auth";
 import {
@@ -27,7 +27,6 @@ import {
 import { PackageAlertBanner } from "../components/PackageStatusBadge";
 import PreparationClientCard from "../components/PreparationClientCard";
 import TrackerBanner from "../components/TrackerBanner";
-import PaymentAttentionStrip from "../components/PaymentAttentionStrip";
 import SsWeekStatusRow, { SsWeekLegend } from "../components/SsWeekStatusRow";
 import { cachedGet } from "../dataCache";
 
@@ -153,11 +152,6 @@ export default function Attendance() {
   const [logFor, setLogFor] = useState(null); // client OR null OR "__pick__"
   const [editingSess, setEditingSess] = useState(null);
   const [historyFor, setHistoryFor] = useState(null);
-  const [sheetMode, setSheetMode] = useState("invoice");
-  const [searchParams, setSearchParams] = useSearchParams();
-  const deepClientId = searchParams.get("client");
-  const deepService = searchParams.get("service");
-  const deepNewInvoice = searchParams.get("newInvoice") === "1";
 
   const load = useCallback(async (force = false) => {
     const [c, t, pkg] = await Promise.all([
@@ -172,20 +166,6 @@ export default function Attendance() {
     cachedGet("/sessions", { force }).then(s => setSessions(Array.isArray(s) ? s : [])).catch(() => {});
   }, []);
   useEffect(() => { load(); }, [load]);
-
-  useEffect(() => {
-    if (!deepClientId || !clients.length) return;
-    const c = clients.find(x => x.id === deepClientId);
-    if (c) {
-      setHistoryFor(c);
-      setSheetMode("invoice");
-    }
-  }, [deepClientId, clients]);
-
-  const closeHistory = () => {
-    setHistoryFor(null);
-    if (deepClientId) setSearchParams({});
-  };
 
   const enriched = useMemo(
     () => clients.map(c => enrichClientForCardView(c, packageRows)),
@@ -223,7 +203,7 @@ export default function Attendance() {
     <div>
       <TrackerBanner
         title="Session Preparation"
-        subtitle="Log sessions, track packages, and manage invoice sheets"
+        subtitle="Log sessions and track package progress for your clients"
         badge={(
           <div className="hidden sm:flex items-center gap-1.5 pill px-3 py-1.5 text-xs font-bold bg-white/15 text-white border border-white/20">
             <CheckCircle size={14} weight="fill" /> Synced
@@ -235,7 +215,6 @@ export default function Attendance() {
           { n: counts.warning, label: "Warning", accent: "#F5D78E" },
           { n: counts.ok, label: "Safe", accent: "#B8D4A8" },
         ]}
-        footer={<PaymentAttentionStrip user={user} />}
       />
 
       {/* Toolbar: filters + search + actions */}
@@ -293,8 +272,7 @@ export default function Attendance() {
             client={c}
             therapistName={findT(c.main_therapist_id)?.name || ""}
             onLog={() => setLogFor(c)}
-            onHistory={() => { setSheetMode("history"); setHistoryFor(c); }}
-            onInvoice={() => { setSheetMode("invoice"); setHistoryFor(c); }}
+            onHistory={() => setHistoryFor(c)}
           />
         ))}
       </div>
@@ -338,24 +316,12 @@ export default function Attendance() {
         <LogSessionForm client={logFor} therapists={therapists} currentUser={user} onClose={() => setLogFor(null)} onSaved={() => { setLogFor(null); load(); }}/>
       )}
 
-      {/* History / Invoice */}
-      {historyFor && sheetMode === "history" && (
+      {historyFor && (
         <AttendanceHistoryModal client={historyFor} sessions={sessions.filter(s => s.client_id === historyFor.id)}
                                 therapists={therapists} isAdmin={isAdmin} user={user} currentUserId={user?.id}
                                 onClose={() => setHistoryFor(null)}
                                 onEdit={(s) => { setEditingSess(s); }}
                                 onRefresh={load}/>
-      )}
-
-      {historyFor && sheetMode === "invoice" && (
-        <HistoryModal client={historyFor} sessions={sessions.filter(s => s.client_id === historyFor.id)}
-                      therapists={therapists} isAdmin={isAdmin} user={user} currentUserId={user?.id}
-                      onClose={closeHistory}
-                      onEdit={(s) => { setEditingSess(s); }}
-                      onDeleted={() => load()}
-                      onClientUpdated={() => load()}
-                      initialService={deepService}
-                      autoNewInvoice={deepNewInvoice}/>
       )}
 
       {editingSess && (
@@ -1902,3 +1868,5 @@ function NewInvoiceModal({ client, serviceTypeFilter, defaultPackage, onCancel, 
     </ModalBase>
   );
 }
+
+export { HistoryModal };
