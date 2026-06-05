@@ -80,6 +80,19 @@ export const SCHEDULE_CLOSURE_STYLE = {
   color: "#5C3068",
 };
 
+/** Closure label for one therapist on a date (specific overrides all-staff). */
+export function closureLabelForTherapist(closures, dateISO, therapistId) {
+  if (!dateISO || !closures?.length) return null;
+  const forDate = closures.filter(c => c.date === dateISO);
+  if (!forDate.length) return null;
+  const specific = forDate.find(
+    c => Array.isArray(c.therapist_ids) && c.therapist_ids.length > 0 && c.therapist_ids.includes(therapistId)
+  );
+  if (specific) return specific.label;
+  const all = forDate.find(c => !c.therapist_ids?.length);
+  return all?.label ?? null;
+}
+
 export const DURATION_OPTIONS = [
   { value: 0.5, label: "½ hr" },
   { value: 1, label: "1 hr" },

@@ -255,6 +255,7 @@ class InvoicePaymentIn(BaseModel):
 class ScheduleClosureIn(BaseModel):
     date: str   # ISO yyyy-mm-dd
     label: str  # e.g. National Day, Eid
+    therapist_ids: Optional[List[str]] = None  # empty / omitted = all therapists
 
 class SessionIn(BaseModel):
     client_id: str
@@ -769,12 +770,16 @@ async def create_schedule_closure(body: ScheduleClosureIn, _=Depends(ops_or_admi
     label = (body.label or "").strip()
     if not date or not label:
         raise HTTPException(status_code=400, detail="date and label required")
-    existing = await db.schedule_closures.find_one({"date": date}, {"_id": 0})
-    if existing:
-        await db.schedule_closures.update_one({"date": date}, {"$set": {"label": label}})
-        return {**existing, "label": label}
-    doc = {"id": str(uuid.uuid4()), "date": date, "label": label, "created_at": now_iso()}
+    tids = [t for t in (body.therapist_ids or []) if t]
+    doc = {
+        "id": str(uuid.uuid4()),
+        "date": date,
+        "label": label,
+        "therapist_ids": tids,
+        "created_at": now_iso(),
+    }
     await db.schedule_closures.insert_one(doc)
+    doc.pop("_id", None)
     return doc
 
 @api.delete("/schedule/closures/{cid}")

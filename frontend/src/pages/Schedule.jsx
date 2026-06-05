@@ -18,7 +18,7 @@ import ScheduleCellPanel from "../components/ScheduleCellPanel";
 import SchedulePageHeader from "../components/SchedulePageHeader";
 import ScheduleHolidaysModal from "../components/ScheduleHolidaysModal";
 import LogSessionModal, { slotToTime24, addHoursToTime } from "../components/LogSessionModal";
-import { sortTherapistsForSchedule, getTherapistScheduleName, scheduleOwnBlockOnly, SCHEDULE_CLOSURE_STYLE } from "../scheduleConstants";
+import { sortTherapistsForSchedule, getTherapistScheduleName, scheduleOwnBlockOnly, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
 import { cachedGet } from "../dataCache";
 
 const SCHEDULE_ZOOM = 80;
@@ -339,11 +339,10 @@ export default function Schedule() {
     return cov;
   }, [cells]);
 
-  const closureByDate = useMemo(() => {
-    const m = {};
-    closures.forEach(c => { m[c.date] = c.label; });
-    return m;
-  }, [closures]);
+  const closureLabelFor = useCallback(
+    (therapistId, dayISO) => closureLabelForTherapist(closures, dayISO, therapistId),
+    [closures]
+  );
 
   const visibleTherapists = useMemo(() => {
     let list = therapists.filter(t => !isHiddenFromSchedule(t.name));
@@ -745,7 +744,7 @@ export default function Schedule() {
             {DAYS_EN.map((d, di) => {
                 const leaveInfo = leaveByTherapistDay[`${t.id}_${di}`];
                 const dayISO = toISODate(addDays(weekStart, di));
-                const closureLabel = closureByDate[dayISO];
+                const closureLabel = closureLabelFor(t.id, dayISO);
                 return (
                 <tr key={`${t.id}_${di}`} className={[di === 0 ? "sheet-therapist-start" : "", di === 4 ? "sheet-therapist-divider" : ""].filter(Boolean).join(" ")}>
                   {di === 0 && (
@@ -854,7 +853,7 @@ export default function Schedule() {
             {DAYS_EN.map((d, di) => {
               const leaveInfo = leaveByTherapistDay[`${therapist.id}_${di}`];
               const dayISO = toISODate(addDays(weekStart, di));
-              const closureLabel = closureByDate[dayISO];
+              const closureLabel = closureLabelFor(therapist.id, dayISO);
               return (
               <tr key={di} className={leaveInfo ? "schedule-leave-row" : ""}>
                 <td className="cell-base text-center font-bold" style={{ background: leaveInfo && !closureLabel ? "#FEF9C3" : "#F6F4F0", color: "#2C3625", position: "relative" }}>
@@ -1265,6 +1264,7 @@ export default function Schedule() {
         <ScheduleHolidaysModal
           weekStartISO={weekStartISO}
           weekEndISO={weekEndISO}
+          therapists={therapists.filter(t => !isHiddenFromSchedule(t.name))}
           onClose={() => setShowHolidays(false)}
           onChanged={loadClosures}
         />
