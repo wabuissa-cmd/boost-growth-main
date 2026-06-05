@@ -380,7 +380,10 @@ main, .page-enter { min-width: 0; }
         background: var(--bg-base);
     }
 }
-.cell-base { position: relative; }
+.schedule-closure-cell {
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
 .sched-sheet .sheet-slot.editable { cursor: pointer; }
 .sched-sheet .sheet-slot.editable:hover { outline: 2px solid #7A8A6A; outline-offset: -2px; }
 .sched-sheet .sheet-slot.cell-empty {

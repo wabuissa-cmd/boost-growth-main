@@ -18,15 +18,37 @@ import ScheduleCellPanel from "../components/ScheduleCellPanel";
 import SchedulePageHeader from "../components/SchedulePageHeader";
 import ScheduleHolidaysModal from "../components/ScheduleHolidaysModal";
 import LogSessionModal, { slotToTime24, addHoursToTime } from "../components/LogSessionModal";
-import { sortTherapistsForSchedule, getTherapistScheduleName, scheduleOwnBlockOnly } from "../scheduleConstants";
+import { sortTherapistsForSchedule, getTherapistScheduleName, scheduleOwnBlockOnly, SCHEDULE_CLOSURE_STYLE } from "../scheduleConstants";
 import { cachedGet } from "../dataCache";
 
 const SCHEDULE_ZOOM = 80;
 
 function getSheetCellStyle(cell, clients) {
-  if (!cell) return { background: "#F5F5F2", borderColor: "#E8E4DE", height: 38, minHeight: 38, padding: "2px 1px", fontSize: 10 };
+  if (!cell) return { background: "#E5E7EB", borderColor: "#D1D5DB", height: 38, minHeight: 38, padding: "2px 1px", fontSize: 10 };
   const base = getCellStyle(cell, clients);
   return { ...base, height: 38, minHeight: 38, padding: "2px 1px", fontSize: 10 };
+}
+
+function ClosureBannerCell({ label, className, isAdmin, therapist_id, day, onCtx, onTouchStart, onTouchMove, onTouchEnd }) {
+  return (
+    <td
+      colSpan={TIME_SLOTS.length}
+      className={className}
+      style={{
+        ...SCHEDULE_CLOSURE_STYLE,
+        height: 38,
+        minHeight: 38,
+        textAlign: "center",
+        verticalAlign: "middle",
+      }}
+      onContextMenu={isAdmin ? (e) => onCtx(e, null, therapist_id, day, TIME_SLOTS[0]) : undefined}
+      onTouchStart={isAdmin ? (e) => onTouchStart(e, null, therapist_id, day, TIME_SLOTS[0]) : undefined}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
+      <span className="font-bold text-[12px] sm:text-[13px] tracking-wide">{label}</span>
+    </td>
+  );
 }
 
 function positionContextMenu(x, y, menuWidth, menuHeight) {
@@ -741,28 +763,35 @@ export default function Schedule() {
                       </td>
                     </>
                   )}
-                  <td className="sheet-td sheet-day font-bold text-center" style={closureLabel ? { background: "#E8D4F0" } : leaveInfo ? { background: "#FEF9C3" } : {}}>
+                  <td className="sheet-td sheet-day font-bold text-center" style={leaveInfo && !closureLabel ? { background: "#FEF9C3" } : {}}>
                     <div className="text-[11px] tracking-wider" style={{ color: "#2C3625" }}>{DAYS_SHORT[di].toUpperCase()}</div>
                     <div className="text-[9px] font-normal" style={{ color: "#8B9E7A" }}>{addDays(weekStart, di).getDate()}/{addDays(weekStart, di).getMonth() + 1}</div>
-                    {closureLabel && (
-                      <div className="text-[8px] font-bold mt-0.5 leading-tight px-0.5" style={{ color: "#6B4080" }}>{closureLabel}</div>
-                    )}
-                    {leaveInfo && (
+                    {leaveInfo && !closureLabel && (
                       <div className="text-[8px] font-bold mt-0.5" style={{ color: "#8B6918" }}>
                         {leaveInfo.type === "Absence" ? "ABSENT" : "ON LEAVE"}
                       </div>
                     )}
                   </td>
-                  {TIME_SLOTS.map(ts => {
+                  {closureLabel ? (
+                    <ClosureBannerCell
+                      label={closureLabel}
+                      className="sheet-td sheet-slot schedule-closure-cell"
+                      isAdmin={isAdmin}
+                      therapist_id={t.id}
+                      day={di}
+                      onCtx={onCtx}
+                      onTouchStart={onCellTouchStart}
+                      onTouchMove={onCellTouchMove}
+                      onTouchEnd={onCellTouchEnd}
+                    />
+                  ) : TIME_SLOTS.map(ts => {
                     const cell = cellMap[`${t.id}_${di}_${ts}`];
                     const covered = coveredSet.has(`${t.id}_${di}_${ts}`);
                     if (covered) return null;
                     const sc = SERVICE_CODES.find(s => s.id === cell?.service_code);
                     const colSpan = scheduleDisplaySpan(cell);
                     const baseStyle = getSheetCellStyle(cell, clients);
-                    const cellStyle = closureLabel && !cell
-                      ? { ...baseStyle, background: "#EDE0F5", borderColor: "#C8A8D8", height: 38, minHeight: 38 }
-                      : { ...baseStyle, height: 38, minHeight: 38 };
+                    const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
                     return (
                       <td
                         key={ts}
@@ -828,26 +857,35 @@ export default function Schedule() {
               const closureLabel = closureByDate[dayISO];
               return (
               <tr key={di} className={leaveInfo ? "schedule-leave-row" : ""}>
-                <td className="cell-base text-center font-bold" style={{ background: closureLabel ? "#E8D4F0" : leaveInfo ? "#FEF9C3" : "#F6F4F0", color: "#2C3625", position: "relative" }}>
+                <td className="cell-base text-center font-bold" style={{ background: leaveInfo && !closureLabel ? "#FEF9C3" : "#F6F4F0", color: "#2C3625", position: "relative" }}>
                   <div className="text-[11px] tracking-wider">{DAYS_SHORT[di].toUpperCase()}</div>
                   <div className="text-[10px] font-normal" style={{ color: "#8B9E7A" }}>{addDays(weekStart, di).getDate()}/{addDays(weekStart, di).getMonth() + 1}</div>
-                  {closureLabel && <div className="text-[9px] font-bold mt-0.5" style={{ color: "#6B4080" }}>{closureLabel}</div>}
-                  {leaveInfo && (
+                  {leaveInfo && !closureLabel && (
                     <div className="text-[9px] font-bold mt-0.5" style={{ color: "#8B6918" }}>
                       {leaveInfo.type === "Absence" ? "ABSENT" : "ON LEAVE"}
                     </div>
                   )}
                 </td>
-                {TIME_SLOTS.map(ts => {
+                {closureLabel ? (
+                  <ClosureBannerCell
+                    label={closureLabel}
+                    className="cell-base schedule-closure-cell"
+                    isAdmin={isAdmin}
+                    therapist_id={therapist.id}
+                    day={di}
+                    onCtx={onCtx}
+                    onTouchStart={onCellTouchStart}
+                    onTouchMove={onCellTouchMove}
+                    onTouchEnd={onCellTouchEnd}
+                  />
+                ) : TIME_SLOTS.map(ts => {
                   const cell = cellMap[`${therapist.id}_${di}_${ts}`];
                   const isCovered = coveredSet.has(`${therapist.id}_${di}_${ts}`);
                   if (isCovered) return null;
                   const sc = SERVICE_CODES.find(s => s.id === cell?.service_code);
                   const colSpan = scheduleDisplaySpan(cell);
                   const baseStyle = getSheetCellStyle(cell, clients);
-                  const cellStyle = closureLabel && !cell
-                    ? { ...baseStyle, background: "#EDE0F5", borderColor: "#C8A8D8", height: 38, minHeight: 38 }
-                    : { ...baseStyle, height: 38, minHeight: 38 };
+                  const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
                   return (
                     <td key={ts} className={cellClassNameBlock(cell, isAdmin, leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts))}
                       colSpan={colSpan}

@@ -70,8 +70,15 @@ export const SCHEDULE_LEGEND_ITEMS = [
   { bg: "#F1ECF7", border: "#C9B8DE", label: "Meeting" },
   { bg: "#E8F0E8", border: "#A8C0A8", label: "Supervision" },
   { bg: "#FFEAE0", border: "#F0B89F", label: "AVC" },
-  { bg: "#E8D4F0", border: "#C8A8D8", label: "Holiday" },
+  { bg: "#FFF8D6", border: "#E6C96A", label: "Holiday" },
 ];
+
+/** Official closure / holiday row styling (light yellow + dark purple text). */
+export const SCHEDULE_CLOSURE_STYLE = {
+  background: "#FFF8D6",
+  borderColor: "#E6C96A",
+  color: "#5C3068",
+};
 
 export const DURATION_OPTIONS = [
   { value: 0.5, label: "½ hr" },
