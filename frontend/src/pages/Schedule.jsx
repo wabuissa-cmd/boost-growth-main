@@ -3,7 +3,7 @@ import api, { DAYS_EN, DAYS_SHORT, TIME_SLOTS, SERVICE_CODES, startOfWeek, addDa
 import {
   getCellStyle, META_SERVICE_CODES, MERGE_QUICK,
   SERVICE_CELL_COLORS, buildSlotRange, isSlotSelectable, slotIndex,
-  findCellAt, isHiddenFromSchedule, durationSlotSpan,
+  findCellAt, isHiddenFromSchedule, scheduleDisplaySpan,
 } from "../scheduleUtils";
 import { useAuth, hasOpsAccess } from "../auth";
 import {
@@ -309,11 +309,10 @@ export default function Schedule() {
   const coveredSet = useMemo(() => {
     const cov = new Set();
     cells.forEach(c => {
-      const dur = parseFloat(c.duration) || 1;
-      if (dur <= 1) return;
+      const span = scheduleDisplaySpan(c);
+      if (span <= 1) return;
       const startIdx = TIME_SLOTS.indexOf(c.time_slot);
       if (startIdx < 0) return;
-      const span = durationSlotSpan(dur);
       for (let k = 1; k < span; k++) {
         const idx = startIdx + k;
         if (idx < TIME_SLOTS.length) cov.add(`${c.therapist_id}_${c.day}_${TIME_SLOTS[idx]}`);
@@ -411,7 +410,7 @@ export default function Schedule() {
       if (!window.confirm(`Mark ${therapistName} on leave for full ${DAYS_EN[day]} (${dateLabel})?`)) return;
       await clearDay(day);
       await api.post("/schedule", {
-        therapist_id, day, time_slot: TIME_SLOTS[0], duration: TIME_SLOTS.length,
+        therapist_id, day, time_slot: TIME_SLOTS[0], duration: 1,
         week_start: weekStartISO, service_code: "LEAVE", note: "Leave",
         state: "normal", color: leaveColor, child_name: null,
       });
@@ -420,7 +419,7 @@ export default function Schedule() {
       for (let d = 0; d < 5; d++) {
         await clearDay(d);
         await api.post("/schedule", {
-          therapist_id, day: d, time_slot: TIME_SLOTS[0], duration: TIME_SLOTS.length,
+          therapist_id, day: d, time_slot: TIME_SLOTS[0], duration: 1,
           week_start: weekStartISO, service_code: "LEAVE", note: "Leave",
           state: "normal", color: leaveColor, child_name: null,
         });
@@ -748,12 +747,11 @@ export default function Schedule() {
                     const covered = coveredSet.has(`${t.id}_${di}_${ts}`);
                     if (covered) return null;
                     const sc = SERVICE_CODES.find(s => s.id === cell?.service_code);
-                    const dur = parseFloat(cell?.duration) || 1;
-                    const colSpan = durationSlotSpan(dur);
+                    const colSpan = scheduleDisplaySpan(cell);
                     const baseStyle = getSheetCellStyle(cell, clients);
                     const cellStyle = closureLabel && !cell
                       ? { ...baseStyle, background: "#EDE0F5", borderColor: "#C8A8D8", height: 38, minHeight: 38 }
-                      : { ...baseStyle, height: 38 * dur, minHeight: 38 * dur };
+                      : { ...baseStyle, height: 38, minHeight: 38 };
                     return (
                       <td
                         key={ts}
@@ -834,12 +832,11 @@ export default function Schedule() {
                   const isCovered = coveredSet.has(`${therapist.id}_${di}_${ts}`);
                   if (isCovered) return null;
                   const sc = SERVICE_CODES.find(s => s.id === cell?.service_code);
-                  const dur = parseFloat(cell?.duration) || 1;
-                  const colSpan = durationSlotSpan(dur);
+                  const colSpan = scheduleDisplaySpan(cell);
                   const baseStyle = getSheetCellStyle(cell, clients);
                   const cellStyle = closureLabel && !cell
                     ? { ...baseStyle, background: "#EDE0F5", borderColor: "#C8A8D8", height: 38, minHeight: 38 }
-                    : { ...baseStyle, height: 38 * dur, minHeight: 38 * dur };
+                    : { ...baseStyle, height: 38, minHeight: 38 };
                   return (
                     <td key={ts} className={cellClassNameBlock(cell, isAdmin, leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts))}
                       colSpan={colSpan}

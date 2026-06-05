@@ -1,10 +1,18 @@
 import { getChildColor, readable } from "./childColors";
 import { TIME_SLOTS } from "./api";
 
-/** Slots covered beyond anchor (supports 1.5h, 2.5h, …). */
+/** Slots covered horizontally (supports 1.5h, 2.5h, …). */
 export function durationSlotSpan(dur) {
   const d = parseFloat(dur) || 1;
   return Math.max(1, Math.ceil(d));
+}
+
+/** Meta blocks (Leave, Meeting, …) always occupy one slot visually. */
+export function scheduleDisplaySpan(cell) {
+  if (!cell) return 1;
+  const code = cell.service_code;
+  if (META_SERVICE_CODES.has(code) || code === "AVAILABLE") return 1;
+  return durationSlotSpan(cell.duration);
 }
 
 function deepenHex(hex, factor = 0.82) {
