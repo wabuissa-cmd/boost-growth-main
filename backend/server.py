@@ -119,18 +119,16 @@ def _has_full_client_access(user: dict) -> bool:
 
 
 def _session_editable_by_user(user: dict, session: dict) -> bool:
-    """Therapists may edit/delete only same-day sessions; ops/admin always."""
-    if _has_full_client_access(user):
+    """Therapists may edit/delete only same-day sessions; portal admin always."""
+    if _is_portal_admin(user) and not _is_client_lead(user):
         return True
-    if user.get("role") != "therapist":
-        return False
     today = datetime.now(timezone.utc).date().isoformat()
     sd = (session.get("session_date") or "")[:10]
     return sd == today
 
 
 def _is_portal_admin(user: dict) -> bool:
-    return user.get("role") == "admin"
+    return user.get("role") == "admin" and not _is_client_lead(user)
 
 
 def _is_staff_admin(user: dict) -> bool:
@@ -139,7 +137,7 @@ def _is_staff_admin(user: dict) -> bool:
 
 
 async def ops_or_admin(user: dict = Depends(get_current_user)) -> dict:
-    if _has_full_client_access(user):
+    if _is_portal_admin(user):
         return user
     raise HTTPException(status_code=403, detail="Admin access required")
 
@@ -335,6 +333,8 @@ class LeaveIn(BaseModel):
 class LeaveStatusUpdate(BaseModel):
     status: str
     admin_note: Optional[str] = None
+    deduct_balance: Optional[bool] = True
+    is_paid: Optional[bool] = True
 
 class MarkAbsentIn(BaseModel):
     cancel_sessions: bool = True
@@ -558,10 +558,16 @@ async def full_backup(_=Depends(admin_only)):
 
 class LeaveBalanceIn(BaseModel):
     leave_balance: float
+    annual_balance: Optional[float] = None
 
 @api.put("/therapists/{tid}/leave-balance")
 async def set_leave_balance(tid: str, payload: LeaveBalanceIn, _=Depends(admin_only)):
-    await db.therapists.update_one({"id": tid}, {"$set": {"leave_balance": float(payload.leave_balance)}})
+    bal = float(payload.leave_balance)
+    annual = float(payload.annual_balance) if payload.annual_balance is not None else bal
+    await db.therapists.update_one(
+        {"id": tid},
+        {"$set": {"leave_balance": bal, "annual_balance": annual}},
+    )
     return await db.therapists.find_one({"id": tid}, {"_id": 0, "pin_hash": 0, "password_hash": 0})
 
 # ------------------- Master Data Seed (idempotent) -------------------
@@ -3982,9 +3988,61 @@ async def delete_resource(rid: str, _=Depends(admin_only)):
     return {"ok": True}
 
 # ------------------- Leaves / Vacations -------------------
-DEFAULT_ANNUAL_BALANCE = 30  # baseline annual leave per year
+DEFAULT_ANNUAL_BALANCE = 30  # baseline annual leave per contract year
 
 LEAVE_DOC_TYPES = {"medical", "appointment", "other"}
+
+
+def _contract_period_bounds(therapist: dict, ref=None):
+    """Contract year from join_date anniversary (e.g. Apr → Apr), not calendar year."""
+    from datetime import date as date_cls
+    ref = ref or datetime.now(timezone.utc).date()
+    join_raw = (therapist or {}).get("join_date") or f"{ref.year}-04-01"
+    try:
+        jd = date_cls.fromisoformat(str(join_raw)[:10])
+    except ValueError:
+        jd = date_cls(ref.year, 4, 1)
+    sm, sd = jd.month, min(jd.day, 28)
+    try:
+        period_start = date_cls(ref.year, sm, sd)
+    except ValueError:
+        period_start = date_cls(ref.year, sm, 28)
+    if ref < period_start:
+        try:
+            period_start = date_cls(ref.year - 1, sm, sd)
+        except ValueError:
+            period_start = date_cls(ref.year - 1, sm, 28)
+    try:
+        period_end = date_cls(period_start.year + 1, sm, sd) - timedelta(days=1)
+    except ValueError:
+        period_end = date_cls(period_start.year + 1, sm, 28) - timedelta(days=1)
+    return period_start.isoformat(), period_end.isoformat()
+
+
+async def _ensure_contract_balance(therapist: dict) -> dict:
+    """Reset leave_balance to annual entitlement when a new contract year starts."""
+    if not therapist:
+        return therapist
+    start, end = _contract_period_bounds(therapist)
+    if therapist.get("contract_period_start") == start:
+        return therapist
+    allocated = float(
+        therapist.get("annual_balance")
+        if therapist.get("annual_balance") is not None
+        else (therapist.get("leave_balance") if therapist.get("leave_balance") is not None else DEFAULT_ANNUAL_BALANCE)
+    )
+    await db.therapists.update_one(
+        {"id": therapist["id"]},
+        {"$set": {
+            "leave_balance": allocated,
+            "contract_period_start": start,
+            "contract_period_end": end,
+        }},
+    )
+    therapist["leave_balance"] = allocated
+    therapist["contract_period_start"] = start
+    therapist["contract_period_end"] = end
+    return therapist
 
 
 def _leave_default_fields() -> dict:
@@ -4064,8 +4122,19 @@ def _enrich_leave_document_url(leave: dict) -> dict:
 @api.get("/leaves")
 async def list_leaves(year: Optional[int] = None, user=Depends(get_current_user)):
     q: dict = {}
-    if year:
+    if not _is_portal_admin(user):
+        therapist = await db.therapists.find_one({"id": user["id"]}, {"_id": 0})
+        if therapist:
+            therapist = await _ensure_contract_balance(therapist)
+            start, end = _contract_period_bounds(therapist)
+            q["start_date"] = {"$gte": start, "$lte": end}
+        else:
+            q["therapist_id"] = user["id"]
+    elif year:
         q["start_date"] = {"$gte": f"{year}-01-01", "$lte": f"{year}-12-31"}
+    else:
+        yr = datetime.now(timezone.utc).year
+        q["start_date"] = {"$gte": f"{yr}-01-01", "$lte": f"{yr}-12-31"}
     if not _is_portal_admin(user):
         q["therapist_id"] = user["id"]
     items = await db.leaves.find(q, {"_id": 0}).sort("start_date", -1).to_list(2000)
@@ -4082,28 +4151,34 @@ async def list_leaves(year: Optional[int] = None, user=Depends(get_current_user)
 
 @api.get("/leaves/balance")
 async def leaves_balance(year: Optional[int] = None, user=Depends(get_current_user)):
-    """Return per-therapist annual balance: {therapist_id, name, allocated, used (Annual+approved/done), remaining, breakdown}.
-    For therapist role: only their own.
-    """
-    yr = year or datetime.now(timezone.utc).year
-    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "color": 1, "email": 1, "annual_balance": 1, "leave_balance": 1, "join_date": 1}).to_list(100)
+    """Per-therapist balance for current contract year (anniversary from join_date)."""
+    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "color": 1, "email": 1, "annual_balance": 1, "leave_balance": 1, "join_date": 1, "contract_period_start": 1, "contract_period_end": 1}).to_list(100)
     if not _is_portal_admin(user):
         therapists = [t for t in therapists if t["id"] == user["id"]]
-    leaves = await db.leaves.find({"start_date": {"$gte": f"{yr}-01-01", "$lte": f"{yr}-12-31"}}, {"_id": 0}).to_list(2000)
     out = []
     for t in therapists:
-        own = [l for l in leaves if l.get("therapist_id") == t["id"]]
+        t = await _ensure_contract_balance(t)
+        start, end = _contract_period_bounds(t)
+        own = await db.leaves.find({
+            "therapist_id": t["id"],
+            "start_date": {"$gte": start, "$lte": end},
+        }, {"_id": 0}).to_list(500)
         used_annual = sum(float(l.get("days") or 0) for l in own if l.get("leave_type") == "Annual" and l.get("status") in ("approved", "done"))
         used_unpaid = sum(float(l.get("days") or 0) for l in own if l.get("leave_type") == "Unpaid" and l.get("status") in ("approved", "done"))
         used_sick = sum(float(l.get("days") or 0) for l in own if l.get("leave_type") == "Sickleave" and l.get("status") in ("approved", "done"))
+        used_permission = sum(float(l.get("days") or 0) for l in own if l.get("leave_type") == "Permission" and l.get("status") in ("approved", "done") and l.get("is_paid", True))
         pending = sum(float(l.get("days") or 0) for l in own if l.get("status") == "pending")
         allocated = float(t.get("leave_balance") if t.get("leave_balance") is not None else (t.get("annual_balance") or DEFAULT_ANNUAL_BALANCE))
-        remaining = max(0.0, allocated - used_annual)
+        remaining = max(0.0, allocated - used_annual - used_permission)
         out.append({
             "therapist_id": t["id"], "name": t["name"], "color": t.get("color"), "email": t.get("email"),
             "join_date": t.get("join_date"),
-            "year": yr, "allocated": allocated,
+            "contract_period_start": start,
+            "contract_period_end": end,
+            "year": year or datetime.now(timezone.utc).year,
+            "allocated": allocated,
             "used_annual": round(used_annual, 1),
+            "used_permission": round(used_permission, 1),
             "used_unpaid": round(used_unpaid, 1),
             "used_sick": round(used_sick, 1),
             "pending": round(pending, 1),
@@ -4145,13 +4220,20 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, admin=Depend
     if not leave:
         raise HTTPException(status_code=404, detail="Not found")
     prev_status = leave.get("status")
+    is_paid = payload.is_paid if payload.is_paid is not None else leave.get("is_paid", True)
+    deduct = payload.deduct_balance if payload.deduct_balance is not None else True
+    if payload.status == "approved" and leave.get("leave_type") == "Permission" and payload.is_paid is False:
+        is_paid = False
+        deduct = False
     await db.leaves.update_one({"id": lid}, {"$set": {
         "status": payload.status, "admin_note": payload.admin_note,
         "decided_by": admin.get("name") or "Admin", "decided_at": now_iso(),
+        "is_paid": is_paid,
     }})
-    # Deduct balance when newly approved (annual leave types only)
+    # Deduct balance when newly approved (skip unpaid / absence)
     if payload.status == "approved" and prev_status != "approved" and leave.get("therapist_id"):
-        if (leave.get("leave_type") or "").lower() not in ("unpaid", "absence"):
+        lt = (leave.get("leave_type") or "").lower()
+        if deduct and is_paid and lt not in ("unpaid", "absence"):
             t = await db.therapists.find_one({"id": leave["therapist_id"]}, {"_id": 0, "leave_balance": 1})
             if t is not None and t.get("leave_balance") is not None:
                 days = float(leave.get("days") or 0)

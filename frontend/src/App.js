@@ -10,6 +10,7 @@ const Schedule = lazy(() => import("./pages/Schedule"));
 const Attendance = lazy(() => import("./pages/Attendance"));
 const Clients = lazy(() => import("./pages/Clients"));
 const Requests = lazy(() => import("./pages/Requests"));
+const TherapistRequests = lazy(() => import("./pages/TherapistRequests"));
 const Directory = lazy(() => import("./pages/Directory"));
 const Intake = lazy(() => import("./pages/Intake"));
 const Resources = lazy(() => import("./pages/Resources"));
@@ -40,13 +41,6 @@ function AdminOnly({ children }) {
 }
 
 
-function MyLeavesOnly({ children }) {
-  const { user } = useAuth();
-  if (user === null) return <Loading/>;
-  if (!user) return <Navigate to="/login" replace />;
-  return children;
-}
-
 function OpsOnly({ children }) {
   const { user } = useAuth();
   if (user === null) return <Loading/>;
@@ -68,7 +62,8 @@ function AppRoutes() {
         <Route path="/billing" element={<OpsOnly><Billing/></OpsOnly>}/>
         <Route path="/clients" element={<Clients/>}/>
         <Route path="/intake" element={<AdminOnly><Intake/></AdminOnly>}/>
-        <Route path="/my-requests" element={<Requests personal/>}/>
+        <Route path="/my-requests" element={<TherapistRequests/>}/>
+        <Route path="/my-leaves" element={<Navigate to="/my-requests" replace/>}/>
         <Route path="/requests" element={<AdminOnly><Requests/></AdminOnly>}/>
         <Route path="/directory" element={<Directory/>}/>
         <Route path="/resources" element={<Resources/>}/>
@@ -76,7 +71,6 @@ function AppRoutes() {
         <Route path="/import" element={<AdminOnly><ImportPage/></AdminOnly>}/>
         <Route path="/admin" element={<AdminOnly><Admin/></AdminOnly>}/>
         <Route path="/leave-balance" element={<AdminOnly><LeaveBalance/></AdminOnly>}/>
-        <Route path="/my-leaves" element={<MyLeavesOnly><LeaveRequests personal/></MyLeavesOnly>}/>
         <Route path="/leaves" element={<AdminOnly><LeaveRequests/></AdminOnly>}/>
         <Route path="/leave-requests" element={<Navigate to="/leaves" replace/>}/>
         <Route path="/therapist-leaves" element={<Navigate to="/leave-balance" replace/>}/>

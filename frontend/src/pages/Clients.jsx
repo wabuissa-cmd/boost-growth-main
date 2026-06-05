@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "../api";
 import { cachedGet } from "../dataCache";
-import { useAuth, hasOpsAccess } from "../auth";
+import { useAuth, showAdminNav, hasFullClientAccess } from "../auth";
 import { Plus, MagnifyingGlass } from "@phosphor-icons/react";
 import ClientInfoCard from "../components/ClientInfoCard";
 import ClientDrawer from "../components/ClientDrawer";
@@ -13,7 +13,7 @@ import {
 
 export default function Clients() {
   const { user } = useAuth();
-  const isAdmin = hasOpsAccess(user);
+  const isAdmin = showAdminNav(user);
   const [items, setItems] = useState([]);
   const [therapists, setTherapists] = useState([]);
   const [edit, setEdit] = useState(null);
@@ -572,7 +572,7 @@ function ProgressReportsList({ clientId, fileNo, client, isAdmin, embedded }) {
   const [busy, setBusy]      = useState(null);
 
   const isSupervisor = () => {
-    if (hasOpsAccess(user)) return true;
+    if (hasFullClientAccess(user)) return true;
     if (isAdmin) return true;
     if (!user) return false;
     const key = user.key || "";

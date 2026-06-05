@@ -112,8 +112,7 @@ export default function Home() {
   ] : [
     { to: "/schedule", label: "Schedule", icon: <CalendarBlank size={18} weight="duotone"/> },
     { to: "/attendance", label: "Attendance", icon: <ClipboardText size={18} weight="duotone"/> },
-    { to: "/my-requests", label: "Requests", icon: <ListChecks size={18} weight="duotone"/> },
-    { to: "/my-leaves", label: "Leaves", icon: <CalendarCheck size={18} weight="duotone"/> },
+    { to: "/my-requests", label: "Request", icon: <ListChecks size={18} weight="duotone"/> },
   ];
 
   return (

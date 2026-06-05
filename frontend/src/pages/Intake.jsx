@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { Plus, X, Trash, PencilSimple, Star, Phone, MapPin } from "@phosphor-icons/react";
@@ -27,6 +27,7 @@ export default function Intake() {
   const [items, setItems] = useState([]);
   const [edit, setEdit] = useState(null);
   const [tab, setTab] = useState("pre");
+  const [priorityOnly, setPriorityOnly] = useState(false);
 
   const load = async () => {
     try {
@@ -55,6 +56,16 @@ export default function Intake() {
   };
 
   const filtered = items.filter(i => i.intake_type === tab);
+  const displayed = useMemo(() => {
+    const list = [...filtered];
+    if (priorityOnly) {
+      list.sort((a, b) => {
+        if (a.priority !== b.priority) return a.priority ? -1 : 1;
+        return (a.child_name || "").localeCompare(b.child_name || "");
+      });
+    }
+    return list;
+  }, [filtered, priorityOnly]);
   const totalPre = items.filter(i => i.intake_type === "pre").length;
   const totalPost = items.filter(i => i.intake_type === "post").length;
   const hsCount = filtered.filter(i => (i.service || "").toUpperCase().includes("HS")).length;
@@ -89,7 +100,17 @@ export default function Intake() {
         <table className="w-full text-sm min-w-[720px]">
           <thead style={{ background: "#F0E9D8" }}>
             <tr>
-              <th className="p-3 text-center font-bold w-10" style={{ color: "#2C3625" }}>⭐</th>
+              <th className="p-3 text-center font-bold w-10">
+                <button
+                  type="button"
+                  title={priorityOnly ? "Show all clients" : "Show priority clients first"}
+                  onClick={() => setPriorityOnly(v => !v)}
+                  className={`btn btn-ghost p-1 mx-auto ${priorityOnly ? "ring-2 ring-[#D4A64A] rounded-lg" : ""}`}
+                  style={{ color: priorityOnly ? "#D4A64A" : "#2C3625" }}
+                >
+                  ⭐
+                </button>
+              </th>
               <th className="p-3 text-left font-bold" style={{ color: "#2C3625" }}>Child</th>
               <th className="p-3 text-left font-bold" style={{ color: "#2C3625" }}>Service</th>
               <th className="p-3 text-left font-bold" style={{ color: "#2C3625" }}>Phone</th>
@@ -102,8 +123,8 @@ export default function Intake() {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 && <tr><td colSpan={10} className="p-12 text-center" style={{ color: "#8B9E7A" }}>No records</td></tr>}
-            {filtered.map(i => (
+            {displayed.length === 0 && <tr><td colSpan={10} className="p-12 text-center" style={{ color: "#8B9E7A" }}>No records</td></tr>}
+            {displayed.map(i => (
               <tr key={i.id} className="border-t border-[#E8E4DE] hover:bg-[#E5EBE1]/30 transition">
                 <td className="p-3 text-center">
                   {isAdmin ? (

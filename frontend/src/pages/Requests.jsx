@@ -8,7 +8,7 @@ import {
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
 import PageBanner from "../components/PageBanner";
-import { LEAVE_STATUS, LEAVE_TYPES, diffDays, fmtDateRange } from "../leaveUtils";
+import { LEAVE_STATUS, LEAVE_TYPES, diffDays, fmtDateRange, permissionPayLabel } from "../leaveUtils";
 
 const STATUS_MAP = {
   pending:    { label: "Pending",     cls: "bg-[#FAF0D1] text-[#6B5218] border-[#E6C983]", icon: <Hourglass size={14} weight="duotone"/>, color: "#E6C983" },
@@ -130,8 +130,12 @@ export default function Requests({ personal = false }) {
     }
   };
 
-  const setLeaveStatus = async (leave, status) => {
-    await api.put(`/leaves/${leave.id}/status`, { status });
+  const setLeaveStatus = async (leave, status, opts = {}) => {
+    await api.put(`/leaves/${leave.id}/status`, {
+      status,
+      is_paid: opts.is_paid,
+      deduct_balance: opts.deduct_balance,
+    });
     loadLeaves();
   };
 
@@ -270,6 +274,9 @@ export default function Requests({ personal = false }) {
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <span className="pill text-xs font-bold" style={{ background: st.bg, color: st.color }}>{st.icon} {st.label}</span>
                       <span className="pill text-xs" style={{ background: `${tp.color}20`, color: tp.color }}>{tp.label}</span>
+                      {permissionPayLabel(l) && (
+                        <span className="pill text-[10px] font-bold bg-[#F8EBE7] text-[#8A3F27]">{permissionPayLabel(l)}</span>
+                      )}
                     </div>
                     <div className="font-bold" style={{ color: "#2C3625" }}>{l.therapist_name || "Therapist"}</div>
                     <div className="text-sm flex items-center gap-1 mt-0.5" style={{ color: "#5C6853" }}>
@@ -277,7 +284,20 @@ export default function Requests({ personal = false }) {
                     </div>
                     {l.notes && <div className="text-xs mt-1 italic" style={{ color: "#8B9E7A" }}>{l.notes}</div>}
                   </div>
-                  {l.status === "pending" && (
+                  {l.status === "pending" && l.leave_type === "Permission" && (
+                    <>
+                      <button type="button" onClick={() => setLeaveStatus(l, "approved", { is_paid: true, deduct_balance: true })} className="btn btn-primary text-xs py-1.5">
+                        <CheckCircle size={14}/> Approve (Paid)
+                      </button>
+                      <button type="button" onClick={() => setLeaveStatus(l, "approved", { is_paid: false, deduct_balance: false })} className="btn btn-secondary text-xs py-1.5">
+                        Approve (Unpaid)
+                      </button>
+                      <button type="button" onClick={() => setLeaveStatus(l, "rejected")} className="btn btn-outline text-xs py-1.5" style={{ color: "#8A3F27" }}>
+                        <XCircle size={14}/> Reject
+                      </button>
+                    </>
+                  )}
+                  {l.status === "pending" && l.leave_type !== "Permission" && (
                     <>
                       <button type="button" onClick={() => setLeaveStatus(l, "approved")} className="btn btn-primary text-xs py-1.5">
                         <CheckCircle size={14}/> Approve

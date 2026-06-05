@@ -50,6 +50,7 @@ export default function PreparationClientRow({
   therapistName,
   onLog,
   onHistory,
+  hideStatusBadge = false,
 }) {
   const meta = cardStatusMeta(client.cardStatus);
   const avatarBg = getChildColor(client.name) || meta.bar;
@@ -78,7 +79,7 @@ export default function PreparationClientRow({
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-bold text-sm truncate" style={{ color: C.text }}>{client.name}</span>
-              {client.cardStatus !== "ok" && (
+              {client.cardStatus !== "ok" && !hideStatusBadge && (
                 <span
                   className="text-[10px] font-bold px-2 py-0.5 rounded-full"
                   style={{ background: meta.bg, color: meta.color, border: `1px solid ${meta.border}` }}

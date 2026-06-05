@@ -14,7 +14,7 @@ import {
 import {
   LEAVE_STATUS, LEAVE_TYPES, DOC_TYPES, documentBadge, leaveRequiresDocument,
   diffDays, fmtDateRange, isActiveLeave, isHistoryLeave, exportLeavesCsv,
-  scheduleImpactLabel, leavePayCategory, leaveStatusLabel,
+  scheduleImpactLabel, leavePayCategory, leaveStatusLabel, permissionPayLabel,
 } from "../leaveUtils";
 
 function emptyLeave(therapistId = "") {
@@ -143,10 +143,16 @@ function LeaveRequestCard({ leave, isAdmin, user, onRefresh, onEdit, therapists,
   const [impactOpen, setImpactOpen] = useState(false);
   const attachRef = useRef(null);
 
-  const setStatus = async (status) => {
-    await api.put(`/leaves/${leave.id}/status`, { status });
+  const setStatus = async (status, opts = {}) => {
+    await api.put(`/leaves/${leave.id}/status`, {
+      status,
+      is_paid: opts.is_paid,
+      deduct_balance: opts.deduct_balance,
+    });
     onRefresh();
   };
+
+  const unpaidLabel = permissionPayLabel(leave);
 
   const markAbsent = async () => {
     const msg = `Mark ${leave.therapist_name || "therapist"} as absent on ${fmtDateRange(leave.start_date, leave.end_date)}?\n\nThis will automatically cancel all their sessions on these dates in the schedule.`;
@@ -179,9 +185,14 @@ function LeaveRequestCard({ leave, isAdmin, user, onRefresh, onEdit, therapists,
             </div>
           </div>
         </div>
-        <span className="pill text-xs font-bold px-3 py-1" style={{ background: st.bg, color: st.color }}>
-          {st.icon} {statusText.toUpperCase()}
-        </span>
+        <div className="flex flex-col items-end gap-1">
+          <span className="pill text-xs font-bold px-3 py-1" style={{ background: st.bg, color: st.color }}>
+            {st.icon} {statusText.toUpperCase()}
+          </span>
+          {unpaidLabel && (
+            <span className="pill text-[10px] font-bold px-2 py-0.5 bg-[#F8EBE7] text-[#8A3F27] border border-[#ECA6A6]">{unpaidLabel}</span>
+          )}
+        </div>
       </div>
 
       <DocumentSection leave={leave} isAdmin={isAdmin} onRefresh={onRefresh} canUpload={canUpload} />
@@ -210,7 +221,20 @@ function LeaveRequestCard({ leave, isAdmin, user, onRefresh, onEdit, therapists,
 
       {isAdmin && (
         <div className="flex gap-2 flex-wrap mt-4 pt-3 border-t border-[#E8E4DE]">
-          {leave.status === "pending" && (
+          {leave.status === "pending" && leave.leave_type === "Permission" && (
+            <>
+              <button onClick={() => setStatus("approved", { is_paid: true, deduct_balance: true })} className="btn btn-primary text-xs" data-testid={`approve-${leave.id}`}>
+                <CheckCircle size={14} /> Approve (Paid)
+              </button>
+              <button onClick={() => setStatus("approved", { is_paid: false, deduct_balance: false })} className="btn btn-secondary text-xs">
+                <CheckCircle size={14} /> Approve (Unpaid)
+              </button>
+              <button onClick={() => setStatus("rejected")} className="btn btn-outline text-xs" data-testid={`reject-${leave.id}`}>
+                <XCircle size={14} /> Reject
+              </button>
+            </>
+          )}
+          {leave.status === "pending" && leave.leave_type !== "Permission" && (
             <>
               <button onClick={() => setStatus("approved")} className="btn btn-primary text-xs" data-testid={`approve-${leave.id}`}>
                 <CheckCircle size={14} /> Approve
@@ -655,8 +679,13 @@ export default function LeaveRequests({ personal = false }) {
       {(personal || therapistFilter) && (
         <div className="card p-5 sm:p-6 mb-5" style={{ background: "linear-gradient(135deg, #7A8A6A 0%, #606E52 100%)", borderColor: "transparent", color: "white" }}>
           <div className="text-xs tracking-[0.2em] font-bold opacity-90 mb-1">
-            ANNUAL LEAVE BALANCE · {year}{filteredTherapist && !personal ? ` · ${filteredTherapist.name}` : ""}
+            LEAVE BALANCE{filteredTherapist && !personal ? ` · ${filteredTherapist.name}` : ""}
           </div>
+          {myBalance?.contract_period_start && (
+            <div className="text-[10px] opacity-80 mb-2">
+              Contract year · {myBalance.contract_period_start?.slice(0, 10)} – {myBalance.contract_period_end?.slice(0, 10)}
+            </div>
+          )}
           {myBalance ? (
             <div className="flex items-end gap-4 flex-wrap">
               <div>

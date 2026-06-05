@@ -5,7 +5,7 @@ import {
   SERVICE_CELL_COLORS, buildSlotRange, isSlotSelectable, slotIndex,
   findCellAt, isHiddenFromSchedule, scheduleDisplaySpan, scheduleCoveredSlotKeys,
 } from "../scheduleUtils";
-import { useAuth, hasOpsAccess } from "../auth";
+import { useAuth, showAdminNav } from "../auth";
 import {
   CaretLeft, CaretRight, CaretDown, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
   CopySimple, Table, CalendarBlank, CheckCircle, PencilSimple, GridFour, Printer,
@@ -115,7 +115,8 @@ function cellClassNameBlock(cell, isAdmin, leaveInfo, selected, copied) {
 
 export default function Schedule() {
   const { user } = useAuth();
-  const isAdmin = hasOpsAccess(user);
+  const isAdmin = showAdminNav(user);
+  const canQuickLog = !isAdmin;
   const [view, setView] = useState(() => {
     // Default to "Per Therapist" (blocks) view for all users per business request.
     return "blocks";
@@ -351,9 +352,8 @@ export default function Schedule() {
   }, [therapists, search]);
 
   const blocksTherapists = useMemo(() => {
-    if ((!isAdmin && user?.id) || (scheduleOwnBlockOnly(user) && user?.id)) {
-      return visibleTherapists.filter(t => t.id === user.id);
-    }
+    if (isAdmin) return visibleTherapists;
+    if (user?.id) return visibleTherapists.filter(t => t.id === user.id);
     return visibleTherapists;
   }, [visibleTherapists, isAdmin, user]);
 
@@ -495,8 +495,10 @@ export default function Schedule() {
   const handleCellClick = (e, therapist_id, day, time_slot, existing) => {
     if (e) e.stopPropagation();
     const cell = existing || findCellAt(therapist_id, day, time_slot, cellMap, cells);
-    if (!isAdmin) {
-      if (user?.role === "therapist" && cell?.child_name) {
+    if (canQuickLog) {
+      if (view !== "blocks") return;
+      if (therapist_id !== user?.id) return;
+      if (cell?.child_name) {
         const client = clients.find(c =>
           c.name === cell.child_name || (cell.child_name || "").startsWith(`${c.name} `) || (cell.child_name || "").startsWith(c.name)
         );
@@ -935,10 +937,14 @@ export default function Schedule() {
         ]}
         toolbar={(
           <div className="flex items-center gap-1.5 flex-wrap schedule-toolbar relative">
+            {isAdmin ? (
             <div className="inline-flex items-center rounded-lg border border-[#E8E4DE] p-0.5 bg-[#FAFAF7] shrink-0">
               <button data-testid="view-sheet-btn" onClick={() => setView("sheet")} className={`btn ${view === "sheet" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`}><Table size={13} /> Sheet</button>
               <button data-testid="view-blocks-btn" onClick={() => setView("blocks")} className={`btn ${view === "blocks" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`}><GridFour size={13} /> Per Therapist</button>
             </div>
+            ) : (
+              <span className="pill text-[11px] px-2.5 py-1 bg-[#E5EBE1] text-[#3D4F35] font-semibold">Per Therapist</span>
+            )}
             <div className="inline-flex items-center rounded-lg border border-[#E8E4DE] px-0.5 bg-[#FAFAF7] shrink-0">
               <button data-testid="prev-week-btn" onClick={() => setWeekStart(addDays(weekStart, -7))} className="btn btn-ghost p-1 min-h-0"><CaretLeft size={14} /></button>
               <div className="px-2 text-[11px] font-bold whitespace-nowrap" style={{ color: "#2C3625" }}>{formatDateRange(weekStart)}</div>

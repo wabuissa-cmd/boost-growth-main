@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api";
-import { useAuth, hasOpsAccess } from "../auth";
+import { useAuth, showAdminNav } from "../auth";
 import {
   MagnifyingGlass, Plus, X, Trash, PencilSimple, ClipboardText, ClockCounterClockwise,
   CheckCircle, Prohibit, Warning, XCircle, Clock, MapPin, Printer, FileXls,
@@ -156,7 +156,7 @@ function HistoryTableHead({ cols, bordered = false }) {
 
 export default function Attendance() {
   const { user } = useAuth();
-  const isAdmin = hasOpsAccess(user);
+  const isAdmin = showAdminNav(user);
   const navigate = useNavigate();
   const [clients, setClients] = useState([]);
   const [therapists, setTherapists] = useState([]);
@@ -195,8 +195,9 @@ export default function Attendance() {
       const q = search.toLowerCase();
       list = list.filter(c => c.name.toLowerCase().includes(q) || (c.file_no || "").includes(q));
     }
-    const order = { urgent: 0, warning: 1, ok: 2 };
-    return [...list].sort((a, b) => order[a.status] - order[b.status]);
+    return [...list].sort((a, b) => isAdmin
+      ? ({ urgent: 0, warning: 1, ok: 2 }[a.status] - { urgent: 0, warning: 1, ok: 2 }[b.status])
+      : (a.name || "").localeCompare(b.name || ""));
   }, [enriched, filter, search]);
 
   const counts = {
@@ -288,6 +289,7 @@ export default function Attendance() {
             therapistName={findT(c.main_therapist_id)?.name || ""}
             onLog={() => setLogFor(c)}
             onHistory={() => setHistoryFor(c)}
+            hideStatusBadge={!isAdmin}
           />
         ))}
       </div>
@@ -1274,7 +1276,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
         )}
 
         {/* Pending payment warning */}
-        {selectedInvoice && paymentStatus === "pending" && (
+        {isAdmin && selectedInvoice && paymentStatus === "pending" && (
           <div data-testid="pending-warning" className="px-5 py-2 flex items-center gap-2 text-xs font-bold no-print"
                style={{background: "#FAE8C8", color: "#8B6918", borderBottom: "1px solid #E5C387"}}>
             <Warning size={16} weight="fill"/>

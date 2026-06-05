@@ -72,22 +72,29 @@ function _matchesClientLead(user) {
   return FULL_CLIENT_NAMES.has(first);
 }
 
-/** Walaa, Maha, Jenan, Fahda — therapist UI, all clients, schedule edit */
+/** Walaa, Maha, Jenan, Fahda — therapist UI, all clients visible */
 export function isClientLead(user) {
   if (!user) return false;
-  if (user.ops_access) return true;
+  if (user.client_lead) return true;
   return _matchesClientLead(user);
 }
 
-/** Walaa, Maha, Jenan, Fahda + admin — all clients, schedule edit, attendance */
+/** Portal admin only — billing, schedule edit, attendance ops UI */
 export function hasOpsAccess(user) {
+  return isPortalAdmin(user);
+}
+
+/** All active clients in Client Info (portal admin + client-lead team) */
+export function hasFullClientAccess(user) {
   if (!user) return false;
-  if (user.role === "admin") return true;
+  if (isPortalAdmin(user)) return true;
   return isClientLead(user);
 }
 
 /** Email admin login — intake, reports, import, staff requests, leave management */
 export function isPortalAdmin(user) {
+  if (!user) return false;
+  if (user.portal_admin) return true;
   return user?.role === "admin" && !isClientLead(user);
 }
 
@@ -101,7 +108,7 @@ export function isStaffAdmin(user) {
   return isPortalAdmin(user) || hasOpsAccess(user);
 }
 
-/** @deprecated alias */
-export function hasFullClientAccess(user) {
-  return hasOpsAccess(user);
+/** @deprecated use hasFullClientAccess */
+export function hasFullClientAccessLegacy(user) {
+  return hasFullClientAccess(user);
 }

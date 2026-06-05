@@ -43,10 +43,8 @@ export default function LeaveBalanceTable({ year, onYearChange, showYearSelect =
   return (
     <>
       {showYearSelect && onYearChange && (
-        <div className="flex justify-end mb-3">
-          <select className="select max-w-[120px]" value={year} onChange={e => onYearChange(parseInt(e.target.value, 10))}>
-            {[currentYear - 1, currentYear, currentYear + 1].map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
+        <div className="flex justify-end items-center gap-2 mb-3 text-xs" style={{ color: "#8B9E7A" }}>
+          <span>Balances use each therapist&apos;s contract year (from join date)</span>
         </div>
       )}
       <div className="card p-0 overflow-hidden">
@@ -56,7 +54,7 @@ export default function LeaveBalanceTable({ year, onYearChange, showYearSelect =
             <tr style={{ color: "#2C5035" }}>
               <th className="p-3 w-8"></th>
               <th className="p-3 text-left font-bold">Therapist</th>
-              <th className="p-3 text-left font-bold">Join Date</th>
+              <th className="p-3 text-left font-bold">Contract Period</th>
               <th className="p-3 text-center font-bold">Total Entitled</th>
               <th className="p-3 text-center font-bold">Used</th>
               <th className="p-3 text-center font-bold">Remaining</th>
@@ -88,7 +86,7 @@ export default function LeaveBalanceTable({ year, onYearChange, showYearSelect =
                         </div>
                         <div>
                           <Link
-                            to={user?.id === r.therapist_id ? "/my-leaves" : `/leaves?therapist=${r.therapist_id}`}
+                            to={user?.id === r.therapist_id ? "/my-requests" : `/leaves?therapist=${r.therapist_id}`}
                             onClick={e => e.stopPropagation()}
                             className="font-bold hover:underline"
                             style={{ color: "#2C3625" }}
@@ -99,7 +97,11 @@ export default function LeaveBalanceTable({ year, onYearChange, showYearSelect =
                         </div>
                       </div>
                     </td>
-                    <td className="p-3 text-xs" style={{ color: "#5C6853" }}>{r.join_date || "—"}</td>
+                    <td className="p-3 text-xs" style={{ color: "#5C6853" }}>
+                      {r.contract_period_start && r.contract_period_end
+                        ? `${r.contract_period_start.slice(0, 10)} – ${r.contract_period_end.slice(0, 10)}`
+                        : (r.join_date || "—")}
+                    </td>
                     <td className="p-3 text-center">
                       {isEditing ? (
                         <input data-testid={`balance-input-${r.therapist_id}`} type="number" step="0.5" min="0"
@@ -176,7 +178,7 @@ export default function LeaveBalanceTable({ year, onYearChange, showYearSelect =
                         </div>
                         <div className="mt-2">
                           <Link
-                            to={user?.id === r.therapist_id ? "/my-leaves" : `/leaves?therapist=${r.therapist_id}`}
+                            to={user?.id === r.therapist_id ? "/my-requests" : `/leaves?therapist=${r.therapist_id}`}
                             className="text-xs font-bold hover:underline"
                             style={{ color: "#7A8A6A" }}
                           >

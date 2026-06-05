@@ -60,7 +60,7 @@ export default function Shell() {
   const portalAdmin = showAdminNav(user);
   const showPersonal = !portalAdmin;
   const showBilling = hasOpsAccess(user);
-  const therapistOnly = Boolean(user && !portalAdmin && !showBilling);
+  const therapistOnly = Boolean(user && !portalAdmin);
 
   const loadNotifs = async () => {
     try { const { data } = await api.get("/notifications"); setNotifs(data); } catch(_e) { /* ignore */ }
@@ -94,8 +94,7 @@ export default function Shell() {
 
   // Personal portal dropdown (therapists + ops team; hidden for admin login)
   const myPortalItems = showPersonal ? [
-    { to: "/my-requests", label: "Requests", testid: "nav-my-requests" },
-    { to: "/my-leaves", label: "Leaves", testid: "nav-my-leaves" },
+    { to: "/my-requests", label: "Request", testid: "nav-my-requests" },
   ] : [];
 
   // Requests dropdown — admin only: staff requests + leave management

@@ -31,6 +31,13 @@ export function leavePayCategory(leaveType) {
   return leaveType === "Unpaid" ? "Unpaid" : "Paid";
 }
 
+/** Permission approved without balance deduction — show in leave list. */
+export function permissionPayLabel(leave) {
+  if (!leave || leave.leave_type !== "Permission") return null;
+  if (leave.is_paid === false) return "Unpaid";
+  return null;
+}
+
 export function leaveStatusLabel(status, forTherapist = false) {
   const st = LEAVE_STATUS[status] || LEAVE_STATUS.pending;
   return forTherapist && st.therapistLabel ? st.therapistLabel : st.label;
