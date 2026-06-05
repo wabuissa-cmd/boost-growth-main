@@ -7,12 +7,29 @@ export function durationSlotSpan(dur) {
   return Math.max(1, Math.ceil(d));
 }
 
-/** Meta blocks (Leave, Meeting, …) always occupy one slot visually. */
+/** Meta blocks (Leave, Meeting, …) — Leave spans the full day row. */
 export function scheduleDisplaySpan(cell) {
   if (!cell) return 1;
   const code = cell.service_code;
+  if (code === "LEAVE") return TIME_SLOTS.length;
   if (META_SERVICE_CODES.has(code) || code === "AVAILABLE") return 1;
   return durationSlotSpan(cell.duration);
+}
+
+/** Slot keys hidden because another cell spans over them. */
+export function scheduleCoveredSlotKeys(cell) {
+  if (!cell) return [];
+  const startIdx = TIME_SLOTS.indexOf(cell.time_slot);
+  if (startIdx < 0) return [];
+  const span = scheduleDisplaySpan(cell);
+  const keys = [];
+  for (let k = 1; k < span; k++) {
+    const idx = startIdx + k;
+    if (idx < TIME_SLOTS.length) {
+      keys.push(`${cell.therapist_id}_${cell.day}_${TIME_SLOTS[idx]}`);
+    }
+  }
+  return keys;
 }
 
 function deepenHex(hex, factor = 0.82) {

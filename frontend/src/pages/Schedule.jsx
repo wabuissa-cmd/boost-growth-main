@@ -3,7 +3,7 @@ import api, { DAYS_EN, DAYS_SHORT, TIME_SLOTS, SERVICE_CODES, startOfWeek, addDa
 import {
   getCellStyle, META_SERVICE_CODES, MERGE_QUICK,
   SERVICE_CELL_COLORS, buildSlotRange, isSlotSelectable, slotIndex,
-  findCellAt, isHiddenFromSchedule, scheduleDisplaySpan,
+  findCellAt, isHiddenFromSchedule, scheduleDisplaySpan, scheduleCoveredSlotKeys,
 } from "../scheduleUtils";
 import { useAuth, hasOpsAccess } from "../auth";
 import {
@@ -206,9 +206,12 @@ export default function Schedule() {
 
   useEffect(() => {
     if (!ctxMenu) return;
-    const close = () => setCtxMenu(null);
-    window.addEventListener("click", close);
-    return () => window.removeEventListener("click", close);
+    const close = (e) => {
+      if (ctxMenuRef.current?.contains(e.target)) return;
+      setCtxMenu(null);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
   }, [ctxMenu]);
 
   const dupWeekToTarget = async () => {
@@ -309,14 +312,7 @@ export default function Schedule() {
   const coveredSet = useMemo(() => {
     const cov = new Set();
     cells.forEach(c => {
-      const span = scheduleDisplaySpan(c);
-      if (span <= 1) return;
-      const startIdx = TIME_SLOTS.indexOf(c.time_slot);
-      if (startIdx < 0) return;
-      for (let k = 1; k < span; k++) {
-        const idx = startIdx + k;
-        if (idx < TIME_SLOTS.length) cov.add(`${c.therapist_id}_${c.day}_${TIME_SLOTS[idx]}`);
-      }
+      scheduleCoveredSlotKeys(c).forEach(k => cov.add(k));
     });
     return cov;
   }, [cells]);
@@ -397,45 +393,57 @@ export default function Schedule() {
     if (cell?.id) await api.delete(`/schedule/${cell.id}`);
   };
 
+  const clearTherapistDay = async (therapist_id, day) => {
+    const ids = [...new Set(
+      cells.filter(c => c.therapist_id === therapist_id && c.day === day).map(c => c.id)
+    )];
+    for (const id of ids) {
+      await api.delete(`/schedule/${id}`);
+    }
+  };
+
   const bulkFillAt = async (mode, { therapist_id, day, time_slot }) => {
     const leaveColor = SERVICE_CELL_COLORS.LEAVE.background;
     const therapistName = therapists.find(t => t.id === therapist_id)?.name || "Therapist";
-    const clearDay = async (d) => {
-      for (const ts of TIME_SLOTS) await deleteAtSlot(therapist_id, d, ts);
-    };
+    const fullDaySpan = TIME_SLOTS.length;
 
-    if (mode === "leave_day") {
-      const dayDate = addDays(weekStart, day);
-      const dateLabel = `${dayDate.getDate()}/${dayDate.getMonth() + 1}`;
-      if (!window.confirm(`Mark ${therapistName} on leave for full ${DAYS_EN[day]} (${dateLabel})?`)) return;
-      await clearDay(day);
-      await api.post("/schedule", {
-        therapist_id, day, time_slot: TIME_SLOTS[0], duration: 1,
-        week_start: weekStartISO, service_code: "LEAVE", note: "Leave",
-        state: "normal", color: leaveColor, child_name: null,
-      });
-    } else if (mode === "leave_week") {
-      if (!window.confirm(`Mark ${therapistName} on leave for entire week of ${formatDateRange(weekStart)}?`)) return;
-      for (let d = 0; d < 5; d++) {
-        await clearDay(d);
+    try {
+      if (mode === "leave_day") {
+        const dayDate = addDays(weekStart, day);
+        const dateLabel = `${dayDate.getDate()}/${dayDate.getMonth() + 1}`;
+        if (!window.confirm(`Mark ${therapistName} on leave for full ${DAYS_EN[day]} (${dateLabel})?`)) return;
+        await clearTherapistDay(therapist_id, day);
         await api.post("/schedule", {
-          therapist_id, day: d, time_slot: TIME_SLOTS[0], duration: 1,
+          therapist_id, day, time_slot: TIME_SLOTS[0], duration: fullDaySpan,
           week_start: weekStartISO, service_code: "LEAVE", note: "Leave",
           state: "normal", color: leaveColor, child_name: null,
         });
+      } else if (mode === "leave_week") {
+        if (!window.confirm(`Mark ${therapistName} on leave for entire week of ${formatDateRange(weekStart)}?`)) return;
+        for (let d = 0; d < 5; d++) {
+          await clearTherapistDay(therapist_id, d);
+          await api.post("/schedule", {
+            therapist_id, day: d, time_slot: TIME_SLOTS[0], duration: fullDaySpan,
+            week_start: weekStartISO, service_code: "LEAVE", note: "Leave",
+            state: "normal", color: leaveColor, child_name: null,
+          });
+        }
+      } else if (mode === "available") {
+        await deleteAtSlot(therapist_id, day, time_slot);
+        await api.post("/schedule", {
+          therapist_id, day, time_slot, duration: 1,
+          week_start: weekStartISO, service_code: "AVAILABLE", note: "Available",
+          state: "available", color: "#FFFFFF", child_name: null,
+        });
+      } else if (mode === "clear") {
+        await deleteAtSlot(therapist_id, day, time_slot);
       }
-    } else if (mode === "available") {
-      await deleteAtSlot(therapist_id, day, time_slot);
-      await api.post("/schedule", {
-        therapist_id, day, time_slot, duration: 1,
-        week_start: weekStartISO, service_code: "AVAILABLE", note: "Available",
-        state: "available", color: "#FFFFFF", child_name: null,
-      });
-    } else if (mode === "clear") {
-      await deleteAtSlot(therapist_id, day, time_slot);
+      await load(true);
+    } catch (err) {
+      alert(err?.response?.data?.detail || "Could not update schedule. Please try again.");
+    } finally {
+      setCtxMenu(null);
     }
-    await load();
-    setCtxMenu(null);
   };
 
   const bulkFill = async (mode) => {
@@ -687,7 +695,10 @@ export default function Schedule() {
 
   const ctxAction = (fn) => (e) => {
     e.stopPropagation();
-    fn();
+    e.preventDefault();
+    Promise.resolve(fn()).catch(err => {
+      alert(err?.response?.data?.detail || "Action failed");
+    });
   };
 
   // === SHEET VIEW === (matches Google Sheet: # | Therapist | Day | 10 time slots)
