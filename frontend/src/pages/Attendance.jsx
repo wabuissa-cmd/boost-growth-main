@@ -23,12 +23,17 @@ import {
   normalizeServiceTypeCode, inferDefaultServiceType,
   pickLatestOpenInvoice, computeSsTotals, ssSessionDayValue,
   resolveServiceTabState, hasOpenInvoice, countSsWeeksDone, nextWeekOverride,
+  sessionEditableByUser,
 } from "../attendanceUtils";
 import { PackageAlertBanner } from "../components/PackageStatusBadge";
 import PreparationClientRow from "../components/PreparationClientRow";
 import PageBanner from "../components/PageBanner";
+import LogSessionModal from "../components/LogSessionModal";
 import SsWeekStatusRow, { SsWeekLegend } from "../components/SsWeekStatusRow";
+import ExportColumnsModal from "../components/ExportColumnsModal";
 import { cachedGet } from "../dataCache";
+
+const EXPORT_COLS_KEY = "bg_export_columns";
 
 const SUPERVISOR_CLIENTS = {
   msMaha: ["035", "037", "038", "040", "041", "042", "047", "052", "054", "060", "063", "065", "070"],
@@ -103,7 +108,11 @@ function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdi
     s.status === "Cancelled" ? "#FAF0D1" :
     s.status === "No Show" ? "#F8EBE7" : "#F0EDE9";
   const tNames = (s.therapist_ids || []).map(id => findT(id)?.name?.replace("Ms. ", "")).filter(Boolean).join(" - ");
-  const canEdit = !locked && (isAdmin || isSupervisorForClient(user, client.file_no) || (s.therapist_ids || []).includes(currentUserId));
+  const canEdit = !locked && (
+    isAdmin ||
+    isSupervisorForClient(user, client.file_no) ||
+    ((s.therapist_ids || []).includes(currentUserId) && sessionEditableByUser(s, user, false))
+  );
   const measureVal = billingKind === "SS"
     ? (ssSessionDayValue(s) ? 1 : "—")
     : s.hours;
@@ -306,11 +315,6 @@ export default function Attendance() {
         </ModalBase>
       )}
 
-      {/* Log Session form */}
-      {logFor && logFor !== "__pick__" && (
-        <LogSessionForm client={logFor} therapists={therapists} currentUser={user} onClose={() => setLogFor(null)} onSaved={() => { setLogFor(null); load(); }}/>
-      )}
-
       {historyFor && (
         <AttendanceHistoryModal client={historyFor} sessions={sessions.filter(s => s.client_id === historyFor.id)}
                                 therapists={therapists} isAdmin={isAdmin} user={user} currentUserId={user?.id}
@@ -319,181 +323,16 @@ export default function Attendance() {
                                 onRefresh={load}/>
       )}
 
+      {logFor && logFor !== "__pick__" && (
+        <LogSessionModal client={logFor} therapists={therapists} currentUser={user}
+          onClose={() => setLogFor(null)} onSaved={() => { setLogFor(null); load(); }} />
+      )}
+
       {editingSess && (
-        <LogSessionForm session={editingSess} client={clients.find(c => c.id === editingSess.client_id)} therapists={therapists} currentUser={user}
-                        onClose={() => setEditingSess(null)} onSaved={() => { setEditingSess(null); load(); }}/>
+        <LogSessionModal session={editingSess} client={clients.find(c => c.id === editingSess.client_id)} therapists={therapists} currentUser={user}
+          onClose={() => setEditingSess(null)} onSaved={() => { setEditingSess(null); load(); }} />
       )}
     </div>
-  );
-}
-
-function LogSessionForm({ client, therapists, currentUser, onClose, onSaved, session }) {
-  const defaultLoc = client?.locations?.[0];
-  const [form, setForm] = useState(session ? {...session} : {
-    client_id: client.id,
-    session_date: new Date().toISOString().slice(0, 10),
-    start_time: "14:00", end_time: "16:00", hours: 2,
-    status: "Completed",
-    therapist_ids: currentUser?.role === "therapist" ? [currentUser.id] : [client.main_therapist_id].filter(Boolean),
-    note: "", location: defaultLoc?.address || "",
-    service_type: defaultLoc?.service || client?.service_type || "HS",
-  });
-
-  const computeHours = (st, et) => {
-    if (!st || !et) return 0;
-    const [h1,m1] = st.split(":").map(Number); const [h2,m2] = et.split(":").map(Number);
-    let diff = (h2*60+m2) - (h1*60+m1); if (diff < 0) diff += 24*60;
-    return Math.round(diff / 30) / 2;
-  };
-
-  const submit = async (e) => {
-    e.preventDefault();
-    const payload = {...form, hours: computeHours(form.start_time, form.end_time)};
-    if (session?.id) await api.put(`/sessions/${session.id}`, payload);
-    else await api.post("/sessions", payload);
-    onSaved();
-  };
-
-  const toggleT = (id) => {
-    setForm(f => ({...f, therapist_ids: f.therapist_ids.includes(id) ? f.therapist_ids.filter(x => x !== id) : [...f.therapist_ids, id]}));
-  };
-
-  const formId = session ? "edit-session-form" : "log-session-form";
-
-  return (
-    <ModalBase
-      title={session ? "Edit Session Record" : "Log Session"}
-      subtitle={session ? "Correct session details" : "Record a completed session"}
-      onClose={onClose}
-      size="md"
-      footer={
-        <>
-          <ModalBtnSecondary type="button" onClick={onClose}>Cancel</ModalBtnSecondary>
-          <ModalBtnPrimary data-testid="sess-save" type="submit" form={formId}>
-            {session ? "Save changes" : "Log Session"}
-          </ModalBtnPrimary>
-        </>
-      }
-    >
-      <form id={formId} onSubmit={submit}>
-        {client && (
-          <p className="text-sm -mt-2 mb-2" style={{ color: "#8B9E7A" }}>
-            {client.name} <span className="text-xs">#{client.file_no}</span>
-          </p>
-        )}
-
-        <FormSection title="Session">
-          {client?.locations?.length > 0 && (
-            <FormField label="Service type / location">
-              <select
-                data-testid="sess-location"
-                className="modal-input"
-                value={form.location}
-                onChange={e => {
-                  const loc = client.locations.find(l => l.address === e.target.value);
-                  setForm({ ...form, location: e.target.value, service_type: loc?.service || form.service_type || "HS" });
-                }}
-              >
-                {client.locations.map((l, i) => (
-                  <option key={i} value={l.address}>{l.service} | {l.address}</option>
-                ))}
-              </select>
-            </FormField>
-          )}
-
-          <FormField label="Status">
-            <div className="grid grid-cols-2 gap-2">
-              {STATUS_OPTS.map(s => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => setForm({ ...form, status: s.id })}
-                  className={`p-4 rounded-xl border-2 flex flex-col items-center gap-1 transition-all ${form.status === s.id ? "ring-2 ring-[#7A8A6A]" : ""}`}
-                  style={{ background: s.bg, borderColor: form.status === s.id ? "#7A8A6A" : s.bg, color: s.color }}
-                >
-                  {s.icon}
-                  <div className="font-bold text-sm">{s.label}</div>
-                </button>
-              ))}
-            </div>
-          </FormField>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <FormField label="Date" required>
-              <input
-                data-testid="sess-date"
-                type="date"
-                className="modal-input"
-                required
-                value={form.session_date}
-                onChange={e => setForm({ ...form, session_date: e.target.value })}
-              />
-            </FormField>
-            <FormField label="Time from">
-              <input
-                type="time"
-                className="modal-input"
-                value={form.start_time}
-                onChange={e => setForm({ ...form, start_time: e.target.value })}
-              />
-            </FormField>
-            <FormField label="Time to">
-              <input
-                type="time"
-                className="modal-input"
-                value={form.end_time}
-                onChange={e => setForm({ ...form, end_time: e.target.value })}
-              />
-            </FormField>
-          </div>
-          <p className="text-xs" style={{ color: "#8B9E7A" }}>
-            <Clock size={12} className="inline mr-1" />
-            Hours: <strong>{computeHours(form.start_time, form.end_time)}h</strong>
-          </p>
-        </FormSection>
-
-        <FormSection title="Therapist">
-          <FormField
-            label="Therapist(s)"
-            hint={currentUser?.role === "therapist" ? "Your name is added automatically" : undefined}
-          >
-            <div className="flex flex-wrap gap-2 mb-2">
-              {form.therapist_ids.map(id => {
-                const t = therapists.find(t => t.id === id);
-                if (!t) return null;
-                return (
-                  <span key={id} className="pill px-3 py-1.5 text-xs" style={{ background: t.color, color: "white" }}>
-                    {t.name}{" "}
-                    <button type="button" onClick={() => toggleT(id)} className="ml-1 opacity-80 hover:opacity-100">✕</button>
-                  </span>
-                );
-              })}
-            </div>
-            <select
-              className="modal-input"
-              value=""
-              onChange={e => { if (e.target.value) toggleT(e.target.value); e.target.value = ""; }}
-            >
-              <option value="">+ Add co-therapist...</option>
-              {therapists.filter(t => !form.therapist_ids.includes(t.id)).map(t => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
-          </FormField>
-        </FormSection>
-
-        <FormSection title="Notes">
-          <FormField label="Note" hint="Optional">
-            <textarea
-              className="modal-input"
-              rows={3}
-              value={form.note || ""}
-              onChange={e => setForm({ ...form, note: e.target.value })}
-            />
-          </FormField>
-        </FormSection>
-      </form>
-    </ModalBase>
   );
 }
 
@@ -517,6 +356,7 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
   const sortedInvoices = useMemo(() => sortInvoicesByRecent(invoices), [invoices]);
   const selectedInvoice = invoices.find(i => i.id === selectedInvoiceId);
   const invoiceLocked = !!selectedInvoice?.is_closed;
+  const cycleWeeks = selectedInvoice?.ss_week_count || 4;
 
   const fetchSessionsForInvoice = useCallback(async (invoiceId) => {
     const params = { client_id: client.id };
@@ -593,15 +433,15 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
   );
   const ssWeekSummary = useMemo(
     () => (isSchool && cycleAnchor
-      ? computeSsWeekSummary(cycleSessions, cycleAnchor, 4, selectedInvoice?.week_overrides || {})
+      ? computeSsWeekSummary(cycleSessions, cycleAnchor, cycleWeeks, selectedInvoice?.week_overrides || {})
       : []),
-    [isSchool, cycleSessions, cycleAnchor, selectedInvoice?.week_overrides]
+    [isSchool, cycleSessions, cycleAnchor, cycleWeeks, selectedInvoice?.week_overrides]
   );
   const sorted = useMemo(() => sortSessionsByDateAsc(cycleSessions), [cycleSessions]);
 
   const ssWeekGroups = useMemo(
-    () => (isSchool && cycleAnchor ? groupSessionsBySchoolWeeks(cycleSessions, cycleAnchor, 4) : []),
-    [isSchool, cycleSessions, cycleAnchor]
+    () => (isSchool && cycleAnchor ? groupSessionsBySchoolWeeks(cycleSessions, cycleAnchor, cycleWeeks) : []),
+    [isSchool, cycleSessions, cycleAnchor, cycleWeeks]
   );
 
   const reloadInvoices = useCallback(async () => {
@@ -625,6 +465,26 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
       reloadSessions();
     } catch {
       alert("Could not save week override");
+    }
+  };
+
+  const addSsWeek = async () => {
+    if (!selectedInvoice || invoiceLocked || !isAdmin || !isSchool) return;
+    const next = cycleWeeks + 1;
+    try {
+      await api.put(`/invoices/${selectedInvoice.id}`, {
+        invoice_number: selectedInvoice.invoice_number,
+        ss_week_count: next,
+        start_date: selectedInvoice.start_date,
+        package_size: selectedInvoice.package_size,
+        payment_status: selectedInvoice.payment_status,
+        service_type: selectedInvoice.service_type,
+        is_closed: selectedInvoice.is_closed,
+      });
+      await reloadInvoices();
+      onRefresh && onRefresh();
+    } catch {
+      alert("Could not add week");
     }
   };
 
@@ -693,6 +553,8 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
               compact
               editable={isAdmin && !invoiceLocked}
               onToggleOverride={toggleWeekOverride}
+              showAddWeek={isAdmin && !invoiceLocked && isSchool}
+              onAddWeek={addSsWeek}
             />
           </div>
         )}
@@ -829,6 +691,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   const [showInvoiceDetails, setShowInvoiceDetails] = useState(false);
   const [savingClient, setSavingClient] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [showExportColumns, setShowExportColumns] = useState(false);
   const [newInvMenuOpen, setNewInvMenuOpen] = useState(false);
   const [localSessions, setLocalSessions] = useState(sessions);
   const invoicesInitialized = useRef(false);
@@ -853,11 +716,11 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   const isSchool = serviceTypeFilter === "SS";
   const selectedInvoice = invoices.find(i => i.id === selectedInvoiceId);
   const sortedInvoices = useMemo(() => sortInvoicesByRecent(invoices), [invoices]);
+  const cycleWeeks = selectedInvoice?.ss_week_count || 4;
   const cycleSessions = useMemo(
     () => filterSessionsForInvoice(localSessions, selectedInvoice, allInvoices),
     [localSessions, selectedInvoice, allInvoices]
   );
-  const cycleWeeks = 4;
   const cycleAnchor = useMemo(
     () => (selectedInvoice ? resolveCycleAnchor(client, selectedInvoice, cycleSessions) : null),
     [client, selectedInvoice, cycleSessions]
@@ -1121,11 +984,15 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
     onClose();
   };
 
-  const exportExcel = async () => {
-    const url = `${api.defaults.baseURL}/clients/${client.id}/sessions/export`;
+  const exportExcel = async (cols) => {
+    const colParam = cols?.length ? `?columns=${cols.join(",")}` : "";
+    const url = `${api.defaults.baseURL}/clients/${client.id}/sessions/export${colParam}`;
     const token = localStorage.getItem("bg_token");
     const r = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {}, credentials: "include" });
     if (!r.ok) { alert("Export failed"); return; }
+    if (cols?.length) {
+      try { localStorage.setItem(EXPORT_COLS_KEY, JSON.stringify(cols)); } catch { /* ignore */ }
+    }
     const blob = await r.blob();
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -1163,6 +1030,36 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
       alert("Could not save week override");
     }
   };
+
+  const addSsWeek = async () => {
+    if (!selectedInvoice || invoiceLocked || !isAdmin || !isSchool) return;
+    const next = cycleWeeks + 1;
+    try {
+      await api.put(`/invoices/${selectedInvoice.id}`, {
+        invoice_number: selectedInvoice.invoice_number,
+        ss_week_count: next,
+        start_date: selectedInvoice.start_date,
+        package_size: selectedInvoice.package_size,
+        payment_status: selectedInvoice.payment_status,
+        service_type: selectedInvoice.service_type,
+        is_closed: selectedInvoice.is_closed,
+      });
+      const list = await loadInvoices();
+      setAllInvoices(list);
+      onClientUpdated && onClientUpdated();
+    } catch {
+      alert("Could not add week");
+    }
+  };
+
+  const savedExportCols = useMemo(() => {
+    try {
+      const raw = localStorage.getItem(EXPORT_COLS_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }, [showExportColumns]);
 
   return (
     <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-2 z-50" onClick={onClose}>
@@ -1259,7 +1156,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               <button onClick={() => setExportOpen(o => !o)} className="btn btn-gold text-xs min-h-[44px] min-w-[44px]">Export <CaretDown size={12}/></button>
               {exportOpen && (
                 <div className="absolute right-0 mt-1 card p-1 z-50 min-w-[180px] shadow-lg mobile-action-menu">
-                  <button data-testid="export-excel-btn" onClick={exportExcel} className="btn btn-ghost w-full justify-start text-xs min-h-[44px]"><FileXls size={14}/> Export as Excel</button>
+                  <button data-testid="export-excel-btn" onClick={() => { setExportOpen(false); setShowExportColumns(true); }} className="btn btn-ghost w-full justify-start text-xs min-h-[44px]"><FileXls size={14}/> Export as Excel</button>
                   <button onClick={() => { window.print(); setExportOpen(false); }} className="btn btn-ghost w-full justify-start text-xs min-h-[44px]"><Printer size={14}/> Export as PDF</button>
                   {isAdmin && selectedInvoice && (
                     <button onClick={() => { savePackageInfo(); setExportOpen(false); }} className="btn btn-ghost w-full justify-start text-xs">Save</button>
@@ -1337,6 +1234,8 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               compact
               editable={isAdmin && !invoiceLocked}
               onToggleOverride={toggleWeekOverride}
+              showAddWeek={isAdmin && !invoiceLocked && isSchool}
+              onAddWeek={addSsWeek}
             />
           </div>
         )}
@@ -1376,75 +1275,41 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
             </div>
           </div>
 
-          {/* Patient info row */}
-          <div className="px-4 py-2 border-b border-[#E8E4DE] text-sm">
-            <div className="grid grid-cols-2 gap-2 sm:gap-3 mb-2">
+          {/* Patient + package summary — single row */}
+          <div className="px-4 py-3 border-b border-[#E8E4DE] text-sm" style={{ background: "#FAFAF7" }}>
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
               <div>
-                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PATIENT'S NAME</div>
-                <div className="font-bold text-sm sm:text-base" style={{color: "#2C3625"}}>{client.name}</div>
+                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PATIENT</div>
+                <div className="font-bold text-sm truncate" style={{color: "#2C3625"}}>{client.name}</div>
               </div>
               <div>
                 <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>FILE NO.</div>
-                <div className="font-bold text-sm sm:text-base" style={{color: "#2C3625"}}>{client.file_no || "—"}</div>
+                <div className="font-bold text-sm" style={{color: "#2C3625"}}>{client.file_no || "—"}</div>
               </div>
-              <div className="col-span-2">
-                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>SERVICE TYPE</div>
-                <div className="font-bold text-base sm:text-lg mt-0.5" style={{color: isSchool ? "#2C5035" : "#6B5430"}}>
-                  {serviceDisplay}
+              <div>
+                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>SERVICE</div>
+                <div className="font-bold text-sm" style={{color: isSchool ? "#2C5035" : "#6B5430"}}>{serviceDisplay}</div>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PACKAGE</div>
+                <div className="font-bold text-sm" style={{color: "#2C3625"}}>{isSchool ? `${cycleWeeks} Weeks` : `${pkg}h`}</div>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>{isSchool ? "WEEKS DONE" : "HOURS USED"}</div>
+                <div className="font-bold text-sm" style={{color: "#2C3625"}}>{isSchool ? `${weeksDone}/${cycleWeeks}` : `${used.toFixed(1)}h`}</div>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>{isSchool ? "CURRENT WK" : "REMAINING"}</div>
+                <div className="font-bold text-sm" style={{color: isSchool ? "#2C3625" : rem <= pkg * 0.2 ? "#C97B5C" : "#2C3625"}}>
+                  {isSchool ? `W${currentWeekInfo?.weekNumber || 1}` : `${rem.toFixed(1)}h`}
                 </div>
-                {isSchool && currentWeekInfo && (
-                  <div className="text-[11px] mt-0.5" style={{color: "#8B9E7A"}}>
-                    4-week cycle · Week {currentWeekInfo.weekNumber} of {cycleWeeks}
-                  </div>
-                )}
               </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:gap-3 pt-2 border-t border-[#E8E4DE]">
-              {isSchool ? (
-                <>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PACKAGE</div>
-                    <div className="font-bold" style={{color: "#2C3625"}}>{cycleWeeks} Weeks</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>CURRENT WEEK</div>
-                    <div className="font-bold" style={{color: "#2C3625"}}>
-                      Week {currentWeekInfo?.weekNumber || 1}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>WEEKS COMPLETED</div>
-                    <div className="font-bold" style={{color: "#2C3625"}}>{weeksDone} / {cycleWeeks}</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PAYMENT</div>
-                    <div className="font-bold" style={{color: paymentStatus === "complete" ? "#3D4F35" : "#8B6918"}}>
-                      {paymentStatus === "complete" ? "Paid" : "Pending"}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PACKAGE</div>
-                    <div className="font-bold" style={{color: "#2C3625"}}>{pkg}h</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>HOURS USED</div>
-                    <div className="font-bold" style={{color: "#2C3625"}}>{used.toFixed(1)}h</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>HOURS REMAINING</div>
-                    <div className="font-bold" style={{color: rem <= pkg * 0.2 ? "#C97B5C" : "#2C3625"}}>{rem.toFixed(1)}h</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PAYMENT</div>
-                    <div className="font-bold" style={{color: paymentStatus === "complete" ? "#3D4F35" : "#8B6918"}}>
-                      {paymentStatus === "complete" ? "Paid" : "Pending"}
-                    </div>
-                  </div>
-                </>
-              )}
+              <div>
+                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PAYMENT</div>
+                <div className="font-bold text-sm" style={{color: paymentStatus === "complete" ? "#3D4F35" : "#8B6918"}}>
+                  {paymentStatus === "complete" ? "Paid" : paymentStatus === "partial" ? "Partial" : "Pending"}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1801,6 +1666,14 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               Past sessions are <strong>kept</strong> in the database but will no longer count against the new cycle.
             </p>
           </ModalBase>
+        )}
+
+        {showExportColumns && (
+          <ExportColumnsModal
+            initial={savedExportCols}
+            onClose={() => setShowExportColumns(false)}
+            onExport={(cols) => { setShowExportColumns(false); exportExcel(cols); }}
+          />
         )}
       </div>
     </div>

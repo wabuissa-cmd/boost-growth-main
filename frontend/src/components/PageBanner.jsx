@@ -3,7 +3,7 @@ export default function PageBanner({ title, subtitle, badge, stats = [], childre
   const hasBody = stats.length > 0 || children || toolbar;
 
   return (
-    <div className="rounded-2xl overflow-hidden mb-4 border border-[#E8E4DE] shadow-sm">
+    <div className="rounded-2xl mb-4 border border-[#E8E4DE] shadow-sm">
       <div
         className="px-4 py-2.5 flex items-start justify-between gap-3"
         style={{ background: "#F0E9D8" }}

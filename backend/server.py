@@ -118,6 +118,17 @@ def _has_full_client_access(user: dict) -> bool:
     return _is_client_lead(user)
 
 
+def _session_editable_by_user(user: dict, session: dict) -> bool:
+    """Therapists may edit/delete only same-day sessions; ops/admin always."""
+    if _has_full_client_access(user):
+        return True
+    if user.get("role") != "therapist":
+        return False
+    today = datetime.now(timezone.utc).date().isoformat()
+    sd = (session.get("session_date") or "")[:10]
+    return sd == today
+
+
 def _is_portal_admin(user: dict) -> bool:
     return user.get("role") == "admin"
 
@@ -177,7 +188,7 @@ class ScheduleCellIn(BaseModel):
     custom_time: Optional[str] = None
     state: Optional[str] = "normal"
     color: Optional[str] = None
-    duration: Optional[int] = 1  # number of time-slot rows the cell spans (1=single)
+    duration: Optional[float] = 1  # hours spanned (supports 1.5, 2.5, etc.)
     week_start: str
 
 class LocationIn(BaseModel):
@@ -227,6 +238,8 @@ class InvoiceIn(BaseModel):
     is_closed: Optional[bool] = False            # whether the invoice is closed
     close_date: Optional[str] = None             # ISO date when closed
     week_overrides: Optional[dict] = None        # {"1": "excluded"|"completed"} manual SS weeks
+    ss_week_count: Optional[int] = 4             # SS billing weeks (4 default; admin may extend to 5+)
+    installment_percent: Optional[float] = None  # e.g. 50 = paid 50% of invoice amount
     amount_paid: Optional[float] = None          # partial payments received so far
     next_payment_reminder_at: Optional[str] = None  # ISO date — remind parents about next installment
     payment_notes: Optional[str] = None
@@ -235,8 +248,13 @@ class InvoicePaymentIn(BaseModel):
     payment_status: Optional[str] = None
     amount: Optional[float] = None
     amount_paid: Optional[float] = None
+    installment_percent: Optional[float] = None
     next_payment_reminder_at: Optional[str] = None
     payment_notes: Optional[str] = None
+
+class ScheduleClosureIn(BaseModel):
+    date: str   # ISO yyyy-mm-dd
+    label: str  # e.g. National Day, Eid
 
 class SessionIn(BaseModel):
     client_id: str
@@ -735,6 +753,34 @@ async def set_schedule_draft(body: dict, _=Depends(ops_or_admin)):
         upsert=True,
     )
     return {"ok": True, "week_start": week_start, "status": "draft"}
+
+@api.get("/schedule/closures")
+async def list_schedule_closures(from_date: str = "", to_date: str = "", user=Depends(get_current_user)):
+    q = {}
+    if from_date and to_date:
+        q["date"] = {"$gte": from_date, "$lte": to_date}
+    elif from_date:
+        q["date"] = {"$gte": from_date}
+    return await db.schedule_closures.find(q, {"_id": 0}).sort("date", 1).to_list(500)
+
+@api.post("/schedule/closures")
+async def create_schedule_closure(body: ScheduleClosureIn, _=Depends(ops_or_admin)):
+    date = (body.date or "").strip()[:10]
+    label = (body.label or "").strip()
+    if not date or not label:
+        raise HTTPException(status_code=400, detail="date and label required")
+    existing = await db.schedule_closures.find_one({"date": date}, {"_id": 0})
+    if existing:
+        await db.schedule_closures.update_one({"date": date}, {"$set": {"label": label}})
+        return {**existing, "label": label}
+    doc = {"id": str(uuid.uuid4()), "date": date, "label": label, "created_at": now_iso()}
+    await db.schedule_closures.insert_one(doc)
+    return doc
+
+@api.delete("/schedule/closures/{cid}")
+async def delete_schedule_closure(cid: str, _=Depends(ops_or_admin)):
+    await db.schedule_closures.delete_one({"id": cid})
+    return {"ok": True}
 
 @api.get("/schedule")
 async def list_schedule(week_start: Optional[str] = None, user=Depends(get_current_user)):
@@ -1665,7 +1711,12 @@ async def update_invoice_payment(iid: str, body: InvoicePaymentIn, user=Depends(
         patch["payment_status"] = _normalize_payment_status(body.payment_status)
     if body.amount is not None:
         patch["amount"] = body.amount
-    if body.amount_paid is not None:
+    if body.installment_percent is not None:
+        patch["installment_percent"] = body.installment_percent
+        amount = float(patch.get("amount", inv.get("amount") or 0))
+        if amount > 0 and body.installment_percent:
+            patch["amount_paid"] = round(amount * float(body.installment_percent) / 100, 2)
+    if body.amount_paid is not None and body.installment_percent is None:
         patch["amount_paid"] = body.amount_paid
     if body.next_payment_reminder_at is not None:
         patch["next_payment_reminder_at"] = body.next_payment_reminder_at or None
@@ -2266,6 +2317,8 @@ async def update_invoice(iid: str, payload: InvoiceIn, _=Depends(ops_or_admin)):
     }
     if payload.week_overrides is not None:
         update["week_overrides"] = payload.week_overrides
+    if payload.ss_week_count is not None:
+        update["ss_week_count"] = max(4, int(payload.ss_week_count))
     update = {k: v for k, v in update.items() if v is not None or k in (
         "notes", "amount", "period_from", "period_to", "package_size", "service_type",
         "close_date", "amount_paid", "next_payment_reminder_at", "payment_notes",
@@ -3209,6 +3262,8 @@ async def update_session(sid: str, payload: SessionIn, user=Depends(get_current_
         raise HTTPException(status_code=404, detail="Not found")
     if not _has_full_client_access(user) and user["id"] not in (sess.get("therapist_ids") or []):
         raise HTTPException(status_code=403, detail="Forbidden")
+    if not _session_editable_by_user(user, sess):
+        raise HTTPException(status_code=403, detail="Sessions can only be edited on the same day. Contact admin for changes.")
     await db.sessions.update_one({"id": sid}, {"$set": payload.model_dump()})
     return await db.sessions.find_one({"id": sid}, {"_id": 0})
 
@@ -3219,6 +3274,8 @@ async def delete_session(sid: str, user=Depends(get_current_user)):
         return {"ok": True}
     if not _has_full_client_access(user) and user["id"] not in (sess.get("therapist_ids") or []):
         raise HTTPException(status_code=403, detail="Forbidden")
+    if not _session_editable_by_user(user, sess):
+        raise HTTPException(status_code=403, detail="Sessions can only be edited on the same day. Contact admin for changes.")
     await db.sessions.delete_one({"id": sid})
     return {"ok": True}
 
@@ -3454,7 +3511,7 @@ async def client_billing_progress(cid: str, user=Depends(get_current_user)):
     }
 
 @api.get("/clients/{cid}/sessions/export")
-async def export_sessions_excel(cid: str, user=Depends(get_current_user)):
+async def export_sessions_excel(cid: str, columns: Optional[str] = None, user=Depends(get_current_user)):
     """Export client's attendance sheet as Excel.
     If the client has invoices, each invoice becomes its own sheet/tab named with
     the invoice number (e.g. INV0451). Sessions in each tab are scoped to that
@@ -3517,9 +3574,20 @@ async def export_sessions_excel(cid: str, user=Depends(get_current_user)):
             ws[f"{c}2"].fill = sub_fill
             ws[f"{c}2"].font = Font(bold=True, color="2C3625")
             ws[f"{c}2"].alignment = center
-        # Column headers row 4 — matches Drive format
-        headers = ["Days", "Date", "Status", "Time", "# of Hrs", "Therapist", "Note"]
-        for i, h in enumerate(headers, 1):
+        COL_DEFS = [
+            ("days", "Days"), ("date", "Date"), ("status", "Status"), ("time", "Time"),
+            ("hours", "# of Hrs"), ("therapist", "Therapist"), ("note", "Note"),
+            ("service", "Service type"), ("location", "Location"),
+        ]
+        if columns:
+            wanted = {c.strip().lower() for c in columns.split(",") if c.strip()}
+            active_cols = [c for c in COL_DEFS if c[0] in wanted]
+        else:
+            active_cols = COL_DEFS[:7]
+        if not active_cols:
+            active_cols = COL_DEFS[:7]
+        ncols = len(active_cols)
+        for i, (_, h) in enumerate(active_cols, 1):
             cell = ws.cell(row=4, column=i, value=h)
             cell.fill = head_fill; cell.font = head_font; cell.alignment = center; cell.border = border
         ws.row_dimensions[4].height = 22
@@ -3539,18 +3607,19 @@ async def export_sessions_excel(cid: str, user=Depends(get_current_user)):
             time_str = ""
             if s.get("start_time") and s.get("end_time"):
                 time_str = f"{s['start_time']}-{s['end_time']}"
-            ws.cell(row=row, column=1, value=day_label).alignment = center
-            ws.cell(row=row, column=2, value=date_label).alignment = center
-            st_cell = ws.cell(row=row, column=3, value=s.get("status") or "—")
-            st_cell.alignment = center
-            if s.get("status") in STATUS_FILLS:
-                st_cell.fill = PatternFill("solid", fgColor=STATUS_FILLS[s["status"]])
-            ws.cell(row=row, column=4, value=time_str).alignment = center
-            ws.cell(row=row, column=5, value=float(s.get("hours") or 0)).alignment = center
-            ws.cell(row=row, column=6, value=therapist_names).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-            ws.cell(row=row, column=7, value=s.get("note") or "").alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-            for col in range(1, 8):
-                ws.cell(row=row, column=col).border = border
+            values = {
+                "days": day_label, "date": date_label, "status": s.get("status") or "—",
+                "time": time_str, "hours": float(s.get("hours") or 0), "therapist": therapist_names,
+                "note": s.get("note") or "", "service": s.get("service_type") or "—",
+                "location": s.get("location") or "—",
+            }
+            for col_i, (key, _) in enumerate(active_cols, 1):
+                val = values.get(key, "")
+                cell = ws.cell(row=row, column=col_i, value=val)
+                cell.alignment = center if key in ("days", "date", "status", "time", "hours") else Alignment(horizontal="left", vertical="center", wrap_text=True)
+                if key == "status" and s.get("status") in STATUS_FILLS:
+                    cell.fill = PatternFill("solid", fgColor=STATUS_FILLS[s["status"]])
+                cell.border = border
             row += 1
         # Footer
         foot = row + 1
@@ -3566,10 +3635,9 @@ async def export_sessions_excel(cid: str, user=Depends(get_current_user)):
         ws.cell(row=foot+4, column=2, value=round(rem, 2))
         ws.cell(row=foot+5, column=1, value="Payment Status:").font = Font(bold=True, color="2C3625")
         ws.cell(row=foot+5, column=2, value="Paid" if (inv or {}).get("payment_status") == "complete" else "Payment Pending")
-        # Column widths
-        widths = [8, 12, 14, 14, 10, 24, 32]
-        for i, w in enumerate(widths, 1):
-            ws.column_dimensions[chr(64 + i)].width = w
+        width_map = {"days": 8, "date": 12, "status": 14, "time": 14, "hours": 10, "therapist": 24, "note": 32, "service": 12, "location": 16}
+        for i, (key, _) in enumerate(active_cols, 1):
+            ws.column_dimensions[chr(64 + i)].width = width_map.get(key, 12)
 
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
@@ -5329,7 +5397,7 @@ async def import_historical(body: dict, _=Depends(admin_only)):
     return {"weeks_loaded": weeks_loaded, "cells_inserted": inserted}
 
 @api.post("/schedule/duplicate-week")
-async def duplicate_week(body: dict, _=Depends(admin_only)):
+async def duplicate_week(body: dict, _=Depends(ops_or_admin)):
     """Copy all cells from source_week to target_week. body: {source_week, target_week, clear_target?}"""
     source = body.get("source_week"); target = body.get("target_week")
     if not source or not target:

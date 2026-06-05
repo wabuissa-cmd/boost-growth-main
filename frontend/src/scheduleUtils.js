@@ -1,6 +1,20 @@
 import { getChildColor, readable } from "./childColors";
 import { TIME_SLOTS } from "./api";
 
+/** Slots covered beyond anchor (supports 1.5h, 2.5h, …). */
+export function durationSlotSpan(dur) {
+  const d = parseFloat(dur) || 1;
+  return Math.max(1, Math.ceil(d));
+}
+
+function deepenHex(hex, factor = 0.82) {
+  if (!hex || typeof hex !== "string" || !hex.startsWith("#") || hex.length < 7) return hex;
+  const r = Math.round(parseInt(hex.slice(1, 3), 16) * factor);
+  const g = Math.round(parseInt(hex.slice(3, 5), 16) * factor);
+  const b = Math.round(parseInt(hex.slice(5, 7), 16) * factor);
+  return `#${[r, g, b].map(x => Math.min(255, Math.max(0, x)).toString(16).padStart(2, "0")).join("")}`;
+}
+
 /** Legend colors — must match .evt-* in index.css */
 export const SERVICE_CELL_COLORS = {
   SS: { background: "#E5EBE1", borderColor: "#B4C2A9", color: "#3D4F35" },
@@ -65,7 +79,10 @@ export function getCellStyle(cell, clients = []) {
   }
   if (cell.child_name) {
     const cc = resolveClientScheduleColor(cell.child_name, clients);
-    if (cc) return { background: cc, borderColor: cc, color: readable(cc) };
+    if (cc) {
+      const bg = deepenHex(cc, 0.78);
+      return { background: bg, borderColor: deepenHex(cc, 0.65), color: readable(bg) };
+    }
   }
   if (code && SERVICE_CELL_COLORS[code]) {
     return { ...SERVICE_CELL_COLORS[code] };
@@ -111,7 +128,7 @@ export function findCellAt(therapistId, day, timeSlot, cellMap, cells) {
     if (c.therapist_id !== therapistId || c.day !== day) return false;
     const start = slotIndex(c.time_slot, TIME_SLOTS);
     if (start < 0) return false;
-    const dur = c.duration || 1;
+    const dur = parseFloat(c.duration) || 1;
     return start <= idx && start + dur > idx;
   }) || null;
 }

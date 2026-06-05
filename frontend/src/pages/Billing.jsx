@@ -66,21 +66,34 @@ function BillingRow({ row, onEdit, onOpenSheet }) {
 function PaymentEditModal({ row, onClose, onSaved }) {
   const [status, setStatus] = useState(row.payment_status || "pending");
   const [amount, setAmount] = useState(row.amount ?? "");
+  const [installmentPct, setInstallmentPct] = useState(row.installment_percent ?? "");
   const [amountPaid, setAmountPaid] = useState(row.amount_paid ?? "");
   const [reminder, setReminder] = useState(row.next_payment_reminder_at || "");
   const [notes, setNotes] = useState(row.payment_notes || "");
   const [saving, setSaving] = useState(false);
 
+  const computedPaid = useMemo(() => {
+    const a = parseFloat(amount);
+    const p = parseFloat(installmentPct);
+    if (Number.isFinite(a) && Number.isFinite(p) && p > 0) return (a * p / 100).toFixed(2);
+    return amountPaid;
+  }, [amount, installmentPct, amountPaid]);
+
   const save = async () => {
     setSaving(true);
     try {
-      await api.put(`/invoices/${row.invoice_id}/payment`, {
+      const payload = {
         payment_status: status,
         amount: amount === "" ? null : parseFloat(amount),
-        amount_paid: amountPaid === "" ? null : parseFloat(amountPaid),
         next_payment_reminder_at: reminder || null,
         payment_notes: notes || null,
-      });
+      };
+      if (installmentPct !== "" && installmentPct != null) {
+        payload.installment_percent = parseFloat(installmentPct);
+      } else {
+        payload.amount_paid = amountPaid === "" ? null : parseFloat(amountPaid);
+      }
+      await api.put(`/invoices/${row.invoice_id}/payment`, payload);
       onSaved();
       onClose();
     } catch {
@@ -115,15 +128,33 @@ function PaymentEditModal({ row, onClose, onSaved }) {
           </select>
         </FormField>
       </FormSection>
-      <FormSection title="Amounts (optional)">
-        <div className="grid grid-cols-2 gap-3">
-          <FormField label="Invoice total (SAR)">
-            <input type="number" min="0" step="1" className="modal-input" value={amount} onChange={e => setAmount(e.target.value)} />
-          </FormField>
-          <FormField label="Amount paid (SAR)">
-            <input type="number" min="0" step="1" className="modal-input" value={amountPaid} onChange={e => setAmountPaid(e.target.value)} />
-          </FormField>
-        </div>
+      <FormSection title="Amounts">
+        <FormField label="Invoice total (SAR)">
+          <input type="number" min="0" step="1" className="modal-input" value={amount} onChange={e => setAmount(e.target.value)} />
+        </FormField>
+        <FormField label="Installment (%)">
+          <select className="modal-input" value={installmentPct} onChange={e => setInstallmentPct(e.target.value)}>
+            <option value="">Custom amount paid</option>
+            <option value="25">25% paid</option>
+            <option value="50">50% paid</option>
+            <option value="75">75% paid</option>
+            <option value="100">100% paid in full</option>
+          </select>
+        </FormField>
+        <FormField label={installmentPct ? "Calculated amount paid (SAR)" : "Amount paid (SAR)"}>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            className="modal-input"
+            value={installmentPct ? computedPaid : amountPaid}
+            readOnly={Boolean(installmentPct)}
+            onChange={e => setAmountPaid(e.target.value)}
+          />
+        </FormField>
+        {amount && computedPaid && installmentPct && parseFloat(installmentPct) < 100 && (
+          <p className="ui-caption">Remaining: {formatMoney(parseFloat(amount) - parseFloat(computedPaid))}</p>
+        )}
       </FormSection>
       {(status === "partial" || status === "pending") && (
         <FormSection title="Reminder">

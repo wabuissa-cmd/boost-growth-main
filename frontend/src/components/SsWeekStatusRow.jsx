@@ -1,4 +1,4 @@
-import { Check } from "@phosphor-icons/react";
+import { Check, Plus } from "@phosphor-icons/react";
 
 const STYLE = {
   Completed: { bg: "#E5EBE1", border: "#B8C8A8", color: "#3D4F35" },
@@ -13,11 +13,13 @@ export default function SsWeekStatusRow({
   editable = false,
   compact = false,
   onToggleOverride,
+  onAddWeek,
+  showAddWeek = false,
 }) {
-  if (!weeks.length) return null;
+  if (!weeks.length && !showAddWeek) return null;
 
   return (
-    <div className={`flex gap-1.5 ${compact ? "" : "mt-1.5"}`}>
+    <div className={`flex gap-1.5 items-center ${compact ? "" : "mt-1.5"}`}>
       {weeks.map(w => {
         const st = STYLE[w.weekStatus] || STYLE["Not started"];
         const done = w.weekStatus === "Completed";
@@ -44,6 +46,17 @@ export default function SsWeekStatusRow({
           </button>
         );
       })}
+      {showAddWeek && onAddWeek && (
+        <button
+          type="button"
+          title="Add week (e.g. Week 5)"
+          onClick={onAddWeek}
+          className="flex-shrink-0 w-[52px] aspect-square max-w-[52px] rounded-lg border-2 border-dashed flex items-center justify-center transition hover:opacity-90 cursor-pointer"
+          style={{ borderColor: "#B8C8A8", color: "#5C6853", background: "#FAFAF7" }}
+        >
+          <Plus size={18} weight="bold" />
+        </button>
+      )}
     </div>
   );
 }

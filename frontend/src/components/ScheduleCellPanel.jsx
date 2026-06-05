@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { X, FloppyDisk, BellRinging } from "@phosphor-icons/react";
 import { DAYS_EN, TIME_SLOTS, SERVICE_CODES } from "../api";
-import { SERVICE_CELL_COLORS, resolveClientScheduleColor } from "../scheduleUtils";
+import { DURATION_OPTIONS } from "../scheduleConstants";
 import { ModalBtnPrimary, ModalBtnSecondary } from "./Modal";
 
 const STATES = [
@@ -210,10 +210,10 @@ export default function ScheduleCellPanel({
                 <select
                   className="modal-input"
                   value={form.duration || 1}
-                  onChange={e => setForm(f => ({ ...f, duration: parseInt(e.target.value, 10) }))}
+                  onChange={e => setForm(f => ({ ...f, duration: parseFloat(e.target.value) }))}
                 >
-                  {TIME_SLOTS.map((_, i) => (
-                    <option key={i + 1} value={i + 1}>{i + 1} slot{i > 0 ? "s" : ""} ({i + 1}h)</option>
+                  {DURATION_OPTIONS.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </select>
               </div>

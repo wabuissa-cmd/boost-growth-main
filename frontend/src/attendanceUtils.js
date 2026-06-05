@@ -73,6 +73,16 @@ export function fmtWeekRange(startISO, endISO) {
   return `${fmt(s)} - ${fmt(e)}`;
 }
 
+/** Therapists may edit only same-day sessions; ops/admin always. */
+export function sessionEditableByUser(session, user, isOpsAdmin) {
+  if (!session || !user) return false;
+  if (isOpsAdmin) return true;
+  if (user.role !== "therapist") return false;
+  const today = new Date().toISOString().slice(0, 10);
+  const d = (session.session_date || "").slice(0, 10);
+  return d === today;
+}
+
 /** SS: 4 blocks of 5 school days (Sun–Thu) from invoice start_date. */
 export function computeSchoolWeekWindows(anchorISO, totalWeeks = 4) {
   if (!anchorISO) {

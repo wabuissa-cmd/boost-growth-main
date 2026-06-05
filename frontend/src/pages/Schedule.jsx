@@ -3,7 +3,7 @@ import api, { DAYS_EN, DAYS_SHORT, TIME_SLOTS, SERVICE_CODES, startOfWeek, addDa
 import {
   getCellStyle, META_SERVICE_CODES, MERGE_QUICK,
   SERVICE_CELL_COLORS, buildSlotRange, isSlotSelectable, slotIndex,
-  findCellAt, isHiddenFromSchedule,
+  findCellAt, isHiddenFromSchedule, durationSlotSpan,
 } from "../scheduleUtils";
 import { useAuth, hasOpsAccess } from "../auth";
 import {
@@ -16,6 +16,9 @@ import {
 } from "../components/Modal";
 import ScheduleCellPanel from "../components/ScheduleCellPanel";
 import SchedulePageHeader from "../components/SchedulePageHeader";
+import ScheduleHolidaysModal from "../components/ScheduleHolidaysModal";
+import LogSessionModal, { slotToTime24, addHoursToTime } from "../components/LogSessionModal";
+import { sortTherapistsForSchedule, getTherapistScheduleName, scheduleOwnBlockOnly } from "../scheduleConstants";
 import { cachedGet } from "../dataCache";
 
 const SCHEDULE_ZOOM = 80;
@@ -122,6 +125,9 @@ export default function Schedule() {
   const touchStartPos = useRef(null);
   const [adminEditsOpen, setAdminEditsOpen] = useState(false);
   const adminEditsRef = useRef(null);
+  const [showHolidays, setShowHolidays] = useState(false);
+  const [closures, setClosures] = useState([]);
+  const [quickLog, setQuickLog] = useState(null);
 
   useEffect(() => {
     if (!adminEditsOpen) return;
@@ -228,6 +234,17 @@ export default function Schedule() {
       setWeekStatus(st?.status || "published");
     } catch (_) { setWeekStatus("published"); }
   }, [weekStartISO, weekStart]);
+
+  const loadClosures = useCallback(async () => {
+    try {
+      const { data } = await api.get("/schedule/closures", { params: { from_date: weekStartISO, to_date: weekEndISO } });
+      setClosures(Array.isArray(data) ? data : []);
+    } catch {
+      setClosures([]);
+    }
+  }, [weekStartISO, weekEndISO]);
+
+  useEffect(() => { loadClosures(); }, [loadClosures]);
   useEffect(() => { load(); }, [load]);
 
   const setDraft = async () => {
@@ -291,11 +308,12 @@ export default function Schedule() {
   const coveredSet = useMemo(() => {
     const cov = new Set();
     cells.forEach(c => {
-      const dur = c.duration || 1;
+      const dur = parseFloat(c.duration) || 1;
       if (dur <= 1) return;
       const startIdx = TIME_SLOTS.indexOf(c.time_slot);
       if (startIdx < 0) return;
-      for (let k = 1; k < dur; k++) {
+      const span = durationSlotSpan(dur);
+      for (let k = 1; k < span; k++) {
         const idx = startIdx + k;
         if (idx < TIME_SLOTS.length) cov.add(`${c.therapist_id}_${c.day}_${TIME_SLOTS[idx]}`);
       }
@@ -303,19 +321,26 @@ export default function Schedule() {
     return cov;
   }, [cells]);
 
+  const closureByDate = useMemo(() => {
+    const m = {};
+    closures.forEach(c => { m[c.date] = c.label; });
+    return m;
+  }, [closures]);
+
+  const weekEndISO = useMemo(() => toISODate(addDays(weekStart, 4)), [weekStart]);
+
   const visibleTherapists = useMemo(() => {
     let list = therapists.filter(t => !isHiddenFromSchedule(t.name));
     if (search) list = list.filter(t => t.name.toLowerCase().includes(search.toLowerCase()));
-    return list;
+    return sortTherapistsForSchedule(list);
   }, [therapists, search]);
 
-  // For Per-Therapist (blocks) view: therapist sees ONLY her own block; admin sees all
   const blocksTherapists = useMemo(() => {
-    if (!isAdmin && user?.id) {
+    if ((!isAdmin && user?.id) || (scheduleOwnBlockOnly(user) && user?.id)) {
       return visibleTherapists.filter(t => t.id === user.id);
     }
     return visibleTherapists;
-  }, [visibleTherapists, isAdmin, user?.id]);
+  }, [visibleTherapists, isAdmin, user]);
 
   const isSelected = (therapist_id, day, time_slot) => {
     if (!selection) return false;
@@ -442,7 +467,29 @@ export default function Schedule() {
 
   const handleCellClick = (e, therapist_id, day, time_slot, existing) => {
     if (e) e.stopPropagation();
-    if (!isAdmin) return;
+    const cell = existing || findCellAt(therapist_id, day, time_slot, cellMap, cells);
+    if (!isAdmin) {
+      if (user?.role === "therapist" && cell?.child_name) {
+        const client = clients.find(c =>
+          c.name === cell.child_name || (cell.child_name || "").startsWith(`${c.name} `) || (cell.child_name || "").startsWith(c.name)
+        );
+        if (client) {
+          const sessionDate = toISODate(addDays(weekStart, day));
+          const start = slotToTime24(time_slot);
+          const dur = parseFloat(cell.duration) || 1;
+          setQuickLog({
+            client,
+            prefill: {
+              session_date: sessionDate,
+              start_time: start,
+              end_time: addHoursToTime(start, dur),
+              service_type: cell.service_code === "SS" ? "SS" : (cell.service_code === "HS" ? "HS" : client.service_type || "HS"),
+            },
+          });
+        }
+      }
+      return;
+    }
     if (clipboard && !existing) {
       pasteAt(therapist_id, day, time_slot);
       return;
@@ -666,6 +713,8 @@ export default function Schedule() {
             <tbody key={t.id} className="sheet-therapist-group">
             {DAYS_EN.map((d, di) => {
                 const leaveInfo = leaveByTherapistDay[`${t.id}_${di}`];
+                const dayISO = toISODate(addDays(weekStart, di));
+                const closureLabel = closureByDate[dayISO];
                 return (
                 <tr key={`${t.id}_${di}`} className={[di === 0 ? "sheet-therapist-start" : "", di === 4 ? "sheet-therapist-divider" : ""].filter(Boolean).join(" ")}>
                   {di === 0 && (
@@ -678,14 +727,17 @@ export default function Schedule() {
                           <div className="w-7 h-7 rounded-full text-white text-[10px] flex items-center justify-center font-bold shrink-0" style={{ background: t.color }}>
                             {t.name.replace("Ms. ", "").charAt(0)}
                           </div>
-                          <span className="font-bold text-[10px] leading-tight break-words" style={{ color: "#2C3625" }}>{t.name}</span>
+                          <span className="font-bold text-[10px] leading-tight break-words" style={{ color: "#2C3625" }}>{getTherapistScheduleName(t)}</span>
                         </div>
                       </td>
                     </>
                   )}
-                  <td className="sheet-td sheet-day font-bold text-center" style={leaveInfo ? { background: "#FEF9C3" } : {}}>
+                  <td className="sheet-td sheet-day font-bold text-center" style={closureLabel ? { background: "#E8D4F0" } : leaveInfo ? { background: "#FEF9C3" } : {}}>
                     <div className="text-[11px] tracking-wider" style={{ color: "#2C3625" }}>{DAYS_SHORT[di].toUpperCase()}</div>
                     <div className="text-[9px] font-normal" style={{ color: "#8B9E7A" }}>{addDays(weekStart, di).getDate()}/{addDays(weekStart, di).getMonth() + 1}</div>
+                    {closureLabel && (
+                      <div className="text-[8px] font-bold mt-0.5 leading-tight px-0.5" style={{ color: "#6B4080" }}>{closureLabel}</div>
+                    )}
                     {leaveInfo && (
                       <div className="text-[8px] font-bold mt-0.5" style={{ color: "#8B6918" }}>
                         {leaveInfo.type === "Absence" ? "ABSENT" : "ON LEAVE"}
@@ -697,14 +749,19 @@ export default function Schedule() {
                     const covered = coveredSet.has(`${t.id}_${di}_${ts}`);
                     if (covered) return null;
                     const sc = SERVICE_CODES.find(s => s.id === cell?.service_code);
-                    const dur = cell?.duration || 1;
+                    const dur = parseFloat(cell?.duration) || 1;
+                    const colSpan = durationSlotSpan(dur);
+                    const baseStyle = getSheetCellStyle(cell, clients);
+                    const cellStyle = closureLabel && !cell
+                      ? { ...baseStyle, background: "#EDE0F5", borderColor: "#C8A8D8", height: 38, minHeight: 38 }
+                      : { ...baseStyle, height: 38 * dur, minHeight: 38 * dur };
                     return (
                       <td
                         key={ts}
-                        colSpan={dur}
+                        colSpan={colSpan}
                         data-testid={`sheet-cell-${t.id}-${di}-${ts}`}
                         className={cellClassName(cell, isAdmin, leaveInfo, isSelected(t.id, di, ts), isCopied(t.id, di, ts))}
-                        style={getSheetCellStyle(cell, clients)}
+                        style={cellStyle}
                         onClick={(e) => handleCellClick(e, t.id, di, ts, cell)}
                         onContextMenu={(e) => onCtx(e, cell, t.id, di, ts)}
                         onTouchStart={(e) => onCellTouchStart(e, cell, t.id, di, ts)}
@@ -741,7 +798,7 @@ export default function Schedule() {
         <div className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold shadow-sm" style={{ background: therapist.color }}>{idx + 1}</div>
         <div className="flex-1">
           <div className="text-[11px] tracking-[0.2em] font-bold" style={{ color: "#8B9E7A" }}>THERAPIST</div>
-          <div className="font-bold text-lg" style={{ color: "#2C3625" }}>{therapist.name}</div>
+          <div className="font-bold text-lg" style={{ color: "#2C3625" }}>{getTherapistScheduleName(therapist)}</div>
         </div>
       </div>
       <div className="table-scroll overflow-x-auto">
@@ -759,11 +816,14 @@ export default function Schedule() {
           <tbody>
             {DAYS_EN.map((d, di) => {
               const leaveInfo = leaveByTherapistDay[`${therapist.id}_${di}`];
+              const dayISO = toISODate(addDays(weekStart, di));
+              const closureLabel = closureByDate[dayISO];
               return (
               <tr key={di} className={leaveInfo ? "schedule-leave-row" : ""}>
-                <td className="cell-base text-center font-bold" style={{ background: leaveInfo ? "#FEF9C3" : "#F6F4F0", color: "#2C3625", position: "relative" }}>
+                <td className="cell-base text-center font-bold" style={{ background: closureLabel ? "#E8D4F0" : leaveInfo ? "#FEF9C3" : "#F6F4F0", color: "#2C3625", position: "relative" }}>
                   <div className="text-[11px] tracking-wider">{DAYS_SHORT[di].toUpperCase()}</div>
                   <div className="text-[10px] font-normal" style={{ color: "#8B9E7A" }}>{addDays(weekStart, di).getDate()}/{addDays(weekStart, di).getMonth() + 1}</div>
+                  {closureLabel && <div className="text-[9px] font-bold mt-0.5" style={{ color: "#6B4080" }}>{closureLabel}</div>}
                   {leaveInfo && (
                     <div className="text-[9px] font-bold mt-0.5" style={{ color: "#8B6918" }}>
                       {leaveInfo.type === "Absence" ? "ABSENT" : "ON LEAVE"}
@@ -775,11 +835,16 @@ export default function Schedule() {
                   const isCovered = coveredSet.has(`${therapist.id}_${di}_${ts}`);
                   if (isCovered) return null;
                   const sc = SERVICE_CODES.find(s => s.id === cell?.service_code);
-                  const dur = cell?.duration || 1;
+                  const dur = parseFloat(cell?.duration) || 1;
+                  const colSpan = durationSlotSpan(dur);
+                  const baseStyle = getSheetCellStyle(cell, clients);
+                  const cellStyle = closureLabel && !cell
+                    ? { ...baseStyle, background: "#EDE0F5", borderColor: "#C8A8D8", height: 38, minHeight: 38 }
+                    : { ...baseStyle, height: 38 * dur, minHeight: 38 * dur };
                   return (
                     <td key={ts} className={cellClassNameBlock(cell, isAdmin, leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts))}
-                      colSpan={dur}
-                      style={getSheetCellStyle(cell, clients)}
+                      colSpan={colSpan}
+                      style={cellStyle}
                       data-testid={`cell-${therapist.id}-${di}-${ts}`}
                       onClick={(e) => handleCellClick(e, therapist.id, di, ts, cell)}
                       onContextMenu={(e) => onCtx(e, cell, therapist.id, di, ts)}
@@ -824,9 +889,8 @@ export default function Schedule() {
           { n: visibleTherapists.length, label: "Therapists", color: "#6B5218" },
           { n: clients.length, label: "Clients", color: "#3D4F35" },
         ]}
-        serviceCodes={SERVICE_CODES.filter(s => s.id !== "SS" && s.id !== "HS")}
         toolbar={(
-          <div className="flex items-center gap-1.5 flex-wrap schedule-toolbar">
+          <div className="flex items-center gap-1.5 flex-wrap schedule-toolbar relative">
             <div className="inline-flex items-center rounded-lg border border-[#E8E4DE] p-0.5 bg-[#FAFAF7] shrink-0">
               <button data-testid="view-sheet-btn" onClick={() => setView("sheet")} className={`btn ${view === "sheet" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`}><Table size={13} /> Sheet</button>
               <button data-testid="view-blocks-btn" onClick={() => setView("blocks")} className={`btn ${view === "blocks" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`}><GridFour size={13} /> Per Therapist</button>
@@ -861,7 +925,8 @@ export default function Schedule() {
                   <CaretDown size={11} className={`transition-transform ${adminEditsOpen ? "rotate-180" : ""}`} />
                 </button>
                 {adminEditsOpen && (
-                  <div className="absolute right-0 top-full mt-1 z-30 card p-2 min-w-[220px] shadow-lg border border-[#E8E4DE] flex flex-col gap-1.5">
+                  <div className="absolute right-0 top-full mt-1 z-[100] card p-2 min-w-[220px] shadow-lg border border-[#E8E4DE] flex flex-col gap-1.5">
+                    <button type="button" onClick={() => { setShowHolidays(true); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start">Official holidays</button>
                     <button type="button" onClick={() => { setDraft(); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start">Save as Draft</button>
                     <button type="button" onClick={() => { publishWeek(); setAdminEditsOpen(false); }} className="btn btn-primary text-xs w-full justify-start">Publish Week</button>
                     <button
@@ -1149,6 +1214,26 @@ export default function Schedule() {
             </label>
           </FormSection>
         </ModalBase>
+      )}
+
+      {showHolidays && (
+        <ScheduleHolidaysModal
+          weekStartISO={weekStartISO}
+          weekEndISO={weekEndISO}
+          onClose={() => setShowHolidays(false)}
+          onChanged={loadClosures}
+        />
+      )}
+
+      {quickLog && (
+        <LogSessionModal
+          client={quickLog.client}
+          therapists={therapists}
+          currentUser={user}
+          prefill={quickLog.prefill}
+          onClose={() => setQuickLog(null)}
+          onSaved={() => { setQuickLog(null); }}
+        />
       )}
     </div>
     </div>
