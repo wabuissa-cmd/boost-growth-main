@@ -202,6 +202,7 @@ export default function Schedule() {
   }, [ctxMenu]);
 
   const weekStartISO = toISODate(weekStart);
+  const weekEndISO = useMemo(() => toISODate(addDays(weekStart, 4)), [weekStart]);
 
   useEffect(() => {
     if (!ctxMenu) return;
@@ -326,8 +327,6 @@ export default function Schedule() {
     closures.forEach(c => { m[c.date] = c.label; });
     return m;
   }, [closures]);
-
-  const weekEndISO = useMemo(() => toISODate(addDays(weekStart, 4)), [weekStart]);
 
   const visibleTherapists = useMemo(() => {
     let list = therapists.filter(t => !isHiddenFromSchedule(t.name));

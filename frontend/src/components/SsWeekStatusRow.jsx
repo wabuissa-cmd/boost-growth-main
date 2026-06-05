@@ -1,4 +1,4 @@
-import { Check, Plus } from "@phosphor-icons/react";
+import { Check, Plus, Minus } from "@phosphor-icons/react";
 
 const STYLE = {
   Completed: { bg: "#E5EBE1", border: "#B8C8A8", color: "#3D4F35" },
@@ -14,7 +14,9 @@ export default function SsWeekStatusRow({
   compact = false,
   onToggleOverride,
   onAddWeek,
+  onRemoveWeek,
   showAddWeek = false,
+  showRemoveWeek = false,
 }) {
   if (!weeks.length && !showAddWeek) return null;
 
@@ -55,6 +57,17 @@ export default function SsWeekStatusRow({
           style={{ borderColor: "#B8C8A8", color: "#5C6853", background: "#FAFAF7" }}
         >
           <Plus size={18} weight="bold" />
+        </button>
+      )}
+      {showRemoveWeek && onRemoveWeek && (
+        <button
+          type="button"
+          title="Remove last added week"
+          onClick={onRemoveWeek}
+          className="flex-shrink-0 w-[52px] aspect-square max-w-[52px] rounded-lg border-2 border-dashed flex items-center justify-center transition hover:opacity-90 cursor-pointer"
+          style={{ borderColor: "#E8A4A4", color: "#8A3F27", background: "#FDF5F5" }}
+        >
+          <Minus size={18} weight="bold" />
         </button>
       )}
     </div>

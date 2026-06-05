@@ -30,7 +30,7 @@ import PreparationClientRow from "../components/PreparationClientRow";
 import PageBanner from "../components/PageBanner";
 import LogSessionModal from "../components/LogSessionModal";
 import SsWeekStatusRow, { SsWeekLegend } from "../components/SsWeekStatusRow";
-import ExportColumnsModal from "../components/ExportColumnsModal";
+import ExportColumnsModal, { buildInvoiceSheetColumns } from "../components/ExportColumnsModal";
 import { cachedGet } from "../dataCache";
 
 const EXPORT_COLS_KEY = "bg_export_columns";
@@ -100,7 +100,9 @@ function ServiceTypeToggle({ value, onChange, tabState }) {
   );
 }
 
-function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdit, onDeleted, rowBg, billingKind, hideHours, locked = false, bordered = false }) {
+function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdit, onDeleted, rowBg, billingKind, locked = false, bordered = false, sheetCols }) {
+  const colIds = sheetCols ? new Set(sheetCols.map(c => c.id)) : null;
+  const show = (id) => !colIds || colIds.has(id);
   const stColor = s.status === "Completed" ? "#3D4F35" :
     s.status === "Cancelled" ? "#6B5218" :
     s.status === "No Show" ? "#8A3F27" : "#5C6853";
@@ -119,14 +121,16 @@ function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdi
   const cell = bordered ? "p-2 border border-[#E0E8DC]" : "p-2";
   return (
     <tr key={s.id} className={bordered ? "" : "border-t border-[#E8E4DE]"} style={{ background: rowBg || undefined }}>
-      <td className={`${cell} font-bold`}>{dayNameFromDate(s.session_date)}</td>
-      <td className={`${cell} font-bold`}>{fmtDate(s.session_date)}</td>
-      <td className={cell}><span className="pill text-[10px] uppercase" style={{ background: stBg, color: stColor }}>{s.status}</span></td>
-      <td className={cell}>{s.start_time && s.end_time ? `${s.start_time} - ${s.end_time}` : "—"}</td>
-      {!hideHours && <td className={`${cell} font-bold`}>{measureVal}</td>}
-      <td className={cell}>{tNames || "—"}</td>
-      <td className={`${cell} italic`} style={{ color: "#5C6853" }}>{s.note || ""}</td>
-      {!locked && (
+      {show("days") && <td className={`${cell} font-bold`}>{dayNameFromDate(s.session_date)}</td>}
+      {show("date") && <td className={`${cell} font-bold`}>{fmtDate(s.session_date)}</td>}
+      {show("status") && <td className={cell}><span className="pill text-[10px] uppercase" style={{ background: stBg, color: stColor }}>{s.status}</span></td>}
+      {show("time") && <td className={cell}>{s.start_time && s.end_time ? `${s.start_time} - ${s.end_time}` : "—"}</td>}
+      {show("hours") && <td className={`${cell} font-bold`}>{measureVal}</td>}
+      {show("therapist") && <td className={cell}>{tNames || "—"}</td>}
+      {show("service") && <td className={cell}>{s.service_type || "—"}</td>}
+      {show("location") && <td className={cell}>{s.location || "—"}</td>}
+      {show("note") && <td className={`${cell} italic`} style={{ color: "#5C6853" }}>{s.note || ""}</td>}
+      {!locked && show("_action") && (
         <td className={`${cell} text-right whitespace-nowrap no-print`}>
           {canEdit && <button onClick={() => onEdit(s)} className="btn btn-ghost p-1.5"><PencilSimple size={14}/></button>}
           {canEdit && <button onClick={async () => { if (window.confirm("Delete?")) { await api.delete(`/sessions/${s.id}`); onDeleted(); } }} className="btn btn-ghost p-1.5 text-red-700"><Trash size={14}/></button>}
@@ -138,10 +142,13 @@ function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdi
 
 function HistoryTableHead({ cols, bordered = false }) {
   const cell = bordered ? "p-2 text-left font-bold border border-[#E0E8DC]" : "p-2 text-left font-bold";
+  const items = cols.map(c => (typeof c === "string" ? { id: c, label: c } : c));
   return (
     <thead style={{ background: bordered ? "#F6F9F3" : "#F0E9D8" }}>
       <tr style={{ color: "#2C3625" }}>
-        {cols.map((c, i) => <th key={i} className={`${cell}${!c ? " no-print" : ""}`}>{c}</th>)}
+        {items.map((c, i) => (
+          <th key={c.id || i} className={`${cell}${c.id === "_action" ? " no-print" : ""}`}>{c.label}</th>
+        ))}
       </tr>
     </thead>
   );
@@ -208,21 +215,24 @@ export default function Attendance() {
     { id: "ok", label: "Safe", dot: "#7A8A6A" },
   ];
 
+  const showPrepStats = isAdmin;
+
   return (
     <div>
       <PageBanner
         title="Session Preparation"
         subtitle="Log sessions and track package progress"
-        stats={[
+        stats={showPrepStats ? [
           { label: "Total", n: counts.all, color: "#2C3625" },
           { label: "Urgent", n: counts.urgent, color: "#8A3F27" },
           { label: "Warning", n: counts.warning, color: "#6B5218" },
           { label: "Safe", n: counts.ok, color: "#3D4F35" },
-        ]}
+        ] : undefined}
       />
 
       {/* Toolbar: filters + search + actions */}
       <div className="flex flex-wrap items-center gap-2 mb-5">
+        {showPrepStats && (
         <div className="flex gap-1.5 flex-wrap">
           {filterOpts.map(f => (
             <button
@@ -240,6 +250,7 @@ export default function Attendance() {
             </button>
           ))}
         </div>
+        )}
         <div className="relative flex-1 min-w-[180px]">
           <MagnifyingGlass size={16} className="absolute top-1/2 -translate-y-1/2 left-3" style={{ color: "#8B9E7A" }} />
           <input
@@ -488,9 +499,30 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
     }
   };
 
-  const actionCol = invoiceLocked ? [] : [""];
-  const hsHistoryCols = ["Day", "Date", "Status", "Time", "# Hours", "Therapist", "Note", ...actionCol];
-  const ssHistoryCols = ["Day", "Date", "Status", "Time", "Therapist", "Note", ...actionCol];
+  const removeSsWeek = async () => {
+    if (!selectedInvoice || invoiceLocked || !isAdmin || !isSchool || cycleWeeks <= 4) return;
+    if (!window.confirm(`Remove Week ${cycleWeeks} from this invoice?`)) return;
+    try {
+      await api.put(`/invoices/${selectedInvoice.id}`, {
+        invoice_number: selectedInvoice.invoice_number,
+        ss_week_count: cycleWeeks - 1,
+        start_date: selectedInvoice.start_date,
+        package_size: selectedInvoice.package_size,
+        payment_status: selectedInvoice.payment_status,
+        service_type: selectedInvoice.service_type,
+        is_closed: selectedInvoice.is_closed,
+      });
+      await reloadInvoices();
+      onRefresh && onRefresh();
+    } catch {
+      alert("Could not remove week");
+    }
+  };
+
+  const historySheetCols = useMemo(
+    () => buildInvoiceSheetColumns(null, { isSchool, includeAction: !invoiceLocked }),
+    [isSchool, invoiceLocked]
+  );
 
   return (
     <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-2 z-50" onClick={onClose}>
@@ -555,6 +587,8 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
               onToggleOverride={toggleWeekOverride}
               showAddWeek={isAdmin && !invoiceLocked && isSchool}
               onAddWeek={addSsWeek}
+              showRemoveWeek={isAdmin && !invoiceLocked && isSchool && cycleWeeks > 4}
+              onRemoveWeek={removeSsWeek}
             />
           </div>
         )}
@@ -599,7 +633,7 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full text-xs min-w-[480px] border-collapse">
-                          <HistoryTableHead cols={ssHistoryCols} bordered />
+                          <HistoryTableHead cols={historySheetCols.filter(c => c.id !== "_action" || !invoiceLocked)} bordered />
                           <tbody>
                             {sortSessionsByDateAsc(group.sessions).map(s => (
                               <SessionTableRow
@@ -614,9 +648,9 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
                                 onDeleted={() => { onRefresh && onRefresh(); reloadSessions(); }}
                                 rowBg={WEEK_ROW_BG[(group.weekNumber - 1) % WEEK_ROW_BG.length]}
                                 billingKind="SS"
-                                hideHours
                                 locked={invoiceLocked}
                                 bordered
+                                sheetCols={historySheetCols}
                               />
                             ))}
                           </tbody>
@@ -636,7 +670,7 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs min-w-[520px] border-collapse">
-                    <HistoryTableHead cols={hsHistoryCols} bordered />
+                    <HistoryTableHead cols={historySheetCols} bordered />
                     <tbody>
                       {sorted.map((s, i) => (
                         <SessionTableRow
@@ -653,6 +687,7 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
                           billingKind="HS"
                           locked={invoiceLocked}
                           bordered
+                          sheetCols={historySheetCols}
                         />
                       ))}
                     </tbody>
@@ -692,6 +727,15 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   const [savingClient, setSavingClient] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [showExportColumns, setShowExportColumns] = useState(false);
+  const [exportPendingMode, setExportPendingMode] = useState(null);
+  const [sheetColIds, setSheetColIds] = useState(() => {
+    try {
+      const raw = localStorage.getItem(EXPORT_COLS_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
   const [newInvMenuOpen, setNewInvMenuOpen] = useState(false);
   const [localSessions, setLocalSessions] = useState(sessions);
   const invoicesInitialized = useRef(false);
@@ -1052,14 +1096,33 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
     }
   };
 
-  const savedExportCols = useMemo(() => {
+  const removeSsWeek = async () => {
+    if (!selectedInvoice || invoiceLocked || !isAdmin || !isSchool || cycleWeeks <= 4) return;
+    if (!window.confirm(`Remove Week ${cycleWeeks} from this invoice?`)) return;
     try {
-      const raw = localStorage.getItem(EXPORT_COLS_KEY);
-      return raw ? JSON.parse(raw) : null;
+      await api.put(`/invoices/${selectedInvoice.id}`, {
+        invoice_number: selectedInvoice.invoice_number,
+        ss_week_count: cycleWeeks - 1,
+        start_date: selectedInvoice.start_date,
+        package_size: selectedInvoice.package_size,
+        payment_status: selectedInvoice.payment_status,
+        service_type: selectedInvoice.service_type,
+        is_closed: selectedInvoice.is_closed,
+      });
+      const list = await loadInvoices();
+      setAllInvoices(list);
+      onClientUpdated && onClientUpdated();
     } catch {
-      return null;
+      alert("Could not remove week");
     }
-  }, [showExportColumns]);
+  };
+
+  const sheetCols = useMemo(
+    () => buildInvoiceSheetColumns(sheetColIds, { isSchool, includeAction: !invoiceLocked }),
+    [sheetColIds, isSchool, invoiceLocked]
+  );
+
+  const savedExportCols = sheetColIds;
 
   return (
     <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-2 z-50" onClick={onClose}>
@@ -1156,8 +1219,8 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               <button onClick={() => setExportOpen(o => !o)} className="btn btn-gold text-xs min-h-[44px] min-w-[44px]">Export <CaretDown size={12}/></button>
               {exportOpen && (
                 <div className="absolute right-0 mt-1 card p-1 z-50 min-w-[180px] shadow-lg mobile-action-menu">
-                  <button data-testid="export-excel-btn" onClick={() => { setExportOpen(false); setShowExportColumns(true); }} className="btn btn-ghost w-full justify-start text-xs min-h-[44px]"><FileXls size={14}/> Export as Excel</button>
-                  <button onClick={() => { window.print(); setExportOpen(false); }} className="btn btn-ghost w-full justify-start text-xs min-h-[44px]"><Printer size={14}/> Export as PDF</button>
+                  <button data-testid="export-excel-btn" onClick={() => { setExportOpen(false); setExportPendingMode("excel"); setShowExportColumns(true); }} className="btn btn-ghost w-full justify-start text-xs min-h-[44px]"><FileXls size={14}/> Export as Excel</button>
+                  <button onClick={() => { setExportOpen(false); setExportPendingMode("pdf"); setShowExportColumns(true); }} className="btn btn-ghost w-full justify-start text-xs min-h-[44px]"><Printer size={14}/> Export as PDF</button>
                   {isAdmin && selectedInvoice && (
                     <button onClick={() => { savePackageInfo(); setExportOpen(false); }} className="btn btn-ghost w-full justify-start text-xs">Save</button>
                   )}
@@ -1236,6 +1299,8 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               onToggleOverride={toggleWeekOverride}
               showAddWeek={isAdmin && !invoiceLocked && isSchool}
               onAddWeek={addSsWeek}
+              showRemoveWeek={isAdmin && !invoiceLocked && isSchool && cycleWeeks > 4}
+              onRemoveWeek={removeSsWeek}
             />
           </div>
         )}
@@ -1347,17 +1412,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                   ) : (
                     <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
                     <table className="w-full text-xs min-w-[520px]">
-                      <thead style={{ background: "#F6F9F3" }}>
-                        <tr style={{ color: "#2C3625" }}>
-                          <th className="p-2 text-left font-bold">Day</th>
-                          <th className="p-2 text-left font-bold">Date</th>
-                          <th className="p-2 text-left font-bold">Status</th>
-                          <th className="p-2 text-left font-bold">Time</th>
-                          <th className="p-2 text-left font-bold">Therapist</th>
-                          <th className="p-2 text-left font-bold">Note</th>
-                          <th className="p-2 no-print"></th>
-                        </tr>
-                      </thead>
+                      <HistoryTableHead cols={sheetCols.filter(c => c.id !== "_action")} bordered />
                       <tbody>
                         {sortSessionsByDateAsc(group.sessions).map(s => (
                           <SessionTableRow
@@ -1372,8 +1427,8 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                             onDeleted={onDeleted}
                             rowBg={WEEK_ROW_BG[(group.weekNumber - 1) % WEEK_ROW_BG.length]}
                             billingKind="SS"
-                            hideHours
                             locked={invoiceLocked}
+                            sheetCols={sheetCols}
                           />
                         ))}
                       </tbody>
@@ -1392,7 +1447,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs min-w-[520px] border-collapse">
-                    <HistoryTableHead cols={["Day", "Date", "Status", "Time", "# Hours", "Therapist", "Note", ""]} bordered />
+                    <HistoryTableHead cols={sheetCols} bordered />
                     <tbody>
                       {sortedInvoiceSessions.map((s, i) => (
                         <SessionTableRow
@@ -1409,6 +1464,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                           billingKind="HS"
                           locked={invoiceLocked}
                           bordered
+                          sheetCols={sheetCols}
                         />
                       ))}
                     </tbody>
@@ -1577,59 +1633,19 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               )}
             </FormSection>
 
-            <FormSection title="Payment">
-              {isAdmin ? (
-                <>
-                  <FormField label="Payment status">
-                    <select
-                      data-testid="pay-status-select"
-                      className="modal-input"
-                      value={paymentStatus}
-                      onChange={e => setPaymentStatus(e.target.value)}
-                    >
-                      <option value="pending">Unpaid — service started</option>
-                      <option value="partial">Partial — installment, balance remaining</option>
-                      <option value="complete">Paid in full</option>
-                    </select>
-                  </FormField>
-                  <div className="grid grid-cols-2 gap-3">
-                    <FormField label="Invoice total (SAR)">
-                      <input type="number" min="0" step="1" className="modal-input" value={invoiceAmount} onChange={e => setInvoiceAmount(e.target.value)} />
-                    </FormField>
-                    <FormField label="Amount paid (SAR)">
-                      <input type="number" min="0" step="1" className="modal-input" value={amountPaid} onChange={e => setAmountPaid(e.target.value)} />
-                    </FormField>
-                  </div>
-                  {(paymentStatus === "partial" || paymentStatus === "pending") && (
-                    <>
-                      <FormField label="Next payment reminder" hint="Email to admin & Walaa 1–2 days before">
-                        <input type="date" className="modal-input" value={nextPaymentReminder} onChange={e => setNextPaymentReminder(e.target.value)} />
-                      </FormField>
-                      <FormField label="Payment notes">
-                        <textarea className="modal-input" rows={2} value={paymentNotes} onChange={e => setPaymentNotes(e.target.value)} placeholder="e.g. 2nd installment after Eid" />
-                      </FormField>
-                    </>
-                  )}
-                  <FormField label="Package end date">
-                    <input
-                      data-testid="pkg-end-input"
-                      type="date"
-                      className="modal-input"
-                      value={packageEndDate}
-                      onChange={e => setPackageEndDate(e.target.value)}
-                    />
-                  </FormField>
-                </>
-              ) : (
-                <FormField label="Payment status">
+            {isAdmin && (
+              <FormSection title="Dates">
+                <FormField label="Package end date">
                   <input
+                    data-testid="pkg-end-input"
+                    type="date"
                     className="modal-input"
-                    readOnly
-                    value={paymentStatus === "complete" ? "Paid" : paymentStatus === "partial" ? "Partial" : "Unpaid"}
+                    value={packageEndDate}
+                    onChange={e => setPackageEndDate(e.target.value)}
                   />
                 </FormField>
-              )}
-            </FormSection>
+              </FormSection>
+            )}
           </ModalBase>
         )}
 
@@ -1671,8 +1687,19 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
         {showExportColumns && (
           <ExportColumnsModal
             initial={savedExportCols}
-            onClose={() => setShowExportColumns(false)}
-            onExport={(cols) => { setShowExportColumns(false); exportExcel(cols); }}
+            confirmLabel={exportPendingMode === "pdf" ? "Export PDF" : "Export Excel"}
+            onClose={() => { setShowExportColumns(false); setExportPendingMode(null); }}
+            onExport={(cols) => {
+              setSheetColIds(cols);
+              try { localStorage.setItem(EXPORT_COLS_KEY, JSON.stringify(cols)); } catch { /* ignore */ }
+              setShowExportColumns(false);
+              if (exportPendingMode === "pdf") {
+                setTimeout(() => window.print(), 150);
+              } else {
+                exportExcel(cols);
+              }
+              setExportPendingMode(null);
+            }}
           />
         )}
       </div>

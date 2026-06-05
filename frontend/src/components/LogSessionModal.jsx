@@ -1,5 +1,6 @@
 import { useState } from "react";
 import api from "../api";
+import { resolveSessionTherapistIds } from "../attendanceUtils";
 import {
   CheckCircle, Prohibit, Warning, XCircle, Clock, MapPin,
 } from "@phosphor-icons/react";
@@ -48,6 +49,7 @@ export default function LogSessionModal({
   client, therapists, currentUser, onClose, onSaved, session, prefill,
 }) {
   const defaultLoc = client?.locations?.[0];
+  const initialSvc = prefill?.service_type || defaultLoc?.service || client?.service_type || "HS";
   const [form, setForm] = useState(() => {
     if (session) return { ...session };
     const start = prefill?.start_time || "14:00";
@@ -59,10 +61,10 @@ export default function LogSessionModal({
       end_time: end,
       hours: computeHours(start, end),
       status: "Completed",
-      therapist_ids: currentUser?.role === "therapist" ? [currentUser.id] : [client?.main_therapist_id].filter(Boolean),
+      therapist_ids: resolveSessionTherapistIds(client, initialSvc, currentUser),
       note: prefill?.note || "",
       location: prefill?.location || defaultLoc?.address || "",
-      service_type: prefill?.service_type || defaultLoc?.service || client?.service_type || "HS",
+      service_type: initialSvc,
     };
   });
 
@@ -137,11 +139,33 @@ export default function LogSessionModal({
               <select data-testid="sess-location" className="modal-input" value={form.location}
                 onChange={e => {
                   const loc = client.locations.find(l => l.address === e.target.value);
-                  setForm({ ...form, location: e.target.value, service_type: loc?.service || form.service_type || "HS" });
+                  const svc = loc?.service || form.service_type || "HS";
+                  setForm({
+                    ...form,
+                    location: e.target.value,
+                    service_type: svc,
+                    therapist_ids: resolveSessionTherapistIds(client, svc, currentUser),
+                  });
                 }}>
                 {client.locations.map((l, i) => (
                   <option key={i} value={l.address}>{l.service} · {l.address}</option>
                 ))}
+              </select>
+            </FormField>
+          )}
+          {(!client?.locations?.length) && (
+            <FormField label="Service type">
+              <select className="modal-input" value={form.service_type || "HS"}
+                onChange={e => {
+                  const svc = e.target.value;
+                  setForm({
+                    ...form,
+                    service_type: svc,
+                    therapist_ids: resolveSessionTherapistIds(client, svc, currentUser),
+                  });
+                }}>
+                <option value="HS">Home Session (HS)</option>
+                <option value="SS">School Support (SS)</option>
               </select>
             </FormField>
           )}

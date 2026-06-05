@@ -810,13 +810,34 @@ main, .page-enter { min-width: 0; }
 
 /* Print styles for Attendance invoice */
 @media print {
+    @page { size: A4 portrait; margin: 10mm; }
     body * { visibility: hidden; }
     .printable, .printable * { visibility: visible; }
     .printable {
-        position: absolute; left: 0; top: 0; width: 100%;
+        position: static !important;
+        left: auto !important;
+        top: auto !important;
+        width: 100% !important;
+        max-width: none !important;
+        max-height: none !important;
+        height: auto !important;
+        overflow: visible !important;
         background: white !important;
+        box-shadow: none !important;
+        border: none !important;
     }
+    .printable .flex-1,
+    .printable .overflow-y-auto,
+    .printable .overflow-x-auto {
+        overflow: visible !important;
+        max-height: none !important;
+        flex: none !important;
+    }
+    .printable table { page-break-inside: auto; width: 100% !important; }
+    .printable tr { page-break-inside: avoid; page-break-after: auto; }
+    .printable thead { display: table-header-group; }
     .no-print { display: none !important; }
+    .fixed.inset-0 { position: static !important; background: white !important; }
 }
 
 /* Status badge bar at top of card */

@@ -83,6 +83,21 @@ export function sessionEditableByUser(session, user, isOpsAdmin) {
   return d === today;
 }
 
+/** Default therapist(s) for a logged session by service type (HS = main, SS = co). */
+export function resolveSessionTherapistIds(client, serviceType, currentUser) {
+  if (currentUser?.role === "therapist" && currentUser.id) return [currentUser.id];
+  if (!client) return [];
+  const st = normalizeServiceTypeCode(serviceType) || "HS";
+  const main = client.main_therapist_id;
+  const cos = (client.co_therapist_ids || []).filter(Boolean);
+  if (st === "SS") {
+    if (cos.length) return [cos[0]];
+    return main ? [main] : [];
+  }
+  if (main) return [main];
+  return cos.length ? [cos[0]] : [];
+}
+
 /** SS: 4 blocks of 5 school days (Sun–Thu) from invoice start_date. */
 export function computeSchoolWeekWindows(anchorISO, totalWeeks = 4) {
   if (!anchorISO) {

@@ -13,7 +13,18 @@ export const EXPORT_COLUMN_DEFS = [
   { id: "location", label: "Location" },
 ];
 
-export default function ExportColumnsModal({ initial, onClose, onExport }) {
+const COL_LABELS = Object.fromEntries(EXPORT_COLUMN_DEFS.map(c => [c.id, c.label]));
+
+/** Columns for invoice sheet tables (screen + print). */
+export function buildInvoiceSheetColumns(selectedIds, { isSchool = false, includeAction = false } = {}) {
+  const fallback = EXPORT_COLUMN_DEFS.map(c => c.id).filter(id => !(isSchool && id === "hours"));
+  const ids = (selectedIds?.length ? selectedIds : fallback).filter(id => !(isSchool && id === "hours"));
+  const cols = ids.map(id => ({ id, label: COL_LABELS[id] || id }));
+  if (includeAction) cols.push({ id: "_action", label: "" });
+  return cols;
+}
+
+export default function ExportColumnsModal({ initial, onClose, onExport, confirmLabel = "Export Excel" }) {
   const [selected, setSelected] = useState(() => {
     const set = new Set(initial || EXPORT_COLUMN_DEFS.map(c => c.id));
     return EXPORT_COLUMN_DEFS.map(c => ({ ...c, on: set.has(c.id) }));
@@ -24,13 +35,13 @@ export default function ExportColumnsModal({ initial, onClose, onExport }) {
   return (
     <ModalBase
       title="Export columns"
-      subtitle="Choose fields for insurance Excel export"
+      subtitle="Choose fields for Excel and PDF export"
       onClose={onClose}
       size="sm"
       footer={(
         <>
           <ModalBtnSecondary type="button" onClick={onClose}>Cancel</ModalBtnSecondary>
-          <ModalBtnPrimary type="button" onClick={() => onExport(selected.filter(c => c.on).map(c => c.id))}>Export Excel</ModalBtnPrimary>
+          <ModalBtnPrimary type="button" onClick={() => onExport(selected.filter(c => c.on).map(c => c.id))}>{confirmLabel}</ModalBtnPrimary>
         </>
       )}
     >
