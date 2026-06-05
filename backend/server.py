@@ -958,6 +958,55 @@ async def list_clients(user=Depends(get_current_user)):
     uid = user["id"]
     return [c for c in items if c.get("main_therapist_id") == uid or uid in (c.get("co_therapist_ids") or [])]
 
+async def _resolve_user_therapist_id(user: dict) -> Optional[str]:
+    """Map logged-in user to therapist id (handles client-lead admin logins)."""
+    uid = user.get("id")
+    if user.get("role") == "therapist" and uid:
+        return uid
+    email = (user.get("email") or "").lower().strip()
+    if email:
+        t = await db.therapists.find_one({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}}, {"_id": 0, "id": 1})
+        if t:
+            return t["id"]
+    key = (user.get("key") or "").lower()
+    if key:
+        t = await db.therapists.find_one({"key": key}, {"_id": 0, "id": 1})
+        if t:
+            return t["id"]
+    name = (user.get("name") or "").lower().replace("ms.", "").replace("ms ", "").strip()
+    first = name.split()[0] if name else ""
+    if first in FULL_CLIENT_NAME_TOKENS:
+        for t in await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(200):
+            tn = (t.get("name") or "").lower().replace("ms.", "").replace("ms ", "").strip()
+            tfirst = tn.split()[0] if tn else ""
+            if tfirst == first:
+                return t["id"]
+    return uid
+
+
+@api.get("/clients/resolve-schedule-name")
+async def resolve_client_by_schedule_name(child_name: str, user=Depends(get_current_user)):
+    """Resolve a schedule cell child_name to a client the current user may log sessions for."""
+    client = await _find_client_by_schedule_child_name(child_name)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if _has_full_client_access(user):
+        return await db.clients.find_one(_active_client_filter({"id": client["id"]}), {"_id": 0})
+    tid = await _resolve_user_therapist_id(user)
+    if not tid:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if client.get("main_therapist_id") == tid or tid in (client.get("co_therapist_ids") or []):
+        return await db.clients.find_one(_active_client_filter({"id": client["id"]}), {"_id": 0})
+    scheduled = await db.schedule_cells.find_one(
+        {"therapist_id": tid, "child_name": {"$regex": f"^{re.escape((child_name or '').strip())}($|\\s)"}},
+        {"_id": 0, "id": 1},
+    )
+    if scheduled:
+        await _ensure_co_therapist_from_schedule(tid, child_name)
+        return await db.clients.find_one(_active_client_filter({"id": client["id"]}), {"_id": 0})
+    raise HTTPException(status_code=403, detail="Access denied")
+
+
 @api.post("/clients")
 async def create_client(payload: ClientIn, _=Depends(ops_or_admin)):
     cid = str(uuid.uuid4())

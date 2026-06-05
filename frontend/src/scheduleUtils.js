@@ -157,6 +157,59 @@ export function isHiddenFromSchedule(name) {
   return SCHEDULE_HIDDEN_NAME_TOKENS.some(t => n.includes(t));
 }
 
+function therapistFirstName(name) {
+  return (name || "").replace(/^Ms\.?\s*/i, "").split(/\s+/)[0]?.toLowerCase() || "";
+}
+
+/** Map logged-in user to their therapist record (id may differ for client-lead admin logins). */
+export function resolveSelfTherapist(user, therapists = []) {
+  if (!user || !therapists.length) return null;
+  const byId = therapists.find(t => t.id === user.id);
+  if (byId) return byId;
+  const email = (user.email || "").toLowerCase().trim();
+  if (email) {
+    const byEmail = therapists.find(t => (t.email || "").toLowerCase().trim() === email);
+    if (byEmail) return byEmail;
+  }
+  const key = (user.key || "").toLowerCase();
+  if (key) {
+    const byKey = therapists.find(t => (t.key || "").toLowerCase() === key);
+    if (byKey) return byKey;
+  }
+  const first = therapistFirstName(user.name);
+  if (first) {
+    const byName = therapists.find(t => therapistFirstName(t.name) === first);
+    if (byName) return byName;
+  }
+  return null;
+}
+
+/** Match schedule cell child_name to a client (mirrors backend _find_client_by_schedule_child_name). */
+export function findClientForScheduleCell(childName, clients = []) {
+  const name = (childName || "").trim();
+  if (!name || !clients.length) return null;
+  let client = clients.find(c => (c.name || "").trim() === name);
+  if (client) return client;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const prefixRe = new RegExp(`^${escaped}($|\\s)`, "i");
+  client = clients.find(c => prefixRe.test((c.name || "").trim()));
+  if (client) return client;
+  for (const c of clients) {
+    const cn = (c.name || "").trim();
+    if (cn && (name === cn || name.startsWith(cn + " "))) return c;
+  }
+  return null;
+}
+
+/** True when a schedule cell represents a client session that can be logged. */
+export function isScheduleClientLogCell(cell) {
+  if (!cell) return false;
+  if (cell.state === "available" || cell.service_code === "AVAILABLE") return false;
+  if (!((cell.child_name || "").trim())) return false;
+  if (META_SERVICE_CODES.has(cell.service_code)) return false;
+  return true;
+}
+
 export function findCellAt(therapistId, day, timeSlot, cellMap, cells) {
   const key = `${therapistId}_${day}_${timeSlot}`;
   if (cellMap[key]) return cellMap[key];

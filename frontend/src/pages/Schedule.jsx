@@ -4,6 +4,7 @@ import {
   getCellStyle, META_SERVICE_CODES, MERGE_QUICK,
   SERVICE_CELL_COLORS, buildSlotRange, isSlotSelectable, slotIndex, clampMergeSlotCount, clampMergeDuration,
   findCellAt, isHiddenFromSchedule, scheduleDisplaySpan, scheduleCoveredSlotKeys,
+  resolveSelfTherapist, findClientForScheduleCell, isScheduleClientLogCell,
 } from "../scheduleUtils";
 import { MAX_SCHEDULE_MERGE_SLOTS } from "../scheduleConstants";
 import { useAuth, showAdminNav } from "../auth";
@@ -99,7 +100,7 @@ function cellClassName(cell, isAdmin, leaveInfo, selected, copied) {
   return parts.join(" ");
 }
 
-function cellClassNameBlock(cell, isAdmin, leaveInfo, selected, copied) {
+function cellClassNameBlock(cell, isAdmin, leaveInfo, selected, copied, canQuickLog) {
   const parts = ["cell-base"];
   if (cell) {
     parts.push("has-event");
@@ -108,6 +109,7 @@ function cellClassNameBlock(cell, isAdmin, leaveInfo, selected, copied) {
     parts.push("cell-empty");
   }
   if (isAdmin) parts.push("editable");
+  if (canQuickLog && isScheduleClientLogCell(cell)) parts.push("schedule-log-clickable");
   if (leaveInfo) parts.push("on-leave-cell");
   if (selected) parts.push("cell-selected");
   if (copied) parts.push("copied-source");
@@ -352,14 +354,15 @@ export default function Schedule() {
     return sortTherapistsForSchedule(list);
   }, [therapists, search]);
 
+  const selfTherapist = useMemo(
+    () => resolveSelfTherapist(user, therapists),
+    [user, therapists]
+  );
+
   const blocksTherapists = useMemo(() => {
     if (isAdmin) return visibleTherapists;
-    if (user?.id) {
-      const self = therapists.find(t => t.id === user.id);
-      return self ? [self] : [];
-    }
-    return [];
-  }, [visibleTherapists, isAdmin, user, therapists]);
+    return selfTherapist ? [selfTherapist] : [];
+  }, [visibleTherapists, isAdmin, selfTherapist]);
 
   const isSelected = (therapist_id, day, time_slot) => {
     if (!selection) return false;
@@ -498,30 +501,42 @@ export default function Schedule() {
     await load();
   };
 
+  const openQuickLogFromCell = async (cell, therapist_id, day, time_slot) => {
+    if (!isScheduleClientLogCell(cell)) return;
+    let client = findClientForScheduleCell(cell.child_name, clients);
+    if (!client) {
+      try {
+        const { data } = await api.get("/clients/resolve-schedule-name", {
+          params: { child_name: cell.child_name.trim() },
+        });
+        client = data;
+      } catch {
+        return;
+      }
+    }
+    if (!client) return;
+    const sessionDate = toISODate(addDays(weekStart, day));
+    const start = slotToTime24(time_slot);
+    const dur = parseFloat(cell.duration) || 1;
+    setQuickLog({
+      client,
+      prefill: {
+        session_date: sessionDate,
+        start_time: start,
+        end_time: addHoursToTime(start, dur),
+        service_type: cell.service_code === "SS" ? "SS" : (cell.service_code === "HS" ? "HS" : client.service_type || "HS"),
+      },
+    });
+  };
+
   const handleCellClick = (e, therapist_id, day, time_slot, existing) => {
     if (e) e.stopPropagation();
     const cell = existing || findCellAt(therapist_id, day, time_slot, cellMap, cells);
     if (canQuickLog) {
       if (view !== "blocks") return;
-      if (therapist_id !== user?.id) return;
-      if (cell?.child_name) {
-        const client = clients.find(c =>
-          c.name === cell.child_name || (cell.child_name || "").startsWith(`${c.name} `) || (cell.child_name || "").startsWith(c.name)
-        );
-        if (client) {
-          const sessionDate = toISODate(addDays(weekStart, day));
-          const start = slotToTime24(time_slot);
-          const dur = parseFloat(cell.duration) || 1;
-          setQuickLog({
-            client,
-            prefill: {
-              session_date: sessionDate,
-              start_time: start,
-              end_time: addHoursToTime(start, dur),
-              service_type: cell.service_code === "SS" ? "SS" : (cell.service_code === "HS" ? "HS" : client.service_type || "HS"),
-            },
-          });
-        }
+      if (!selfTherapist?.id || therapist_id !== selfTherapist.id) return;
+      if (isScheduleClientLogCell(cell)) {
+        openQuickLogFromCell(cell, therapist_id, day, time_slot);
       }
       return;
     }
@@ -899,7 +914,7 @@ export default function Schedule() {
                   const baseStyle = getSheetCellStyle(cell, clients);
                   const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
                   return (
-                    <td key={ts} className={cellClassNameBlock(cell, isAdmin, leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts))}
+                    <td key={ts} className={cellClassNameBlock(cell, isAdmin, leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts), canQuickLog && therapist.id === selfTherapist?.id)}
                       colSpan={colSpan}
                       style={cellStyle}
                       data-testid={`cell-${therapist.id}-${di}-${ts}`}
