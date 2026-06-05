@@ -5724,6 +5724,9 @@ async def _import_schedule_grid(
                                 cl = await db.clients.find_one(_active_client_filter({"name": child}), {"_id": 0, "schedule_color": 1, "color": 1})
                                 if cl:
                                     cell_color = cl.get("schedule_color") or cl.get("color")
+                            await _clear_schedule_span(
+                                current_t_id, day_idx, canonical_ts, duration, week_start
+                            )
                             await db.schedule_cells.insert_one({
                                 "id": str(uuid.uuid4()),
                                 "therapist_id": current_t_id,
@@ -5744,6 +5747,78 @@ async def _import_schedule_grid(
             continue
         i += 1
     return inserted, skipped_unknown
+
+
+async def _clear_schedule_span(
+    therapist_id: str,
+    day: int,
+    time_slot: str,
+    duration: float,
+    week_start: str,
+):
+    """Remove existing cells overlapping this span (avoids duplicate 1h + 2h on re-import)."""
+    slots = list(SCHEDULE_TIME_SLOTS)
+    try:
+        start_idx = slots.index(time_slot)
+    except ValueError:
+        await db.schedule_cells.delete_many({
+            "therapist_id": therapist_id,
+            "day": day,
+            "week_start": week_start,
+            "time_slot": time_slot,
+        })
+        return
+    span = _duration_slot_span(duration)
+    covered = [slots[start_idx + k] for k in range(span) if start_idx + k < len(slots)]
+    if covered:
+        await db.schedule_cells.delete_many({
+            "therapist_id": therapist_id,
+            "day": day,
+            "week_start": week_start,
+            "time_slot": {"$in": covered},
+        })
+
+
+def _google_sheet_export_url(sheet_url: str) -> str:
+    m = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", sheet_url or "")
+    if not m:
+        raise HTTPException(status_code=400, detail="Invalid Google Sheets URL")
+    return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=xlsx"
+
+
+def _pick_sheet_for_week(sheet_names: List[str], week_start: str) -> Optional[str]:
+    """Pick the tab whose name best matches week_start (e.g. 2026-06-07 → '7 Jun - 11 Jun')."""
+    from datetime import date
+    try:
+        d = date.fromisoformat(week_start[:10])
+    except ValueError:
+        return sheet_names[0] if sheet_names else None
+    month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    mon = month_names[d.month - 1]
+    day = d.day
+    for name in sheet_names:
+        low = name.lower()
+        if mon.lower() in low and str(day) in low:
+            return name
+    return sheet_names[0] if sheet_names else None
+
+
+def _load_schedule_xlsx_bytes(content: bytes, sheet_name: Optional[str] = None):
+    """Parse workbook bytes into grid + horizontal merge maps."""
+    import io
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+    if not sheet_name:
+        sheet_name = wb.sheetnames[0] if wb.sheetnames else None
+    ws = wb[sheet_name] if sheet_name and sheet_name in wb.sheetnames else wb.active
+    max_row = ws.max_row or 0
+    max_col = ws.max_column or 0
+    raw = []
+    for r in range(1, max_row + 1):
+        raw.append([ws.cell(row=r, column=c).value for c in range(1, max_col + 1)])
+    grid = _normalize_schedule_grid(raw)
+    merge_anchors, merge_skip = _extract_horizontal_merges(ws)
+    return grid, merge_anchors, merge_skip, ws.title, wb.sheetnames
 
 
 async def _seed_schedule_week_2026_05_24(t_by_name: dict):
@@ -5836,26 +5911,72 @@ async def import_schedule_excel(file: UploadFile = File(...),
         text = content.decode("utf-8-sig", errors="replace")
         grid = _normalize_schedule_grid(list(csv.reader(io.StringIO(text))))
         merge_anchors, merge_skip = {}, set()
+        used_sheet = None
     else:
-        import openpyxl
-        wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
-        ws = wb[sheet_name] if sheet_name and sheet_name in wb.sheetnames else wb.active
-        max_row = ws.max_row or 0
-        max_col = ws.max_column or 0
-        raw = []
-        for r in range(1, max_row + 1):
-            raw.append([ws.cell(row=r, column=c).value for c in range(1, max_col + 1)])
-        grid = _normalize_schedule_grid(raw)
-        merge_anchors, merge_skip = _extract_horizontal_merges(ws)
+        grid, merge_anchors, merge_skip, used_sheet, _ = _load_schedule_xlsx_bytes(content, sheet_name)
         logger.info(
-            f"Schedule Excel merges: {len(merge_anchors)} anchor spans, {len(merge_skip)} covered cells"
+            f"Schedule Excel sheet={used_sheet!r} merges: {len(merge_anchors)} anchors, {len(merge_skip)} covered"
         )
 
     inserted, skipped = await _import_schedule_grid(
         grid, week_start, t_by_name, clear_existing == "true",
         merge_anchors=merge_anchors, merge_skip=merge_skip,
     )
-    return {"cells_inserted": inserted, "week_start": week_start, "skipped_therapists": skipped[:20]}
+    return {
+        "cells_inserted": inserted,
+        "week_start": week_start,
+        "skipped_therapists": skipped[:20],
+        "sheet_used": used_sheet,
+        "merge_spans_detected": len(merge_anchors),
+    }
+
+
+@api.post("/import/schedule-google")
+async def import_schedule_google(body: dict, _=Depends(admin_only)):
+    """Import a week directly from a public Google Sheets link (preserves merged cells)."""
+    import httpx
+    sheet_url = (body.get("url") or body.get("sheet_url") or "").strip()
+    week_start = _normalize_week_start(body.get("week_start") or "")
+    sheet_name = (body.get("sheet_name") or "").strip() or None
+    clear_existing = body.get("clear_existing", True)
+    if not sheet_url:
+        raise HTTPException(status_code=400, detail="sheet_url required")
+    export_url = _google_sheet_export_url(sheet_url)
+    async with httpx.AsyncClient(follow_redirects=True, timeout=120.0) as client:
+        resp = await client.get(export_url)
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not download Google Sheet (HTTP {resp.status_code}). Share link must be viewable.",
+        )
+    content = resp.content
+    grid, merge_anchors, merge_skip, used_sheet, sheet_names = _load_schedule_xlsx_bytes(content, sheet_name)
+    if not sheet_name:
+        picked = _pick_sheet_for_week(sheet_names, week_start)
+        if picked and picked != used_sheet:
+            grid, merge_anchors, merge_skip, used_sheet, _ = _load_schedule_xlsx_bytes(content, picked)
+    logger.info(
+        f"Google schedule import week={week_start} sheet={used_sheet!r} "
+        f"merges={len(merge_anchors)} bytes={len(content)}"
+    )
+    therapists = await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).to_list(100)
+    t_by_name = {t["name"]: t["id"] for t in therapists}
+    for t in therapists:
+        short = t["name"].replace("Ms. ", "").strip()
+        t_by_name[short] = t["id"]
+        t_by_name[short.lower()] = t["id"]
+    inserted, skipped = await _import_schedule_grid(
+        grid, week_start, t_by_name, bool(clear_existing),
+        merge_anchors=merge_anchors, merge_skip=merge_skip,
+    )
+    return {
+        "cells_inserted": inserted,
+        "week_start": week_start,
+        "skipped_therapists": skipped[:20],
+        "sheet_used": used_sheet,
+        "merge_spans_detected": len(merge_anchors),
+        "available_sheets": sheet_names[:30],
+    }
 
 @api.get("/")
 async def root():

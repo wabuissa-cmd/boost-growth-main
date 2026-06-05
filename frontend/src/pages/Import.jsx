@@ -12,6 +12,7 @@ export default function ImportPage() {
   const [scheduleWeekStart, setScheduleWeekStart] = useState(toISODate(startOfWeek(new Date())));
   const [sheetName, setSheetName] = useState("");
   const [availableSheets, setAvailableSheets] = useState([]);
+  const [googleUrl, setGoogleUrl] = useState("");
   const [restoreConfirm, setRestoreConfirm] = useState("");
   const [restoreResult, setRestoreResult] = useState(null);
   const [dedupeResult, setDedupeResult] = useState(null);
@@ -30,6 +31,15 @@ export default function ImportPage() {
     setDeduping(false);
   };
 
+  const pickSheetForWeek = (sheets, weekISO) => {
+    if (!sheets?.length || !weekISO) return sheets?.[0] || "";
+    const d = new Date(`${weekISO}T12:00:00`);
+    const day = d.getDate();
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const mon = months[d.getMonth()];
+    return sheets.find(s => s.includes(String(day)) && s.includes(mon)) || sheets[0];
+  };
+
   // When schedule file is picked, list its sheet names so user can choose
   useEffect(() => {
     if (type !== "schedule" || !file) { setAvailableSheets([]); return; }
@@ -38,10 +48,10 @@ export default function ImportPage() {
         const fd = new FormData(); fd.append("file", file);
         const { data } = await api.post("/import/list-sheets", fd, { headers: {"Content-Type": "multipart/form-data"}});
         setAvailableSheets(data.sheets || []);
-        if (data.sheets?.length) setSheetName(data.sheets[0]);
+        if (data.sheets?.length) setSheetName(pickSheetForWeek(data.sheets, scheduleWeekStart));
       } catch { setAvailableSheets([]); }
     })();
-  }, [file, type]);
+  }, [file, type, scheduleWeekStart]);
 
   useEffect(() => {
     api.get("/import/historical-weeks").then(({ data }) => setHistoricalWeeks(data.weeks)).catch(() => {});
@@ -61,13 +71,33 @@ export default function ImportPage() {
       }
       const { data } = await api.post(endpoint, fd, { headers: {"Content-Type": "multipart/form-data"}});
       const msg = type === "schedule"
-        ? `${data.cells_inserted} cells inserted for week ${data.week_start}`
+        ? `${data.cells_inserted} cells for week ${data.week_start}${data.sheet_used ? ` · sheet "${data.sheet_used}"` : ""}${data.merge_spans_detected != null ? ` · ${data.merge_spans_detected} merged spans detected` : ""}`
         : type === "intake"
         ? [data.message, data.hint].filter(Boolean).join(' — ')
         : `${data.created} created, ${data.skipped} skipped`;
       setResult({ ok: true, msg });
       setFile(null);
     } catch (e) { setResult({ ok: false, msg: e.response?.data?.detail || e.message }); }
+    setLoading(false);
+  };
+
+  const importFromGoogle = async () => {
+    if (!googleUrl.trim()) return;
+    setLoading(true); setResult(null);
+    try {
+      const { data } = await api.post("/import/schedule-google", {
+        sheet_url: googleUrl.trim(),
+        week_start: scheduleWeekStart,
+        sheet_name: sheetName || undefined,
+        clear_existing: clearExisting,
+      });
+      setResult({
+        ok: true,
+        msg: `${data.cells_inserted} cells for week ${data.week_start} · sheet "${data.sheet_used}" · ${data.merge_spans_detected} merged spans`,
+      });
+    } catch (e) {
+      setResult({ ok: false, msg: e.response?.data?.detail || e.message });
+    }
     setLoading(false);
   };
 
@@ -113,7 +143,7 @@ export default function ImportPage() {
           { id: "schedule", label: "Schedule (xlsx/csv)", desc: "Therapists' Schedule Excel or CSV file", icon: <CalendarBlank size={26} weight="duotone"/>, color: "#8B3A55", bg: "#FCE0E8" },
           { id: "historical", label: "Historical", desc: `${historicalWeeks.length} weeks ready from Base44`, icon: <CalendarBlank size={26} weight="duotone"/>, color: "#375568", bg: "#EAF0F3" },
         ].map(x => (
-          <button key={x.id} onClick={() => { setType(x.id); setResult(null); }}
+          <button key={x.id} onClick={() => { setType(x.id); setResult(null); if (x.id === "schedule") setClearExisting(true); }}
                   className={`card p-5 text-left transition-all ${type === x.id ? "ring-2 ring-[#7A8A6A]" : ""}`}>
             <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-3" style={{background: x.bg, color: x.color}}>{x.icon}</div>
             <div className="font-bold" style={{color: "#2C3625"}}>{x.label}</div>
@@ -150,11 +180,27 @@ export default function ImportPage() {
             )}
             <label className="flex items-center gap-2 mb-4 text-sm cursor-pointer">
               <input type="checkbox" checked={clearExisting} onChange={e => setClearExisting(e.target.checked)}/>
-              <span style={{color: "#5C6853"}}>Clear existing cells for this week first</span>
+              <span style={{color: "#5C6853"}}>Clear existing cells for this week first (recommended)</span>
             </label>
-            <button onClick={upload} disabled={!file || loading} className="btn btn-primary w-full disabled:opacity-50">
+            <button onClick={upload} disabled={!file || loading} className="btn btn-primary w-full disabled:opacity-50 mb-4">
               {loading ? <span className="spinner"/> : <><UploadSimple size={16}/> Import Schedule</>}
             </button>
+            <div className="border-t border-[#E8E4DE] pt-4">
+              <div className="font-bold mb-2 text-sm" style={{color: "#2C3625"}}>Or import directly from Google Sheets</div>
+              <div className="text-xs mb-3" style={{color: "#5C6853"}}>
+                Paste a shared Google Sheets link — merged cells (1h / 2h clients) are read from the file automatically.
+              </div>
+              <input
+                type="url"
+                className="input mb-3 text-sm"
+                placeholder="https://docs.google.com/spreadsheets/d/..."
+                value={googleUrl}
+                onChange={e => setGoogleUrl(e.target.value)}
+              />
+              <button onClick={importFromGoogle} disabled={!googleUrl.trim() || loading} className="btn btn-secondary w-full disabled:opacity-50">
+                {loading ? <span className="spinner"/> : <><Download size={16}/> Import from Google Sheets</>}
+              </button>
+            </div>
           </div>
         ) : type !== "historical" ? (
           <div>

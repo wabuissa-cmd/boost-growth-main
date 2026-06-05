@@ -7,12 +7,12 @@ export function durationSlotSpan(dur) {
   return Math.max(1, Math.ceil(d));
 }
 
-/** Meta blocks (Leave, Meeting, …) — Leave spans the full day row. */
+/** Meta blocks (Leave, Meeting, …) — Leave spans the full day row; others use duration. */
 export function scheduleDisplaySpan(cell) {
   if (!cell) return 1;
   const code = cell.service_code;
   if (code === "LEAVE") return TIME_SLOTS.length;
-  if (META_SERVICE_CODES.has(code) || code === "AVAILABLE") return 1;
+  if (code === "AVAILABLE") return 1;
   return durationSlotSpan(cell.duration);
 }
 
