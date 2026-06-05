@@ -602,6 +602,15 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
             </div>
             <div className="font-display text-base font-semibold mt-1 leading-tight" style={{ color: "#2C3625" }}>Boost Growth</div>
             <div className="text-[9px] tracking-[0.12em] font-bold" style={{ color: "#8B9E7A" }}>SESSION HISTORY</div>
+            {!isAdmin && (
+              <p
+                className="mt-2 mb-0 text-[10px] leading-snug px-2 py-1.5 rounded-lg border mx-auto max-w-md no-print"
+                style={{ background: "#FFF8E6", borderColor: "#E6C983", color: "#6B5218" }}
+                role="note"
+              >
+                You cannot edit preparation after 24 hours from the session.
+              </p>
+            )}
           </div>
 
           {!selectedInvoice ? (

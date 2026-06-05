@@ -820,12 +820,54 @@ async def _notify_admins(ntype: str, title: str, message: str):
     for a in admins:
         await _notify(a["id"], ntype, title, message)
 
+
+async def _find_client_by_schedule_child_name(child_name: str) -> Optional[dict]:
+    """Match client by schedule cell child_name (same rules as import / schedule-color)."""
+    name = (child_name or "").strip()
+    if not name:
+        return None
+    fields = {"_id": 0, "id": 1, "name": 1, "main_therapist_id": 1, "co_therapist_ids": 1}
+    client = await db.clients.find_one(_active_client_filter({"name": name}), fields)
+    if client:
+        return client
+    client = await db.clients.find_one(
+        _active_client_filter({"name": {"$regex": f"^{re.escape(name)}($|\\s)"}}),
+        fields,
+    )
+    if client:
+        return client
+    items = await db.clients.find(_active_client_filter(), fields).to_list(500)
+    for c in items:
+        cn = (c.get("name") or "").strip()
+        if cn and (name == cn or name.startswith(cn + " ")):
+            return c
+    return None
+
+
+async def _ensure_co_therapist_from_schedule(therapist_id: str, child_name: Optional[str]) -> None:
+    """When a therapist is scheduled for a child, add them as co-therapist so they see Client Info."""
+    if not therapist_id or not (child_name or "").strip():
+        return
+    client = await _find_client_by_schedule_child_name(child_name)
+    if not client:
+        return
+    if client.get("main_therapist_id") == therapist_id:
+        return
+    co_ids = list(client.get("co_therapist_ids") or [])
+    if therapist_id in co_ids:
+        return
+    co_ids.append(therapist_id)
+    await db.clients.update_one({"id": client["id"]}, {"$set": {"co_therapist_ids": co_ids}})
+
+
 @api.post("/schedule")
 async def create_schedule_cell(payload: ScheduleCellIn, _=Depends(ops_or_admin)):
     cid = str(uuid.uuid4())
     doc = {"id": cid, **payload.model_dump(), "created_at": now_iso()}
     await db.schedule_cells.insert_one(doc)
     doc.pop("_id", None)
+    if doc.get("child_name"):
+        await _ensure_co_therapist_from_schedule(doc.get("therapist_id"), doc.get("child_name"))
     if doc.get("therapist_id"):
         await _notify(doc["therapist_id"], "schedule", "New session added",
                       f"{doc.get('service_code')} | {doc.get('child_name') or ''} at {doc.get('time_slot')}")
@@ -836,6 +878,8 @@ async def update_schedule_cell(cid: str, payload: ScheduleCellIn, _=Depends(ops_
     update = payload.model_dump()
     await db.schedule_cells.update_one({"id": cid}, {"$set": update})
     cell = await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
+    if cell and cell.get("child_name"):
+        await _ensure_co_therapist_from_schedule(cell.get("therapist_id"), cell.get("child_name"))
     if cell and cell.get("therapist_id"):
         title = "Schedule update"
         if cell.get("state") == "cancel_therapist":
@@ -3340,10 +3384,19 @@ async def download_sheet(sid: str, user=Depends(get_current_user)):
     return FileResponse(str(fp), filename=sheet.get("file_name") or sheet["file_path"])
 
 # ------------------- Requests -------------------
+def _enrich_request_attachment(req: dict) -> dict:
+    if req.get("attachment_file_path"):
+        req["attachment_url"] = f"/api/requests/{req['id']}/attachment"
+    else:
+        req.setdefault("attachment_url", None)
+    return req
+
+
 @api.get("/requests")
 async def list_requests(user=Depends(get_current_user)):
     q = {} if _is_portal_admin(user) else {"therapist_id": user["id"]}
-    return await db.requests.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    items = await db.requests.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return [_enrich_request_attachment(it) for it in items]
 
 @api.post("/requests")
 async def create_request(payload: RequestIn, user=Depends(get_current_user)):
@@ -3359,7 +3412,71 @@ async def create_request(payload: RequestIn, user=Depends(get_current_user)):
     # Notify admins of new request
     await _notify_admins("request_new", f"New {payload.request_type} request",
                          f"{user.get('name')}: {payload.title} (priority: {payload.priority})")
-    return doc
+    return _enrich_request_attachment(doc)
+
+
+@api.post("/requests/upload-attachment")
+async def upload_request_attachment(
+    report_date: str = Form(...),
+    title: Optional[str] = Form(None),
+    file: UploadFile = File(...),
+    user=Depends(get_current_user),
+):
+    if user.get("role") != "therapist":
+        raise HTTPException(status_code=403, detail="Therapist only")
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="File required")
+    report_date = (report_date or "").strip()[:10]
+    if not report_date:
+        raise HTTPException(status_code=400, detail="Report date required")
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 10MB)")
+    ext = Path(file.filename).suffix.lower() or ".pdf"
+    if ext not in (".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".doc", ".docx"):
+        raise HTTPException(status_code=400, detail="PDF, image, or Word document only")
+    rid = str(uuid.uuid4())
+    stored = f"req_{rid}{ext}"
+    save_path = UPLOAD_DIR / stored
+    save_path.write_bytes(content)
+    doc = {
+        "id": rid,
+        "therapist_id": user["id"],
+        "therapist_name": user.get("name"),
+        "title": (title or "").strip() or file.filename or "Report attachment",
+        "description": None,
+        "request_type": "attachment",
+        "report_date": report_date,
+        "attachment_file_path": stored,
+        "attachment_file_name": file.filename,
+        "priority": "normal",
+        "status": "pending",
+        "admin_note": None,
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+        "timeline": [{"event": "submitted", "at": now_iso(), "by": user.get("name")}],
+    }
+    await db.requests.insert_one(doc)
+    doc.pop("_id", None)
+    await _notify_admins(
+        "request_new", "New report attachment",
+        f"{user.get('name')}: {doc['title']} (report date: {report_date})",
+    )
+    return _enrich_request_attachment(doc)
+
+
+@api.get("/requests/{rid}/attachment")
+async def download_request_attachment(rid: str, user=Depends(get_current_user)):
+    req = await db.requests.find_one({"id": rid}, {"_id": 0})
+    if not req or not req.get("attachment_file_path"):
+        raise HTTPException(status_code=404, detail="No attachment")
+    if not _is_portal_admin(user) and req.get("therapist_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    fp = UPLOAD_DIR / req["attachment_file_path"]
+    if not fp.exists():
+        raise HTTPException(status_code=404, detail="File missing")
+    return FileResponse(str(fp), filename=req.get("attachment_file_name") or req["attachment_file_path"])
+
 
 @api.put("/requests/{rid}/status")
 async def update_request_status(rid: str, payload: RequestStatusUpdate, admin=Depends(admin_only)):

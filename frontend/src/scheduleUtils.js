@@ -1,5 +1,6 @@
 import { getChildColor, readable } from "./childColors";
 import { TIME_SLOTS } from "./api";
+import { MAX_SCHEDULE_MERGE_SLOTS } from "./scheduleConstants";
 
 /** Slots covered horizontally (supports 1.5h, 2.5h, …). */
 export function durationSlotSpan(dur) {
@@ -126,6 +127,18 @@ export function buildSlotRange(startSlot, endSlot, timeSlots) {
   const lo = Math.min(a, b);
   const hi = Math.max(a, b);
   return timeSlots.slice(lo, hi + 1);
+}
+
+/** Cap horizontal slot selection count when merging cells. */
+export function clampMergeSlotCount(count) {
+  const n = parseInt(count, 10) || 1;
+  return Math.max(1, Math.min(n, MAX_SCHEDULE_MERGE_SLOTS));
+}
+
+/** Cap session duration (hours) to the max merge span. */
+export function clampMergeDuration(dur) {
+  const d = parseFloat(dur) || 1;
+  return Math.max(0.5, Math.min(d, MAX_SCHEDULE_MERGE_SLOTS));
 }
 
 export function isSlotSelectable(therapistId, day, timeSlot, cellMap, coveredSet) {

@@ -93,6 +93,9 @@ export function closureLabelForTherapist(closures, dateISO, therapistId) {
   return all?.label ?? null;
 }
 
+/** Max horizontal slots when merging schedule cells (1 slot = 1 hour). */
+export const MAX_SCHEDULE_MERGE_SLOTS = 5;
+
 export const DURATION_OPTIONS = [
   { value: 0.5, label: "½ hr" },
   { value: 1, label: "1 hr" },
@@ -102,4 +105,6 @@ export const DURATION_OPTIONS = [
   { value: 3, label: "3 hr" },
   { value: 3.5, label: "3½ hr" },
   { value: 4, label: "4 hr" },
+  { value: 4.5, label: "4½ hr" },
+  { value: 5, label: "5 hr" },
 ];

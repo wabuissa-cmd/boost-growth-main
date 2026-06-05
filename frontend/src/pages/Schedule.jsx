@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState, useCallback, useRef, useLayoutEffect } fr
 import api, { DAYS_EN, DAYS_SHORT, TIME_SLOTS, SERVICE_CODES, startOfWeek, addDays, toISODate, formatDateRange } from "../api";
 import {
   getCellStyle, META_SERVICE_CODES, MERGE_QUICK,
-  SERVICE_CELL_COLORS, buildSlotRange, isSlotSelectable, slotIndex,
+  SERVICE_CELL_COLORS, buildSlotRange, isSlotSelectable, slotIndex, clampMergeSlotCount, clampMergeDuration,
   findCellAt, isHiddenFromSchedule, scheduleDisplaySpan, scheduleCoveredSlotKeys,
 } from "../scheduleUtils";
+import { MAX_SCHEDULE_MERGE_SLOTS } from "../scheduleConstants";
 import { useAuth, showAdminNav } from "../auth";
 import {
   CaretLeft, CaretRight, CaretDown, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
@@ -353,9 +354,12 @@ export default function Schedule() {
 
   const blocksTherapists = useMemo(() => {
     if (isAdmin) return visibleTherapists;
-    if (user?.id) return visibleTherapists.filter(t => t.id === user.id);
-    return visibleTherapists;
-  }, [visibleTherapists, isAdmin, user]);
+    if (user?.id) {
+      const self = therapists.find(t => t.id === user.id);
+      return self ? [self] : [];
+    }
+    return [];
+  }, [visibleTherapists, isAdmin, user, therapists]);
 
   const isSelected = (therapist_id, day, time_slot) => {
     if (!selection) return false;
@@ -369,6 +373,7 @@ export default function Schedule() {
     const indices = selection.slots.map(s => slotIndex(s, TIME_SLOTS)).sort((a, b) => a - b);
     const lo = indices[0];
     const hi = indices[indices.length - 1];
+    if (indices.length >= MAX_SCHEDULE_MERGE_SLOTS) return;
     let newSlots = [...selection.slots];
     if (dir === "right") {
       const next = hi + 1;
@@ -383,7 +388,8 @@ export default function Schedule() {
       if (!isSlotSelectable(selection.therapist_id, selection.day, ts, cellMap, coveredSet)) return;
       newSlots.unshift(ts);
     }
-    setSelection({ ...selection, slots: [...new Set(newSlots)].sort((a, b) => slotIndex(a, TIME_SLOTS) - slotIndex(b, TIME_SLOTS)) });
+    newSlots = [...new Set(newSlots)].sort((a, b) => slotIndex(a, TIME_SLOTS) - slotIndex(b, TIME_SLOTS));
+    setSelection({ ...selection, slots: newSlots.slice(0, MAX_SCHEDULE_MERGE_SLOTS) });
   };
 
   const openPanel = (therapist_id, day, time_slot, existing) => {
@@ -526,7 +532,9 @@ export default function Schedule() {
     if (e?.shiftKey && panelOpen && selectAnchor
         && selectAnchor.therapist_id === therapist_id && selectAnchor.day === day) {
       const range = buildSlotRange(selectAnchor.time_slot, time_slot, TIME_SLOTS);
-      const valid = range.filter(ts => isSlotSelectable(therapist_id, day, ts, cellMap, coveredSet));
+      const valid = range
+        .filter(ts => isSlotSelectable(therapist_id, day, ts, cellMap, coveredSet))
+        .slice(0, MAX_SCHEDULE_MERGE_SLOTS);
       if (valid.length) setSelection({ therapist_id, day, slots: valid });
       return;
     }
@@ -538,7 +546,7 @@ export default function Schedule() {
     if (!sel?.slots?.length) return;
     const slots = [...sel.slots].sort((a, b) => slotIndex(a, TIME_SLOTS) - slotIndex(b, TIME_SLOTS));
     const start = slots[0];
-    const duration = slots.length;
+    const duration = clampMergeSlotCount(slots.length);
     const quick = mergeForm.quick;
     if (quick === "AVAILABLE") {
       for (const ts of slots) {
@@ -659,6 +667,9 @@ export default function Schedule() {
     setPanelSaving(true);
     try {
       const payload = { ...panelForm, week_start: weekStartISO };
+      if (payload.service_code !== "LEAVE" && payload.duration) {
+        payload.duration = clampMergeDuration(payload.duration);
+      }
       if (payload.service_code === "AVAILABLE") {
         payload.state = "available";
         payload.color = "#FFFFFF";
@@ -917,7 +928,11 @@ export default function Schedule() {
     <div className="relative">
         <div className={`transition-all ${panelOpen && isAdmin ? "lg:mr-[420px]" : ""}`}>
       <SchedulePageHeader
-        subtitle={isAdmin ? "Right-click any cell for actions · Click to edit · Drag to select multiple slots" : "Your weekly schedule (read-only)"}
+        subtitle={isAdmin
+          ? "Right-click any cell for actions · Click to edit · Drag to select multiple slots"
+          : view === "blocks"
+            ? "Per Therapist — click your sessions to log preparation"
+            : "Sheet — view full team schedule (read-only)"}
         badge={isAdmin ? (
           weekStatus === "draft" ? (
             <span className="pill text-[10px] px-2 py-1 font-bold bg-[#FAF0D1] text-[#6B5218] border border-[#E5C387]">
@@ -937,14 +952,10 @@ export default function Schedule() {
         ]}
         toolbar={(
           <div className="flex items-center gap-1.5 flex-wrap schedule-toolbar relative">
-            {isAdmin ? (
             <div className="inline-flex items-center rounded-lg border border-[#E8E4DE] p-0.5 bg-[#FAFAF7] shrink-0">
               <button data-testid="view-sheet-btn" onClick={() => setView("sheet")} className={`btn ${view === "sheet" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`}><Table size={13} /> Sheet</button>
               <button data-testid="view-blocks-btn" onClick={() => setView("blocks")} className={`btn ${view === "blocks" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`}><GridFour size={13} /> Per Therapist</button>
             </div>
-            ) : (
-              <span className="pill text-[11px] px-2.5 py-1 bg-[#E5EBE1] text-[#3D4F35] font-semibold">Per Therapist</span>
-            )}
             <div className="inline-flex items-center rounded-lg border border-[#E8E4DE] px-0.5 bg-[#FAFAF7] shrink-0">
               <button data-testid="prev-week-btn" onClick={() => setWeekStart(addDays(weekStart, -7))} className="btn btn-ghost p-1 min-h-0"><CaretLeft size={14} /></button>
               <div className="px-2 text-[11px] font-bold whitespace-nowrap" style={{ color: "#2C3625" }}>{formatDateRange(weekStart)}</div>
