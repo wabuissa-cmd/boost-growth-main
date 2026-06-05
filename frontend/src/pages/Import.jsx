@@ -129,6 +129,7 @@ export default function ImportPage() {
             <div className="text-xs mb-4 p-3 rounded-xl border border-[#E8E4DE]" style={{background: "#FAFAF7", color: "#5C6853"}}>
               The file must contain therapist names (e.g. "Ms. Maha") followed by Sunday-Thursday rows with 10 time-slot columns.
               Cell content like <code>SS | Sulaiman</code>, <code>HS | Omar</code>, <code>Meeting w/ Walaa</code>, <code>AVC</code>, <code>Supervision W/ Khalid</code> will be auto-parsed.
+              Merged cells in Excel (1h vs 2h clients) are preserved — a client merged across two time columns imports as a 2-hour session; optional times in parentheses like <code>HS | Saleh (11:30-1:30)</code> import as 1.5h/2.5h.
             </div>
             <label className="label">Target Week Start (Sunday — e.g. 2026-05-31)</label>
             <input type="date" className="input mb-3" value={scheduleWeekStart} onChange={e => setScheduleWeekStart(e.target.value)}/>

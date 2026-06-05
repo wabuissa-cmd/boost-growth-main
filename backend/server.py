@@ -5468,35 +5468,91 @@ def _slot_bounds_minutes(time_slot: str):
     return s, e
 
 
-def _duration_from_custom(time_slot: str, custom: str, time_slots: list) -> int:
-    """How many consecutive time_slots a session spans based on custom time range."""
+def _duration_from_custom(time_slot: str, custom: str, time_slots: list) -> float:
+    """Session length in hours from a custom time range (supports 1.5h, 2.5h, …)."""
     if not custom or not str(custom).strip():
-        return 1
+        return 1.0
     txt = str(custom).strip()
     m = re.search(r"([\d]{1,2}:[\d]{2})\s*[-–]\s*([\d]{1,2}:[\d]{2})", txt)
     if not m:
-        return 1
-    start_idx = time_slots.index(time_slot) if time_slot in time_slots else -1
-    if start_idx < 0:
-        return 1
+        return 1.0
     _, slot_end_ref = (time_slot.split(" - ") + ["AM"])[:2]
     ref = "PM" if "PM" in slot_end_ref.upper() else "AM"
     start_m = _parse_hm_to_minutes(m.group(1), ref)
     end_m = _parse_hm_to_minutes(m.group(2), "PM")
     if start_m is None or end_m is None:
-        return 1
+        return 1.0
     if end_m <= start_m:
         end_m += 12 * 60
-    count = 0
-    for i in range(start_idx, len(time_slots)):
-        s, e = _slot_bounds_minutes(time_slots[i])
-        if s is None:
+    total_min = end_m - start_m
+    if total_min <= 0:
+        return 1.0
+    hours = total_min / 60.0
+    return max(0.5, round(hours * 2) / 2)
+
+
+def _time_range_from_text(txt: str) -> Optional[str]:
+    """Pull the first HH:MM-HH:MM range from cell text (parentheses or inline)."""
+    if not txt:
+        return None
+    m = re.search(r"([\d]{1,2}:[\d]{2})\s*[-–]\s*([\d]{1,2}:[\d]{2})", str(txt))
+    if not m:
+        return None
+    return f"{m.group(1)}-{m.group(2)}"
+
+
+def _duration_slot_span(dur: float) -> int:
+    """How many grid columns a duration covers (ceil of hours)."""
+    d = float(dur) if dur else 1.0
+    return max(1, int(d) if d == int(d) else int(d) + 1)
+
+
+def _extract_horizontal_merges(ws):
+    """Map Excel horizontal spans to 0-based grid indices: anchors -> colspan, skip -> covered cells."""
+    anchors = {}
+    skip = set()
+    for merge_range in ws.merged_cells.ranges:
+        min_r, max_r = merge_range.min_row, merge_range.max_row
+        min_c, max_c = merge_range.min_col, merge_range.max_col
+        if min_r != max_r or max_c <= min_c:
             continue
-        if s < end_m and e > start_m:
-            count += 1
-        elif s >= end_m:
-            break
-    return max(1, count)
+        r0 = min_r - 1
+        c0 = min_c - 1
+        span = max_c - min_c + 1
+        anchors[(r0, c0)] = max(anchors.get((r0, c0), 1), span)
+        for c in range(min_c + 1, max_c + 1):
+            skip.add((r0, c - 1))
+
+    # "Center Across Selection" looks merged in Excel but is not in merged_cells
+    max_row = ws.max_row or 0
+    max_col = ws.max_column or 0
+    for r in range(1, max_row + 1):
+        c = 1
+        while c <= max_col:
+            cell = ws.cell(row=r, column=c)
+            val = cell.value
+            if val is None or not str(val).strip():
+                c += 1
+                continue
+            horiz = (cell.alignment.horizontal or "") if cell.alignment else ""
+            if horiz in ("centerContinuous", "fill"):
+                span = 1
+                cc = c + 1
+                while cc <= max_col:
+                    nxt = ws.cell(row=r, column=cc)
+                    if nxt.value not in (None, "") and str(nxt.value).strip():
+                        break
+                    span += 1
+                    cc += 1
+                if span > 1:
+                    r0, c0 = r - 1, c - 1
+                    anchors[(r0, c0)] = max(anchors.get((r0, c0), 1), span)
+                    for cc in range(c + 1, c + span):
+                        skip.add((r0, cc - 1))
+                    c += span
+                    continue
+            c += 1
+    return anchors, skip
 
 
 def _parse_schedule_cell_text(txt: str):
@@ -5540,6 +5596,8 @@ def _parse_schedule_cell_text(txt: str):
         if m_close > m_open:
             custom = child[m_open + 1:m_close].strip()
             child = child[:m_open].strip()
+    if not custom:
+        custom = _time_range_from_text(txt)
     return service, child, custom, note
 
 
@@ -5581,7 +5639,16 @@ def _normalize_week_start(week_start: str) -> str:
     return sunday.isoformat()
 
 
-async def _import_schedule_grid(grid: List[List[str]], week_start: str, t_by_name: dict, clear_existing: bool):
+async def _import_schedule_grid(
+    grid: List[List[str]],
+    week_start: str,
+    t_by_name: dict,
+    clear_existing: bool,
+    merge_anchors: Optional[dict] = None,
+    merge_skip: Optional[set] = None,
+):
+    merge_anchors = merge_anchors or {}
+    merge_skip = merge_skip or set()
     if clear_existing:
         await db.schedule_cells.delete_many({"week_start": week_start})
     inserted = 0
@@ -5592,8 +5659,13 @@ async def _import_schedule_grid(grid: List[List[str]], week_start: str, t_by_nam
         row = grid[i]
         joined = " ".join(c.lower() for c in row)
         if "therapist" in joined and "days" in joined and "8:00" in joined:
+            time_col_start = 3
+            for idx, c in enumerate(row):
+                if c and "8:00" in c and ("AM" in c.upper() or "PM" in c.upper()):
+                    time_col_start = idx
+                    break
             header_times = []
-            for c in row[3:]:
+            for c in row[time_col_start:]:
                 if c and ("AM" in c.upper() or "PM" in c.upper()):
                     header_times.append(c)
             if header_times:
@@ -5622,9 +5694,11 @@ async def _import_schedule_grid(grid: List[List[str]], week_start: str, t_by_nam
                     for slot_idx, ts in enumerate(time_slots):
                         if slot_idx <= skip_until:
                             continue
-                        col_idx = 3 + slot_idx
+                        col_idx = time_col_start + slot_idx
                         if col_idx >= len(r):
                             break
+                        if (i, col_idx) in merge_skip:
+                            continue
                         val = r[col_idx].strip()
                         parsed = _parse_schedule_cell_text(val)
                         if parsed:
@@ -5634,9 +5708,17 @@ async def _import_schedule_grid(grid: List[List[str]], week_start: str, t_by_nam
                                 if slot_idx < len(SCHEDULE_TIME_SLOTS)
                                 else ts
                             )
-                            duration = _duration_from_custom(canonical_ts, custom, time_slots)
-                            if duration > 1:
-                                skip_until = slot_idx + duration - 1
+                            merge_cols = float(merge_anchors.get((i, col_idx), 1))
+                            custom_dur = _duration_from_custom(canonical_ts, custom, time_slots) if custom else 1.0
+                            if custom and custom_dur > 1:
+                                duration = custom_dur
+                            elif merge_cols > 1:
+                                duration = merge_cols
+                            else:
+                                duration = 1.0
+                            span = _duration_slot_span(duration)
+                            if span > 1:
+                                skip_until = slot_idx + span - 1
                             cell_color = None
                             if child:
                                 cl = await db.clients.find_one(_active_client_filter({"name": child}), {"_id": 0, "schedule_color": 1, "color": 1})
@@ -5753,6 +5835,7 @@ async def import_schedule_excel(file: UploadFile = File(...),
         import csv
         text = content.decode("utf-8-sig", errors="replace")
         grid = _normalize_schedule_grid(list(csv.reader(io.StringIO(text))))
+        merge_anchors, merge_skip = {}, set()
     else:
         import openpyxl
         wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
@@ -5763,9 +5846,14 @@ async def import_schedule_excel(file: UploadFile = File(...),
         for r in range(1, max_row + 1):
             raw.append([ws.cell(row=r, column=c).value for c in range(1, max_col + 1)])
         grid = _normalize_schedule_grid(raw)
+        merge_anchors, merge_skip = _extract_horizontal_merges(ws)
+        logger.info(
+            f"Schedule Excel merges: {len(merge_anchors)} anchor spans, {len(merge_skip)} covered cells"
+        )
 
     inserted, skipped = await _import_schedule_grid(
-        grid, week_start, t_by_name, clear_existing == "true"
+        grid, week_start, t_by_name, clear_existing == "true",
+        merge_anchors=merge_anchors, merge_skip=merge_skip,
     )
     return {"cells_inserted": inserted, "week_start": week_start, "skipped_therapists": skipped[:20]}
 
