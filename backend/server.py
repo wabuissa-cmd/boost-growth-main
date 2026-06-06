@@ -752,6 +752,10 @@ async def publish_schedule_week(body: dict, admin=Depends(ops_or_admin)):
             )
             if r.get("status") == "sent":
                 sent += 1
+    await _push_center_update(
+        f"Schedule published — week of {week_start}",
+        "Your schedule may have changed. Please review your sessions.",
+    )
     return {"ok": True, "week_start": week_start, "emails_sent": sent}
 
 @api.post("/schedule/set-draft")
@@ -817,6 +821,18 @@ async def create_center_update(body: CenterUpdateIn, _=Depends(admin_only)):
     await db.center_updates.insert_one(doc)
     doc.pop("_id", None)
     return doc
+
+async def _push_center_update(title: str, body: str = ""):
+    """Broadcast a platform update visible on therapist home."""
+    doc = {
+        "id": str(uuid.uuid4()),
+        "title": (title or "").strip(),
+        "body": (body or "").strip(),
+        "date": now_iso()[:10],
+        "created_at": now_iso(),
+    }
+    if doc["title"]:
+        await db.center_updates.insert_one(doc)
 
 @api.get("/schedule")
 async def list_schedule(week_start: Optional[str] = None, user=Depends(get_current_user)):
@@ -4443,6 +4459,11 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, admin=Depend
         )
         await _notify(leave["therapist_id"], "leave", f"Leave {label}", msg)
         if payload.status in ("approved", "rejected"):
+            tname = leave.get("leave_type") or "Leave"
+            await _push_center_update(
+                f"Leave {label.lower()}: {tname}",
+                f"{leave.get('start_date')} → {leave.get('end_date')} ({leave.get('days')} day(s))",
+            )
             therapist = await db.therapists.find_one({"id": leave["therapist_id"]}, {"_id": 0, "email": 1, "name": 1})
             if therapist and therapist.get("email"):
                 await _send_email_stub(

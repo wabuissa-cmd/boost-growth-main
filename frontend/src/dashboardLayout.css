@@ -623,6 +623,69 @@ a.dash-stat-card:hover {
   border-radius: 14px;
 }
 
+.cal-compact-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.cal-compact-days {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.35rem;
+}
+
+.cal-compact-day {
+  border: 1px solid var(--border-default, #E2DDD4);
+  border-radius: 10px;
+  padding: 0.35rem 0.25rem;
+  text-align: center;
+  background: #FAFAF7;
+  min-height: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  position: relative;
+}
+
+.cal-compact-day.today {
+  border-color: var(--brand, #7A8A6A);
+  background: #E5EBE1;
+}
+
+.cal-compact-day.has-events { background: #fff; }
+
+.cal-compact-dow {
+  font-size: 0.55rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #8B9E7A;
+}
+
+.cal-compact-num {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #2C3625;
+}
+
+.cal-compact-dot {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  font-size: 0.55rem;
+  font-weight: 700;
+  background: #D4A64A;
+  color: #2C3625;
+  border-radius: 999px;
+  min-width: 14px;
+  height: 14px;
+  line-height: 14px;
+  padding: 0 3px;
+}
+
 @media (max-width: 768px) {
   .cal-grid { grid-template-columns: 1fr; }
   .cal-day-col { border-right: none; border-bottom: 1px solid var(--border-light); }

@@ -7,7 +7,7 @@ import {
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
 import DashboardStatCard from "../components/DashboardStatCard";
-import "../dashboardLayout.css";
+import "../clientInfoLayout.css";
 
 const STATUS = { new: "New", contacted: "Contacted", scheduled: "Scheduled", completed: "Completed" };
 const STATUS_COLORS = {
@@ -121,61 +121,54 @@ export default function Intake() {
       {displayed.length === 0 ? (
         <div className="card p-12 text-center rounded-[22px]" style={{ color: "#8B9E7A" }}>No records</div>
       ) : (
-        <div className="stagger">
-          {displayed.map(i => (
-            <article key={i.id} className={`intake-card${i.priority ? " priority" : ""}`}>
-              <div className="intake-card-head">
-                <div className="flex items-start gap-2 min-w-0">
-                  {isAdmin ? (
-                    <button type="button" onClick={() => api.put(`/intake/${i.id}`, { ...i, priority: !i.priority }).then(load)} className="btn btn-ghost p-1 shrink-0">
-                      <Star size={20} weight={i.priority ? "fill" : "regular"} style={{ color: i.priority ? "#D4A64A" : "#C5C0B7" }} />
-                    </button>
-                  ) : i.priority ? (
-                    <Star size={20} weight="fill" style={{ color: "#D4A64A" }} className="shrink-0 mt-0.5" />
-                  ) : null}
-                  <div>
-                    <div className="intake-card-name">{i.child_name}</div>
-                    <span className="pill text-[10px] px-2 py-0.5 mt-1 inline-block" style={{
-                      background: (i.service || "").toUpperCase().includes("SS") ? "#E5EBE1" : "#EAF0F3",
-                      color: (i.service || "").toUpperCase().includes("SS") ? "#3D4F35" : "#375568"
-                    }}>{i.service || "—"}</span>
-                  </div>
-                </div>
-                <span className="pill shrink-0" style={{ background: `${STATUS_COLORS[i.status]}25`, color: STATUS_COLORS[i.status] }}>
-                  {STATUS[i.status] || i.status}
-                </span>
-              </div>
-              <div className="intake-card-meta">
-                {i.phone && (
-                  <a href={`tel:${i.phone}`} className="flex items-center gap-1 hover:text-[#7A8A6A]">
-                    <Phone size={13} />{i.phone}
-                  </a>
-                )}
-                {i.district && (
-                  <span className="flex items-center gap-1"><MapPin size={13} />{i.district}</span>
-                )}
-                {i.age && <span>Age: {i.age}</span>}
-                {tab === "pre" && i.time_pref && <span>Pref: {i.time_pref}</span>}
-                {tab === "post" && i.language && <span>Lang: {i.language}</span>}
-                {i.diagnosis && <span>{i.diagnosis}</span>}
-              </div>
-              {isAdmin && (
-                <div className="intake-card-actions">
-                  {tab === "pre" && (
-                    <button data-testid={`move-post-${i.id}`} type="button" onClick={() => moveToPost(i)} className="btn btn-secondary text-[11px] px-3 py-1.5">
-                      → Post-Intake
-                    </button>
+        <div className="intake-table-wrap">
+          <table className="intake-table">
+            <thead>
+              <tr>
+                <th style={{ width: 36 }}></th>
+                <th>Child</th>
+                <th>Service</th>
+                <th>Status</th>
+                <th>Phone</th>
+                <th>District</th>
+                {tab === "pre" ? <th>Timing</th> : <th>Language</th>}
+                {isAdmin && <th style={{ width: 140 }}>Actions</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {displayed.map(i => (
+                <tr key={i.id} className={i.priority ? "priority-row" : ""}>
+                  <td>
+                    {isAdmin ? (
+                      <button type="button" onClick={() => api.put(`/intake/${i.id}`, { ...i, priority: !i.priority }).then(load)} className="btn btn-ghost p-1">
+                        <Star size={16} weight={i.priority ? "fill" : "regular"} style={{ color: i.priority ? "#D4A64A" : "#C5C0B7" }} />
+                      </button>
+                    ) : i.priority ? <Star size={16} weight="fill" style={{ color: "#D4A64A" }} /> : null}
+                  </td>
+                  <td>
+                    <div className="font-bold">{i.child_name}</div>
+                    {i.age && <div className="text-[10px]" style={{ color: "#8B9E7A" }}>Age {i.age}</div>}
+                  </td>
+                  <td><span className="pill text-[10px]">{i.service || "—"}</span></td>
+                  <td><span className="pill text-[10px]" style={{ background: `${STATUS_COLORS[i.status]}25`, color: STATUS_COLORS[i.status] }}>{STATUS[i.status] || i.status}</span></td>
+                  <td>{i.phone ? <a href={`tel:${i.phone}`} className="hover:text-[#7A8A6A]">{i.phone}</a> : "—"}</td>
+                  <td>{i.district || "—"}</td>
+                  <td>{tab === "pre" ? (i.time_pref || "—") : (i.language || "—")}</td>
+                  {isAdmin && (
+                    <td>
+                      <div className="flex gap-1 flex-wrap">
+                        {tab === "pre" && (
+                          <button type="button" onClick={() => moveToPost(i)} className="btn btn-secondary text-[10px] px-2 py-1 min-h-0">→ Post</button>
+                        )}
+                        <button type="button" onClick={() => setEdit({ ...i })} className="btn btn-outline text-[10px] px-2 py-1 min-h-0"><PencilSimple size={12} /></button>
+                        <button type="button" onClick={() => remove(i.id)} className="btn btn-ghost text-[10px] px-1 py-1 text-red-700"><Trash size={12} /></button>
+                      </div>
+                    </td>
                   )}
-                  <button type="button" onClick={() => setEdit({ ...i })} className="btn btn-outline text-[11px] px-3 py-1.5" data-testid={`edit-intake-${i.id}`}>
-                    <PencilSimple size={14} /> Edit
-                  </button>
-                  <button type="button" onClick={() => remove(i.id)} className="btn btn-ghost text-[11px] px-2 py-1.5 text-red-700">
-                    <Trash size={14} />
-                  </button>
-                </div>
-              )}
-            </article>
-          ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 

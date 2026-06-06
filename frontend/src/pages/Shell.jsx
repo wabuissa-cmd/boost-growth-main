@@ -95,6 +95,7 @@ export default function Shell() {
   // Personal portal dropdown (therapists + ops team; hidden for admin login)
   const myPortalItems = showPersonal ? [
     { to: "/my-requests", label: "Request", testid: "nav-my-requests" },
+    { to: "/my-reports", label: "My Report", testid: "nav-my-reports" },
   ] : [];
 
   // Requests dropdown — admin only: staff requests + leave management

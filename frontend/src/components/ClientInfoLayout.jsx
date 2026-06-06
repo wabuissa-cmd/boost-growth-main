@@ -1,8 +1,7 @@
 import { useEffect, useMemo } from "react";
 import {
   MapPin, Paperclip, ClipboardText, ChartLineUp,
-  Leaf, House, GraduationCap, User, Folder, CalendarBlank,
-  Phone, CheckCircle,
+  Leaf, PencilSimple, CaretRight,
 } from "@phosphor-icons/react";
 import { getChildColor, readable } from "../childColors";
 import { prepTrackMeta, cardStatusMeta } from "../attendanceUtils";
@@ -21,13 +20,6 @@ function pkgAlertDot(rows) {
   return pkgStatusStyle(w.status).color;
 }
 
-function serviceLabel(c) {
-  if (c.hasHs && c.hasSs) return "HS + SS";
-  if (c.hasSs) return "School Support";
-  if (c.hasHs) return "Home Session";
-  return c.service_type || "—";
-}
-
 function MiniPkgBar({ row }) {
   if (!row || row.status === "none") return null;
   const total = row.package_size || 1;
@@ -36,28 +28,25 @@ function MiniPkgBar({ row }) {
   const ur = formatPkgUsedRemaining(row);
   return (
     <div className="ci-pkg-mini">
-      <span className="ci-pkg-mini-label">{row.service_type}</span>
+      <span style={{ fontWeight: 700, color: "#7B6BA8" }}>{row.service_type}</span>
       <div className="ci-pkg-mini-track">
         <div className="ci-pkg-mini-fill" style={{ width: `${pct}%` }} />
       </div>
-      <span className="ci-pkg-mini-val">{ur.remaining} left</span>
+      <span style={{ fontSize: "0.65rem", color: "#5C6853" }}>{ur.remaining} left</span>
     </div>
   );
 }
 
+const SECTIONS = [
+  { id: "location", icon: MapPin, title: "Locations", desc: "Home, school & clinic addresses" },
+  { id: "attachments", icon: Paperclip, title: "Attachments", desc: "Documents & uploaded files" },
+  { id: "details", icon: ClipboardText, title: "Case summary", desc: "Diagnosis, goals & clinical notes" },
+  { id: "progress", icon: ChartLineUp, title: "Progress reports", desc: "Development milestones & reports" },
+];
+
 export default function ClientInfoLayout({
-  clients,
-  selectedId,
-  onSelect,
-  pkgByClient,
-  findTherapist,
-  prSummaries,
-  counts,
-  isAdmin,
-  hasOps,
-  onOpenSection,
-  onEdit,
-  onBilling,
+  clients, selectedId, onSelect, pkgByClient, findTherapist, prSummaries, counts,
+  isAdmin, hasOps, onOpenSection, onEdit, onBilling,
 }) {
   const selected = useMemo(
     () => clients.find(c => c.id === selectedId) || clients[0] || null,
@@ -65,9 +54,7 @@ export default function ClientInfoLayout({
   );
 
   useEffect(() => {
-    if (clients.length && !clients.some(c => c.id === selectedId)) {
-      onSelect(clients[0].id);
-    }
+    if (clients.length && !clients.some(c => c.id === selectedId)) onSelect(clients[0].id);
   }, [clients, selectedId, onSelect]);
 
   const selectedPkg = selected ? (pkgByClient[selected.id] || []) : [];
@@ -75,15 +62,10 @@ export default function ClientInfoLayout({
   const statusMeta = selected ? cardStatusMeta(selected.cardStatus || "ok") : null;
   const therapistName = selected ? findTherapist(selected.main_therapist_id)?.name?.replace("Ms. ", "") : "";
   const prCount = selected ? prSummaries?.[selected.id]?.count : 0;
-  const svc = selected ? serviceLabel(selected) : "";
-  const avatarBg = selected ? (getChildColor(selected.name) || selected.color || "#E5EBE1") : "#E5EBE1";
+  const avatarBg = selected ? (getChildColor(selected.name) || selected.color || "#7B6BA8") : "#7B6BA8";
 
   if (!clients.length) {
-    return (
-      <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>
-        No clients match your filters.
-      </div>
-    );
+    return <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>No clients match your filters.</div>;
   }
 
   return (
@@ -91,11 +73,7 @@ export default function ClientInfoLayout({
       <div className="ci-canvas">
         <div className="ci-pane-left">
           <div className="ci-pane-brand">
-            <div className="ci-pane-logo">
-              <Leaf size={22} weight="thin" />
-            </div>
-            <h2>Client Directory</h2>
-            <p>Select a child to view profile & case files</p>
+            <h2><Leaf size={14} className="inline mr-1" style={{ verticalAlign: -2 }} /> Client Directory</h2>
             <div className="ci-pane-stats">
               <span><em>{counts.active}</em> Active</span>
               <span><em>{counts.all}</em> Total</span>
@@ -106,26 +84,15 @@ export default function ClientInfoLayout({
             {clients.map(c => {
               const dot = pkgAlertDot(pkgByClient[c.id]);
               const tName = findTherapist(c.main_therapist_id)?.name?.replace("Ms. ", "");
-              const isSel = selected?.id === c.id;
-              const bg = getChildColor(c.name) || c.color || "#7A8A6A";
+              const bg = getChildColor(c.name) || c.color || "#7B6BA8";
               return (
-                <button
-                  key={c.id}
-                  type="button"
-                  className={`ci-pane-item${isSel ? " selected" : ""}`}
-                  onClick={() => onSelect(c.id)}
-                >
-                  <div className="ci-pane-item-avatar" style={{ background: bg, color: readable(bg) }}>
-                    {c.initials || c.name?.charAt(0)}
-                  </div>
-                  <div className="ci-pane-item-body">
+                <button key={c.id} type="button" className={`ci-pane-item${selected?.id === c.id ? " selected" : ""}`} onClick={() => onSelect(c.id)}>
+                  <div className="ci-pane-item-avatar" style={{ background: bg, color: readable(bg) }}>{c.initials || c.name?.charAt(0)}</div>
+                  <div className="min-w-0 flex-1">
                     <div className="ci-pane-item-name">{c.name}</div>
-                    <div className="ci-pane-item-sub">
-                      <span>File #{c.file_no || "—"}</span>
-                      {tName && <span>· {tName}</span>}
-                    </div>
+                    <div className="ci-pane-item-sub">File #{c.file_no || "—"}{tName ? ` · ${tName}` : ""}</div>
                   </div>
-                  {dot && <span className="ci-pane-item-dot" style={{ background: dot }} aria-hidden />}
+                  {dot && <span className="ci-pane-item-dot" style={{ background: dot }} />}
                 </button>
               );
             })}
@@ -134,92 +101,70 @@ export default function ClientInfoLayout({
 
         <div className="ci-pane-right">
           {selected ? (
-            <>
-              <div className="ci-meta-bar">
-                <MetaItem icon={<House size={16} weight="light" />} label="Home" value={selected.hasHs ? (selectedPkg.find(r => r.service_type === "HS") ? formatPkgBadge(selectedPkg.find(r => r.service_type === "HS")) : "Active") : "—"} />
-                <MetaItem icon={<GraduationCap size={16} weight="light" />} label="School" value={selected.hasSs ? (selectedPkg.find(r => r.service_type === "SS") ? formatPkgBadge(selectedPkg.find(r => r.service_type === "SS")) : "Active") : "—"} />
-                <MetaItem icon={<CheckCircle size={16} weight="light" />} label="Status" value={selected.status || "Active"} />
-                <MetaItem icon={<User size={16} weight="light" />} label="Therapist" value={therapistName || "—"} />
-                <MetaItem icon={<Folder size={16} weight="light" />} label="File" value={`#${selected.file_no || "—"}`} />
-                <MetaItem icon={<CalendarBlank size={16} weight="light" />} label="Age" value={selected.age || "—"} />
+            <div className="ci-profile-body">
+              <div className="ci-profile-card">
+                <div className="ci-profile-avatar" style={{ background: avatarBg, color: readable(avatarBg) }}>
+                  {selected.initials || selected.name?.charAt(0)}
+                </div>
+                <div className="ci-profile-info">
+                  <h1>{selected.name}</h1>
+                  <dl className="ci-profile-grid">
+                    <dt>File</dt><dd>#{selected.file_no || "—"}</dd>
+                    <dt>Status</dt><dd>{selected.status || "Active"}</dd>
+                    <dt>Therapist</dt><dd>{therapistName || "—"}</dd>
+                    <dt>Phone</dt><dd>{selected.parent_phone || "—"}</dd>
+                    <dt>Age</dt><dd>{selected.age || "—"}</dd>
+                    <dt>Supervisor</dt><dd>{selected.supervisor || "—"}</dd>
+                  </dl>
+                  {isAdmin && selected.cardStatus && selected.cardStatus !== "ok" && statusMeta && (
+                    <span className="inline-block mt-2 text-[10px] font-bold px-2 py-0.5 rounded-md" style={{ background: statusMeta.bg, color: statusMeta.color }}>{statusMeta.label}</span>
+                  )}
+                </div>
+                <div className="ci-profile-actions">
+                  {hasOps && <button type="button" className="ci-btn-purple" onClick={onBilling}>Billing</button>}
+                  {isAdmin && <button type="button" className="ci-btn-outline-p" onClick={() => onEdit(selected)}>Edit</button>}
+                </div>
               </div>
 
-              <div className="ci-profile-body">
-                <div className="ci-profile-card">
-                  <div className="ci-profile-avatar" style={{ background: avatarBg, color: readable(avatarBg) }}>
-                    {selected.initials || selected.name?.charAt(0)}
-                  </div>
-                  <div className="ci-profile-info">
-                    <h1>{selected.name}</h1>
-                    <p className="ci-profile-tagline">
-                      {svc}
-                      {track?.sub ? ` · ${track.sub}` : track?.label ? ` · ${track.label}` : ""}
-                      {selected.parent_phone && (
-                        <> · <Phone size={11} className="inline" style={{ verticalAlign: -1 }} /> {selected.parent_phone}</>
-                      )}
-                    </p>
-                    {isAdmin && selected.cardStatus && selected.cardStatus !== "ok" && statusMeta && (
-                      <span className="ci-status-badge" style={{ background: statusMeta.bg, color: statusMeta.color }}>
-                        {statusMeta.label}
-                      </span>
-                    )}
-                  </div>
-                  <div className="ci-profile-actions">
-                    {hasOps && (
-                      <button type="button" className="ci-btn-olive" onClick={onBilling}>Billing</button>
-                    )}
-                    {isAdmin && (
-                      <button type="button" className="ci-btn-ghost" onClick={() => onEdit(selected)}>
-                        Edit
+              {selectedPkg.length > 0 && (
+                <div className="ci-pkg-box">
+                  <div className="ci-timeline-title" style={{ margin: 0 }}>Packages</div>
+                  {track?.label && <div className="text-xs mt-1" style={{ color: "#5C6853" }}>{track.label}</div>}
+                  {selectedPkg.map(row => <MiniPkgBar key={row.service_type} row={row} />)}
+                </div>
+              )}
+
+              <div className="ci-timeline">
+                <p className="ci-timeline-title">Records & files</p>
+                <div className="ci-timeline-list">
+                  {SECTIONS.map((s, i) => {
+                    const Icon = s.icon;
+                    const desc = s.id === "progress" && prCount > 0 ? `${prCount} report(s) on file` : s.desc;
+                    return (
+                      <button key={s.id} type="button" className="ci-timeline-item" onClick={() => onOpenSection(s.id)}>
+                        <div className="ci-timeline-rail">
+                          <div className="ci-timeline-dot" />
+                          {i < SECTIONS.length - 1 && <div className="ci-timeline-line" />}
+                        </div>
+                        <div className="ci-timeline-card">
+                          <span className="ci-timeline-icon"><Icon size={18} weight="duotone" /></span>
+                          <div className="flex-1 min-w-0">
+                            <h3>{s.title}</h3>
+                            <p>{desc}</p>
+                          </div>
+                          <CaretRight size={14} style={{ color: "#8B7BA8", flexShrink: 0 }} />
+                        </div>
                       </button>
-                    )}
-                  </div>
-                </div>
-
-                {selectedPkg.length > 0 && (
-                  <div className="ci-pkg-box">
-                    <div className="ci-pkg-box-title">Package progress</div>
-                    {selectedPkg.map(row => (
-                      <MiniPkgBar key={row.service_type} row={row} />
-                    ))}
-                  </div>
-                )}
-
-                <div>
-                  <p className="ci-sections-label">Case files & records</p>
-                  <div className="ci-categories">
-                    <CategoryCard icon={<MapPin size={18} weight="duotone" />} label="Locations" onClick={() => onOpenSection("location")} />
-                    <CategoryCard icon={<Paperclip size={18} weight="duotone" />} label="Attachments" onClick={() => onOpenSection("attachments")} />
-                    <CategoryCard icon={<ClipboardText size={18} weight="duotone" />} label="Case details" onClick={() => onOpenSection("details")} />
-                    <CategoryCard icon={<ChartLineUp size={18} weight="duotone" />} label={prCount > 0 ? `Progress (${prCount})` : "Progress"} onClick={() => onOpenSection("progress")} />
-                  </div>
+                    );
+                  })}
                 </div>
               </div>
-            </>
+            </div>
           ) : (
-            <div className="ci-empty-pane">Select a client from the directory</div>
+            <div className="p-12 text-center text-sm" style={{ color: "#8B9E7A" }}>Select a client</div>
           )}
         </div>
       </div>
     </div>
-  );
-}
-
-function MetaItem({ icon, label, value }) {
-  return (
-    <div className="ci-meta-item">
-      {icon}
-      <span className="ci-meta-label">{label}</span>
-      <span className="ci-meta-value" title={String(value)}>{value}</span>
-    </div>
-  );
-}
-
-function CategoryCard({ icon, label, onClick }) {
-  return (
-    <button type="button" className="ci-cat-card" onClick={onClick}>
-      <div className="ci-cat-visual">{icon}</div>
-      <div className="ci-cat-label">{label}</div>
-    </button>
   );
 }

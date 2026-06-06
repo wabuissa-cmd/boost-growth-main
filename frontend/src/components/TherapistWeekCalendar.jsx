@@ -50,6 +50,7 @@ export default function TherapistWeekCalendar({
   clients = [],
   closures = [],
   therapistId,
+  compact = false,
 }) {
   const todayISO = toISODate(new Date());
   const jsDow = new Date().getDay();
@@ -70,6 +71,32 @@ export default function TherapistWeekCalendar({
     }
     return map;
   }, [cells, therapistId]);
+
+  if (compact) {
+    return (
+      <div className="cal-compact" data-testid="therapist-week-calendar-compact">
+        <div className="cal-compact-nav">
+          <button type="button" className="cal-nav-btn" onClick={() => onWeekChange?.(addDays(weekStart, -7))} aria-label="Previous week"><CaretLeft size={14} /></button>
+          <span className="text-[10px] font-bold" style={{ color: "#5C6853" }}>{formatDateRange(weekStart)}</span>
+          <button type="button" className="cal-nav-btn" onClick={() => onWeekChange?.(addDays(weekStart, 7))} aria-label="Next week"><CaretRight size={14} /></button>
+        </div>
+        <div className="cal-compact-days">
+          {DAYS_SHORT.map((dayName, di) => {
+            const iso = toISODate(dayDate(weekStart, di));
+            const isToday = di === todayDayIdx;
+            const n = (byDay[di] || []).length + closureForDay(closures, iso, therapistId).length;
+            return (
+              <div key={dayName} className={`cal-compact-day${isToday ? " today" : ""}${n > 0 ? " has-events" : ""}`} title={`${n} session(s)`}>
+                <span className="cal-compact-dow">{dayName.slice(0, 3)}</span>
+                <span className="cal-compact-num">{dayDate(weekStart, di).getDate()}</span>
+                {n > 0 && <span className="cal-compact-dot">{n}</span>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="cal-shell" data-testid="therapist-week-calendar">

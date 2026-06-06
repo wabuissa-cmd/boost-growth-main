@@ -30,6 +30,7 @@ export default function Home() {
   const [clients, setClients] = useState([]);
   const [closures, setClosures] = useState([]);
   const [updates, setUpdates] = useState([]);
+  const loadUpdates = () => api.get("/center-updates").then(r => setUpdates(Array.isArray(r.data) ? r.data : [])).catch(() => {});
   const quote = quoteOfTheDay();
   const weekISO = toISODate(weekStart);
   const weekEndISO = toISODate(addDays(weekStart, 6));
@@ -118,6 +119,7 @@ export default function Home() {
     { to: "/schedule", label: "Schedule", icon: CalendarBlank },
     { to: "/attendance", label: "Attendance", icon: ClipboardText },
     { to: "/my-requests", label: "Request", icon: ListChecks },
+    { to: "/my-reports", label: "My Report", icon: ChartBar },
   ];
 
   return (
@@ -214,9 +216,12 @@ export default function Home() {
             <DashboardStatCard value={stats.todayUpcoming} label="Today's sessions" icon={<CalendarCheck size={22} weight="fill" style={{ color: "#375568", background: "#EAF0F3", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-3" />
           </div>
 
-          <div className="grid lg:grid-cols-[1fr_280px] gap-4 mb-4">
-            <CreativeSection title="Your schedule" subtitle="Tap Meet links or view session locations">
+          <div className="grid lg:grid-cols-[1fr_260px] gap-4 mb-4">
+            <PlatformUpdates items={updates} canPost={false} onPosted={loadUpdates} />
+            <div className="card p-3 rounded-[18px]">
+              <div className="text-xs font-bold mb-2 uppercase tracking-wide" style={{ color: "#8B9E7A" }}>Week at a glance</div>
               <TherapistWeekCalendar
+                compact
                 weekStart={weekStart}
                 onWeekChange={setWeekStart}
                 cells={scheduleCells}
@@ -224,10 +229,15 @@ export default function Home() {
                 closures={closures}
                 therapistId={user?.id}
               />
-            </CreativeSection>
-            <PlatformUpdates items={updates} />
+            </div>
           </div>
         </>
+      )}
+
+      {isPortalAdminUser && (
+        <div className="mb-4 max-w-md">
+          <PlatformUpdates items={updates} canPost onPosted={loadUpdates} />
+        </div>
       )}
 
       <div className="grid md:grid-cols-2 gap-4">

@@ -20,7 +20,7 @@ const ImportPage = lazy(() => import("./pages/Import"));
 const LeaveBalance = lazy(() => import("./pages/LeaveBalance"));
 const LeaveRequests = lazy(() => import("./pages/LeaveRequests"));
 const Billing = lazy(() => import("./pages/Billing"));
-const DesignPreview = lazy(() => import("./pages/DesignPreview"));
+const TherapistMyReports = lazy(() => import("./pages/TherapistMyReports"));
 
 function Loading() {
   return <div className="min-h-screen flex items-center justify-center bg-organic"><div className="spinner"/></div>;
@@ -69,6 +69,7 @@ function AppRoutes() {
         <Route path="/clients" element={<Clients/>}/>
         <Route path="/intake" element={<AdminOnly><Intake/></AdminOnly>}/>
         <Route path="/my-requests" element={<TherapistRequests/>}/>
+        <Route path="/my-reports" element={<TherapistMyReports/>}/>
         <Route path="/my-leaves" element={<Navigate to="/my-requests" replace/>}/>
         <Route path="/requests" element={<AdminOnly><Requests/></AdminOnly>}/>
         <Route path="/directory" element={<Directory/>}/>

@@ -11,6 +11,9 @@ import {
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
 import PageBanner from "../components/PageBanner";
+import "../clientInfoLayout.css";
+import VerticalStepper from "../components/VerticalStepper";
+import "../stepperLayout.css";
 import {
   LEAVE_STATUS, LEAVE_TYPES, diffDays, fmtDateRange, leaveStatusLabel, permissionPayLabel,
 } from "../leaveUtils";
@@ -206,14 +209,13 @@ export default function TherapistRequests() {
         )}
       />
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
-        <section className="card p-4 min-h-[420px] flex flex-col">
-          <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-[#E2DDD4]">
-            <h2 className="font-bold text-sm" style={{ color: "#2C3625" }}>General Requests</h2>
-            <span className="text-xs pill bg-[#F0E9D8]" style={{ color: "#5C6853" }}>{requests.length}</span>
+      <div className="req-split">
+        <section className="req-panel-left">
+          <div className="req-panel-head">
+            <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>General Requests</h2>
+            <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>Materials · notes · attachments</p>
           </div>
-          <p className="text-xs mb-3" style={{ color: "#8B9E7A" }}>Materials · general notes · report attachments</p>
-          <div className="flex-1 space-y-2 overflow-y-auto max-h-[520px] pr-1">
+          <div className="req-panel-list">
             {requests.length === 0 && (
               <div className="p-8 text-center text-sm" style={{ color: "#8B9E7A" }}>No requests yet</div>
             )}
@@ -222,7 +224,7 @@ export default function TherapistRequests() {
               const tp = typeInfo(r.request_type === "supplies" ? "supplies" : r.request_type);
               const isAttachment = r.request_type === "attachment";
               return (
-                <div key={r.id} className="rounded-[1.25rem] border border-[#E2DDD4] p-3 bg-[#FAFAF7]">
+                <div key={r.id} className="req-item">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
                     <span className={`pill border text-[10px] ${st.cls}`}>{st.icon} {st.label}</span>
                     <span className="pill text-[10px]" style={{ background: `${tp.color}20`, color: tp.color }}>
@@ -267,46 +269,32 @@ export default function TherapistRequests() {
           </div>
         </section>
 
-        <section className="card p-0 overflow-hidden min-h-[420px] flex flex-col">
-          <div className="p-4 text-white" style={{ background: "linear-gradient(135deg, #7A8A6A 0%, #606E52 100%)" }}>
+        <section className="req-panel-right">
+          <div className="req-leave-balance">
             <div className="text-[10px] tracking-[0.2em] font-bold opacity-90 mb-1">LEAVE BALANCE</div>
             {balance?.contract_period_start && (
               <div className="text-[10px] opacity-80 mb-2">
-                Contract year · {fmtContractPeriod(balance.contract_period_start, balance.contract_period_end)}
+                Contract · {fmtContractPeriod(balance.contract_period_start, balance.contract_period_end)}
               </div>
             )}
             {balance ? (
-              <div className="flex items-end gap-4 flex-wrap">
+              <div className="flex items-end gap-3 flex-wrap">
                 <div>
-                  <div className="font-display text-4xl font-semibold">{balance.remaining}</div>
-                  <div className="text-sm opacity-90">days remaining</div>
+                  <div className="font-display text-3xl font-semibold">{balance.remaining}</div>
+                  <div className="text-xs opacity-90">days left</div>
                 </div>
-                <div className="grid grid-cols-3 gap-2 flex-1 min-w-[180px]">
-                  <div className="bg-white/15 rounded-lg p-2 text-center">
-                    <div className="text-[9px] opacity-80">ENTITLED</div>
-                    <div className="text-lg font-bold">{balance.allocated}</div>
-                  </div>
-                  <div className="bg-white/15 rounded-lg p-2 text-center">
-                    <div className="text-[9px] opacity-80">USED</div>
-                    <div className="text-lg font-bold">{(balance.used_annual || 0) + (balance.used_permission || 0)}</div>
-                  </div>
-                  <div className="bg-white/15 rounded-lg p-2 text-center">
-                    <div className="text-[9px] opacity-80">PENDING</div>
-                    <div className="text-lg font-bold">{balance.pending || 0}</div>
-                  </div>
-                </div>
+                <div className="text-xs opacity-90">{balance.allocated} entitled · {(balance.used_annual || 0) + (balance.used_permission || 0)} used</div>
               </div>
             ) : (
-              <div className="text-sm opacity-90">Loading balance…</div>
+              <div className="text-sm opacity-90">Loading…</div>
             )}
           </div>
-
-          <div className="p-4 flex-1 flex flex-col">
-            <div className="flex items-center justify-between gap-2 mb-3">
-              <h2 className="font-bold text-sm" style={{ color: "#2C3625" }}>Leave Requests</h2>
+          <div className="card p-4 flex-1 flex flex-col min-h-[360px]">
+            <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-[#E2DDD4]">
+              <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Leave Requests</h2>
               <span className="text-xs pill bg-[#E5EBE1]" style={{ color: "#3D4F35" }}>{leaves.length}</span>
             </div>
-            <div className="flex-1 space-y-2 overflow-y-auto max-h-[400px] pr-1">
+            <div className="flex-1 space-y-2 overflow-y-auto max-h-[420px]">
               {leaves.length === 0 && (
                 <div className="p-8 text-center text-sm" style={{ color: "#8B9E7A" }}>No leave requests</div>
               )}
@@ -362,6 +350,14 @@ export default function TherapistRequests() {
             )
           }
         >
+          <div className="req-modal-split">
+            <VerticalStepper
+              current={step}
+              steps={isLeaveFlow
+                ? [{ label: "Type", hint: "Choose request" }, { label: "Details", hint: "Dates & notes" }]
+                : [{ label: "Type", hint: "Choose request" }, { label: "Details", hint: "Fill form" }, { label: "Review", hint: "Confirm" }]}
+            />
+            <div className="min-w-0">
           {step === 1 && (
             <FormSection title="Request type">
               <div className="grid grid-cols-1 gap-2">
@@ -465,6 +461,8 @@ export default function TherapistRequests() {
               </div>
             </FormSection>
           )}
+            </div>
+          </div>
         </ModalBase>
       )}
 
