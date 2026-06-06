@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   House, CalendarBlank, ClipboardText, Users, FileText,
-  MagnifyingGlass, CheckCircle, Clock, Sparkle,
+  MagnifyingGlass, CheckCircle, Clock, Info,
 } from "@phosphor-icons/react";
 import "../designPreview.css";
 
@@ -40,7 +40,7 @@ export default function DesignPreview() {
   return (
     <div className="design-preview">
       <div className="dp-banner">
-        <Sparkle size={18} weight="fill" />
+        <Info size={18} weight="fill" />
         Design preview only — Preparation page concept with Thmanyah font, warm beige + olive palette.
       </div>
 

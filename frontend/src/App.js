@@ -1,4 +1,4 @@
-import { Component, lazy } from "react";
+import { Component, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth, isClientLead, hasOpsAccess } from "./auth";
 import Login from "./pages/Login";
@@ -55,7 +55,11 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/home" replace/> : <Login/>}/>
-      <Route path="/design-preview" element={<DesignPreview/>}/>
+      <Route path="/design-preview" element={
+        <Suspense fallback={<Loading/>}>
+          <DesignPreview/>
+        </Suspense>
+      }/>
       <Route element={<Protected><Shell/></Protected>}>
         <Route path="/" element={<Navigate to="/home" replace/>}/>
         <Route path="/home" element={<Home/>}/>
