@@ -218,22 +218,9 @@ export default function Attendance() {
 
   const showPrepStats = isAdmin;
 
-  return (
-    <div>
-      <PageBanner
-        title="Session Preparation"
-        subtitle="Log sessions and track package progress"
-        stats={showPrepStats ? [
-          { label: "Total", n: counts.all, color: "#2C3625" },
-          { label: "Urgent", n: counts.urgent, color: "#8A3F27" },
-          { label: "Warning", n: counts.warning, color: "#6B5218" },
-          { label: "Safe", n: counts.ok, color: "#3D4F35" },
-        ] : undefined}
-      />
-
-      {/* Toolbar: filters + search + actions */}
-      <div className="flex flex-wrap items-center gap-2 mb-5">
-        {showPrepStats && (
+  const prepToolbar = (
+    <div className="flex flex-wrap items-center gap-2">
+      {showPrepStats && (
         <div className="flex gap-1.5 flex-wrap">
           {filterOpts.map(f => (
             <button
@@ -249,26 +236,41 @@ export default function Attendance() {
             </button>
           ))}
         </div>
-        )}
-        <div className="search-pill-wrap">
-          <MagnifyingGlass size={16} className="search-pill-icon" />
-          <input
-            data-testid="att-search"
-            className="input search-pill py-2 text-sm w-full"
-            placeholder="Search client..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-        <button data-testid="log-session-picker" type="button" onClick={() => setLogFor("__pick__")} className="btn btn-primary text-sm min-h-[40px]">
-          <Plus size={16} /> Log Session
-        </button>
-        {isAdmin && (
-          <button type="button" onClick={() => navigate("/clients")} className="btn btn-outline text-sm min-h-[40px]">
-            <Plus size={16} /> Add Client
-          </button>
-        )}
+      )}
+      <div className="search-pill-wrap">
+        <MagnifyingGlass size={16} className="search-pill-icon" />
+        <input
+          data-testid="att-search"
+          className="input search-pill py-2 text-sm w-full"
+          placeholder="Search client..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
       </div>
+      <button data-testid="log-session-picker" type="button" onClick={() => setLogFor("__pick__")} className="btn btn-primary text-sm min-h-[40px]">
+        <Plus size={16} /> Log Session
+      </button>
+      {isAdmin && (
+        <button type="button" onClick={() => navigate("/clients")} className="btn btn-outline text-sm min-h-[40px]">
+          <Plus size={16} /> Add Client
+        </button>
+      )}
+    </div>
+  );
+
+  return (
+    <div>
+      <PageBanner
+        title="Session Preparation"
+        subtitle="Log sessions and track package progress"
+        stats={showPrepStats ? [
+          { label: "Total", n: counts.all, color: "#2C3625" },
+          { label: "Urgent", n: counts.urgent, color: "#8A3F27" },
+          { label: "Warning", n: counts.warning, color: "#6B5218" },
+          { label: "Safe", n: counts.ok, color: "#3D4F35" },
+        ] : undefined}
+        toolbar={prepToolbar}
+      />
 
       {/* Client list — tracking rows */}
       <div className="space-y-3 stagger">

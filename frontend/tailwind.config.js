@@ -5,18 +5,18 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Tajawal', 'system-ui', 'sans-serif'],
-        serif: ['"Playfair Display"', 'Georgia', 'serif'],
+        sans: ['"Thmanyah Sans"', 'system-ui', 'sans-serif'],
+        serif: ['"Thmanyah Sans"', 'system-ui', 'sans-serif'],
       },
       colors: {
         brand: {
           DEFAULT: '#7A8A6A',
-          hover: '#606E52',
+          hover: '#6B7A5E',
           light: '#E5EBE1',
-          dark: '#48543E',
+          dark: '#606E52',
         },
         cream: {
-          DEFAULT: '#F6F4F0',
+          DEFAULT: '#F3EFE8',
           warm: '#F0E9D8',
         },
         gold: {
