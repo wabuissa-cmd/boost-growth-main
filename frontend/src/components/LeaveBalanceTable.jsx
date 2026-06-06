@@ -73,7 +73,7 @@ export default function LeaveBalanceTable({ year, onYearChange, showYearSelect =
               const hist = therapistLeaves(r.therapist_id);
               return (
                 <Fragment key={r.therapist_id}>
-                  <tr className="border-t border-[#E8E4DE] hover:bg-[#FAFAF7] cursor-pointer"
+                  <tr className="border-t border-[#E2DDD4] hover:bg-[#FAFAF7] cursor-pointer"
                     onClick={() => setExpanded(isExp ? null : r.therapist_id)}>
                     <td className="p-3 text-center" style={{ color: "#8B9E7A" }}>
                       {hist.length > 0 ? (isExp ? <CaretDown size={14} /> : <CaretRight size={14} />) : null}
@@ -142,7 +142,7 @@ export default function LeaveBalanceTable({ year, onYearChange, showYearSelect =
                     </td>
                   </tr>
                   {isExp && hist.length > 0 && (
-                    <tr className="border-t border-[#E8E4DE]" style={{ background: "#FAFAF7" }}>
+                    <tr className="border-t border-[#E2DDD4]" style={{ background: "#FAFAF7" }}>
                       <td colSpan={8} className="p-4">
                         <div className="text-xs font-bold mb-2" style={{ color: "#5C6853" }}>Leave history — {r.name}</div>
                         <div className="overflow-x-auto">

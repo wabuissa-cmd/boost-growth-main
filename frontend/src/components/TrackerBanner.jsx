@@ -1,7 +1,7 @@
 /** Green hero + dark stats strip — shared by Attendance & Schedule. */
 export default function TrackerBanner({ title, subtitle, badge, stats = [], footer }) {
   return (
-    <div className="rounded-2xl overflow-hidden mb-5 shadow-sm border border-[#E8E4DE]">
+    <div className="rounded-2xl overflow-hidden mb-5 shadow-sm border border-[#E2DDD4]">
       <div className="bg-sage-hero px-5 py-4 sm:py-5 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="font-display text-2xl sm:text-3xl font-semibold text-white m-0 leading-tight">
@@ -20,7 +20,7 @@ export default function TrackerBanner({ title, subtitle, badge, stats = [], foot
         <div
           className="grid divide-x divide-white/10"
           style={{
-            background: "#48543E",
+            background: "#606E52",
             gridTemplateColumns: `repeat(${Math.min(stats.length, 4)}, minmax(0, 1fr))`,
           }}
         >

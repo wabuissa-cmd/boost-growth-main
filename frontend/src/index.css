@@ -100,7 +100,7 @@ main, .page-enter { min-width: 0; }
 /* Buttons */
 .btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
-    padding: 0.6rem 1.15rem; border-radius: 0.75rem;
+    padding: 0.6rem 1.15rem; border-radius: 14px;
     font-weight: 600; font-size: 0.9rem; line-height: 1;
     transition: all 180ms ease; cursor: pointer; border: 1px solid transparent;
     white-space: nowrap;
@@ -122,7 +122,7 @@ main, .page-enter { min-width: 0; }
 /* Inputs */
 .input, .select, .textarea {
     width: 100%; background: white; border: 1px solid var(--border-default);
-    border-radius: 0.75rem; padding: 0.65rem 0.9rem;
+    border-radius: 14px; padding: 0.65rem 0.9rem;
     color: var(--text-primary); font-size: 0.95rem;
     transition: all 180ms ease; font-family: inherit;
 }
@@ -246,7 +246,7 @@ main, .page-enter { min-width: 0; }
     font-size: 10px;
     padding: 6px 3px;
     text-align: center;
-    border: 1px solid #E8E4DE;
+    border: 1px solid #E2DDD4;
     letter-spacing: 0.03em;
     white-space: nowrap;
     position: sticky; top: 0; z-index: 3;
@@ -280,7 +280,7 @@ main, .page-enter { min-width: 0; }
     background: #FAFAF7;
     font-size: 12px; font-weight: 800;
     color: #5C6853; width: 32px; min-width: 32px;
-    border-right: 1px solid #E8E4DE;
+    border-right: 1px solid #E2DDD4;
     position: sticky;
     left: 0;
     z-index: 4;
@@ -289,7 +289,7 @@ main, .page-enter { min-width: 0; }
     background: #FAFAF7;
     min-width: 96px; max-width: 96px;
     text-align: center;
-    border-right: 2px solid #E8E4DE;
+    border-right: 2px solid #E2DDD4;
     position: sticky;
     left: 32px;
     z-index: 4;
@@ -298,7 +298,7 @@ main, .page-enter { min-width: 0; }
     background: #F6F4F0;
     min-width: 58px; width: 58px;
     text-align: center;
-    border-right: 1px solid #E8E4DE;
+    border-right: 1px solid #E2DDD4;
     position: sticky;
     left: 128px;
     z-index: 4;
@@ -358,7 +358,7 @@ main, .page-enter { min-width: 0; }
 }
 .sched-sheet-v2 .sheet-th {
     background: #F6F4F0 !important;
-    border-color: #E8E4DE !important;
+    border-color: #E2DDD4 !important;
     font-size: 10px !important;
     padding: 5px 3px !important;
 }
@@ -378,7 +378,7 @@ main, .page-enter { min-width: 0; }
     box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
 .login-mobile-bg {
-    background: linear-gradient(135deg, #7A8A6A 0%, #606E52 55%, #48543E 100%);
+    background: linear-gradient(135deg, #7A8A6A 0%, #6B7A5E 55%, #606E52 100%);
 }
 .login-watermark {
     bottom: -50px;
@@ -387,6 +387,7 @@ main, .page-enter { min-width: 0; }
     animation: leaf-float 8s ease-in-out infinite;
 }
 .login-form-card {
+    border-radius: var(--radius-card);
     border: 1px solid rgba(255, 255, 255, 0.35);
     box-shadow: 0 20px 50px rgba(44, 54, 37, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
@@ -714,8 +715,44 @@ main, .page-enter { min-width: 0; }
 }
 
 /* Preparation tracking row */
-.prep-row { transition: box-shadow 200ms ease; }
-.prep-row:hover { box-shadow: 0 4px 16px rgba(72,84,62,0.08); }
+.prep-row { transition: box-shadow 200ms ease, transform 200ms ease; }
+.prep-row:hover { box-shadow: 0 8px 24px rgba(96, 110, 82, 0.1); }
+
+/* Pill search — Attendance / list pages */
+.search-pill {
+    border-radius: var(--radius-pill);
+    padding-left: 2.25rem;
+}
+.search-pill-wrap { position: relative; flex: 1; min-width: 180px; }
+.search-pill-wrap .search-pill-icon {
+    position: absolute;
+    top: 50%;
+    left: 0.85rem;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    pointer-events: none;
+}
+
+/* Filter chips */
+.filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.45rem 0.85rem;
+    border-radius: var(--radius-pill);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    border: 1px solid var(--border-default);
+    background: white;
+    color: var(--text-secondary);
+    transition: all 160ms ease;
+    min-height: 40px;
+}
+.filter-chip.active {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: white;
+}
 
 /* UI typography — calm, smaller scale */
 .ui-page-title {
@@ -748,8 +785,8 @@ main, .page-enter { min-width: 0; }
 .client-info-card {
   display: block;
   width: 100%;
-  border-radius: 1rem;
-  border: 1px solid #E8E4DE;
+  border-radius: var(--radius-card);
+  border: 1px solid #E2DDD4;
   background: #fff;
   overflow: hidden;
   cursor: pointer;
@@ -799,7 +836,7 @@ main, .page-enter { min-width: 0; }
   align-items: flex-start;
   gap: 0.5rem;
   padding: 1rem 1rem 0.75rem;
-  border-bottom: 1px solid #E8E4DE;
+  border-bottom: 1px solid #E2DDD4;
   background: white;
 }
 .client-drawer-body {

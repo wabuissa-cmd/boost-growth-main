@@ -120,7 +120,7 @@ function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdi
     : s.hours;
   const cell = bordered ? "p-2 border border-[#E0E8DC]" : "p-2";
   return (
-    <tr key={s.id} className={bordered ? "" : "border-t border-[#E8E4DE]"} style={{ background: rowBg || undefined }}>
+    <tr key={s.id} className={bordered ? "" : "border-t border-[#E2DDD4]"} style={{ background: rowBg || undefined }}>
       {show("days") && <td className={`${cell} font-bold`}>{dayNameFromDate(s.session_date)}</td>}
       {show("date") && <td className={`${cell} font-bold`}>{fmtDate(s.session_date)}</td>}
       {show("status") && <td className={cell}><span className="pill text-[10px] uppercase" style={{ background: stBg, color: stColor }}>{s.status}</span></td>}
@@ -240,23 +240,21 @@ export default function Attendance() {
               key={f.id}
               type="button"
               onClick={() => setFilter(f.id)}
-              className={`pill px-3 py-2 text-sm font-semibold border transition min-h-[40px] ${
-                filter === f.id ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E8E4DE] text-[#5C6853]"
-              }`}
+              className={`filter-chip ${filter === f.id ? "active" : ""}`}
             >
               {f.dot && filter !== f.id && (
-                <span className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle" style={{ background: f.dot }} />
+                <span className="inline-block w-2 h-2 rounded-full align-middle" style={{ background: f.dot }} />
               )}
               {f.label}
             </button>
           ))}
         </div>
         )}
-        <div className="relative flex-1 min-w-[180px]">
-          <MagnifyingGlass size={16} className="absolute top-1/2 -translate-y-1/2 left-3" style={{ color: "#8B9E7A" }} />
+        <div className="search-pill-wrap">
+          <MagnifyingGlass size={16} className="search-pill-icon" />
           <input
             data-testid="att-search"
-            className="input pl-9 py-2 text-sm"
+            className="input search-pill py-2 text-sm w-full"
             placeholder="Search client..."
             value={search}
             onChange={e => setSearch(e.target.value)}
@@ -538,7 +536,7 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
           <X size={18}/>
         </button>
 
-        <div className="flex items-center gap-2 px-3 py-1.5 pr-10 border-b border-[#E8E4DE] no-print shrink-0">
+        <div className="flex items-center gap-2 px-3 py-1.5 pr-10 border-b border-[#E2DDD4] no-print shrink-0">
           <div className="font-bold text-sm truncate min-w-0 flex-1" style={{ color: "#2C3625" }}>
             History · {client.name}
           </div>
@@ -596,7 +594,7 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
         )}
 
         <div className="flex-1 overflow-y-auto min-h-0 bg-[#FAFAF7]">
-          <div className="px-3 pt-3 pb-2 text-center bg-white border-b border-[#E8E4DE]">
+          <div className="px-3 pt-3 pb-2 text-center bg-white border-b border-[#E2DDD4]">
             <div className="w-10 h-10 rounded-lg mx-auto flex items-center justify-center p-1.5" style={{ background: "#7A8A6A" }}>
               <img src="/bg-logo.png" alt="" className="w-full h-full object-contain"/>
             </div>
@@ -1147,7 +1145,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
           <X size={20}/>
         </button>
         {/* Action bar */}
-        <div className="flex items-center gap-2 px-3 py-1.5 pr-10 border-b border-[#E8E4DE] no-print shrink-0">
+        <div className="flex items-center gap-2 px-3 py-1.5 pr-10 border-b border-[#E2DDD4] no-print shrink-0">
           <div className="font-bold text-sm truncate min-w-0 flex-1" style={{color: "#2C3625"}}>Invoice Sheet · {client.name}</div>
           <div className="flex gap-1.5 flex-wrap items-center shrink-0">
             {tabState.showToggle && (
@@ -1172,7 +1170,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                   style={{
                     background: selectedInvoice.is_closed ? "#F0EDE9" : "#E5EBE1",
                     color: selectedInvoice.is_closed ? "#5C6853" : "#3D4F35",
-                    border: `1px solid ${selectedInvoice.is_closed ? "#E8E4DE" : "#B4C2A9"}`,
+                    border: `1px solid ${selectedInvoice.is_closed ? "#E2DDD4" : "#B4C2A9"}`,
                   }}>
                   {selectedInvoice.is_closed ? "Closed" : "Open"}
                 </span>
@@ -1259,7 +1257,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
 
         {/* Compact invoice summary line */}
         {selectedInvoice && (
-          <div className="px-5 py-2 flex items-center gap-2 text-xs no-print border-b border-[#E8E4DE] flex-wrap" style={{background: "#FAFAF7"}}>
+          <div className="px-5 py-2 flex items-center gap-2 text-xs no-print border-b border-[#E2DDD4] flex-wrap" style={{background: "#FAFAF7"}}>
             <span className="font-bold" style={{color: "#2C3625"}}>{selectedInvoice.invoice_number}</span>
             {selectedInvoice && (
               <span className="pill text-[10px] font-bold" style={{
@@ -1352,7 +1350,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
           </div>
 
           {/* Patient + package summary — single row */}
-          <div className="px-4 py-3 border-b border-[#E8E4DE] text-sm" style={{ background: "#FAFAF7" }}>
+          <div className="px-4 py-3 border-b border-[#E2DDD4] text-sm" style={{ background: "#FAFAF7" }}>
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
               <div>
                 <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PATIENT</div>

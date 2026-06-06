@@ -105,20 +105,20 @@ export default function ScheduleHolidaysModal({ weekStartISO, weekEndISO, therap
           <button
             type="button"
             onClick={() => { setScope("all"); setSelectedIds([]); }}
-            className={`pill px-3 py-1.5 text-xs font-semibold border ${scope === "all" ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E8E4DE]"}`}
+            className={`pill px-3 py-1.5 text-xs font-semibold border ${scope === "all" ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E2DDD4]"}`}
           >
             All therapists
           </button>
           <button
             type="button"
             onClick={() => setScope("selected")}
-            className={`pill px-3 py-1.5 text-xs font-semibold border ${scope === "selected" ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E8E4DE]"}`}
+            className={`pill px-3 py-1.5 text-xs font-semibold border ${scope === "selected" ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E2DDD4]"}`}
           >
             Selected only
           </button>
         </div>
         {scope === "selected" && (
-          <div className="max-h-40 overflow-y-auto border border-[#E8E4DE] rounded-xl p-2 grid grid-cols-1 sm:grid-cols-2 gap-1">
+          <div className="max-h-40 overflow-y-auto border border-[#E2DDD4] rounded-xl p-2 grid grid-cols-1 sm:grid-cols-2 gap-1">
             {sortedTherapists.map(t => (
               <label key={t.id} className="flex items-center gap-2 text-xs cursor-pointer px-2 py-1 rounded-lg hover:bg-[#FAFAF7]">
                 <input
@@ -136,7 +136,7 @@ export default function ScheduleHolidaysModal({ weekStartISO, weekEndISO, therap
       <div className="space-y-2 max-h-48 overflow-y-auto mt-4">
         {items.length === 0 && <p className="ui-caption text-center py-4">No closures this week</p>}
         {items.map(it => (
-          <div key={it.id} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#E8E4DE] bg-[#FAFAF7]">
+          <div key={it.id} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#E2DDD4] bg-[#FAFAF7]">
             <div className="flex-1 min-w-0">
               <div className="text-xs font-bold">{it.date}</div>
               <div className="text-[11px] font-semibold truncate" style={{ color: "#2C3625" }}>{it.label}</div>

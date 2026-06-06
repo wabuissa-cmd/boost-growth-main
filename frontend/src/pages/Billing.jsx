@@ -304,7 +304,7 @@ export default function Billing() {
               type="button"
               onClick={() => setParams({ tab: t.id })}
               className={`pill px-3 py-2 text-sm font-semibold border min-h-[40px] transition ${
-                tab === t.id ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E8E4DE] text-[#5C6853]"
+                tab === t.id ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E2DDD4] text-[#5C6853]"
               }`}
             >
               {t.label}

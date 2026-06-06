@@ -53,7 +53,7 @@ export default function PackageStatusOverview() {
         <div className="flex gap-1 flex-wrap">
           {FILTERS.map(f => (
             <button key={f.id} type="button" onClick={() => setFilter(f.id)}
-              className={`pill px-3 py-1 text-xs border ${filter === f.id ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E8E4DE]"}`}>
+              className={`pill px-3 py-1 text-xs border ${filter === f.id ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E2DDD4]"}`}>
               {f.label} ({counts[f.id] ?? 0})
             </button>
           ))}
@@ -86,7 +86,7 @@ export default function PackageStatusOverview() {
                 const fmt = formatPkgUsedRemaining(row);
                 const isUrgent = row.status === "critical" || row.status === "low";
                 return (
-                  <tr key={`${row.client_id}-${row.service_type}`} className="border-t border-[#E8E4DE] hover:bg-[#FAFAF7]">
+                  <tr key={`${row.client_id}-${row.service_type}`} className="border-t border-[#E2DDD4] hover:bg-[#FAFAF7]">
                     <td className="p-2 font-medium" style={{ color: "#2C3625" }}>{row.client_name}</td>
                     <td className="p-2 text-xs" style={{ color: "#8B9E7A" }}>{row.file_no || "—"}</td>
                     <td className="p-2 text-center"><span className="pill text-[10px]">{row.service_type}</span></td>

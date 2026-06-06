@@ -3,7 +3,7 @@ import { useAuth } from "../auth";
 import { formatErr } from "../api";
 import { ArrowRight, ShieldCheck, UserCircle } from "@phosphor-icons/react";
 
-const GREEN_GRADIENT = "linear-gradient(135deg, #7A8A6A 0%, #606E52 60%, #48543E 100%)";
+const GREEN_GRADIENT = "linear-gradient(135deg, #7A8A6A 0%, #6B7A5E 55%, #606E52 100%)";
 
 function LoginHero({ className = "" }) {
   return (
@@ -17,8 +17,8 @@ function LoginHero({ className = "" }) {
       <div className="text-[10px] tracking-[0.3em] opacity-85 font-bold">STAFF PORTAL</div>
       <div className="font-display text-2xl font-semibold mt-1">Boost Growth</div>
       <div className="text-xs opacity-90 mt-0.5">Applied Behavior Analysis Services</div>
-      <h1 className="font-display text-xl font-semibold leading-snug mt-5 px-2">
-        Each growth begins<br />with <span className="text-[#F0D88A] italic">seeds.</span>
+      <h1 className="font-display text-xl font-bold leading-snug mt-5 px-2">
+        Each growth begins<br />with <span className="text-[#F0D88A]">seeds.</span>
       </h1>
       <div className="text-xs opacity-85 mt-2 px-4">Helping children achieve their full potential.</div>
     </div>
@@ -148,8 +148,8 @@ export default function Login() {
           <div className="text-2xl font-display font-semibold">Boost Growth</div>
           <div className="text-sm opacity-90">Applied Behavior Analysis Services</div>
           <div className="mt-10">
-            <h1 className="font-display text-4xl lg:text-5xl xl:text-6xl font-semibold leading-[1.1]">
-              Each growth begins<br />with <span className="text-[#F0D88A] italic">seeds.</span>
+            <h1 className="font-display text-4xl lg:text-5xl xl:text-6xl font-bold leading-[1.1]">
+              Each growth begins<br />with <span className="text-[#F0D88A]">seeds.</span>
             </h1>
             <div className="text-base opacity-90 mt-3">Helping children achieve their full potential.</div>
           </div>

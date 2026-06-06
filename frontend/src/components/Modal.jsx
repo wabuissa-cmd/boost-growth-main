@@ -23,7 +23,7 @@ export function ModalBase({ title, subtitle, onClose, children, footer, size = "
     >
       <div className="flex min-h-full items-center justify-center p-4 sm:p-6 modal-center-wrap">
         <div
-          className="modal-shell bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden w-full my-auto"
+          className="modal-shell bg-white rounded-[1.25rem] shadow-2xl flex flex-col overflow-hidden w-full my-auto"
           style={{ maxWidth: `min(${maxWidth}px, calc(100vw - 32px))`, maxHeight: "min(90dvh, calc(100dvh - 24px))" }}
           onClick={(e) => e.stopPropagation()}
         >

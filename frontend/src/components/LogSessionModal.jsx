@@ -103,7 +103,7 @@ export default function LogSessionModal({
     >
       <form id={formId} onSubmit={submit}>
         {client && (
-          <div className="flex items-center gap-3 px-4 py-3 rounded-xl mb-4" style={{ background: "#F0E9D8", border: "1px solid #E8E4DE" }}>
+          <div className="flex items-center gap-3 px-4 py-3 rounded-xl mb-4" style={{ background: "#F0E9D8", border: "1px solid #E2DDD4" }}>
             <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white text-sm shrink-0" style={{ background: client.color || "#7A8A6A" }}>
               {client.name?.charAt(0)}
             </div>
@@ -124,7 +124,7 @@ export default function LogSessionModal({
                   type="button"
                   onClick={() => setForm({ ...form, status: s.id })}
                   className={`px-2 py-2.5 rounded-xl border flex flex-col items-center gap-1 transition-all ${active ? "ring-2 ring-[#7A8A6A]" : ""}`}
-                  style={{ background: s.bg, borderColor: active ? "#7A8A6A" : "#E8E4DE", color: s.color }}
+                  style={{ background: s.bg, borderColor: active ? "#7A8A6A" : "#E2DDD4", color: s.color }}
                 >
                   <Icon size={20} weight="fill" />
                   <span className="text-[11px] font-bold leading-tight text-center">{s.label}</span>

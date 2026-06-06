@@ -168,7 +168,7 @@ export default function ScheduleCellPanel({
                       <div className="fixed inset-0 z-[60]" onClick={() => setClientOpen(false)} aria-hidden />
                       <div
                         className="absolute left-0 right-0 top-full mt-1 z-[61] max-h-48 overflow-y-auto rounded-lg border shadow-lg bg-white py-1"
-                        style={{ borderColor: "#E8E4DE" }}
+                        style={{ borderColor: "#E2DDD4" }}
                       >
                         {clients.map(c => {
                           const dotColor = resolveClientScheduleColor(c.name, clients);
@@ -244,7 +244,7 @@ export default function ScheduleCellPanel({
                 {cancelNotify && (
                   <div
                     className="mt-3 rounded-xl border p-3 space-y-3"
-                    style={{ borderColor: "#E8E4DE", background: "#FAFAF7" }}
+                    style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}
                     data-testid="cancel-notify-section"
                   >
                     <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: "#2C3625" }}>
@@ -260,7 +260,7 @@ export default function ScheduleCellPanel({
                             className="flex items-center gap-1.5 text-xs cursor-pointer pill px-2 py-1"
                             style={{
                               background: (cancelNotify.recipient_ids || []).includes(t.id) ? "#E5EBE1" : "#fff",
-                              border: "1px solid #E8E4DE",
+                              border: "1px solid #E2DDD4",
                             }}
                           >
                             <input

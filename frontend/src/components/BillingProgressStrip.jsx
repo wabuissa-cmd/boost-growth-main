@@ -10,13 +10,13 @@ export default function BillingProgressStrip({ summary, items = [] }) {
   const barPct = open > 0 ? Math.max(8, Math.round(((open - unpaid) / open) * 100)) : 100;
 
   return (
-    <div className="billing-progress-strip rounded-xl overflow-hidden border border-[#E8E4DE]">
+    <div className="billing-progress-strip rounded-xl overflow-hidden border border-[#E2DDD4]">
       <div className="px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-1 ui-text-sm" style={{ background: "#EDF4E8", color: "#3D4F35" }}>
         <span><strong>{open}</strong> open invoices</span>
         <span style={{ color: "#8A3F27" }}><strong>{unpaid}</strong> unpaid</span>
         <span style={{ color: "#6B5218" }}><strong>{partial}</strong> partial</span>
         {reminders > 0 && (
-          <span style={{ color: "#48543E" }}><strong>{reminders}</strong> reminders soon</span>
+          <span style={{ color: "#606E52" }}><strong>{reminders}</strong> reminders soon</span>
         )}
       </div>
       <div className="px-4 py-2.5" style={{ background: "#FAFAF7" }}>
@@ -26,7 +26,7 @@ export default function BillingProgressStrip({ summary, items = [] }) {
           </span>
           <span className="ui-caption font-bold" style={{ color: "#6B5218" }}>{barPct}%</span>
         </div>
-        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "#E8E4DE" }}>
+        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "#E2DDD4" }}>
           <div
             className="h-full rounded-full transition-all duration-500"
             style={{ width: `${barPct}%`, background: "linear-gradient(90deg, #D4A64A, #E8C87A)" }}

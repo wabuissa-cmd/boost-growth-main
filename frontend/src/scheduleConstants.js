@@ -62,7 +62,7 @@ export const SCHEDULE_LEGEND_ITEMS = [
   { bg: "#FFFFFF", border: "#DDD8D0", label: "Available" },
   { bg: "#FFF4C4", border: "#E8C572", label: "Therapist Cancel" },
   { bg: "#FCE0E8", border: "#E8A4BD", label: "Client Cancel" },
-  { bg: "#F0EDE9", border: "#E8E4DE", label: "Empty" },
+  { bg: "#F0EDE9", border: "#E2DDD4", label: "Empty" },
   { bg: "#D9EAD3", border: "#B6D7A8", label: "Leave" },
   { bg: "#E5EBE1", border: "#B4C2A9", label: "SS" },
   { bg: "#D4E0E8", border: "#A4BCCB", label: "HS" },

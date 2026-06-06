@@ -44,13 +44,13 @@ export default function PageBanner({ title, subtitle, badge, stats = [], childre
           )}
 
           {children && (
-            <div className={stats.length > 0 ? "mt-3 pt-3 border-t border-[#E8E4DE]" : ""}>
+            <div className={stats.length > 0 ? "mt-3 pt-3 border-t border-[#E2DDD4]" : ""}>
               {children}
             </div>
           )}
 
           {toolbar && (
-            <div className={stats.length > 0 || children ? "mt-3 pt-3 border-t border-[#E8E4DE]" : ""}>
+            <div className={stats.length > 0 || children ? "mt-3 pt-3 border-t border-[#E2DDD4]" : ""}>
               {toolbar}
             </div>
           )}

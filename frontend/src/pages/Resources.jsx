@@ -5,6 +5,7 @@ import {
   Folders, Files, Notebook, ArrowSquareOut, Plus, X, Trash, PencilSimple, GraduationCap,
   FileText, Books, Question
 } from "@phosphor-icons/react";
+import PageBanner from "../components/PageBanner";
 
 const ICON_MAP = {
   Folders: Folders, Files: Files, Notebook: Notebook,
@@ -126,19 +127,16 @@ export default function Resources() {
 
   return (
     <div>
-      <div className="flex items-center mb-5 flex-wrap gap-3">
-        <div className="flex-1">
-          <h1 className="font-display text-3xl font-semibold" style={{ color: "#2C3625" }}>Resources</h1>
-          <div className="text-sm" style={{ color: "#5C6853" }}>Drive folders & shared documents</div>
-        </div>
-        {isAdmin && (
-          <button data-testid="add-resource-btn" onClick={() => setEdit({ title: "", description: "", url: "", visibility: "all", icon: "Folders", bg: "#E5EBE1", color: "#3D4F35", sort_order: 100 })} className="btn btn-primary">
+      <PageBanner
+        title="Resources"
+        subtitle="Drive folders & shared documents"
+        badge={isAdmin ? (
+          <button data-testid="add-resource-btn" onClick={() => setEdit({ title: "", description: "", url: "", visibility: "all", icon: "Folders", bg: "#E5EBE1", color: "#3D4F35", sort_order: 100 })} className="btn btn-primary text-sm">
             <Plus size={16} /> New Resource
           </button>
-        )}
-      </div>
+        ) : null}
+      />
 
-      {/* Search + Category filter bar */}
       <div className="card p-3 mb-5 flex flex-wrap gap-2 items-center">
         <input data-testid="resources-search" type="search" placeholder="Search resources…"
                className="input text-sm flex-1 min-w-[180px]" value={search} onChange={e => setSearch(e.target.value)}/>
@@ -228,11 +226,11 @@ export default function Resources() {
               </div>
               <div>
                 <label className="label">Tile BG color</label>
-                <input type="color" value={edit.bg || "#E5EBE1"} onChange={e => setEdit({ ...edit, bg: e.target.value })} className="w-full h-10 rounded-lg border border-[#E8E4DE]" />
+                <input type="color" value={edit.bg || "#E5EBE1"} onChange={e => setEdit({ ...edit, bg: e.target.value })} className="w-full h-10 rounded-lg border border-[#E2DDD4]" />
               </div>
               <div>
                 <label className="label">Icon color</label>
-                <input type="color" value={edit.color || "#3D4F35"} onChange={e => setEdit({ ...edit, color: e.target.value })} className="w-full h-10 rounded-lg border border-[#E8E4DE]" />
+                <input type="color" value={edit.color || "#3D4F35"} onChange={e => setEdit({ ...edit, color: e.target.value })} className="w-full h-10 rounded-lg border border-[#E2DDD4]" />
               </div>
               <div className="col-span-2"><label className="label">Sort order (lower = higher)</label><input type="number" className="input" value={edit.sort_order || 100} onChange={e => setEdit({ ...edit, sort_order: parseInt(e.target.value) })} /></div>
             </div>
@@ -272,7 +270,7 @@ function ResourcePreviewModal({ item, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
       <div className="card p-0 w-full max-w-5xl modal-card max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-3 border-b border-[#E8E4DE]">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-[#E2DDD4]">
           <div>
             <div className="font-bold text-sm" style={{ color: "#2C3625" }}>{item.title}</div>
             <div className="text-[11px]" style={{ color: "#8B9E7A" }}>{item.category && item.category !== "drive" ? item.category : "Resource"} · Internal preview</div>

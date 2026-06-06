@@ -857,8 +857,8 @@ export default function Schedule() {
 
   // === BLOCKS VIEW (per-therapist) ===
   const renderTherapistBlock = (therapist, idx) => (
-    <div key={therapist.id} className="card p-0 overflow-hidden" data-testid={`therapist-block-${therapist.id}`}>
-      <div className="flex items-center gap-3 p-4 border-b" style={{ borderColor: "#E8E4DE", background: `linear-gradient(90deg, ${therapist.color}15 0%, transparent 100%)` }}>
+    <div key={therapist.id} className="card p-0 overflow-hidden rounded-[1.25rem]" data-testid={`therapist-block-${therapist.id}`}>
+      <div className="flex items-center gap-3 p-4 border-b" style={{ borderColor: "#E2DDD4", background: `linear-gradient(90deg, ${therapist.color}15 0%, transparent 100%)` }}>
         <div className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold shadow-sm" style={{ background: therapist.color }}>{idx + 1}</div>
         <div className="flex-1">
           <div className="text-[11px] tracking-[0.2em] font-bold" style={{ color: "#8B9E7A" }}>THERAPIST</div>
@@ -967,15 +967,15 @@ export default function Schedule() {
         ]}
         toolbar={(
           <div className="flex items-center gap-1.5 flex-wrap schedule-toolbar relative">
-            <div className="inline-flex items-center rounded-lg border border-[#E8E4DE] p-0.5 bg-[#FAFAF7] shrink-0">
+            <div className="inline-flex items-center rounded-lg border border-[#E2DDD4] p-0.5 bg-[#FAFAF7] shrink-0">
               <button data-testid="view-sheet-btn" onClick={() => setView("sheet")} className={`btn ${view === "sheet" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`}><Table size={13} /> Sheet</button>
               <button data-testid="view-blocks-btn" onClick={() => setView("blocks")} className={`btn ${view === "blocks" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`}><GridFour size={13} /> Per Therapist</button>
             </div>
-            <div className="inline-flex items-center rounded-lg border border-[#E8E4DE] px-0.5 bg-[#FAFAF7] shrink-0">
+            <div className="inline-flex items-center rounded-lg border border-[#E2DDD4] px-0.5 bg-[#FAFAF7] shrink-0">
               <button data-testid="prev-week-btn" onClick={() => setWeekStart(addDays(weekStart, -7))} className="btn btn-ghost p-1 min-h-0"><CaretLeft size={14} /></button>
               <div className="px-2 text-[11px] font-bold whitespace-nowrap" style={{ color: "#2C3625" }}>{formatDateRange(weekStart)}</div>
               <button data-testid="next-week-btn" onClick={() => setWeekStart(addDays(weekStart, 7))} className="btn btn-ghost p-1 min-h-0"><CaretRight size={14} /></button>
-              <div className="w-px h-4 bg-[#E8E4DE] mx-0.5" />
+              <div className="w-px h-4 bg-[#E2DDD4] mx-0.5" />
               <button onClick={() => setWeekStart(startOfWeek(new Date()))} className="btn btn-ghost text-[10px] px-1.5 py-1 min-h-0"><House size={12} /> Today</button>
               <input type="date" title="Jump to week" className="input text-[10px] w-[108px] py-1 px-1.5 min-h-0 border-0 bg-transparent"
                 onChange={e => { if (e.target.value) setWeekStart(startOfWeek(new Date(e.target.value + "T12:00:00"))); }} />
@@ -1001,7 +1001,7 @@ export default function Schedule() {
                   <CaretDown size={11} className={`transition-transform ${adminEditsOpen ? "rotate-180" : ""}`} />
                 </button>
                 {adminEditsOpen && (
-                  <div className="absolute right-0 top-full mt-1 z-[100] card p-2 min-w-[220px] shadow-lg border border-[#E8E4DE] flex flex-col gap-1.5">
+                  <div className="absolute right-0 top-full mt-1 z-[100] card p-2 min-w-[220px] shadow-lg border border-[#E2DDD4] flex flex-col gap-1.5">
                     <button type="button" onClick={() => { setShowHolidays(true); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start">Official holidays</button>
                     <button type="button" onClick={() => { setDraft(); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start">Save as Draft</button>
                     <button type="button" onClick={() => { publishWeek(); setAdminEditsOpen(false); }} className="btn btn-primary text-xs w-full justify-start">Publish Week</button>
@@ -1079,7 +1079,7 @@ export default function Schedule() {
             visibility: ctxMenuPos.ready ? "visible" : "hidden",
             maxHeight: "calc(100dvh - 16px)",
             overflowY: "auto",
-            borderColor: "#E8E4DE",
+            borderColor: "#E2DDD4",
           }}
           onClick={e => e.stopPropagation()}
           data-testid="schedule-context-menu"
@@ -1187,7 +1187,7 @@ export default function Schedule() {
                   className="flex items-center gap-1.5 text-xs cursor-pointer pill px-2 py-1"
                   style={{
                     background: (notify.recipient_ids || []).includes(t.id) ? "#E5EBE1" : "#fff",
-                    border: "1px solid #E8E4DE",
+                    border: "1px solid #E2DDD4",
                   }}
                 >
                   <input

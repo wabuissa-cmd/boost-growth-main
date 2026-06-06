@@ -97,7 +97,7 @@ export default function Clients() {
         ]}
         toolbar={(
           <div className="flex items-center gap-1.5 flex-wrap">
-            <div className="inline-flex rounded-lg border border-[#E8E4DE] p-0.5 bg-[#FAFAF7]">
+            <div className="inline-flex rounded-lg border border-[#E2DDD4] p-0.5 bg-[#FAFAF7]">
               {["active", "inactive"].map(id => (
                 <button
                   key={id}
@@ -715,7 +715,7 @@ function ProgressReportsList({ clientId, fileNo, client, isAdmin, embedded }) {
   };
 
   return (
-    <div className={embedded ? "" : "p-3 rounded-xl border mt-3"} style={embedded ? undefined : { borderColor: "#E8E4DE" }}>
+    <div className={embedded ? "" : "p-3 rounded-xl border mt-3"} style={embedded ? undefined : { borderColor: "#E2DDD4" }}>
       <div className="flex items-center justify-between mb-3">
         {!embedded && (
           <div>
@@ -746,7 +746,7 @@ function ProgressReportsList({ clientId, fileNo, client, isAdmin, embedded }) {
       </div>
 
       {adding && (
-        <div className="p-3 rounded-lg mb-3 space-y-2 border" style={{ background: "#FAFAF7", borderColor: "#E8E4DE" }}>
+        <div className="p-3 rounded-lg mb-3 space-y-2 border" style={{ background: "#FAFAF7", borderColor: "#E2DDD4" }}>
           <input className="input text-xs w-full" placeholder="Report title (e.g. Progress Report — Apr 2026)"
             value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} autoFocus />
           <div className="flex gap-2 flex-wrap">
@@ -764,7 +764,7 @@ function ProgressReportsList({ clientId, fileNo, client, isAdmin, embedded }) {
             value={draft.notes} onChange={e => setDraft({ ...draft, notes: e.target.value })} />
           <div className="flex justify-end gap-2 pt-1">
             <button onClick={() => { setAdding(false); setDraft({ title: "", report_date: "", notes: "", url: "" }); setDraftFile(null); }}
-              className="text-xs px-3 py-1.5 rounded-lg border" style={{ borderColor: "#E8E4DE", color: "#6B7280" }}>
+              className="text-xs px-3 py-1.5 rounded-lg border" style={{ borderColor: "#E2DDD4", color: "#6B7280" }}>
               Cancel
             </button>
             <button onClick={addReport} disabled={busy === "add"}
@@ -785,7 +785,7 @@ function ProgressReportsList({ clientId, fileNo, client, isAdmin, embedded }) {
 
       <div className="space-y-2">
         {items.map(r => (
-          <div key={r.id} className="p-3 rounded-lg border" style={{ borderColor: "#E8E4DE", background: "white" }}>
+          <div key={r.id} className="p-3 rounded-lg border" style={{ borderColor: "#E2DDD4", background: "white" }}>
             <div className="flex items-start justify-between mb-2">
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-xs" style={{ color: "#2C3625" }}>{r.title}</div>
@@ -867,7 +867,7 @@ function ProgressReportsList({ clientId, fileNo, client, isAdmin, embedded }) {
                     {busy === r.id + "link" ? "…" : "Save"}
                   </button>
                   <button type="button" onClick={() => { setEditingLinkId(null); setLinkDraft(""); }}
-                    className="text-xs px-2 py-1 rounded-lg border" style={{ borderColor: "#E8E4DE", color: "#6B7280" }}>
+                    className="text-xs px-2 py-1 rounded-lg border" style={{ borderColor: "#E2DDD4", color: "#6B7280" }}>
                     Cancel
                   </button>
                 </div>

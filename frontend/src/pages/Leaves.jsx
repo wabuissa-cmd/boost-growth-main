@@ -182,7 +182,7 @@ export default function Leaves() {
             {filtered.map(l => {
               const st = STATUS[l.status] || STATUS.pending;
               return (
-                <tr key={l.id} className="border-t border-[#E8E4DE] hover:bg-[#E5EBE1]/30 transition" data-testid={`leave-row-${l.id}`}>
+                <tr key={l.id} className="border-t border-[#E2DDD4] hover:bg-[#E5EBE1]/30 transition" data-testid={`leave-row-${l.id}`}>
                   {isAdmin && (
                     <td className="p-3 font-bold whitespace-nowrap" style={{ color: "#2C3625" }}>
                       <div className="flex items-center gap-2">

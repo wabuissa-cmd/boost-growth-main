@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { Plus, X, Trash, Phone, Envelope, PencilSimple, IdentificationCard } from "@phosphor-icons/react";
+import PageBanner from "../components/PageBanner";
 
 const ROLE_COLORS = {
   "Direct Manager": "#D4A64A",
@@ -39,13 +40,15 @@ export default function Directory() {
 
   return (
     <div>
-      <div className="flex items-center mb-5 flex-wrap gap-3">
-        <div className="flex-1">
-          <h1 className="font-display text-3xl font-semibold" style={{ color: "#2C3625" }}>Directory</h1>
-          <div className="text-sm" style={{ color: "#5C6853" }}>Internal contacts · managers · supervisors · coordinators</div>
-        </div>
-        {isAdmin && <button data-testid="add-contact-btn" onClick={() => setEdit({ name: "", role: "", phone: "", email: "" })} className="btn btn-primary"><Plus size={16} /> New Contact</button>}
-      </div>
+      <PageBanner
+        title="Directory"
+        subtitle="Internal contacts · managers · supervisors · coordinators"
+        badge={isAdmin ? (
+          <button data-testid="add-contact-btn" onClick={() => setEdit({ name: "", role: "", phone: "", email: "" })} className="btn btn-primary text-sm">
+            <Plus size={16} /> New Contact
+          </button>
+        ) : null}
+      />
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 stagger">
         {items.length === 0 && (

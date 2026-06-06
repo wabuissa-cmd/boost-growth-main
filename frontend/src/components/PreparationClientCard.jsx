@@ -35,7 +35,7 @@ export default function PreparationClientCard({
     <div
       className="card p-4 flex flex-col h-full"
       style={{
-        borderColor: client.cardStatus === "ok" ? "#E8E4DE" : meta.border,
+        borderColor: client.cardStatus === "ok" ? "#E2DDD4" : meta.border,
         borderWidth: client.cardStatus === "ok" ? 1 : 2,
       }}
     >

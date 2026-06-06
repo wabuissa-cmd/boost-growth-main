@@ -8,14 +8,14 @@ const C = {
   beige: "#F0E9D8",
   beigeLight: "#FAF0D1",
   white: "#FFFFFF",
-  page: "#FAFAF7",
-  border: "#E8E4DE",
+  page: "#F3EFE8",
+  border: "#E2DDD4",
   borderSoft: "#F0EDE9",
   text: "#2C3625",
   textMid: "#5C6853",
   textMuted: "#8B9E7A",
   progress: "#D4A64A",
-  progressTrack: "#E8E4DE",
+  progressTrack: "#E2DDD4",
   hover: "#E5EBE1",
 };
 
@@ -59,15 +59,14 @@ export default function PreparationClientRow({
 
   return (
     <article
-      className="prep-row rounded-2xl overflow-hidden border bg-white shadow-sm transition-colors hover:border-[#DDD8D0]"
+      className="prep-row rounded-[1.25rem] overflow-hidden border bg-white shadow-sm transition-all hover:shadow-md"
       style={{
         borderColor: client.cardStatus === "ok" ? C.border : meta.border,
       }}
     >
-      {/* Beige header — same feel as Intake table head */}
       <div
         className="prep-row-head px-3 sm:px-4 py-3 flex flex-wrap items-center gap-3 border-b"
-        style={{ background: C.beige, borderColor: C.border }}
+        style={{ background: "linear-gradient(90deg, #F0E9D8 0%, #E5EBE1 100%)", borderColor: C.border }}
       >
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <div

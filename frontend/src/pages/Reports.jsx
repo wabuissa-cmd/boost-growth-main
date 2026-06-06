@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "../api";
 import { ChartBar, Users, Clock, CheckCircle, Warning, Trophy } from "@phosphor-icons/react";
+import PageBanner from "../components/PageBanner";
 
 export default function Reports() {
   const [data, setData] = useState(null);
@@ -24,12 +25,11 @@ export default function Reports() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="font-display text-3xl font-semibold" style={{color: "#2C3625"}}>Reports & Analytics</h1>
-        <div className="text-sm" style={{color: "#5C6853"}}>Real-time overview of your center's operations</div>
-      </div>
+      <PageBanner
+        title="Reports & Analytics"
+        subtitle="Real-time overview of your center's operations"
+      />
 
-      {/* Top tiles */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 stagger">
         {tiles.map(x => (
           <div key={x.label} className="card p-4">
@@ -51,7 +51,7 @@ export default function Reports() {
           </div>
           <div className="space-y-2">
             {data.per_therapist.sort((a,b) => b.completed - a.completed).map(pt => (
-              <div key={pt.name} className="flex items-center gap-3 p-3 rounded-xl border border-[#E8E4DE]">
+              <div key={pt.name} className="flex items-center gap-3 p-3 rounded-xl border border-[#E2DDD4]">
                 <div className="w-9 h-9 rounded-full text-white flex items-center justify-center font-bold shrink-0" style={{background: pt.color}}>
                   {pt.name.replace("Ms. ","").charAt(0)}
                 </div>
@@ -81,7 +81,7 @@ export default function Reports() {
               const cls = c.status === "urgent" ? "#C97B5C" : c.status === "warning" ? "#D4A64A" : "#7A8A6A";
               const emoji = c.status === "urgent" ? "🔴" : c.status === "warning" ? "🟡" : "🟢";
               return (
-                <div key={c.id} className="p-3 rounded-xl border border-[#E8E4DE]">
+                <div key={c.id} className="p-3 rounded-xl border border-[#E2DDD4]">
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-6 rounded-full" style={{background: c.color}}/>

@@ -125,7 +125,7 @@ export default function Intake() {
           <tbody>
             {displayed.length === 0 && <tr><td colSpan={10} className="p-12 text-center" style={{ color: "#8B9E7A" }}>No records</td></tr>}
             {displayed.map(i => (
-              <tr key={i.id} className="border-t border-[#E8E4DE] hover:bg-[#E5EBE1]/30 transition">
+              <tr key={i.id} className="border-t border-[#E2DDD4] hover:bg-[#E5EBE1]/30 transition">
                 <td className="p-3 text-center">
                   {isAdmin ? (
                     <button onClick={() => api.put(`/intake/${i.id}`, { ...i, priority: !i.priority }).then(load)}

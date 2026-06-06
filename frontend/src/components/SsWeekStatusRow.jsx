@@ -2,9 +2,9 @@ import { Check, Plus, Minus } from "@phosphor-icons/react";
 
 const STYLE = {
   Completed: { bg: "#E5EBE1", border: "#B8C8A8", color: "#3D4F35" },
-  "In Progress": { bg: "#fff", border: "#7A8A6A", color: "#48543E" },
+  "In Progress": { bg: "#fff", border: "#7A8A6A", color: "#606E52" },
   Open: { bg: "#FAF0D1", border: "#D4A64A", color: "#6B5218" },
-  "Not started": { bg: "#FAFAF7", border: "#E8E4DE", color: "#8B9E7A" },
+  "Not started": { bg: "#FAFAF7", border: "#E2DDD4", color: "#8B9E7A" },
 };
 
 /** Clickable SS week boxes — admin can force Closed or Open (holidays / special cases). */

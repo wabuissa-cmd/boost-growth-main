@@ -208,7 +208,7 @@ export default function TherapistRequests() {
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
         <section className="card p-4 min-h-[420px] flex flex-col">
-          <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-[#E8E4DE]">
+          <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-[#E2DDD4]">
             <h2 className="font-bold text-sm" style={{ color: "#2C3625" }}>General Requests</h2>
             <span className="text-xs pill bg-[#F0E9D8]" style={{ color: "#5C6853" }}>{requests.length}</span>
           </div>
@@ -222,7 +222,7 @@ export default function TherapistRequests() {
               const tp = typeInfo(r.request_type === "supplies" ? "supplies" : r.request_type);
               const isAttachment = r.request_type === "attachment";
               return (
-                <div key={r.id} className="rounded-xl border border-[#E8E4DE] p-3 bg-[#FAFAF7]">
+                <div key={r.id} className="rounded-[1.25rem] border border-[#E2DDD4] p-3 bg-[#FAFAF7]">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
                     <span className={`pill border text-[10px] ${st.cls}`}>{st.icon} {st.label}</span>
                     <span className="pill text-[10px]" style={{ background: `${tp.color}20`, color: tp.color }}>
@@ -315,7 +315,7 @@ export default function TherapistRequests() {
                 const tp = LEAVE_TYPES[l.leave_type] || { label: l.leave_type, color: "#7A8A6A" };
                 const unpaid = permissionPayLabel(l);
                 return (
-                  <div key={l.id} className="rounded-xl border border-[#E8E4DE] p-3">
+                  <div key={l.id} className="rounded-[1.25rem] border border-[#E2DDD4] p-3">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <span className="pill text-[10px] font-bold" style={{ background: st.bg, color: st.color }}>{st.icon} {leaveStatusLabel(l.status, true)}</span>
                       <span className="pill text-[10px]" style={{ background: `${tp.color}22`, color: tp.color }}>{tp.label}</span>

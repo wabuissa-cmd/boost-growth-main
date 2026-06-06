@@ -79,7 +79,7 @@ function DocumentSection({ leave, isAdmin, onRefresh, canUpload }) {
   };
 
   return (
-    <div className="rounded-xl p-3 border" style={{ borderColor: "#E8E4DE", background: "#FAFAF7" }}>
+    <div className="rounded-xl p-3 border" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
       <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
         <span className="text-xs font-bold" style={{ color: "#5C6853" }}>📄 Documents</span>
         <span className="pill text-[10px] px-2 py-0.5 font-bold" style={{ background: badge.bg, color: badge.color }}>
@@ -220,7 +220,7 @@ function LeaveRequestCard({ leave, isAdmin, user, onRefresh, onEdit, therapists,
       )}
 
       {isAdmin && (
-        <div className="flex gap-2 flex-wrap mt-4 pt-3 border-t border-[#E8E4DE]">
+        <div className="flex gap-2 flex-wrap mt-4 pt-3 border-t border-[#E2DDD4]">
           {leave.status === "pending" && leave.leave_type === "Permission" && (
             <>
               <button onClick={() => setStatus("approved", { is_paid: true, deduct_balance: true })} className="btn btn-primary text-xs" data-testid={`approve-${leave.id}`}>
@@ -254,7 +254,7 @@ function LeaveRequestCard({ leave, isAdmin, user, onRefresh, onEdit, therapists,
       )}
 
       {personal && (
-        <div className="flex gap-2 flex-wrap mt-4 pt-3 border-t border-[#E8E4DE]">
+        <div className="flex gap-2 flex-wrap mt-4 pt-3 border-t border-[#E2DDD4]">
           {canEditOwn && (
             <button type="button" onClick={() => onEdit(leave)} className="btn btn-secondary text-xs">
               <PencilSimple size={14} /> Edit
@@ -437,7 +437,7 @@ function HistoryTab({ leaves, therapists, isAdmin, onRefresh }) {
               const doc = documentBadge(l);
               const impact = scheduleImpactLabel(l);
               return (
-                <tr key={l.id} className="border-t border-[#E8E4DE] hover:bg-[#FAFAF7]">
+                <tr key={l.id} className="border-t border-[#E2DDD4] hover:bg-[#FAFAF7]">
                   <td className="p-3 font-bold">{l.therapist_name || "—"}</td>
                   <td className="p-3">{LEAVE_TYPES[l.leave_type]?.label || l.leave_type}</td>
                   <td className="p-3 text-xs">{fmtDateRange(l.start_date, l.end_date)}</td>
@@ -501,7 +501,7 @@ function MyLeavesTable({ leaves, user, onEdit, onRefresh, adminView = false }) {
               const badge = documentBadge(l);
               const canEdit = adminView || (l.therapist_id === user?.id && l.status === "pending");
               return (
-                <tr key={l.id} className="border-b border-[#E8E4DE] hover:bg-[#FAFAF7]">
+                <tr key={l.id} className="border-b border-[#E2DDD4] hover:bg-[#FAFAF7]">
                   <td className="p-3">
                     <span className="pill text-[10px] px-2 py-0.5 font-bold" style={{ background: `${tp.color}22`, color: tp.color }}>{tp.label}</span>
                   </td>
@@ -737,7 +737,7 @@ export default function LeaveRequests({ personal = false }) {
             { id: "history", label: "History" },
           ].map(t => (
             <button key={t.id} type="button" onClick={() => setTab(t.id)}
-              className={`px-4 py-2 rounded-xl text-sm font-bold border-2 transition ${tab === t.id ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E8E4DE]"}`}>
+              className={`px-4 py-2 rounded-xl text-sm font-bold border-2 transition ${tab === t.id ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E2DDD4]"}`}>
               {t.label}
             </button>
           ))}

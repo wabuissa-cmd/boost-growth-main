@@ -5,6 +5,7 @@ import {
   Plus, PencilSimple, Trash, X, UserPlus, Key, EnvelopeSimple, CheckCircle, Warning,
   Database, SignOut, CaretDown, CaretUp, Users, Wrench, LinkSimple,
 } from "@phosphor-icons/react";
+import PageBanner from "../components/PageBanner";
 
 function AdminSection({ id, title, subtitle, icon, defaultOpen = false, badge, children }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -28,7 +29,7 @@ function AdminSection({ id, title, subtitle, icon, defaultOpen = false, badge, c
         {open ? <CaretUp size={18} style={{ color: "#8B9E7A" }} /> : <CaretDown size={18} style={{ color: "#8B9E7A" }} />}
       </button>
       {open && (
-        <div className="px-5 pb-5 pt-0 border-t" style={{ borderColor: "#E8E4DE" }}>
+        <div className="px-5 pb-5 pt-0 border-t" style={{ borderColor: "#E2DDD4" }}>
           {children}
         </div>
       )}
@@ -38,7 +39,7 @@ function AdminSection({ id, title, subtitle, icon, defaultOpen = false, badge, c
 
 function ToolRow({ title, desc, children, danger }) {
   return (
-    <div className={`rounded-xl p-4 mb-3 last:mb-0 border ${danger ? "border-[#E8C4C4]" : "border-[#E8E4DE]"}`}
+    <div className={`rounded-xl p-4 mb-3 last:mb-0 border ${danger ? "border-[#E8C4C4]" : "border-[#E2DDD4]"}`}
       style={{ background: danger ? "#FDF8F8" : "#FAFAF7" }}>
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="flex-1 min-w-[200px]">
@@ -395,13 +396,15 @@ export default function Admin() {
 
   return (
     <div className="max-w-4xl mx-auto">
-      <div className="flex items-center mb-5 flex-wrap gap-2">
-        <div className="flex-1 min-w-[200px]">
-          <h1 className="font-display text-3xl font-semibold" style={{ color: "#2C3625" }}>Admin Panel</h1>
-          <div className="text-sm" style={{ color: "#5C6853" }}>Choose a section from the menu below</div>
-        </div>
-        <button data-testid="admin-logout-btn" onClick={logout} className="btn btn-outline"><SignOut size={16} /> Log Out</button>
-      </div>
+      <PageBanner
+        title="Admin Panel"
+        subtitle="Choose a section from the menu below"
+        badge={(
+          <button data-testid="admin-logout-btn" onClick={logout} className="btn btn-outline text-sm">
+            <SignOut size={16} /> Log Out
+          </button>
+        )}
+      />
 
       {/* Therapists */}
       <AdminSection
@@ -435,7 +438,7 @@ export default function Admin() {
         )}
         <div className="grid sm:grid-cols-2 gap-3">
           {filteredTherapists.map(t => (
-            <div key={t.id} className="p-3 rounded-xl border flex items-center gap-3" style={{ borderColor: "#E8E4DE" }}>
+            <div key={t.id} className="p-3 rounded-xl border flex items-center gap-3" style={{ borderColor: "#E2DDD4" }}>
               <div className="w-10 h-10 rounded-full text-white font-bold flex items-center justify-center shrink-0" style={{ background: t.color }}>
                 {t.name?.replace("Ms. ", "").charAt(0)}
               </div>
@@ -636,7 +639,7 @@ export default function Admin() {
           ) : (
             <div className="space-y-2 mb-3 max-h-64 overflow-y-auto">
               {deletedClients.map(c => (
-                <div key={c.id} className="flex items-center justify-between gap-2 p-2 rounded-lg border border-[#E8E4DE] text-xs" style={{ background: "#FAFAF7" }}>
+                <div key={c.id} className="flex items-center justify-between gap-2 p-2 rounded-lg border border-[#E2DDD4] text-xs" style={{ background: "#FAFAF7" }}>
                   <div>
                     <span className="font-bold" style={{ color: "#2C3625" }}>{c.name}</span>
                     <span className="ml-2" style={{ color: "#8B9E7A" }}>#{c.file_no || "—"}</span>

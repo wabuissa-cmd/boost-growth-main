@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import api, { startOfWeek, toISODate } from "../api";
 import { UploadSimple, Download, CheckCircle, X, FileXls, CalendarBlank, UserList } from "@phosphor-icons/react";
+import PageBanner from "../components/PageBanner";
 
 export default function ImportPage() {
   const [type, setType] = useState("clients"); // clients, intake, historical, schedule
@@ -131,10 +132,10 @@ export default function ImportPage() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="font-display text-3xl font-semibold" style={{color: "#2C3625"}}>Import Data</h1>
-        <div className="text-sm" style={{color: "#5C6853"}}>Bulk-import clients, intake records, or historical schedules</div>
-      </div>
+      <PageBanner
+        title="Import Data"
+        subtitle="Bulk-import clients, intake records, or historical schedules"
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5 import-type-grid">
         {[
@@ -156,7 +157,7 @@ export default function ImportPage() {
         {type === "schedule" ? (
           <div>
             <div className="font-bold mb-3" style={{color: "#2C3625"}}>Upload Therapists' Schedule (.xlsx or .csv)</div>
-            <div className="text-xs mb-4 p-3 rounded-xl border border-[#E8E4DE]" style={{background: "#FAFAF7", color: "#5C6853"}}>
+            <div className="text-xs mb-4 p-3 rounded-xl border border-[#E2DDD4]" style={{background: "#FAFAF7", color: "#5C6853"}}>
               The file must contain therapist names (e.g. "Ms. Maha") followed by Sunday-Thursday rows with 10 time-slot columns.
               Cell content like <code>SS | Sulaiman</code>, <code>HS | Omar</code>, <code>Meeting w/ Walaa</code>, <code>AVC</code>, <code>Supervision W/ Khalid</code> will be auto-parsed.
               Merged cells in Excel (1h vs 2h clients) are preserved — a client merged across two time columns imports as a 2-hour session; optional times in parentheses like <code>HS | Saleh (11:30-1:30)</code> import as 1.5h/2.5h.
@@ -185,7 +186,7 @@ export default function ImportPage() {
             <button onClick={upload} disabled={!file || loading} className="btn btn-primary w-full disabled:opacity-50 mb-4">
               {loading ? <span className="spinner"/> : <><UploadSimple size={16}/> Import Schedule</>}
             </button>
-            <div className="border-t border-[#E8E4DE] pt-4">
+            <div className="border-t border-[#E2DDD4] pt-4">
               <div className="font-bold mb-2 text-sm" style={{color: "#2C3625"}}>Or import directly from Google Sheets</div>
               <div className="text-xs mb-3" style={{color: "#5C6853"}}>
                 Paste a shared Google Sheets link — merged cells (1h / 2h clients) are read from the file automatically.
@@ -208,7 +209,7 @@ export default function ImportPage() {
             <div className="text-sm mb-3" style={{color: "#5C6853"}}>
               Accepted formats: <code className="px-1.5 py-0.5 bg-[#F0E9D8] rounded">.xlsx</code> <code className="px-1.5 py-0.5 bg-[#F0E9D8] rounded">.csv</code>
             </div>
-            <div className="text-xs mb-4 p-3 rounded-xl border border-[#E8E4DE]" style={{background: "#FAFAF7", color: "#5C6853"}}>
+            <div className="text-xs mb-4 p-3 rounded-xl border border-[#E2DDD4]" style={{background: "#FAFAF7", color: "#5C6853"}}>
               <strong>Required column for {type}:</strong> {type === "clients" ? "name (required), file_no, package_hours, supervisor, parent_name, phone, color, age, notes, main_therapist (matches Ms. Name)" : "Child Name (or name / child_name), phone, service, district, diagnosis, intake_type (pre/post). Header row is auto-detected."}
               {type === "intake" && (
                 <div className="mt-2 p-2 rounded-lg" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
@@ -231,8 +232,8 @@ export default function ImportPage() {
               {historicalWeeks.length === 0 ? "No historical data available." : `${historicalWeeks.length} weeks of past schedules from Base44 are ready to import:`}
             </div>
             {historicalWeeks.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-4 max-h-32 overflow-y-auto p-3 bg-[#FAFAF7] rounded-xl border border-[#E8E4DE]">
-                {historicalWeeks.map(w => <span key={w} className="pill bg-white border border-[#E8E4DE] text-xs">{w}</span>)}
+              <div className="flex flex-wrap gap-1.5 mb-4 max-h-32 overflow-y-auto p-3 bg-[#FAFAF7] rounded-xl border border-[#E2DDD4]">
+                {historicalWeeks.map(w => <span key={w} className="pill bg-white border border-[#E2DDD4] text-xs">{w}</span>)}
               </div>
             )}
             <label className="flex items-center gap-2 mb-4 text-sm cursor-pointer">

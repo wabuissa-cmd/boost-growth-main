@@ -75,7 +75,7 @@ export default function ClientDrawer({
             <DrawerAction icon={<ChartLineUp size={18} weight="duotone" />} label="Progress" onClick={() => onOpenSection("progress")} badge={prSummary?.count} />
           </div>
 
-          <div className="flex flex-col gap-2 mt-5 pt-4 border-t border-[#E8E4DE]">
+          <div className="flex flex-col gap-2 mt-5 pt-4 border-t border-[#E2DDD4]">
             {ops && (
               <button type="button" className="btn btn-outline text-sm w-full justify-center gap-2"
                 onClick={() => { onClose(); navigate(`/billing?client=${client.id}`); }}>
@@ -97,7 +97,7 @@ export default function ClientDrawer({
 function DrawerAction({ icon, label, onClick, badge }) {
   return (
     <button type="button" onClick={onClick}
-      className="flex flex-col items-center gap-1.5 p-3 rounded-xl border border-[#E8E4DE] bg-[#FAFAF7] hover:bg-[#E5EBE1] transition text-center min-h-[72px]">
+      className="flex flex-col items-center gap-1.5 p-3 rounded-xl border border-[#E2DDD4] bg-[#FAFAF7] hover:bg-[#E5EBE1] transition text-center min-h-[72px]">
       <span style={{ color: "#7A8A6A" }}>{icon}</span>
       <span className="ui-label">{label}</span>
       {badge != null && badge > 0 && (

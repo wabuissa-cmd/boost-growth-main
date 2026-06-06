@@ -304,12 +304,12 @@ export default function Shell() {
             <div className="relative">
               <button data-testid="notif-bell" onClick={() => setShowNotif(s => !s)}
                       className="relative w-10 h-10 rounded-xl bg-[#F0E9D8] hover:bg-[#E5EBE1] flex items-center justify-center transition active:scale-95">
-                <Bell size={20} weight="duotone" color="#48543E"/>
+                <Bell size={20} weight="duotone" color="#606E52"/>
                 {unread > 0 && <span className="absolute -top-1 -right-1 bg-[#C97B5C] text-white text-[10px] font-bold rounded-full min-w-[20px] h-5 flex items-center justify-center px-1">{unread}</span>}
               </button>
               {showNotif && (
                 <div className="absolute right-0 mt-2 w-96 max-w-[calc(100vw-2rem)] card p-0 z-50">
-                  <div className="flex items-center justify-between p-3 border-b border-[#E8E4DE]">
+                  <div className="flex items-center justify-between p-3 border-b border-[#E2DDD4]">
                     <div className="font-bold">Notifications</div>
                     {unread > 0 && <button onClick={markAllRead} className="text-xs hover:underline" style={{color: "#7A8A6A"}}>Mark all read</button>}
                   </div>
@@ -334,7 +334,7 @@ export default function Shell() {
             </div>
 
             {/* Profile */}
-            <div className="hidden md:flex items-center gap-2 pl-3 border-l border-[#E8E4DE]">
+            <div className="hidden md:flex items-center gap-2 pl-3 border-l border-[#E2DDD4]">
               {!useSidebar && (
               <>
               <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-white text-sm" style={{background: user?.color || "#D4A64A"}}>
@@ -364,7 +364,7 @@ export default function Shell() {
       {mobileNav && (
         <div className="fixed inset-0 z-50 bg-black/40 modal-backdrop lg:hidden" onClick={() => setMobileNav(false)}>
           <div className="absolute left-0 top-0 h-full w-72 max-w-[88vw] shadow-2xl overflow-y-auto bg-[#FAFAF7]" onClick={e=>e.stopPropagation()}>
-            <div className="p-4 flex items-center justify-between border-b border-[#E8E4DE]">
+            <div className="p-4 flex items-center justify-between border-b border-[#E2DDD4]">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-[#7A8A6A] flex items-center justify-center p-1.5">
                   <img src="/bg-logo.png" alt="" className="w-full h-full object-contain"/>
