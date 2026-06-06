@@ -22,7 +22,7 @@ function PrepRing({ value }) {
         <circle cx="60" cy="60" r={r} fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="8" />
         <circle
           cx="60" cy="60" r={r} fill="none"
-          stroke="#C9A84C" strokeWidth="8" strokeLinecap="round"
+          stroke="#D4A64A" strokeWidth="8" strokeLinecap="round"
           strokeDasharray={c} strokeDashoffset={offset}
         />
       </svg>

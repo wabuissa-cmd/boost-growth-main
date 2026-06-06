@@ -3,10 +3,10 @@ export default function PageBanner({ title, subtitle, badge, stats = [], childre
   const hasBody = stats.length > 0 || children || toolbar;
 
   return (
-    <div className="rounded-2xl mb-4 border border-[#E8E4DE] shadow-sm">
+    <div className="rounded-[1.25rem] mb-4 border border-[#E2DDD4] shadow-sm overflow-hidden">
       <div
-        className="px-4 py-2.5 flex items-start justify-between gap-3"
-        style={{ background: "#F0E9D8" }}
+        className="px-4 py-3 flex items-start justify-between gap-3"
+        style={{ background: "linear-gradient(90deg, #F0E9D8 0%, #E5EBE1 100%)" }}
       >
         <div className="min-w-0">
           <h1 className="ui-page-title m-0">{title}</h1>
@@ -25,8 +25,8 @@ export default function PageBanner({ title, subtitle, badge, stats = [], childre
               {stats.map(s => (
                 <div
                   key={s.label}
-                  className="rounded-xl px-2.5 py-2 min-w-0"
-                  style={{ background: "#FAFAF7", border: "1px solid #E8E4DE" }}
+                  className="rounded-[14px] px-2.5 py-2 min-w-0"
+                  style={{ background: "#FAFAF7", border: "1px solid #E2DDD4" }}
                 >
                   <div className="text-[10px] tracking-widest font-bold truncate" style={{ color: "#8B9E7A" }}>
                     {s.label.toUpperCase()}

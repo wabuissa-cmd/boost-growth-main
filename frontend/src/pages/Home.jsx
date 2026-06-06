@@ -118,7 +118,7 @@ export default function Home() {
   return (
     <div>
       {/* Hero banner — matches login page layout */}
-      <div className="text-white py-8 sm:py-10 lg:py-14 px-5 sm:px-6 lg:px-10 mb-6 relative overflow-hidden rounded-2xl" style={{background: "linear-gradient(135deg, #7A8A6A 0%, #606E52 60%, #48543E 100%)", borderColor: "transparent"}}>
+      <div className="text-white py-8 sm:py-10 lg:py-14 px-5 sm:px-6 lg:px-10 mb-6 relative overflow-hidden rounded-[1.25rem]" style={{background: "linear-gradient(135deg, #7A8A6A 0%, #6B7A5E 55%, #606E52 100%)", borderColor: "transparent"}}>
         <img src="/bg-logo.png" alt="" className="absolute opacity-10 pointer-events-none login-watermark"/>
         <div className="relative max-w-5xl">
           <div className="flex items-start gap-4 mb-4 sm:mb-0">
@@ -130,12 +130,12 @@ export default function Home() {
               <div className="text-[10px] sm:text-xs tracking-[0.25em] sm:tracking-[0.3em] opacity-80 font-bold mb-2 flex items-center gap-2">
                 <Sparkle size={14} weight="fill"/> STAFF PORTAL · WELCOME BACK
               </div>
-              <h1 className="font-display text-2xl sm:text-3xl md:text-5xl font-semibold leading-[1.1]">
+              <h1 className="font-display text-2xl sm:text-3xl md:text-5xl leading-[1.1]">
                 Hello, {user?.name?.replace("Ms. ", "") || "Friend"}.
               </h1>
             </div>
           </div>
-          <h2 className="font-display text-lg sm:text-2xl md:text-3xl mt-1 sm:mt-2 italic opacity-95">
+          <h2 className="font-display text-lg sm:text-2xl md:text-3xl mt-1 sm:mt-2 opacity-95">
             Each growth begins with <span className="text-[#F0D88A]">seeds.</span>
           </h2>
           <div className="opacity-90 mt-2 sm:mt-3 text-xs sm:text-sm">{new Date().toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
@@ -166,8 +166,8 @@ export default function Home() {
         {isPortalAdminUser
           ? adminTiles.map(t => (
               <Link key={t.to} to={t.to} className="card card-hover p-5 group" data-testid={`home-tile-${t.to.slice(1)}`}>
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-3" style={{background: t.color, color: t.iconColor}}>{t.icon}</div>
-                <div className="text-3xl font-display font-semibold" style={{color: "#2C3625"}}>{t.count}</div>
+                <div className="w-12 h-12 rounded-[14px] flex items-center justify-center mb-3" style={{background: t.color, color: t.iconColor}}>{t.icon}</div>
+                <div className="text-3xl font-display" style={{color: "#2C3625"}}>{t.count}</div>
                 <div className="font-bold mt-1" style={{color: "#2C3625"}}>{t.title}</div>
                 <div className="text-xs" style={{color: "#5C6853"}}>{t.desc}</div>
                 <div className="text-sm flex items-center gap-1 mt-3 opacity-0 group-hover:opacity-100 transition" style={{color: "#7A8A6A"}}>
@@ -177,8 +177,8 @@ export default function Home() {
             ))
           : therapistTiles.map((t, i) => (
               <div key={i} className="card p-5" data-testid={`therapist-stat-${i}`}>
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-3" style={{background: t.color, color: t.iconColor}}>{t.icon}</div>
-                <div className="text-3xl font-display font-semibold" style={{color: "#2C3625"}}>{t.count}</div>
+                <div className="w-12 h-12 rounded-[14px] flex items-center justify-center mb-3" style={{background: t.color, color: t.iconColor}}>{t.icon}</div>
+                <div className="text-3xl font-display" style={{color: "#2C3625"}}>{t.count}</div>
                 <div className="font-bold mt-1" style={{color: "#2C3625"}}>{t.title}</div>
                 <div className="text-xs" style={{color: "#5C6853"}}>{t.desc}</div>
               </div>

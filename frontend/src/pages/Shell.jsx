@@ -164,16 +164,25 @@ export default function Shell() {
       {useSidebar && (
         <aside className={`app-sidebar hidden lg:flex flex-col shrink-0${sidebarCollapsed ? " app-sidebar--collapsed" : ""}`}>
           <NavLink to="/home" className="sidebar-brand" title={sidebarCollapsed ? "Boost Growth" : undefined}>
-            <div className="w-9 h-9 rounded-xl bg-[#7A8A6A] flex items-center justify-center p-1.5 shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center p-1.5 shrink-0 border border-white/20">
               <img src="/bg-logo.png" alt="BG" className="w-full h-full object-contain"/>
             </div>
             {!sidebarCollapsed && (
             <div>
-              <div className="text-[13px] font-bold leading-tight" style={{ color: "#2C3625" }}>Boost Growth</div>
-              <div className="text-[9px] font-bold tracking-[0.18em]" style={{ color: "#8B9E7A" }}>STAFF PORTAL</div>
+              <div className="text-[13px] font-bold leading-tight text-white">Boost Growth</div>
+              <div className="text-[9px] font-bold tracking-[0.18em] text-white/65">STAFF PORTAL</div>
             </div>
             )}
           </NavLink>
+          {!sidebarCollapsed && (
+            <div className="sidebar-profile">
+              <div className="sidebar-profile-avatar" style={{ background: user?.color || "#D4A64A" }}>
+                {user?.name?.replace("Ms. ", "").charAt(0) || "U"}
+              </div>
+              <div className="sidebar-profile-name">{user?.name?.replace("Ms. ", "") || user?.email}</div>
+              <div className="sidebar-profile-role">{portalAdmin ? "Admin" : "Therapist"}</div>
+            </div>
+          )}
           <div className="flex-1 overflow-y-auto px-1">
             <SidebarNav
               homeLink={{ ...homeLink, icon: <House size={17} weight="duotone"/> }}
@@ -188,22 +197,10 @@ export default function Shell() {
               collapsed={sidebarCollapsed}
             />
           </div>
-          <div className="sidebar-footer p-3 border-t border-[#E8E4DE]">
-            {!sidebarCollapsed && (
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-white text-xs shrink-0"
-                   style={{ background: user?.color || "#D4A64A" }}>
-                {user?.name?.replace("Ms. ", "").charAt(0) || "U"}
-              </div>
-              <div className="min-w-0 text-xs">
-                <div className="font-bold truncate" style={{ color: "#2C3625" }}>{user?.name?.replace("Ms. ", "") || user?.email}</div>
-                <div style={{ color: "#8B9E7A" }}>{portalAdmin ? "Admin" : "Therapist"}</div>
-              </div>
-            </div>
-            )}
+          <div className="sidebar-footer p-3 border-t">
             {sidebarCollapsed && (
               <div className="flex justify-center mb-2" title={user?.name || user?.email}>
-                <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-white text-xs shrink-0"
+                <div className="sidebar-profile-avatar w-8 h-8 text-xs"
                      style={{ background: user?.color || "#D4A64A" }}>
                   {user?.name?.replace("Ms. ", "").charAt(0) || "U"}
                 </div>
@@ -218,7 +215,7 @@ export default function Shell() {
 
       <div className={`flex flex-col flex-1 min-w-0 ${useSidebar ? "app-main-column" : ""}`}>
       {/* Top bar */}
-      <header className="sticky top-0 z-40 bg-white/85 backdrop-blur-md border-b border-[#E8E4DE]">
+      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-[#E2DDD4]">
         <div className="max-w-[1600px] mx-auto px-4 lg:px-6">
           <div className="h-14 lg:h-16 flex items-center gap-3">
             {!useSidebar && (
