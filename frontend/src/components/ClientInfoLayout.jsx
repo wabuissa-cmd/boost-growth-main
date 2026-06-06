@@ -1,7 +1,8 @@
 import { useEffect, useMemo } from "react";
 import {
-  MapPin, Paperclip, ClipboardText, ChartLineUp,
-  PencilSimple, Flower, CaretRight, Phone,
+  MapPin, Paperclip, ClipboardText, ChartLineUp, PencilSimple,
+  Leaf, House, GraduationCap, User, Folder, CalendarBlank,
+  Phone, CheckCircle,
 } from "@phosphor-icons/react";
 import { getChildColor, readable } from "../childColors";
 import { prepTrackMeta, cardStatusMeta } from "../attendanceUtils";
@@ -16,33 +17,30 @@ function worstPkgRow(rows) {
 
 function pkgAlertDot(rows) {
   const w = worstPkgRow(rows);
-  if (!w || w.status === "none" || w.status === "good" || w.status === "ok") return null;
-  const st = pkgStatusStyle(w.status);
-  return st.color;
+  if (!w || ["none", "good", "ok"].includes(w.status)) return null;
+  return pkgStatusStyle(w.status).color;
 }
 
-function PackageBar({ row }) {
+function serviceLabel(c) {
+  if (c.hasHs && c.hasSs) return "HS + SS";
+  if (c.hasSs) return "School Support";
+  if (c.hasHs) return "Home Session";
+  return c.service_type || "—";
+}
+
+function MiniPkgBar({ row }) {
   if (!row || row.status === "none") return null;
-  const ur = formatPkgUsedRemaining(row);
   const total = row.package_size || 1;
   const used = row.used || 0;
   const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
-  const ps = pkgStatusStyle(row.status);
-  const label = row.service_type === "HS" ? "Home Session" : "School Support";
-
+  const ur = formatPkgUsedRemaining(row);
   return (
-    <div className="ci-pkg-bar-card">
-      <div className="ci-pkg-bar-label">{row.service_type}</div>
-      <div className="ci-pkg-bar-title">{label}</div>
-      <div className="ci-pkg-track">
-        <div className="ci-pkg-fill" style={{ width: `${pct}%` }} />
+    <div className="ci-pkg-mini">
+      <span className="ci-pkg-mini-label">{row.service_type}</span>
+      <div className="ci-pkg-mini-track">
+        <div className="ci-pkg-mini-fill" style={{ width: `${pct}%` }} />
       </div>
-      <div className="ci-pkg-bar-sub">
-        {ur.used} used · {ur.remaining} left
-        {row.status !== "good" && row.status !== "ok" && (
-          <span style={{ color: ps.color, fontWeight: 700 }}> · {formatPkgBadge(row)}</span>
-        )}
-      </div>
+      <span className="ci-pkg-mini-val">{ur.remaining} left</span>
     </div>
   );
 }
@@ -77,6 +75,7 @@ export default function ClientInfoLayout({
   const statusMeta = selected ? cardStatusMeta(selected.cardStatus || "ok") : null;
   const therapistName = selected ? findTherapist(selected.main_therapist_id)?.name?.replace("Ms. ", "") : "";
   const prCount = selected ? prSummaries?.[selected.id]?.count : 0;
+  const svc = selected ? serviceLabel(selected) : "";
 
   if (!clients.length) {
     return (
@@ -87,194 +86,140 @@ export default function ClientInfoLayout({
   }
 
   return (
-    <div className="ci-shell">
-      {/* Directory index — compact filing list */}
-      <nav className="ci-directory" aria-label="Client directory">
-        <div className="ci-directory-head">
-          <p className="ci-directory-title">Directory</p>
-          <div className="ci-directory-counts">
-            <span className="ci-count-chip">{counts.active} active</span>
-            <span className="ci-count-chip">{counts.all} total</span>
-            {counts.attention > 0 && (
-              <span className="ci-count-chip warn">{counts.attention} alerts</span>
-            )}
+    <div className="ci-naturora">
+      <div className="ci-canvas">
+        {/* Left half — directory */}
+        <div className="ci-pane-left">
+          <div className="ci-pane-brand">
+            <div className="ci-pane-logo">
+              <Leaf size={24} weight="thin" />
+            </div>
+            <h2>Client Directory</h2>
+            <p>Select a child to view their profile, services & case files</p>
+            <div className="ci-pane-stats">
+              <span><em>{counts.active}</em> Active</span>
+              <span><em>{counts.all}</em> Total</span>
+              {counts.attention > 0 && <span><em>{counts.attention}</em> Alerts</span>}
+            </div>
+          </div>
+          <div className="ci-pane-list">
+            {clients.map(c => {
+              const dot = pkgAlertDot(pkgByClient[c.id]);
+              const tName = findTherapist(c.main_therapist_id)?.name?.replace("Ms. ", "");
+              const isSel = selected?.id === c.id;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={`ci-pane-item${isSel ? " selected" : ""}`}
+                  onClick={() => onSelect(c.id)}
+                >
+                  <div className="ci-pane-item-name">{c.name}</div>
+                  <div className="ci-pane-item-sub">
+                    <span>File #{c.file_no || "—"}</span>
+                    {tName && <span>· {tName}</span>}
+                    {dot && <span className="ci-pane-item-dot" style={{ background: dot }} />}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
-        <div className="ci-directory-list">
-          {clients.map(c => {
-            const dot = pkgAlertDot(pkgByClient[c.id]);
-            const isSel = selected?.id === c.id;
-            return (
-              <button
-                key={c.id}
-                type="button"
-                className={`ci-dir-item${isSel ? " selected" : ""}`}
-                onClick={() => onSelect(c.id)}
-              >
-                <span className="ci-dir-file">#{c.file_no || "—"}</span>
-                <span className="ci-dir-name">{c.name}</span>
-                {dot && <span className="ci-dir-dot" style={{ background: dot }} aria-hidden />}
-              </button>
-            );
-          })}
-        </div>
-      </nav>
 
-      {/* Profile workspace — dossier view */}
-      {selected && (
-        <div className="ci-workspace">
-          <header className="ci-hero">
-            <div
-              className="ci-hero-avatar"
-              style={{
-                background: getChildColor(selected.name) || selected.color || "#E5EBE1",
-                color: readable(getChildColor(selected.name) || selected.color || "#E5EBE1"),
-              }}
-            >
-              {selected.initials || selected.name?.charAt(0)}
-            </div>
-            <div className="min-w-0">
-              <h1 className="ci-hero-name">{selected.name}</h1>
-              <div className="ci-hero-meta">
-                <span>File #{selected.file_no || "—"}</span>
-                {selected.age && <span>Age {selected.age}</span>}
-                {therapistName && (
-                  <span className="inline-flex items-center gap-1">
-                    <Flower size={13} weight="fill" style={{ color: "#C97B5C" }} />
-                    {therapistName}
-                  </span>
-                )}
-                <span className="ci-hero-badge">{selected.status || "Active"}</span>
-                {isAdmin && selected.cardStatus && selected.cardStatus !== "ok" && statusMeta && (
-                  <span className="ci-hero-badge" style={{ background: statusMeta.bg, color: statusMeta.color, borderColor: statusMeta.border }}>
-                    {statusMeta.label}
-                  </span>
-                )}
+        {/* Right half — detail (merged canvas) */}
+        <div className="ci-pane-right">
+          {selected ? (
+            <>
+              <div className="ci-meta-bar">
+                <MetaItem icon={<House size={20} weight="light" />} label="Home" value={selected.hasHs ? (selectedPkg.find(r => r.service_type === "HS") ? formatPkgBadge(selectedPkg.find(r => r.service_type === "HS")) : "Active") : "—"} />
+                <MetaItem icon={<GraduationCap size={20} weight="light" />} label="School" value={selected.hasSs ? (selectedPkg.find(r => r.service_type === "SS") ? formatPkgBadge(selectedPkg.find(r => r.service_type === "SS")) : "Active") : "—"} />
+                <MetaItem icon={<CheckCircle size={20} weight="light" />} label="Status" value={selected.status || "Active"} />
+                <MetaItem icon={<User size={20} weight="light" />} label="Therapist" value={therapistName || "—"} />
+                <MetaItem icon={<Folder size={20} weight="light" />} label="File" value={`#${selected.file_no || "—"}`} />
+                <MetaItem icon={<CalendarBlank size={20} weight="light" />} label="Age" value={selected.age || "—"} />
               </div>
-            </div>
-            <div className="ci-hero-actions">
-              {hasOps && (
-                <button type="button" className="ci-btn-gold" onClick={onBilling}>
-                  Billing
-                </button>
-              )}
-              {isAdmin && (
-                <button type="button" className="ci-btn-outline" onClick={() => onEdit(selected)}>
-                  <PencilSimple size={14} className="inline mr-1" style={{ verticalAlign: -2 }} />
-                  Edit
-                </button>
-              )}
-            </div>
-          </header>
 
-          {(selectedPkg.length > 0 || track) && (
-            <div className="ci-pkg-bars">
-              {selectedPkg.map(row => (
-                <PackageBar key={row.service_type} row={row} />
-              ))}
-              {!selectedPkg.length && track?.label && (
-                <div className="ci-pkg-bar-card">
-                  <div className="ci-pkg-bar-label">Package</div>
-                  <div className="ci-pkg-bar-title">{track.label}</div>
-                  {track.sub && <div className="ci-pkg-bar-sub">{track.sub}</div>}
-                </div>
-              )}
-            </div>
-          )}
-
-          {selected.locations?.length > 0 && (
-            <div className="ci-loc-strip">
-              {selected.locations.map((loc, i) => (
-                <div key={i} className="ci-loc-pill">
-                  <MapPin size={16} weight="duotone" style={{ color: "#7A8A6A", flexShrink: 0, marginTop: 2 }} />
-                  <div>
-                    <strong>{loc.service || "Location"}</strong>
-                    {loc.address || "—"}
+              <div className="ci-hero-split">
+                <div className="ci-hero-copy">
+                  <h1>{selected.name}</h1>
+                  <p className="ci-hero-tagline">
+                    {svc && <>{svc}. </>}
+                    {track?.sub || track?.label || "Client profile & clinical records"}
+                    {selected.parent_phone && (
+                      <> · <Phone size={12} className="inline" style={{ verticalAlign: -1 }} /> {selected.parent_phone}</>
+                    )}
+                  </p>
+                  {isAdmin && selected.cardStatus && selected.cardStatus !== "ok" && statusMeta && (
+                    <span className="inline-block text-xs font-bold px-2 py-1 rounded-sm" style={{ background: statusMeta.bg, color: statusMeta.color }}>
+                      {statusMeta.label}
+                    </span>
+                  )}
+                  <div className="ci-hero-ctas">
+                    {hasOps && (
+                      <button type="button" className="ci-btn-olive" onClick={onBilling}>
+                        Open billing
+                      </button>
+                    )}
+                    {isAdmin && (
+                      <button type="button" className="ci-btn-ghost" onClick={() => onEdit(selected)}>
+                        <PencilSimple size={14} className="inline mr-1" style={{ verticalAlign: -2 }} />
+                        Edit profile
+                      </button>
+                    )}
                   </div>
                 </div>
-              ))}
-            </div>
+                <div className="ci-hero-visual">
+                  <div
+                    className="ci-hero-portrait"
+                    style={{
+                      background: getChildColor(selected.name) || selected.color || "#fff",
+                      color: readable(getChildColor(selected.name) || selected.color || "#fff"),
+                    }}
+                  >
+                    {selected.initials || selected.name?.charAt(0)}
+                  </div>
+                </div>
+              </div>
+
+              {selectedPkg.length > 0 && (
+                <div className="ci-pkg-strip">
+                  {selectedPkg.map(row => (
+                    <MiniPkgBar key={row.service_type} row={row} />
+                  ))}
+                </div>
+              )}
+
+              <div className="ci-categories">
+                <CategoryCard icon={<MapPin size={28} weight="light" />} label="Locations" onClick={() => onOpenSection("location")} />
+                <CategoryCard icon={<Paperclip size={28} weight="light" />} label="Attachments" onClick={() => onOpenSection("attachments")} />
+                <CategoryCard icon={<ClipboardText size={28} weight="light" />} label="Case details" onClick={() => onOpenSection("details")} />
+                <CategoryCard icon={<ChartLineUp size={28} weight="light" />} label={`Progress${prCount > 0 ? ` (${prCount})` : ""}`} onClick={() => onOpenSection("progress")} />
+              </div>
+            </>
+          ) : (
+            <div className="ci-empty-pane">Select a client from the directory</div>
           )}
-
-          <div className="ci-split">
-            <div className="ci-contact-block">
-              <h3>Contact & team</h3>
-              {therapistName && (
-                <div className="ci-contact-item">
-                  <strong>Main therapist</strong>
-                  {therapistName}
-                </div>
-              )}
-              {selected.supervisor && (
-                <div className="ci-contact-item">
-                  <strong>Supervisor</strong>
-                  {selected.supervisor}
-                </div>
-              )}
-              {selected.parent_phone && (
-                <div className="ci-contact-item">
-                  <strong>Parent phone</strong>
-                  <span className="inline-flex items-center gap-1">
-                    <Phone size={13} /> {selected.parent_phone}
-                  </span>
-                </div>
-              )}
-              {selected.service_type && (
-                <div className="ci-contact-item">
-                  <strong>Service type</strong>
-                  {selected.service_type}
-                </div>
-              )}
-            </div>
-
-            <div className="ci-tile-grid">
-              <SectionTile
-                icon={<MapPin size={20} weight="duotone" />}
-                title="Locations"
-                desc="Home, school & clinic addresses"
-                onClick={() => onOpenSection("location")}
-              />
-              <SectionTile
-                icon={<Paperclip size={20} weight="duotone" />}
-                title="Attachments"
-                desc="Documents, reports & files"
-                onClick={() => onOpenSection("attachments")}
-              />
-              <SectionTile
-                icon={<ClipboardText size={20} weight="duotone" />}
-                title="Case details"
-                desc="Diagnosis, goals & clinical notes"
-                onClick={() => onOpenSection("details")}
-              />
-              <SectionTile
-                icon={<ChartLineUp size={20} weight="duotone" />}
-                title="Progress reports"
-                desc={prCount > 0 ? `${prCount} report${prCount !== 1 ? "s" : ""} on file` : "Track development milestones"}
-                badge={prCount}
-                onClick={() => onOpenSection("progress")}
-              />
-            </div>
-          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
-function SectionTile({ icon, title, desc, onClick, badge }) {
+function MetaItem({ icon, label, value }) {
   return (
-    <button type="button" className="ci-tile" onClick={onClick}>
-      <span className="ci-tile-icon">{icon}</span>
-      <span className="ci-tile-title">
-        {title}
-        {badge > 0 && (
-          <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: "#D4A64A", color: "#2C3625", verticalAlign: "middle" }}>
-            {badge}
-          </span>
-        )}
-      </span>
-      <span className="ci-tile-desc">{desc}</span>
-      <span className="ci-tile-link">Open <CaretRight size={12} weight="bold" /></span>
+    <div className="ci-meta-item">
+      {icon}
+      <span className="ci-meta-label">{label}</span>
+      <span className="ci-meta-value" title={String(value)}>{value}</span>
+    </div>
+  );
+}
+
+function CategoryCard({ icon, label, onClick }) {
+  return (
+    <button type="button" className="ci-cat-card" onClick={onClick}>
+      <div className="ci-cat-visual">{icon}</div>
+      <div className="ci-cat-label">{label}</div>
     </button>
   );
 }

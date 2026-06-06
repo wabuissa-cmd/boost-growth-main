@@ -112,7 +112,6 @@ export default function Clients() {
     <div>
       <PageBanner
         title="Client Info"
-        subtitle={`${activeCount} active · browse profiles, packages & case files`}
         toolbar={(
           <div className="flex items-center gap-1.5 flex-wrap">
             <div className="inline-flex rounded-lg border border-[#E2DDD4] p-0.5 bg-[#FAFAF7]">
