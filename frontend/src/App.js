@@ -20,6 +20,7 @@ const ImportPage = lazy(() => import("./pages/Import"));
 const LeaveBalance = lazy(() => import("./pages/LeaveBalance"));
 const LeaveRequests = lazy(() => import("./pages/LeaveRequests"));
 const Billing = lazy(() => import("./pages/Billing"));
+const DesignPreview = lazy(() => import("./pages/DesignPreview"));
 
 function Loading() {
   return <div className="min-h-screen flex items-center justify-center bg-organic"><div className="spinner"/></div>;
@@ -54,6 +55,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/home" replace/> : <Login/>}/>
+      <Route path="/design-preview" element={<DesignPreview/>}/>
       <Route element={<Protected><Shell/></Protected>}>
         <Route path="/" element={<Navigate to="/home" replace/>}/>
         <Route path="/home" element={<Home/>}/>
