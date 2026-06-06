@@ -1,26 +1,29 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "../api";
 import { cachedGet } from "../dataCache";
-import { useAuth, showAdminNav, hasFullClientAccess } from "../auth";
+import { useAuth, showAdminNav, hasOpsAccess } from "../auth";
 import { Plus, MagnifyingGlass } from "@phosphor-icons/react";
-import ClientInfoCard from "../components/ClientInfoCard";
-import ClientDrawer from "../components/ClientDrawer";
+import ClientInfoLayout from "../components/ClientInfoLayout";
 import PageBanner from "../components/PageBanner";
+import { enrichClientForCardView } from "../attendanceUtils";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
 
 export default function Clients() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = showAdminNav(user);
+  const hasOps = hasOpsAccess(user);
   const [items, setItems] = useState([]);
   const [therapists, setTherapists] = useState([]);
   const [edit, setEdit] = useState(null);
   const [search, setSearch] = useState("");
   const [statusTab, setStatusTab] = useState("active");
   const [therapistFilter, setTherapistFilter] = useState("");
-  const [drawerClient, setDrawerClient] = useState(null);
+  const [selectedClientId, setSelectedClientId] = useState(null);
   const [panelClient, setPanelClient] = useState(null); // { client, section }
   const [prSummaries, setPrSummaries] = useState({});
   const [pkgByClient, setPkgByClient] = useState({});
@@ -66,7 +69,19 @@ export default function Clients() {
   const remove = async (id) => { if (!window.confirm("Remove this client from the active list? (Can be restored from Admin)")) return; await api.delete(`/clients/${id}`); load(); };
   const findT = id => therapists.find(t => t.id === id);
 
-  const filtered = items.filter(c => {
+  const activeCount = items.filter(c => (c.status || "Active") !== "Inactive").length;
+
+  const packageRows = useMemo(
+    () => Object.values(pkgByClient).flat(),
+    [pkgByClient]
+  );
+
+  const enrichedClients = useMemo(
+    () => items.map(c => enrichClientForCardView(c, packageRows)),
+    [items, packageRows]
+  );
+
+  const filtered = enrichedClients.filter(c => {
     const q = search.toLowerCase();
     const matchSearch = c.name.toLowerCase().includes(q) || (c.file_no || "").includes(search);
     const isActive = (c.status || "Active") !== "Inactive";
@@ -75,26 +90,29 @@ export default function Clients() {
     return matchSearch && matchTab && matchTherapist;
   });
 
-  const openDrawer = (client) => setDrawerClient(client);
-  const openSectionFromDrawer = (section) => {
-    if (!drawerClient) return;
-    setPanelClient({ client: drawerClient, section });
-    setDrawerClient(null);
+  const attentionCount = enrichedClients.filter(c => {
+    const rows = pkgByClient[c.id] || [];
+    return rows.some(r => ["critical", "low"].includes(r.status));
+  }).length;
+
+  const layoutCounts = {
+    all: items.length,
+    active: activeCount,
+    attention: attentionCount,
   };
 
-  const activeCount = items.filter(c => (c.status || "Active") !== "Inactive").length;
+  const selectedClient = filtered.find(c => c.id === selectedClientId) || filtered[0] || null;
+
+  const openSection = (section) => {
+    if (!selectedClient) return;
+    setPanelClient({ client: selectedClient, section });
+  };
 
   return (
     <div>
       <PageBanner
         title="Client Info"
-        subtitle={`${activeCount} active · ${items.length} total`}
-        stats={[
-          { label: "Active", n: activeCount, color: "#3D4F35" },
-          { label: "Inactive", n: items.length - activeCount, color: "#5C6853" },
-          { label: "Total", n: items.length, color: "#2C3625" },
-          { label: "Showing", n: filtered.length, color: "#6B5218" },
-        ]}
+        subtitle={`${activeCount} active · browse profiles, packages & case files`}
         toolbar={(
           <div className="flex items-center gap-1.5 flex-wrap">
             <div className="inline-flex rounded-lg border border-[#E2DDD4] p-0.5 bg-[#FAFAF7]">
@@ -128,35 +146,20 @@ export default function Clients() {
         )}
       />
 
-      <div className="max-w-5xl mx-auto">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 stagger">
-          {filtered.length === 0 && (
-            <div className="card p-12 text-center ui-caption col-span-full">No clients in this list</div>
-          )}
-          {filtered.map(c => (
-            <ClientInfoCard
-              key={c.id}
-              client={c}
-              therapistName={findT(c.main_therapist_id)?.name?.replace("Ms. ", "") || ""}
-              pkgRows={pkgByClient[c.id] || []}
-              onView={openDrawer}
-            />
-          ))}
-        </div>
-      </div>
-
-      {drawerClient && (
-        <ClientDrawer
-          client={drawerClient}
-          therapistName={findT(drawerClient.main_therapist_id)?.name || ""}
-          pkgRows={pkgByClient[drawerClient.id] || []}
-          prSummary={prSummaries[drawerClient.id]}
-          isAdmin={isAdmin}
-          onClose={() => setDrawerClient(null)}
-          onEdit={(c) => setEdit({ ...c, co_therapist_ids: c.co_therapist_ids || [], locations: c.locations || [] })}
-          onOpenSection={openSectionFromDrawer}
-        />
-      )}
+      <ClientInfoLayout
+        clients={filtered}
+        selectedId={selectedClientId}
+        onSelect={setSelectedClientId}
+        pkgByClient={pkgByClient}
+        findTherapist={findT}
+        prSummaries={prSummaries}
+        counts={layoutCounts}
+        isAdmin={isAdmin}
+        hasOps={hasOps}
+        onOpenSection={openSection}
+        onEdit={(c) => setEdit({ ...c, co_therapist_ids: c.co_therapist_ids || [], locations: c.locations || [] })}
+        onBilling={() => selectedClient && navigate(`/billing?client=${selectedClient.id}`)}
+      />
 
       {panelClient?.section === "location" && (
         <LocationPanelModal client={panelClient.client} onClose={closePanel} />
