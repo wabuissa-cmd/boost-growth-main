@@ -22,6 +22,7 @@ import ScheduleHolidaysModal from "../components/ScheduleHolidaysModal";
 import LogSessionModal, { slotToTime24, addHoursToTime } from "../components/LogSessionModal";
 import { sortTherapistsForSchedule, getTherapistScheduleName, scheduleOwnBlockOnly, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
 import { cachedGet } from "../dataCache";
+import "../dashboardLayout.css";
 
 const SCHEDULE_ZOOM = 80;
 
@@ -1032,6 +1033,7 @@ export default function Schedule() {
         </div>
       )}
 
+      <div className="dash-schedule-wrap">
       <div className="sched-zoom" style={{ "--sched-zoom": SCHEDULE_ZOOM / 100 }}>
         {cells.length === 0 && (
           <div className="card p-10 text-center mb-4" style={{ background: "linear-gradient(135deg, #FAF5E8 0%, #F0E9D8 100%)", borderColor: "#E8C572" }}>
@@ -1055,6 +1057,7 @@ export default function Schedule() {
             {blocksTherapists.map((t, i) => renderTherapistBlock(t, i))}
           </div>
         )}
+      </div>
       </div>
 
       {panelOpen && panelForm && (

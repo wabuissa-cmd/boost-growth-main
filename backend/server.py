@@ -255,6 +255,11 @@ class ScheduleClosureIn(BaseModel):
     label: str  # e.g. National Day, Eid
     therapist_ids: Optional[List[str]] = None  # empty / omitted = all therapists
 
+class CenterUpdateIn(BaseModel):
+    title: str
+    body: Optional[str] = None
+    date: Optional[str] = None  # ISO yyyy-mm-dd display date
+
 class SessionIn(BaseModel):
     client_id: str
     session_date: str  # ISO date
@@ -792,6 +797,26 @@ async def create_schedule_closure(body: ScheduleClosureIn, _=Depends(ops_or_admi
 async def delete_schedule_closure(cid: str, _=Depends(ops_or_admin)):
     await db.schedule_closures.delete_one({"id": cid})
     return {"ok": True}
+
+@api.get("/center-updates")
+async def list_center_updates(user=Depends(get_current_user)):
+    return await db.center_updates.find({}, {"_id": 0}).sort("date", -1).to_list(20)
+
+@api.post("/center-updates")
+async def create_center_update(body: CenterUpdateIn, _=Depends(admin_only)):
+    title = (body.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title required")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "title": title,
+        "body": (body.body or "").strip(),
+        "date": (body.date or now_iso()[:10]),
+        "created_at": now_iso(),
+    }
+    await db.center_updates.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
 
 @api.get("/schedule")
 async def list_schedule(week_start: Optional[str] = None, user=Depends(get_current_user)):
@@ -6444,6 +6469,12 @@ RESOURCES_SEED = [
     {"title":"Company Policies","description":"Internal policies & SOPs","url":"https://drive.google.com/drive/folders/11VQQ-o1QoDQV-ktygB1tlnRmqCs3mxAb","visibility":"all","icon":"Notebook","bg":"#F4E7D8","color":"#8B6918","sort_order":50},
 ]
 
+CENTER_UPDATES_SEED = [
+    {"title": "Summer schedule published", "body": "The June schedule is live — check your calendar for any location changes.", "date": "2025-06-01"},
+    {"title": "New prep sheet workflow", "body": "Session preparation now tracks SS week progress automatically on the Attendance page.", "date": "2025-05-28"},
+    {"title": "Eid closure reminder", "body": "Center closures are marked on your home calendar. Log sessions only on working days.", "date": "2025-05-20"},
+]
+
 
 async def _run_startup():
     try:
@@ -6591,6 +6622,16 @@ async def _run_startup():
                     "created_at": now_iso(),
                 })
             logger.info(f"Seeded {len(RESOURCES_SEED)} resources")
+
+        # Seed center updates (only if empty)
+        if await db.center_updates.count_documents({}) == 0:
+            for item in CENTER_UPDATES_SEED:
+                await db.center_updates.insert_one({
+                    "id": str(uuid.uuid4()),
+                    **item,
+                    "created_at": now_iso(),
+                })
+            logger.info(f"Seeded {len(CENTER_UPDATES_SEED)} center updates")
 
         # Seed Leaves (only if empty) — from leaves_seed.json (parsed Vacation 2026)
         if await db.leaves.count_documents({}) == 0:

@@ -1,12 +1,13 @@
 import { useEffect, useState, useMemo } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
-import { Plus, X, Trash, PencilSimple, Star, Phone, MapPin } from "@phosphor-icons/react";
+import { Plus, Trash, PencilSimple, Star, Phone, MapPin, Users, ClipboardText } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
-import PageBanner from "../components/PageBanner";
+import DashboardStatCard from "../components/DashboardStatCard";
+import "../dashboardLayout.css";
 
 const STATUS = { new: "New", contacted: "Contacted", scheduled: "Scheduled", completed: "Completed" };
 const STATUS_COLORS = {
@@ -33,7 +34,7 @@ export default function Intake() {
     try {
       const { data } = await api.get("/intake");
       setItems(data);
-    } catch (_e) { /* 403 for therapists */ setItems([]); }
+    } catch (_e) { setItems([]); }
   };
   useEffect(() => { load(); }, []);
 
@@ -46,7 +47,6 @@ export default function Intake() {
 
   const moveToPost = async (item) => {
     if (!window.confirm(`Move "${item.child_name}" to Post-Intake?\n\nThe original Pre-Intake record will be kept for reference.`)) return;
-    // Copy all data, change type to "post" and reset id so a new record is created
     const copy = { ...item, intake_type: "post", status: "new" };
     delete copy.id;
     delete copy.created_at;
@@ -73,103 +73,111 @@ export default function Intake() {
   const priCount = filtered.filter(i => i.priority).length;
 
   return (
-    <div>
-      <PageBanner
-        title="Intake List"
-        subtitle="Pre-Intake & Post-Intake registrations"
-        badge={isAdmin ? (
-          <>
-            <button data-testid="add-pre-intake" onClick={() => setEdit(emptyItem("pre"))} className="btn btn-primary text-xs px-2.5 py-1.5 min-h-0"><Plus size={14} /> Pre-Intake</button>
-            <button data-testid="add-post-intake" onClick={() => setEdit(emptyItem("post"))} className="btn btn-secondary text-xs px-2.5 py-1.5 min-h-0"><Plus size={14} /> Post-Intake</button>
-          </>
-        ) : null}
-        stats={[
-          { label: "Total", n: filtered.length, color: "#2C3625" },
-          { label: "HS", n: hsCount, color: "#375568" },
-          { label: "SS", n: ssCount, color: "#3D4F35" },
-          { label: "Priority", n: priCount, color: "#D4A64A" },
-        ]}
-      />
+    <div className="page-enter">
+      <header className="intake-hero">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] tracking-[0.25em] font-bold mb-1" style={{ color: "#7A8A6A" }}>INTAKE</div>
+            <h1 className="font-display text-2xl md:text-3xl m-0" style={{ color: "#2C3625" }}>Waiting List</h1>
+            <p className="text-sm mt-1 mb-0" style={{ color: "#5C6853" }}>Pre-Intake & Post-Intake registrations</p>
+          </div>
+          {isAdmin && (
+            <div className="flex gap-2 flex-wrap">
+              <button data-testid="add-pre-intake" onClick={() => setEdit(emptyItem("pre"))} className="home-hero-btn primary text-xs">
+                <Plus size={14} /> Pre-Intake
+              </button>
+              <button data-testid="add-post-intake" onClick={() => setEdit(emptyItem("post"))} className="home-hero-btn outline text-xs">
+                <Plus size={14} /> Post-Intake
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="dash-stat-row mt-4">
+          <DashboardStatCard value={filtered.length} label="Total" icon={<Users size={20} weight="fill" style={{ color: "#2C3625", background: "#FAFAF7", borderRadius: 12, padding: 6 }} />} />
+          <DashboardStatCard variant="sage" value={hsCount} label="HS" icon={<ClipboardText size={20} weight="fill" style={{ color: "#375568", background: "#EAF0F3", borderRadius: 12, padding: 6 }} />} />
+          <DashboardStatCard variant="sage" value={ssCount} label="SS" icon={<ClipboardText size={20} weight="fill" style={{ color: "#606E52", background: "#E5EBE1", borderRadius: 12, padding: 6 }} />} />
+          <DashboardStatCard variant="gold" value={priCount} label="Priority" icon={<Star size={20} weight="fill" style={{ color: "#6B5218", background: "#FAF0D1", borderRadius: 12, padding: 6 }} />} />
+        </div>
+      </header>
 
-      <div className="flex gap-2 mb-4 flex-wrap">
-        <button data-testid="tab-pre" onClick={() => setTab("pre")} className={`pill px-5 py-2.5 text-sm transition-all ${tab === "pre" ? "bg-[#7A8A6A] text-white" : "bg-[#F0E9D8]"}`}>📋 Pre-Intake ({totalPre})</button>
-        <button data-testid="tab-post" onClick={() => setTab("post")} className={`pill px-5 py-2.5 text-sm transition-all ${tab === "post" ? "bg-[#7A8A6A] text-white" : "bg-[#F0E9D8]"}`}>✅ Post-Intake ({totalPost})</button>
+      <div className="intake-tabs">
+        <button data-testid="tab-pre" type="button" onClick={() => setTab("pre")} className={`intake-tab${tab === "pre" ? " active" : ""}`}>
+          Pre-Intake ({totalPre})
+        </button>
+        <button data-testid="tab-post" type="button" onClick={() => setTab("post")} className={`intake-tab${tab === "post" ? " active" : ""}`}>
+          Post-Intake ({totalPost})
+        </button>
+        <button
+          type="button"
+          title={priorityOnly ? "Show all" : "Priority first"}
+          onClick={() => setPriorityOnly(v => !v)}
+          className={`intake-tab ml-auto${priorityOnly ? " active" : ""}`}
+          style={priorityOnly ? {} : { background: "transparent" }}
+        >
+          <Star size={14} weight={priorityOnly ? "fill" : "regular"} className="inline mr-1" /> Priority
+        </button>
       </div>
 
-      <div className="card p-0 overflow-x-auto table-scroll" style={{ WebkitOverflowScrolling: "touch" }}>
-        <table className="w-full text-sm min-w-[720px]">
-          <thead style={{ background: "#F0E9D8" }}>
-            <tr>
-              <th className="p-3 text-center font-bold w-10">
-                <button
-                  type="button"
-                  title={priorityOnly ? "Show all clients" : "Show priority clients first"}
-                  onClick={() => setPriorityOnly(v => !v)}
-                  className={`btn btn-ghost p-1 mx-auto ${priorityOnly ? "ring-2 ring-[#D4A64A] rounded-lg" : ""}`}
-                  style={{ color: priorityOnly ? "#D4A64A" : "#2C3625" }}
-                >
-                  ⭐
-                </button>
-              </th>
-              <th className="p-3 text-left font-bold" style={{ color: "#2C3625" }}>Child</th>
-              <th className="p-3 text-left font-bold" style={{ color: "#2C3625" }}>Service</th>
-              <th className="p-3 text-left font-bold" style={{ color: "#2C3625" }}>Phone</th>
-              <th className="p-3 text-left font-bold" style={{ color: "#2C3625" }}>District</th>
-              <th className="p-3 text-left font-bold" style={{ color: "#2C3625" }}>Age</th>
-              {tab === "pre" ? <th className="p-3 text-left font-bold" style={{ color: "#2C3625" }}>Time</th> : <th className="p-3 text-left font-bold" style={{ color: "#2C3625" }}>Language</th>}
-              <th className="p-3 text-left font-bold" style={{ color: "#2C3625" }}>Diagnosis</th>
-              <th className="p-3 text-left font-bold" style={{ color: "#2C3625" }}>Status</th>
-              <th className="p-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {displayed.length === 0 && <tr><td colSpan={10} className="p-12 text-center" style={{ color: "#8B9E7A" }}>No records</td></tr>}
-            {displayed.map(i => (
-              <tr key={i.id} className="border-t border-[#E2DDD4] hover:bg-[#E5EBE1]/30 transition">
-                <td className="p-3 text-center">
+      {displayed.length === 0 ? (
+        <div className="card p-12 text-center rounded-[22px]" style={{ color: "#8B9E7A" }}>No records</div>
+      ) : (
+        <div className="stagger">
+          {displayed.map(i => (
+            <article key={i.id} className={`intake-card${i.priority ? " priority" : ""}`}>
+              <div className="intake-card-head">
+                <div className="flex items-start gap-2 min-w-0">
                   {isAdmin ? (
-                    <button onClick={() => api.put(`/intake/${i.id}`, { ...i, priority: !i.priority }).then(load)}
-                      className="btn btn-ghost p-1">
-                      <Star size={18} weight={i.priority ? "fill" : "regular"} style={{ color: i.priority ? "#D4A64A" : "#C5C0B7" }} />
+                    <button type="button" onClick={() => api.put(`/intake/${i.id}`, { ...i, priority: !i.priority }).then(load)} className="btn btn-ghost p-1 shrink-0">
+                      <Star size={20} weight={i.priority ? "fill" : "regular"} style={{ color: i.priority ? "#D4A64A" : "#C5C0B7" }} />
                     </button>
-                  ) : (i.priority ? <Star size={18} weight="fill" style={{ color: "#D4A64A" }} /> : null)}
-                </td>
-                <td className="p-3 font-bold" style={{ color: "#2C3625" }}>{i.child_name}</td>
-                <td className="p-3">
-                  <span className="pill text-[10px] px-2 py-0.5" style={{
-                    background: (i.service || "").toUpperCase().includes("SS") ? "#E5EBE1" : "#EAF0F3",
-                    color: (i.service || "").toUpperCase().includes("SS") ? "#3D4F35" : "#375568"
-                  }}>{i.service || "—"}</span>
-                </td>
-                <td className="p-3" style={{ color: "#5C6853" }}>
-                  {i.phone ? <a href={`tel:${i.phone}`} className="flex items-center gap-1 hover:text-[#7A8A6A]"><Phone size={12} />{i.phone}</a> : "—"}
-                </td>
-                <td className="p-3" style={{ color: "#5C6853" }}>
-                  {i.district ? <span className="flex items-center gap-1"><MapPin size={12} />{i.district}</span> : "—"}
-                </td>
-                <td className="p-3" style={{ color: "#5C6853" }}>{i.age || "—"}</td>
-                {tab === "pre"
-                  ? <td className="p-3" style={{ color: "#5C6853" }}>{i.time_pref || "—"}</td>
-                  : <td className="p-3" style={{ color: "#5C6853" }}>{i.language || "—"}</td>}
-                <td className="p-3 text-xs" style={{ color: "#8B9E7A" }}>{i.diagnosis || "—"}</td>
-                <td className="p-3"><span className="pill" style={{ background: `${STATUS_COLORS[i.status]}25`, color: STATUS_COLORS[i.status] }}>{STATUS[i.status] || i.status}</span></td>
-                <td className="p-3 text-right whitespace-nowrap">
-                  {isAdmin && tab === "pre" && (
-                    <button data-testid={`move-post-${i.id}`} onClick={() => moveToPost(i)}
-                            className="btn btn-secondary text-[11px] px-2 py-1 mr-1">→ Post-Intake</button>
+                  ) : i.priority ? (
+                    <Star size={20} weight="fill" style={{ color: "#D4A64A" }} className="shrink-0 mt-0.5" />
+                  ) : null}
+                  <div>
+                    <div className="intake-card-name">{i.child_name}</div>
+                    <span className="pill text-[10px] px-2 py-0.5 mt-1 inline-block" style={{
+                      background: (i.service || "").toUpperCase().includes("SS") ? "#E5EBE1" : "#EAF0F3",
+                      color: (i.service || "").toUpperCase().includes("SS") ? "#3D4F35" : "#375568"
+                    }}>{i.service || "—"}</span>
+                  </div>
+                </div>
+                <span className="pill shrink-0" style={{ background: `${STATUS_COLORS[i.status]}25`, color: STATUS_COLORS[i.status] }}>
+                  {STATUS[i.status] || i.status}
+                </span>
+              </div>
+              <div className="intake-card-meta">
+                {i.phone && (
+                  <a href={`tel:${i.phone}`} className="flex items-center gap-1 hover:text-[#7A8A6A]">
+                    <Phone size={13} />{i.phone}
+                  </a>
+                )}
+                {i.district && (
+                  <span className="flex items-center gap-1"><MapPin size={13} />{i.district}</span>
+                )}
+                {i.age && <span>Age: {i.age}</span>}
+                {tab === "pre" && i.time_pref && <span>Pref: {i.time_pref}</span>}
+                {tab === "post" && i.language && <span>Lang: {i.language}</span>}
+                {i.diagnosis && <span>{i.diagnosis}</span>}
+              </div>
+              {isAdmin && (
+                <div className="intake-card-actions">
+                  {tab === "pre" && (
+                    <button data-testid={`move-post-${i.id}`} type="button" onClick={() => moveToPost(i)} className="btn btn-secondary text-[11px] px-3 py-1.5">
+                      → Post-Intake
+                    </button>
                   )}
-                  {isAdmin && (
-                    <>
-                      <button onClick={() => setEdit({ ...i })} className="btn btn-ghost p-2" data-testid={`edit-intake-${i.id}`}><PencilSimple size={16} /></button>
-                      <button onClick={() => remove(i.id)} className="btn btn-ghost p-2 text-red-700"><Trash size={16} /></button>
-                    </>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                  <button type="button" onClick={() => setEdit({ ...i })} className="btn btn-outline text-[11px] px-3 py-1.5" data-testid={`edit-intake-${i.id}`}>
+                    <PencilSimple size={14} /> Edit
+                  </button>
+                  <button type="button" onClick={() => remove(i.id)} className="btn btn-ghost text-[11px] px-2 py-1.5 text-red-700">
+                    <Trash size={14} />
+                  </button>
+                </div>
+              )}
+            </article>
+          ))}
+        </div>
+      )}
 
       {edit && (
         <ModalBase
