@@ -1,6 +1,6 @@
 import { Plus, ClockCounterClockwise, MapPin, Flower } from "@phosphor-icons/react";
 import { getChildColor, readable } from "../childColors";
-import { cardStatusMeta } from "../attendanceUtils";
+import { cardStatusMeta, prepTrackMeta } from "../attendanceUtils";
 import SsWeekStatusRow from "./SsWeekStatusRow";
 
 /** Intake palette — beige + white, calm for the eye */
@@ -21,30 +21,6 @@ const C = {
 
 const PROGRESS_FILL = C.progress;
 
-function trackMeta(client) {
-  if (client.hasHs && client.hsProgress) {
-    const { used, pkg, pct, remaining } = client.hsProgress;
-    return {
-      pct: pct ?? 0,
-      label: `Home Session · ${used.toFixed(1)}h of ${pkg}h`,
-      sub: `${remaining.toFixed(1)}h remaining`,
-    };
-  }
-  if (client.hasSs && client.ssWeeks?.length) {
-    const done = client.ssWeeks.filter(w => w.weekStatus === "Completed").length;
-    const total = client.ssWeeks.length;
-    const pct = total ? Math.round((done / total) * 100) : 0;
-    const current = client.ssWeeks.find(w => w.weekStatus === "In Progress")
-      || client.ssWeeks.find(w => w.weekStatus === "Not started");
-    return {
-      pct,
-      label: `School Support · ${done}/${total} weeks done`,
-      sub: current ? `Week ${current.weekNumber} · ${current.weekStatus}` : client.ssAlert || "",
-    };
-  }
-  return { pct: 0, label: "No open package", sub: "" };
-}
-
 export default function PreparationClientRow({
   client,
   therapistName,
@@ -55,7 +31,7 @@ export default function PreparationClientRow({
   const meta = cardStatusMeta(client.cardStatus);
   const avatarBg = getChildColor(client.name) || meta.bar;
   const avatarFg = readable(avatarBg);
-  const track = trackMeta(client);
+  const track = prepTrackMeta(client);
 
   return (
     <article

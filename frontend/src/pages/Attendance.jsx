@@ -26,7 +26,7 @@ import {
   sessionEditableByUser,
 } from "../attendanceUtils";
 import { PackageAlertBanner } from "../components/PackageStatusBadge";
-import PreparationClientRow from "../components/PreparationClientRow";
+import PreparationPrepLayout from "../components/PreparationPrepLayout";
 import PageBanner from "../components/PageBanner";
 import LogSessionModal from "../components/LogSessionModal";
 import SsWeekStatusRow, { SsWeekLegend } from "../components/SsWeekStatusRow";
@@ -168,6 +168,7 @@ export default function Attendance() {
   const [logFor, setLogFor] = useState(null); // client OR null OR "__pick__"
   const [editingSess, setEditingSess] = useState(null);
   const [historyFor, setHistoryFor] = useState(null);
+  const [selectedPrepId, setSelectedPrepId] = useState(null);
 
   const load = useCallback(async (force = false) => {
     const [c, t, pkg] = await Promise.all([
@@ -272,26 +273,25 @@ export default function Attendance() {
         toolbar={prepToolbar}
       />
 
-      {/* Client list — tracking rows */}
-      <div className="space-y-3 stagger">
+      {/* Client list — design preview layout */}
+      <div className="stagger">
         {!cardsReady && (
           <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>
             <div className="spinner mx-auto mb-3" /> Loading clients…
           </div>
         )}
-        {cardsReady && filtered.length === 0 && (
-          <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>No clients</div>
-        )}
-        {cardsReady && filtered.map(c => (
-          <PreparationClientRow
-            key={c.id}
-            client={c}
-            therapistName={findT(c.main_therapist_id)?.name || ""}
-            onLog={() => setLogFor(c)}
-            onHistory={() => setHistoryFor(c)}
-            hideStatusBadge={!isAdmin}
+        {cardsReady && (
+          <PreparationPrepLayout
+            clients={filtered}
+            selectedId={selectedPrepId}
+            onSelect={setSelectedPrepId}
+            onLog={c => setLogFor(c)}
+            onHistory={c => setHistoryFor(c)}
+            counts={counts}
+            isAdmin={isAdmin}
+            findTherapist={id => findT(id)}
           />
-        ))}
+        )}
       </div>
 
       {/* Picker modal */}

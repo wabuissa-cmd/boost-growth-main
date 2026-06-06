@@ -758,6 +758,33 @@ export function cardStatusMeta(cardStatus) {
   return { label: "Safe", bg: "#E5EBE1", color: "#3D4F35", border: "#B8C8A8", bar: "#7A8A6A" };
 }
 
+/** Progress ring / bar for preparation cards (HS hours or SS weeks). */
+export function prepTrackMeta(client) {
+  if (client?.hasHs && client.hsProgress) {
+    const { used, pkg, pct, remaining } = client.hsProgress;
+    return {
+      pct: pct ?? 0,
+      label: `Home Session · ${used.toFixed(1)}h of ${pkg}h`,
+      sub: `${remaining.toFixed(1)}h remaining`,
+      service: "HS",
+    };
+  }
+  if (client?.hasSs && client.ssWeeks?.length) {
+    const done = client.ssWeeks.filter(w => w.weekStatus === "Completed").length;
+    const total = client.ssWeeks.length;
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    const current = client.ssWeeks.find(w => w.weekStatus === "In Progress")
+      || client.ssWeeks.find(w => w.weekStatus === "Not started");
+    return {
+      pct,
+      label: `School Support · ${done}/${total} weeks done`,
+      sub: current ? `Week ${current.weekNumber} · ${current.weekStatus}` : client.ssAlert || "",
+      service: "SS",
+    };
+  }
+  return { pct: 0, label: "No open package", sub: "", service: client?.locationService || "HS" };
+}
+
 export function ssWeekAlertText(ssRow) {
   if (!ssRow || !["critical", "low"].includes(ssRow.status)) return null;
   const wk = ssRow.current_week || ssRow.total_weeks || 4;
