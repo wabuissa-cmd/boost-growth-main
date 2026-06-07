@@ -422,10 +422,44 @@
   border: 1px solid #E2DDD4;
   border-radius: 20px;
   overflow: hidden;
-  min-height: 520px;
+  min-height: 280px;
   display: flex;
   flex-direction: column;
   max-height: calc(100dvh - 10rem);
+}
+
+.req-sidebar-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: calc(100dvh - 10rem);
+}
+
+.req-panel-purchases {
+  background: #fff;
+  border: 1px solid #E2DDD4;
+  border-radius: 20px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.req-panel-purchases--compact {
+  flex: 1;
+  min-height: 220px;
+  max-height: 360px;
+}
+
+.req-panel-head--tight {
+  padding: 0.75rem 0.85rem;
+}
+
+.req-panel-list--compact {
+  max-height: 240px;
+}
+
+.req-item--compact {
+  padding: 0.55rem 0.65rem;
 }
 
 .req-panel-head {

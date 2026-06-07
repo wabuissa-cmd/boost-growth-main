@@ -21,6 +21,7 @@ const LeaveBalance = lazy(() => import("./pages/LeaveBalance"));
 const LeaveRequests = lazy(() => import("./pages/LeaveRequests"));
 const Billing = lazy(() => import("./pages/Billing"));
 const TherapistMyReports = lazy(() => import("./pages/TherapistMyReports"));
+const Purchases = lazy(() => import("./pages/Purchases"));
 const DesignPreview = lazy(() => import("./pages/DesignPreview"));
 
 function Loading() {
@@ -79,6 +80,7 @@ function AppRoutes() {
         <Route path="/import" element={<AdminOnly><ImportPage/></AdminOnly>}/>
         <Route path="/admin" element={<AdminOnly><Admin/></AdminOnly>}/>
         <Route path="/leave-balance" element={<AdminOnly><LeaveBalance/></AdminOnly>}/>
+        <Route path="/purchases" element={<AdminOnly><Purchases/></AdminOnly>}/>
         <Route path="/leaves" element={<AdminOnly><LeaveRequests/></AdminOnly>}/>
         <Route path="/leave-requests" element={<Navigate to="/leaves" replace/>}/>
         <Route path="/therapist-leaves" element={<Navigate to="/leave-balance" replace/>}/>

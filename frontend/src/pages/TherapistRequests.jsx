@@ -13,6 +13,7 @@ import {
 import PageBanner from "../components/PageBanner";
 import "../clientInfoLayout.css";
 import VerticalStepper from "../components/VerticalStepper";
+import PurchasesPanel from "../components/PurchasesPanel";
 import "../stepperLayout.css";
 import {
   LEAVE_STATUS, LEAVE_TYPES, diffDays, fmtDateRange, leaveStatusLabel, permissionPayLabel,
@@ -264,6 +265,7 @@ export default function TherapistRequests() {
           </div>
         </section>
 
+        <div className="req-sidebar-stack">
         <section className="req-panel-sidebar">
           <div className="req-panel-head">
             <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>General Requests</h2>
@@ -322,6 +324,8 @@ export default function TherapistRequests() {
             })}
           </div>
         </section>
+        <PurchasesPanel compact />
+        </div>
       </div>
 
       {edit && (

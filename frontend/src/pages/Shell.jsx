@@ -5,8 +5,8 @@ import api, { startOfWeek, toISODate } from "../api";
 import { prefetch } from "../dataCache";
 import {
   House, CalendarBlank, ClipboardText, UsersThree, Receipt,
-  Bell, SignOut, ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, CaretDown, Folder, UserCircle,
-  SidebarSimple, Rows,
+  Bell, SignOut,   ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, CaretDown, Folder, UserCircle,
+  SidebarSimple, Rows, ShoppingBag,
 } from "@phosphor-icons/react";
 
 import SidebarNav from "../components/SidebarNav";
@@ -104,6 +104,7 @@ export default function Shell() {
     requestsItems.push({ to: "/requests", label: "Staff Requests", testid: "nav-requests" });
     requestsItems.push({ to: "/leaves", label: "Leave Requests", testid: "nav-leave-requests" });
     requestsItems.push({ to: "/leave-balance", label: "Leave Balance", testid: "nav-leave-balance" });
+    requestsItems.push({ to: "/purchases", label: "Purchases", testid: "nav-purchases" });
   }
 
   // Admin tools — Reports, Import, Admin page
@@ -124,7 +125,9 @@ export default function Shell() {
       ...it,
       icon: it.to === "/leave-balance"
         ? <UserList size={17} weight="duotone"/>
-        : <ListChecks size={17} weight="duotone"/>,
+        : it.to === "/purchases"
+          ? <ShoppingBag size={17} weight="duotone"/>
+          : <ListChecks size={17} weight="duotone"/>,
     })),
     ...(showBilling ? [{ to: "/billing", label: "Billing", testid: "nav-billing", icon: <Receipt size={17} weight="duotone"/> }] : []),
   ];

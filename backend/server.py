@@ -286,6 +286,48 @@ class RequestStatusUpdate(BaseModel):
     status: str
     admin_note: Optional[str] = None
 
+PURCHASE_CATEGORIES = [
+    "Events & Celebrations",
+    "Training & Workshops",
+    "Catering & Hospitality",
+    "Supplies & Materials",
+    "Services",
+    "Transportations",
+    "Software & Subscriptions",
+    "Marketing & Media",
+    "Decoration",
+    "Miscellaneous",
+]
+
+PURCHASE_STATUSES = ("pending", "approved", "reimbursed")
+
+class PurchaseIn(BaseModel):
+    item: str
+    category: str
+    description: Optional[str] = ""
+    qty: Optional[str] = "1"
+    unit_price: Optional[str] = ""
+    total: Optional[float] = None
+    purchase_date: Optional[str] = None
+    notes: Optional[str] = None
+
+class PurchaseUpdate(BaseModel):
+    item: Optional[str] = None
+    category: Optional[str] = None
+    description: Optional[str] = None
+    qty: Optional[str] = None
+    unit_price: Optional[str] = None
+    total: Optional[float] = None
+    status: Optional[str] = None
+    reimbursement_date: Optional[str] = None
+    purchase_date: Optional[str] = None
+    notes: Optional[str] = None
+
+class PurchaseReminderSettingsIn(BaseModel):
+    day_of_month: int = 25
+    enabled: bool = True
+    therapist_ids: List[str] = []
+
 class DirectoryContactIn(BaseModel):
     name: str
     role: Optional[str] = None
@@ -3472,6 +3514,221 @@ async def download_sheet(sid: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="No file")
     fp = UPLOAD_DIR / sheet["file_path"]
     return FileResponse(str(fp), filename=sheet.get("file_name") or sheet["file_path"])
+
+# ------------------- Staff Purchases -------------------
+async def _resolve_therapist_by_purchaser(purchaser: str) -> Optional[dict]:
+    """Match spreadsheet purchaser name to a therapist record."""
+    raw = (purchaser or "").strip()
+    if not raw:
+        return None
+    low = raw.lower()
+    tokens = [t for t in re.split(r"[\s,]+", low) if t]
+    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1}).to_list(500)
+    best = None
+    best_score = 0
+    for t in therapists:
+        tname = (t.get("name") or "").lower().replace("ms.", "").replace("ms ", "").strip()
+        t_tokens = [x for x in re.split(r"[\s.]+", tname) if x]
+        score = 0
+        for tok in tokens:
+            if tok in ("almuhaisin", "althunayan", "algadheeb", "algadeeb"):
+                continue
+            if any(tok in tt or tt.startswith(tok[:3]) for tt in t_tokens):
+                score += 2
+            if tok in tname:
+                score += 3
+        if score > best_score:
+            best_score = score
+            best = t
+    return best if best_score >= 2 else None
+
+
+def _normalize_purchase_status(s: str) -> str:
+    v = (s or "pending").strip().lower()
+    if v in PURCHASE_STATUSES:
+        return v
+    if v == "reimbursed":
+        return "reimbursed"
+    return "pending"
+
+
+async def _get_purchase_reminder_settings() -> dict:
+    doc = await db.purchase_reminder_settings.find_one({"id": "default"}, {"_id": 0})
+    if not doc:
+        doc = {
+            "id": "default",
+            "day_of_month": 25,
+            "enabled": True,
+            "therapist_ids": [],
+            "last_sent_month": None,
+        }
+    return doc
+
+
+async def _send_purchase_reminders(force: bool = False) -> dict:
+    settings = await _get_purchase_reminder_settings()
+    if not settings.get("enabled") and not force:
+        return {"sent": 0, "skipped": "disabled"}
+    today = datetime.now(timezone.utc)
+    month_key = today.strftime("%Y-%m")
+    if not force and settings.get("last_sent_month") == month_key:
+        return {"sent": 0, "skipped": "already_sent_this_month"}
+    day = int(settings.get("day_of_month") or 25)
+    if not force and today.day < day:
+        return {"sent": 0, "skipped": "before_reminder_day"}
+    tids = settings.get("therapist_ids") or []
+    if not tids:
+        return {"sent": 0, "skipped": "no_therapists_selected"}
+    sent = 0
+    title = "Monthly purchase log reminder"
+    message = (
+        f"Please log your purchases for {today.strftime('%B %Y')} before month-end. "
+        "Open Request → Purchases to add items you bought for work."
+    )
+    for tid in tids:
+        await _notify(tid, "purchase_reminder", title, message)
+        sent += 1
+    await db.purchase_reminder_settings.update_one(
+        {"id": "default"},
+        {"$set": {"last_sent_month": month_key, "updated_at": now_iso()}},
+        upsert=True,
+    )
+    return {"sent": sent, "month": month_key}
+
+
+@api.get("/purchases/categories")
+async def purchase_categories(_=Depends(get_current_user)):
+    return PURCHASE_CATEGORIES
+
+
+@api.get("/purchases/reminder-settings")
+async def get_purchase_reminder_settings(_=Depends(admin_only)):
+    return await _get_purchase_reminder_settings()
+
+
+@api.put("/purchases/reminder-settings")
+async def update_purchase_reminder_settings(body: PurchaseReminderSettingsIn, _=Depends(admin_only)):
+    day = max(1, min(28, int(body.day_of_month or 25)))
+    doc = {
+        "id": "default",
+        "day_of_month": day,
+        "enabled": bool(body.enabled),
+        "therapist_ids": [t for t in (body.therapist_ids or []) if t],
+        "updated_at": now_iso(),
+    }
+    existing = await db.purchase_reminder_settings.find_one({"id": "default"}, {"_id": 0, "last_sent_month": 1})
+    if existing:
+        doc["last_sent_month"] = existing.get("last_sent_month")
+    await db.purchase_reminder_settings.update_one({"id": "default"}, {"$set": doc}, upsert=True)
+    return doc
+
+
+@api.post("/purchases/send-reminders")
+async def send_purchase_reminders(_=Depends(admin_only)):
+    return await _send_purchase_reminders(force=True)
+
+
+@api.get("/purchases")
+async def list_purchases(
+    therapist_id: Optional[str] = None,
+    status: Optional[str] = None,
+    month: Optional[str] = None,
+    user=Depends(get_current_user),
+):
+    q: dict = {}
+    if _is_portal_admin(user):
+        if therapist_id:
+            q["therapist_id"] = therapist_id
+    else:
+        tid = await _resolve_user_therapist_id(user) or user.get("id")
+        q["therapist_id"] = tid
+    if status:
+        q["status"] = _normalize_purchase_status(status)
+    if month:
+        q["purchase_month"] = month
+    items = await db.staff_purchases.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    return items
+
+
+@api.post("/purchases")
+async def create_purchase(payload: PurchaseIn, user=Depends(get_current_user)):
+    tid = await _resolve_user_therapist_id(user) or user.get("id")
+    if not tid:
+        raise HTTPException(status_code=403, detail="Therapist profile required")
+    item = (payload.item or "").strip()
+    category = (payload.category or "").strip()
+    if not item or not category:
+        raise HTTPException(status_code=400, detail="item and category required")
+    purchase_date = (payload.purchase_date or now_iso()[:10])[:10]
+    doc = {
+        "id": str(uuid.uuid4()),
+        "therapist_id": tid,
+        "therapist_name": user.get("name"),
+        "purchaser_name": user.get("name"),
+        "item": item,
+        "category": category,
+        "description": (payload.description or "").strip(),
+        "qty": (payload.qty or "1").strip(),
+        "unit_price": (payload.unit_price or "").strip(),
+        "total": float(payload.total) if payload.total is not None else None,
+        "total_display": str(payload.total) if payload.total is not None else "",
+        "status": "pending",
+        "reimbursement_date": None,
+        "purchase_date": purchase_date,
+        "purchase_month": purchase_date[:7],
+        "notes": (payload.notes or "").strip() or None,
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.staff_purchases.insert_one(doc)
+    doc.pop("_id", None)
+    await _notify_admins(
+        "purchase_new",
+        "New staff purchase logged",
+        f"{user.get('name')}: {item} ({category}) — pending review",
+    )
+    return doc
+
+
+@api.put("/purchases/{pid}")
+async def update_purchase(pid: str, payload: PurchaseUpdate, user=Depends(get_current_user)):
+    existing = await db.staff_purchases.find_one({"id": pid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Purchase not found")
+    is_admin = _is_portal_admin(user)
+    tid = await _resolve_user_therapist_id(user) or user.get("id")
+    if not is_admin and existing.get("therapist_id") != tid:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if not is_admin and existing.get("status") != "pending":
+        raise HTTPException(status_code=403, detail="Only pending entries can be edited")
+    patch = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if "status" in patch:
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="Admin only")
+        patch["status"] = _normalize_purchase_status(patch["status"])
+    if "purchase_date" in patch:
+        patch["purchase_date"] = patch["purchase_date"][:10]
+        patch["purchase_month"] = patch["purchase_date"][:7]
+    patch["updated_at"] = now_iso()
+    await db.staff_purchases.update_one({"id": pid}, {"$set": patch})
+    updated = await db.staff_purchases.find_one({"id": pid}, {"_id": 0})
+    if is_admin and patch.get("status") == "reimbursed" and existing.get("status") != "reimbursed":
+        await _notify(
+            existing["therapist_id"],
+            "purchase_reimbursed",
+            "Purchase reimbursed",
+            f"Your purchase \"{existing.get('item')}\" has been marked reimbursed.",
+        )
+    return updated
+
+
+@api.delete("/purchases/{pid}")
+async def delete_purchase(pid: str, _=Depends(admin_only)):
+    r = await db.staff_purchases.delete_one({"id": pid})
+    if not r.deleted_count:
+        raise HTTPException(status_code=404, detail="Purchase not found")
+    return {"ok": True}
+
 
 # ------------------- Requests -------------------
 def _enrich_request_attachment(req: dict) -> dict:
@@ -6679,6 +6936,59 @@ async def _run_startup():
                     })
                     inserted += 1
                 logger.info(f"Seeded {inserted} leaves from Vacation 2026")
+
+        # Seed staff purchases from spreadsheet (only if empty)
+        if await db.staff_purchases.count_documents({}) == 0:
+            seed_path = ROOT_DIR / "purchases_seed.json"
+            if seed_path.exists():
+                import json
+                seed = json.loads(seed_path.read_text())
+                inserted = 0
+                for item in seed:
+                    t = await _resolve_therapist_by_purchaser(item.get("purchaser") or "")
+                    if not t:
+                        logger.warning("Purchase seed: no therapist for %s", item.get("purchaser"))
+                        continue
+                    purchase_date = item.get("reimbursement_date") or "2026-01-01"
+                    await db.staff_purchases.insert_one({
+                        "id": str(uuid.uuid4()),
+                        "row_no": item.get("row_no"),
+                        "therapist_id": t["id"],
+                        "therapist_name": t.get("name"),
+                        "purchaser_name": item.get("purchaser"),
+                        "item": item.get("item"),
+                        "category": item.get("category"),
+                        "description": item.get("description") or "",
+                        "qty": item.get("qty") or "1",
+                        "unit_price": item.get("unit_price") or "",
+                        "total": item.get("total"),
+                        "total_display": item.get("total_display") or str(item.get("total") or ""),
+                        "status": _normalize_purchase_status(item.get("status") or "pending"),
+                        "reimbursement_date": item.get("reimbursement_date"),
+                        "purchase_date": purchase_date,
+                        "purchase_month": purchase_date[:7],
+                        "notes": None,
+                        "created_at": now_iso(),
+                        "updated_at": now_iso(),
+                        "imported": True,
+                    })
+                    inserted += 1
+                logger.info(f"Seeded {inserted} staff purchases from spreadsheet")
+
+        if await db.purchase_reminder_settings.count_documents({}) == 0:
+            await db.purchase_reminder_settings.insert_one({
+                "id": "default",
+                "day_of_month": 25,
+                "enabled": True,
+                "therapist_ids": [],
+                "last_sent_month": None,
+                "updated_at": now_iso(),
+            })
+
+        try:
+            await _send_purchase_reminders(force=False)
+        except Exception:
+            logger.exception("Purchase reminder check failed")
     except Exception:
         logger.exception(
             "Background startup/seed failed — check MONGO_URL and MongoDB Atlas network access (0.0.0.0/0)"
