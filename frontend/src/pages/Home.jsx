@@ -6,7 +6,7 @@ import { useAuth, showAdminNav, hasOpsAccess } from "../auth";
 import {
   CalendarBlank, ClipboardText, UsersThree, ListChecks, Plant, ArrowRight,
   CheckCircle, Clock, XCircle, CalendarCheck, Warning, Receipt, ChartBar, Heart,
-  Leaf, Sun, FileText,
+  Leaf, FileText,
 } from "@phosphor-icons/react";
 import { quoteOfTheDay } from "../data/quotes";
 import DashboardStatCard from "../components/DashboardStatCard";
@@ -109,11 +109,50 @@ export default function Home() {
   const dateStr = new Date().toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   const adminFeatures = [
-    { to: "/schedule", icon: CalendarBlank, title: "Weekly Schedule", desc: "Plan sessions, manage closures, and publish the team calendar.", color: "#E5EBE1", iconColor: "#606E52" },
-    { to: "/attendance", icon: ClipboardText, title: "Session Preparation", desc: "Daily prep sheets, progress tracking, and session logging.", color: "#FAF0D1", iconColor: "#6B5218" },
-    { to: "/clients", icon: UsersThree, title: "Client Portfolios", desc: "Profiles, locations, packages, and progress reports.", color: "#EAF0F3", iconColor: "#375568" },
-    { to: "/reports", icon: ChartBar, title: "Reports & Analytics", desc: "Center-wide performance, hours, and package health.", color: "#F1ECF7", iconColor: "#4E3F70" },
+    { to: "/schedule", icon: CalendarBlank, title: "Weekly Schedule", desc: "Plan sessions, manage closures, and publish the team calendar.", color: "rgba(139,168,137,0.25)", iconColor: "#49654E", featured: true },
+    { to: "/attendance", icon: ClipboardText, title: "Session Preparation", desc: "Daily prep sheets, progress tracking, and session logging.", color: "rgba(139,168,137,0.18)", iconColor: "#253528" },
+    { to: "/clients", icon: UsersThree, title: "Client Portfolios", desc: "Profiles, locations, packages, and progress reports.", color: "#fff", iconColor: "#49654E" },
+    { to: "/reports", icon: ChartBar, title: "Reports & Analytics", desc: "Center-wide performance, hours, and package health.", color: "#fff", iconColor: "#253528" },
   ];
+
+  const serviceHighlights = [
+    { img: "/service-home.jpg", label: "Service 01", title: "ABA Home Sessions", href: "https://www.boost-growthsa.com/" },
+    { img: "/service-school.jpg", label: "Service 02", title: "School Support", href: "https://www.boost-growthsa.com/" },
+    { img: "/service-outdoor.jpg", label: "Service 03", title: "Outdoor Training", href: "https://www.boost-growthsa.com/" },
+  ];
+
+  const HeroBanner = ({ compact }) => (
+    <header className="portal-hero">
+      <div className="portal-hero-bg" style={{ backgroundImage: "url(/hero-boost-growth.jpg)" }} aria-hidden />
+      <div className="portal-hero-overlay" aria-hidden />
+      <div className="portal-hero-content">
+        <div className="portal-hero-eyebrow">
+          <Leaf size={14} weight="fill" /> Boost Growth · Staff Portal
+        </div>
+        <h1 className="portal-hero-title">
+          {compact ? (
+            <>Hello, <span className="portal-hero-accent">{displayName}</span></>
+          ) : (
+            <>Welcome back, <span className="portal-hero-accent">{displayName}</span></>
+          )}
+        </h1>
+        <p className="portal-hero-lead">
+          {compact
+            ? "Your week at a glance — sessions, locations, and center updates in one calm place."
+            : "Each growth begins with seeds — nurture every child's journey with care, preparation, and intention."}
+        </p>
+        <p className="portal-hero-date">{dateStr}</p>
+        <div className="portal-hero-actions">
+          <Link to="/attendance" className="portal-hero-btn primary">
+            <ClipboardText size={18} weight="duotone" /> {compact ? "Log a session" : "Open Preparation"}
+          </Link>
+          <Link to="/schedule" className="portal-hero-btn outline">
+            <CalendarBlank size={18} weight="duotone" /> View Schedule
+          </Link>
+        </div>
+      </div>
+    </header>
+  );
 
   const quickLinks = isPortalAdminUser ? [
     { to: "/schedule", label: "Schedule", icon: CalendarBlank },
@@ -131,29 +170,20 @@ export default function Home() {
     <div className="page-enter">
       {isPortalAdminUser ? (
         <>
-          <header className="home-hero">
-            <div className="home-hero-inner">
-              <div className="home-hero-eyebrow">
-                <Leaf size={14} weight="fill" /> Boost Growth · Staff Portal
-              </div>
-              <h1 className="home-hero-title">
-                Welcome back, <span className="home-hero-accent">{displayName}</span>
-              </h1>
-              <p className="home-hero-lead">
-                A calm space to nurture every child&apos;s journey — schedule with care,
-                prepare with intention, and watch growth unfold one session at a time.
-              </p>
-              <p className="text-xs mt-2" style={{ color: "#8B9E7A" }}>{dateStr}</p>
-              <div className="home-hero-actions">
-                <Link to="/attendance" className="home-hero-btn primary">
-                  <ClipboardText size={18} weight="duotone" /> Open Preparation
-                </Link>
-                <Link to="/schedule" className="home-hero-btn outline">
-                  <CalendarBlank size={18} weight="duotone" /> View Schedule
-                </Link>
-              </div>
-            </div>
-          </header>
+          <HeroBanner />
+
+          <div className="home-services-strip">
+            {serviceHighlights.map(s => (
+              <a key={s.title} href={s.href} target="_blank" rel="noreferrer" className="home-service-card">
+                <img src={s.img} alt={s.title} loading="lazy" />
+                <div className="home-service-card-overlay" />
+                <div className="home-service-card-body">
+                  <div className="home-service-card-label">{s.label}</div>
+                  <div className="home-service-card-title">{s.title}</div>
+                </div>
+              </a>
+            ))}
+          </div>
 
           {opsAccess && (pkgAlerts.critical > 0 || pkgAlerts.low > 0) && (
             <div className="card p-4 mb-4 flex flex-wrap items-center justify-between gap-3 border-2" style={{ borderColor: "#E5C387", background: "#FFFBF3" }}>
@@ -174,10 +204,10 @@ export default function Home() {
             </div>
           )}
 
-          <CreativeSection title="Explore the portal" subtitle="Everything you need to run the center beautifully">
+          <CreativeSection title="Explore the portal" subtitle="Tools to run the center with clarity and care">
             <div className="home-feature-grid stagger">
               {adminFeatures.map(f => (
-                <Link key={f.to} to={f.to} className="home-feature-card" data-testid={`home-feature-${f.to.slice(1)}`}>
+                <Link key={f.to} to={f.to} className={`home-feature-card${f.featured ? " featured" : ""}`} data-testid={`home-feature-${f.to.slice(1)}`}>
                   <div className="home-feature-icon" style={{ background: f.color, color: f.iconColor }}>
                     <f.icon size={24} weight="duotone" />
                   </div>
@@ -191,34 +221,35 @@ export default function Home() {
 
           <CreativeSection title="This week at a glance">
             <div className="dash-stat-row stagger mb-4">
-              <DashboardStatCard to="/schedule" variant="sage" value={stats.weekSessions} label="Sessions scheduled" desc={`${stats.weekHours}h total`} icon={<CalendarBlank size={22} weight="fill" style={{ color: "#606E52", background: "#E5EBE1", borderRadius: 14, padding: 8 }} />} testId="home-tile-schedule" />
-              <DashboardStatCard to="/clients" value={stats.clients} label="Active clients" icon={<UsersThree size={22} weight="fill" style={{ color: "#375568", background: "#EAF0F3", borderRadius: 14, padding: 8 }} />} testId="home-tile-clients" />
+              <DashboardStatCard to="/schedule" variant="sage" value={stats.weekSessions} label="Sessions scheduled" desc={`${stats.weekHours}h total`} icon={<CalendarBlank size={22} weight="fill" style={{ color: "#253528", background: "rgba(139,168,137,0.35)", borderRadius: 14, padding: 8 }} />} testId="home-tile-schedule" />
+              <DashboardStatCard to="/clients" value={stats.clients} label="Active clients" icon={<UsersThree size={22} weight="fill" style={{ color: "#49654E", background: "#E8EBE4", borderRadius: 14, padding: 8 }} />} testId="home-tile-clients" />
               <DashboardStatCard to="/requests" variant="gold" value={stats.requests} label="Pending requests" icon={<ListChecks size={22} weight="fill" style={{ color: "#6B5218", background: "#FAF0D1", borderRadius: 14, padding: 8 }} />} testId="home-tile-requests" />
-              <DashboardStatCard to="/attendance" value={stats.therapists} label="Team therapists" icon={<Heart size={22} weight="fill" style={{ color: "#606E52", background: "#E5EBE1", borderRadius: 14, padding: 8 }} />} testId="home-tile-attendance" />
+              <DashboardStatCard to="/attendance" value={stats.therapists} label="Team therapists" icon={<Heart size={22} weight="fill" style={{ color: "#49654E", background: "rgba(139,168,137,0.25)", borderRadius: 14, padding: 8 }} />} testId="home-tile-attendance" />
             </div>
           </CreativeSection>
         </>
       ) : (
         <>
-          <header className="home-hero" style={{ paddingBottom: "1.75rem" }}>
-            <div className="home-hero-inner">
-              <div className="home-hero-eyebrow">
-                <Sun size={14} weight="fill" /> Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"}
-              </div>
-              <h1 className="home-hero-title" style={{ fontSize: "clamp(1.75rem, 4vw, 2.5rem)" }}>
-                Hello, <span className="home-hero-gold">{displayName}</span>
-              </h1>
-              <p className="home-hero-lead" style={{ fontSize: "0.9rem" }}>
-                Your week at a glance — sessions, locations, and center updates in one place.
-              </p>
-            </div>
-          </header>
+          <HeroBanner compact />
+
+          <div className="home-services-strip">
+            {serviceHighlights.map(s => (
+              <a key={s.title} href={s.href} target="_blank" rel="noreferrer" className="home-service-card">
+                <img src={s.img} alt={s.title} loading="lazy" />
+                <div className="home-service-card-overlay" />
+                <div className="home-service-card-body">
+                  <div className="home-service-card-label">{s.label}</div>
+                  <div className="home-service-card-title">{s.title}</div>
+                </div>
+              </a>
+            ))}
+          </div>
 
           <div className="dash-stat-row stagger mb-4">
-            <DashboardStatCard value={stats.completedThisWeek} label="Completed this week" desc="Sessions logged" icon={<CheckCircle size={22} weight="fill" style={{ color: "#606E52", background: "#E5EBE1", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-0" />
+            <DashboardStatCard value={stats.completedThisWeek} label="Completed this week" desc="Sessions logged" icon={<CheckCircle size={22} weight="fill" style={{ color: "#49654E", background: "rgba(139,168,137,0.25)", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-0" />
             <DashboardStatCard variant="gold" value={`${stats.hoursThisWeek.toFixed(1)}h`} label="Hours delivered" icon={<Clock size={22} weight="fill" style={{ color: "#6B5218", background: "#FAF0D1", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-1" />
             <DashboardStatCard value={stats.cancelledThisWeek} label="Cancelled / missed" icon={<XCircle size={22} weight="fill" style={{ color: "#8A3F27", background: "#F8EBE7", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-2" />
-            <DashboardStatCard value={stats.todayUpcoming} label="Today's sessions" icon={<CalendarCheck size={22} weight="fill" style={{ color: "#375568", background: "#EAF0F3", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-3" />
+            <DashboardStatCard value={stats.todayUpcoming} label="Today's sessions" icon={<CalendarCheck size={22} weight="fill" style={{ color: "#253528", background: "#E8EBE4", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-3" />
           </div>
 
           <div className="grid lg:grid-cols-[1fr_260px] gap-4 mb-4">

@@ -5,22 +5,23 @@
 @import "./thmanyah.css";
 
 :root {
-    --bg-base: #F3EFE8;
+    --bg-base: #E8EBE4;
     --bg-surface: #FFFFFF;
-    --bg-warm: #F0E9D8;
-    --brand: #7A8A6A;
-    --brand-hover: #6B7A5E;
-    --brand-dark: #606E52;
-    --brand-light: #E5EBE1;
-    --brand-sidebar: linear-gradient(180deg, #7A8A6A 0%, #6B7A5E 52%, #606E52 100%);
+    --bg-warm: #E8EBE4;
+    --brand: #49654E;
+    --brand-hover: #253528;
+    --brand-dark: #253528;
+    --brand-light: rgba(139, 168, 137, 0.22);
+    --brand-sage: #8BA889;
+    --brand-sidebar: linear-gradient(180deg, #49654E 0%, #354539 55%, #253528 100%);
     --secondary: #D4A64A;
     --secondary-hover: #C4963A;
     --secondary-light: #FAF0D1;
-    --text-primary: #2C3625;
-    --text-secondary: #5C6853;
-    --text-muted: #8B9E7A;
-    --border-default: #E2DDD4;
-    --border-light: #F0EDE9;
+    --text-primary: #253528;
+    --text-secondary: #49654E;
+    --text-muted: #8BA889;
+    --border-default: #C8D5C6;
+    --border-light: #E8EBE4;
     --font-body: "Thmanyah Sans", system-ui, sans-serif;
     --font-display: "Thmanyah Sans", system-ui, sans-serif;
     --radius-card: 1.25rem;
@@ -74,17 +75,17 @@ main, .page-enter { min-width: 0; }
 .bg-organic {
     background-color: var(--bg-base);
     background-image:
-        radial-gradient(at 8% 12%, rgba(122, 138, 106, 0.08) 0px, transparent 50%),
-        radial-gradient(at 92% 88%, rgba(212, 166, 74, 0.06) 0px, transparent 50%);
+        radial-gradient(at 8% 12%, rgba(73, 101, 78, 0.07) 0px, transparent 50%),
+        radial-gradient(at 92% 88%, rgba(139, 168, 137, 0.08) 0px, transparent 50%);
 }
 .bg-sage-hero {
-    background: linear-gradient(135deg, #7A8A6A 0%, #6B7A5E 55%, #606E52 100%);
+    background: linear-gradient(135deg, #49654E 0%, #354539 55%, #253528 100%);
 }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #C7CFBC; border-radius: 6px; }
+::-webkit-scrollbar-thumb { background: #8BA889; border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--brand); }
 
 /* Cards */
@@ -584,7 +585,7 @@ main, .page-enter { min-width: 0; }
     border-radius: 0 28px 28px 0;
     color: #fff;
     transition: width 200ms ease;
-    box-shadow: 4px 0 24px rgba(96, 110, 82, 0.12);
+    box-shadow: 4px 0 24px rgba(37, 53, 40, 0.18);
 }
 .app-sidebar--collapsed {
     width: 4rem;
@@ -772,9 +773,9 @@ main, .page-enter { min-width: 0; }
 .ui-text-sm { font-size: 0.8125rem; line-height: 1.45; }
 .ui-caption { font-size: 0.75rem; color: #8B9E7A; line-height: 1.4; }
 
-/* Page banner — sage gradient header */
+/* Page banner — Plantitas-inspired green gradient */
 .page-banner-head {
-  background: linear-gradient(135deg, #4A5640 0%, #606E52 38%, #7A8A6A 72%, #95A888 100%);
+  background: linear-gradient(135deg, #253528 0%, #49654E 42%, #8BA889 100%);
 }
 .page-banner-title {
   font-family: var(--font-display);
