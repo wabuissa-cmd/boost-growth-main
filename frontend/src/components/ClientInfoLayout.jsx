@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 import {
   MapPin, Paperclip, ClipboardText, ChartLineUp,
-  PencilSimple, CaretRight,
+  Leaf, PencilSimple, CaretRight,
 } from "@phosphor-icons/react";
 import { getChildColor, readable } from "../childColors";
 import { prepTrackMeta, cardStatusMeta } from "../attendanceUtils";
@@ -73,7 +73,7 @@ export default function ClientInfoLayout({
       <div className="ci-canvas">
         <div className="ci-pane-left">
           <div className="ci-pane-brand">
-            <h2>Client Directory</h2>
+            <h2><Leaf size={14} className="inline mr-1" style={{ verticalAlign: -2 }} /> Client Directory</h2>
             <div className="ci-pane-stats">
               <span><em>{counts.active}</em> Active</span>
               <span><em>{counts.all}</em> Total</span>
