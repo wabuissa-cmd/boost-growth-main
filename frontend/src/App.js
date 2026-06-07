@@ -21,6 +21,7 @@ const LeaveBalance = lazy(() => import("./pages/LeaveBalance"));
 const LeaveRequests = lazy(() => import("./pages/LeaveRequests"));
 const Billing = lazy(() => import("./pages/Billing"));
 const TherapistMyReports = lazy(() => import("./pages/TherapistMyReports"));
+const DesignPreview = lazy(() => import("./pages/DesignPreview"));
 
 function Loading() {
   return <div className="min-h-screen flex items-center justify-center bg-organic"><div className="spinner"/></div>;
