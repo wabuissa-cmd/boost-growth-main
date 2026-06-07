@@ -1,12 +1,13 @@
 import { useEffect, useState, useMemo } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
-import { Plus, Trash, PencilSimple, Star, Phone, MapPin, Users, ClipboardText } from "@phosphor-icons/react";
+import { Plus, Trash, PencilSimple, Star, Phone, MapPin, Info } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
-import DashboardStatCard from "../components/DashboardStatCard";
+import PageBanner from "../components/PageBanner";
+import "../clientInfoLayout.css";
 import "../dashboardLayout.css";
 
 const STATUS = { new: "New", contacted: "Contacted", scheduled: "Scheduled", completed: "Completed" };
@@ -66,111 +67,180 @@ export default function Intake() {
     }
     return list;
   }, [filtered, priorityOnly]);
+
   const totalPre = items.filter(i => i.intake_type === "pre").length;
   const totalPost = items.filter(i => i.intake_type === "post").length;
   const hsCount = filtered.filter(i => (i.service || "").toUpperCase().includes("HS")).length;
   const ssCount = filtered.filter(i => (i.service || "").toUpperCase().includes("SS")).length;
   const priCount = filtered.filter(i => i.priority).length;
+  const priorityList = useMemo(
+    () => items.filter(i => i.priority && i.intake_type === tab).slice(0, 6),
+    [items, tab]
+  );
+  const statusCounts = useMemo(() => {
+    const counts = {};
+    for (const k of Object.keys(STATUS)) counts[k] = 0;
+    for (const i of filtered) counts[i.status] = (counts[i.status] || 0) + 1;
+    return counts;
+  }, [filtered]);
 
   return (
     <div className="page-enter">
-      <header className="intake-hero">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="text-[10px] tracking-[0.25em] font-bold mb-1" style={{ color: "#7A8A6A" }}>INTAKE</div>
-            <h1 className="font-display text-2xl md:text-3xl m-0" style={{ color: "#2C3625" }}>Waiting List</h1>
-            <p className="text-sm mt-1 mb-0" style={{ color: "#5C6853" }}>Pre-Intake & Post-Intake registrations</p>
+      <PageBanner
+        title="Waiting List"
+        subtitle="Pre-Intake & Post-Intake registrations"
+        badge={isAdmin ? (
+          <div className="flex gap-2 flex-wrap justify-end">
+            <button data-testid="add-pre-intake" onClick={() => setEdit(emptyItem("pre"))} className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0">
+              <Plus size={13} /> Pre-Intake
+            </button>
+            <button data-testid="add-post-intake" onClick={() => setEdit(emptyItem("post"))} className="btn btn-outline text-[11px] px-2.5 py-1 min-h-0 border-white/40 text-white hover:bg-white/10">
+              <Plus size={13} /> Post-Intake
+            </button>
           </div>
-          {isAdmin && (
-            <div className="flex gap-2 flex-wrap">
-              <button data-testid="add-pre-intake" onClick={() => setEdit(emptyItem("pre"))} className="home-hero-btn primary text-xs">
-                <Plus size={14} /> Pre-Intake
+        ) : null}
+        stats={[
+          { label: "Total", n: filtered.length, color: "#2C3625" },
+          { label: "HS", n: hsCount, color: "#375568" },
+          { label: "SS", n: ssCount, color: "#606E52" },
+          { label: "Priority", n: priCount, color: "#6B5218" },
+        ]}
+      />
+
+      <div className="req-split">
+        <section className="req-panel-left">
+          <div className="req-panel-head">
+            <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>
+              {tab === "pre" ? "Pre-Intake Queue" : "Post-Intake Queue"}
+            </h2>
+            <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>
+              {displayed.length} case{displayed.length !== 1 ? "s" : ""} · {tab === "pre" ? "Before formal intake" : "After intake, awaiting placement"}
+            </p>
+            <div className="intake-tabs mt-3 mb-0">
+              <button data-testid="tab-pre" type="button" onClick={() => setTab("pre")} className={`intake-tab${tab === "pre" ? " active" : ""}`}>
+                Pre-Intake ({totalPre})
               </button>
-              <button data-testid="add-post-intake" onClick={() => setEdit(emptyItem("post"))} className="home-hero-btn outline text-xs">
-                <Plus size={14} /> Post-Intake
+              <button data-testid="tab-post" type="button" onClick={() => setTab("post")} className={`intake-tab${tab === "post" ? " active" : ""}`}>
+                Post-Intake ({totalPost})
+              </button>
+              <button
+                type="button"
+                title={priorityOnly ? "Show all" : "Priority first"}
+                onClick={() => setPriorityOnly(v => !v)}
+                className={`intake-tab${priorityOnly ? " active" : ""}`}
+                style={priorityOnly ? {} : { background: "transparent" }}
+              >
+                <Star size={14} weight={priorityOnly ? "fill" : "regular"} className="inline mr-1" /> Priority
               </button>
             </div>
-          )}
-        </div>
-        <div className="dash-stat-row mt-4">
-          <DashboardStatCard value={filtered.length} label="Total" icon={<Users size={20} weight="fill" style={{ color: "#2C3625", background: "#FAFAF7", borderRadius: 12, padding: 6 }} />} />
-          <DashboardStatCard variant="sage" value={hsCount} label="HS" icon={<ClipboardText size={20} weight="fill" style={{ color: "#375568", background: "#EAF0F3", borderRadius: 12, padding: 6 }} />} />
-          <DashboardStatCard variant="sage" value={ssCount} label="SS" icon={<ClipboardText size={20} weight="fill" style={{ color: "#606E52", background: "#E5EBE1", borderRadius: 12, padding: 6 }} />} />
-          <DashboardStatCard variant="gold" value={priCount} label="Priority" icon={<Star size={20} weight="fill" style={{ color: "#6B5218", background: "#FAF0D1", borderRadius: 12, padding: 6 }} />} />
-        </div>
-      </header>
+          </div>
 
-      <div className="intake-tabs">
-        <button data-testid="tab-pre" type="button" onClick={() => setTab("pre")} className={`intake-tab${tab === "pre" ? " active" : ""}`}>
-          Pre-Intake ({totalPre})
-        </button>
-        <button data-testid="tab-post" type="button" onClick={() => setTab("post")} className={`intake-tab${tab === "post" ? " active" : ""}`}>
-          Post-Intake ({totalPost})
-        </button>
-        <button
-          type="button"
-          title={priorityOnly ? "Show all" : "Priority first"}
-          onClick={() => setPriorityOnly(v => !v)}
-          className={`intake-tab ml-auto${priorityOnly ? " active" : ""}`}
-          style={priorityOnly ? {} : { background: "transparent" }}
-        >
-          <Star size={14} weight={priorityOnly ? "fill" : "regular"} className="inline mr-1" /> Priority
-        </button>
-      </div>
-
-      {displayed.length === 0 ? (
-        <div className="card p-12 text-center rounded-[22px]" style={{ color: "#8B9E7A" }}>No records</div>
-      ) : (
-        <div className="intake-table-wrap">
-          <table className="intake-table">
-            <thead>
-              <tr>
-                <th style={{ width: 36 }}></th>
-                <th>Child</th>
-                <th>Service</th>
-                <th>Status</th>
-                <th>Phone</th>
-                <th>District</th>
-                {tab === "pre" ? <th>Timing</th> : <th>Language</th>}
-                {isAdmin && <th style={{ width: 140 }}>Actions</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {displayed.map(i => (
-                <tr key={i.id} className={i.priority ? "priority-row" : ""}>
-                  <td>
-                    {isAdmin ? (
-                      <button type="button" onClick={() => api.put(`/intake/${i.id}`, { ...i, priority: !i.priority }).then(load)} className="btn btn-ghost p-1">
-                        <Star size={16} weight={i.priority ? "fill" : "regular"} style={{ color: i.priority ? "#D4A64A" : "#C5C0B7" }} />
-                      </button>
-                    ) : i.priority ? <Star size={16} weight="fill" style={{ color: "#D4A64A" }} /> : null}
-                  </td>
-                  <td>
-                    <div className="font-bold">{i.child_name}</div>
-                    {i.age && <div className="text-[10px]" style={{ color: "#8B9E7A" }}>Age {i.age}</div>}
-                  </td>
-                  <td><span className="pill text-[10px]">{i.service || "—"}</span></td>
-                  <td><span className="pill text-[10px]" style={{ background: `${STATUS_COLORS[i.status]}25`, color: STATUS_COLORS[i.status] }}>{STATUS[i.status] || i.status}</span></td>
-                  <td>{i.phone ? <a href={`tel:${i.phone}`} className="hover:text-[#7A8A6A]">{i.phone}</a> : "—"}</td>
-                  <td>{i.district || "—"}</td>
-                  <td>{tab === "pre" ? (i.time_pref || "—") : (i.language || "—")}</td>
-                  {isAdmin && (
-                    <td>
-                      <div className="flex gap-1 flex-wrap">
-                        {tab === "pre" && (
-                          <button type="button" onClick={() => moveToPost(i)} className="btn btn-secondary text-[10px] px-2 py-1 min-h-0">→ Post</button>
+          {displayed.length === 0 ? (
+            <div className="p-12 text-center text-sm m-3 rounded-xl border border-dashed border-[#E2DDD4]" style={{ color: "#8B9E7A" }}>
+              No records in this queue
+            </div>
+          ) : (
+            <div className="px-3 pb-3 overflow-x-auto">
+              <div className="intake-table-wrap">
+                <table className="intake-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 36 }}></th>
+                      <th>Child</th>
+                      <th>Service</th>
+                      <th>Status</th>
+                      <th>Phone</th>
+                      <th>District</th>
+                      {tab === "pre" ? <th>Timing</th> : <th>Language</th>}
+                      {isAdmin && <th style={{ width: 140 }}>Actions</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayed.map(i => (
+                      <tr key={i.id} className={i.priority ? "priority-row" : ""}>
+                        <td>
+                          {isAdmin ? (
+                            <button type="button" onClick={() => api.put(`/intake/${i.id}`, { ...i, priority: !i.priority }).then(load)} className="btn btn-ghost p-1">
+                              <Star size={16} weight={i.priority ? "fill" : "regular"} style={{ color: i.priority ? "#D4A64A" : "#C5C0B7" }} />
+                            </button>
+                          ) : i.priority ? <Star size={16} weight="fill" style={{ color: "#D4A64A" }} /> : null}
+                        </td>
+                        <td>
+                          <div className="font-bold">{i.child_name}</div>
+                          {i.age && <div className="text-[10px]" style={{ color: "#8B9E7A" }}>Age {i.age}</div>}
+                        </td>
+                        <td><span className="pill text-[10px]">{i.service || "—"}</span></td>
+                        <td><span className="pill text-[10px]" style={{ background: `${STATUS_COLORS[i.status]}25`, color: STATUS_COLORS[i.status] }}>{STATUS[i.status] || i.status}</span></td>
+                        <td>{i.phone ? <a href={`tel:${i.phone}`} className="hover:text-[#7A8A6A]">{i.phone}</a> : "—"}</td>
+                        <td>{i.district || "—"}</td>
+                        <td>{tab === "pre" ? (i.time_pref || "—") : (i.language || "—")}</td>
+                        {isAdmin && (
+                          <td>
+                            <div className="flex gap-1 flex-wrap">
+                              {tab === "pre" && (
+                                <button type="button" onClick={() => moveToPost(i)} className="btn btn-secondary text-[10px] px-2 py-1 min-h-0">→ Post</button>
+                              )}
+                              <button type="button" onClick={() => setEdit({ ...i })} className="btn btn-outline text-[10px] px-2 py-1 min-h-0"><PencilSimple size={12} /></button>
+                              <button type="button" onClick={() => remove(i.id)} className="btn btn-ghost text-[10px] px-1 py-1 text-red-700"><Trash size={12} /></button>
+                            </div>
+                          </td>
                         )}
-                        <button type="button" onClick={() => setEdit({ ...i })} className="btn btn-outline text-[10px] px-2 py-1 min-h-0"><PencilSimple size={12} /></button>
-                        <button type="button" onClick={() => remove(i.id)} className="btn btn-ghost text-[10px] px-1 py-1 text-red-700"><Trash size={12} /></button>
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </section>
+
+        <aside className="req-panel-sidebar">
+          <div className="req-panel-head">
+            <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Pipeline Overview</h2>
+            <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>Status breakdown for current tab</p>
+          </div>
+          <div className="req-panel-list">
+            {Object.entries(STATUS).map(([k, label]) => (
+              <div key={k} className="req-item flex items-center justify-between gap-2">
+                <span className="pill text-[10px]" style={{ background: `${STATUS_COLORS[k]}25`, color: STATUS_COLORS[k] }}>{label}</span>
+                <span className="font-display font-bold text-lg" style={{ color: "#2C3625" }}>{statusCounts[k] || 0}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="req-panel-head border-t border-[#E2DDD4]">
+            <h2 className="font-bold text-sm m-0 flex items-center gap-1" style={{ color: "#2C3625" }}>
+              <Star size={14} weight="fill" style={{ color: "#D4A64A" }} /> Priority Cases
+            </h2>
+            <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>Flagged for urgent follow-up</p>
+          </div>
+          <div className="req-panel-list">
+            {priorityList.length === 0 ? (
+              <div className="p-6 text-center text-xs" style={{ color: "#8B9E7A" }}>No priority cases</div>
+            ) : priorityList.map(i => (
+              <div key={i.id} className="req-item">
+                <div className="font-bold text-sm" style={{ color: "#2C3625" }}>{i.child_name}</div>
+                <div className="text-[10px] mt-0.5 flex flex-wrap gap-2" style={{ color: "#8B9E7A" }}>
+                  <span>{i.service || "—"}</span>
+                  {i.district && <span className="flex items-center gap-0.5"><MapPin size={10} /> {i.district}</span>}
+                  {i.phone && <span className="flex items-center gap-0.5"><Phone size={10} /> {i.phone}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="req-panel-head border-t border-[#E2DDD4]">
+            <h2 className="font-bold text-sm m-0 flex items-center gap-1" style={{ color: "#2C3625" }}>
+              <Info size={14} weight="duotone" style={{ color: "#7A8A6A" }} /> Workflow
+            </h2>
+          </div>
+          <div className="p-3 text-xs space-y-2" style={{ color: "#5C6853", lineHeight: 1.5 }}>
+            <p className="m-0"><strong style={{ color: "#606E52" }}>Pre-Intake</strong> — Initial inquiry before the formal intake meeting.</p>
+            <p className="m-0"><strong style={{ color: "#606E52" }}>Post-Intake</strong> — After intake; awaiting therapist assignment or start date.</p>
+            <p className="m-0"><strong style={{ color: "#606E52" }}>→ Post</strong> — Moves a pre-intake case to the post-intake queue.</p>
+          </div>
+        </aside>
+      </div>
 
       {edit && (
         <ModalBase

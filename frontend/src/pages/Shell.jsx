@@ -101,15 +101,22 @@ export default function Shell() {
     { to: "/my-reports", label: "My Report", testid: "nav-my-reports" },
   ] : [];
 
-  // HR — staff requests for ops leads; leave tools for Jenan + portal admin
+  // HR — staff requests & leave tools (no billing/purchases)
   const requestsItems = [];
   if (staffRequestsAccess) {
     requestsItems.push({ to: "/requests", label: "Staff Requests", testid: "nav-requests" });
-    if (portalAdmin) requestsItems.push({ to: "/purchases", label: "Purchases", testid: "nav-purchases" });
   }
   if (leaveManager) {
     requestsItems.push({ to: "/leaves", label: "Leave Requests", testid: "nav-leave-requests" });
     requestsItems.push({ to: "/leave-balance", label: "Leave Balance", testid: "nav-leave-balance" });
+  }
+
+  const financeItems = [];
+  if (showBilling) {
+    financeItems.push({ to: "/billing", label: "Billing", testid: "nav-billing", icon: <Receipt size={17} weight="duotone"/> });
+  }
+  if (portalAdmin) {
+    financeItems.push({ to: "/purchases", label: "Purchases", testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> });
   }
 
   // Admin tools — Reports, Import, Admin page
@@ -119,23 +126,21 @@ export default function Shell() {
     { to: "/admin", label: "Admin", testid: "nav-admin", icon: <Gear size={17} weight="duotone"/> },
   ] : [];
 
-  const hrDropdownItems = [
-    ...requestsItems,
-    ...(showBilling ? [{ to: "/billing", label: "Billing", testid: "nav-billing" }] : []),
-  ];
+  const hrDropdownItems = [...requestsItems];
+
+  const financeDropdownItems = financeItems.map(it => ({
+    to: it.to,
+    label: it.label,
+    testid: it.testid,
+  }));
 
   const homeLink = baseLinks[0];
-  const hrNavItems = [
-    ...requestsItems.map(it => ({
-      ...it,
-      icon: it.to === "/leave-balance"
-        ? <UserList size={17} weight="duotone"/>
-        : it.to === "/purchases"
-          ? <ShoppingBag size={17} weight="duotone"/>
-          : <ListChecks size={17} weight="duotone"/>,
-    })),
-    ...(showBilling ? [{ to: "/billing", label: "Billing", testid: "nav-billing", icon: <Receipt size={17} weight="duotone"/> }] : []),
-  ];
+  const hrNavItems = requestsItems.map(it => ({
+    ...it,
+    icon: it.to === "/leave-balance"
+      ? <UserList size={17} weight="duotone"/>
+      : <ListChecks size={17} weight="duotone"/>,
+  }));
 
   const personalNavItems = myPortalItems.map(it => ({
     ...it,
@@ -201,6 +206,7 @@ export default function Shell() {
               personalItems={personalNavItems}
               referralsItems={referralsNavItems}
               hrItems={hrNavItems}
+              financeItems={financeItems}
               adminItems={adminTools}
               therapistOnly={therapistOnly}
               loc={loc}
@@ -283,6 +289,10 @@ export default function Shell() {
               {hrDropdownItems.length > 0 && (
                 <NavDropdown testid="nav-hr" label="HR" icon={<UsersThree size={18} weight="duotone"/>}
                              items={hrDropdownItems} loc={loc} onItemHover={warmRoute}/>
+              )}
+              {financeDropdownItems.length > 0 && (
+                <NavDropdown testid="nav-finance" label="Finance" icon={<Receipt size={18} weight="duotone"/>}
+                             items={financeDropdownItems} loc={loc} onItemHover={warmRoute}/>
               )}
               {myPortalItems.length > 0 && (
                 <NavDropdown testid="nav-my-portal" label="Personal" icon={<UserCircle size={18} weight="duotone"/>}

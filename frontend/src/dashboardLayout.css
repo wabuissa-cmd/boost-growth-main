@@ -549,7 +549,7 @@ a.dash-stat-card:hover {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
-  margin-bottom: 1rem;
+  margin-bottom: 0;
 }
 .intake-tab {
   padding: 0.55rem 1.15rem;

@@ -1,16 +1,13 @@
-/** Beige + white page header — shared template across portal pages. */
+/** Sage green gradient page header — shared template across portal pages. */
 export default function PageBanner({ title, subtitle, badge, stats = [], children, toolbar }) {
   const hasBody = stats.length > 0 || children || toolbar;
 
   return (
-    <div className="rounded-[1.25rem] mb-4 border border-[#E2DDD4] shadow-sm overflow-hidden">
-      <div
-        className="px-4 py-3 flex items-start justify-between gap-3"
-        style={{ background: "linear-gradient(90deg, #F0E9D8 0%, #E5EBE1 100%)" }}
-      >
+    <div className="page-banner rounded-[1.25rem] mb-4 border border-[#606E52]/20 shadow-sm overflow-hidden">
+      <div className="page-banner-head px-4 py-3.5 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="ui-page-title m-0">{title}</h1>
-          {subtitle && <p className="ui-caption mt-0.5 mb-0">{subtitle}</p>}
+          <h1 className="page-banner-title m-0">{title}</h1>
+          {subtitle && <p className="page-banner-subtitle mt-0.5 mb-0">{subtitle}</p>}
         </div>
         {badge && <div className="shrink-0 flex flex-wrap gap-1.5 justify-end">{badge}</div>}
       </div>

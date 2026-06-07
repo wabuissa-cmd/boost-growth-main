@@ -771,6 +771,25 @@ main, .page-enter { min-width: 0; }
 }
 .ui-text-sm { font-size: 0.8125rem; line-height: 1.45; }
 .ui-caption { font-size: 0.75rem; color: #8B9E7A; line-height: 1.4; }
+
+/* Page banner — sage gradient header */
+.page-banner-head {
+  background: linear-gradient(135deg, #4A5640 0%, #606E52 38%, #7A8A6A 72%, #95A888 100%);
+}
+.page-banner-title {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+.page-banner-subtitle {
+  font-size: 0.8125rem;
+  color: rgba(255, 255, 255, 0.82);
+  line-height: 1.4;
+}
+
 .ui-label { font-size: 0.6875rem; font-weight: 700; color: #5C6853; }
 .ui-pill {
   display: inline-flex;

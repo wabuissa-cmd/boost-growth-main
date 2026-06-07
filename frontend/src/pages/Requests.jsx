@@ -9,6 +9,7 @@ import {
 } from "../components/Modal";
 import PageBanner from "../components/PageBanner";
 import { LEAVE_STATUS, LEAVE_TYPES, diffDays, fmtDateRange, permissionPayLabel } from "../leaveUtils";
+import "../clientInfoLayout.css";
 
 const STATUS_MAP = {
   pending:    { label: "Pending",     cls: "bg-[#FAF0D1] text-[#6B5218] border-[#E6C983]", icon: <Hourglass size={14} weight="duotone"/>, color: "#E6C983" },
@@ -149,11 +150,15 @@ export default function Requests({ personal = false }) {
     return <Navigate to="/my-requests" replace/>;
   }
 
+  const pendingCount = items.filter(r => r.status === "pending").length;
+  const inProgressCount = items.filter(r => r.status === "in_progress").length;
+  const doneCount = items.filter(r => r.status === "done").length;
+
   return (
     <div>
       <PageBanner
         title={canManageReq ? "Staff Requests" : "My Requests"}
-        subtitle={canManageReq ? "Materials, general & session-related requests" : "Submit and track your staff requests"}
+        subtitle={canManageReq ? "Materials, general & session-related requests — leave tools on the right" : "Submit and track your staff requests"}
         badge={(
           <>
             {leaveHr && isPortalAdminUser && (
@@ -165,156 +170,157 @@ export default function Requests({ personal = false }) {
         )}
         stats={[
           { label: "Total", n: items.length, color: "#2C3625" },
-          { label: "Pending", n: items.filter(r => r.status === "pending").length, color: "#6B5218" },
-          { label: "In progress", n: items.filter(r => r.status === "in_progress").length, color: "#375568" },
-          { label: "Done", n: items.filter(r => r.status === "done").length, color: "#3D4F35" },
+          { label: "Pending", n: pendingCount, color: "#6B5218" },
+          { label: "In progress", n: inProgressCount, color: "#375568" },
+          { label: "Done", n: doneCount, color: "#3D4F35" },
         ]}
       />
 
-      <div className="flex gap-2 flex-wrap mb-4">
-        <button onClick={() => setFilter("all")} className={`pill ${filter==="all" ? "bg-[#7A8A6A] text-white" : "bg-[#F0E9D8]"}`}>All ({items.length})</button>
-        {Object.entries(STATUS_MAP).map(([k, v]) => (
-          <button key={k} onClick={() => setFilter(k)} className={`pill border ${filter===k ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : v.cls}`}>{v.icon} {v.label} ({items.filter(r=>r.status===k).length})</button>
-        ))}
-      </div>
-
-      <div className="space-y-3 stagger">
-        {filtered.length === 0 && <div className="card p-12 text-center" style={{color: "#8B9E7A"}}>No requests yet</div>}
-        {filtered.map(r => {
-          const st = STATUS_MAP[r.status] || STATUS_MAP.pending;
-          const tp = TYPES.find(t => t.id === r.request_type) || TYPES[4];
-          return (
-            <div key={r.id} className="card overflow-hidden">
-              <div className="status-bar" style={{background: st.color}}/>
-              <div className="p-5">
-                <div className="flex items-start gap-3 flex-wrap">
-                  <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={{background: `${tp.color}25`, color: tp.color}}>{tp.icon}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className={`pill border ${st.cls}`}>{st.icon} {st.label}</span>
-                      <span className="pill" style={{background: `${tp.color}20`, color: tp.color}}><Tag size={12}/> {tp.label}</span>
-                      {r.priority && r.priority !== "normal" && (
-                        <span className="pill" style={{background: `${PRIORITIES.find(p=>p.id===r.priority)?.color}20`, color: PRIORITIES.find(p=>p.id===r.priority)?.color}}>
-                          <Lightning size={12}/> {PRIORITIES.find(p=>p.id===r.priority)?.label}
-                        </span>
-                      )}
-                    </div>
-                    <div className="font-bold text-lg" style={{color: "#2C3625"}}>{r.title}</div>
-                    {r.description && <div className="text-sm mt-1 whitespace-pre-wrap" style={{color: "#5C6853"}}>{r.description}</div>}
-
-                    <div className="grid sm:grid-cols-2 gap-2 mt-3 text-sm">
-                      {(r.date_from || r.date_to) && (
-                        <div className="flex items-center gap-2" style={{color: "#5C6853"}}>
-                          <CalendarBlank size={16}/> {r.date_from || "?"} {r.date_to && `→ ${r.date_to}`}
-                        </div>
-                      )}
-                      {r.reward_type && (
-                        <div className="flex items-center gap-2" style={{color: "#5C6853"}}>
-                          <Trophy size={16}/> {REWARD_TYPES.find(rw=>rw.id===r.reward_type)?.label || r.reward_type}
-                        </div>
-                      )}
-                    </div>
-                    {r.extra_notes && <div className="text-xs mt-2 italic" style={{color: "#8B9E7A"}}>"{r.extra_notes}"</div>}
-
-                    {canManageReq && r.therapist_name && <div className="text-xs mt-3 flex items-center gap-1" style={{color: "#8B9E7A"}}>From: <strong style={{color: "#5C6853"}}>{r.therapist_name}</strong></div>}
-                    <div className="text-[11px] mt-1 flex items-center gap-1" style={{color: "#8B9E7A"}}><Clock size={11}/> {new Date(r.created_at).toLocaleString('en-US')}</div>
-
-                    {r.admin_note && (
-                      <div className="mt-3 p-3 bg-[#E5EBE1] rounded-xl border border-[#B4C2A9]">
-                        <div className="text-xs font-bold flex items-center gap-1 mb-1" style={{color: "#3D4F35"}}><ChatCircleText size={14}/> ADMIN RESPONSE</div>
-                        <div className="text-sm" style={{color: "#2C3625"}}>{r.admin_note}</div>
-                      </div>
-                    )}
-
-                    {/* Timeline */}
-                    {r.timeline && r.timeline.length > 1 && (
-                      <details className="mt-3">
-                        <summary className="text-xs cursor-pointer hover:underline" style={{color: "#7A8A6A"}}>Activity timeline ({r.timeline.length})</summary>
-                        <div className="mt-2 space-y-1.5 pl-3 border-l-2 border-[#E5EBE1]">
-                          {r.timeline.map((ev, i) => (
-                            <div key={i} className="text-xs">
-                              <span className="font-bold" style={{color: "#2C3625"}}>{ev.event}</span>
-                              <span style={{color: "#8B9E7A"}}> · {ev.by} · {new Date(ev.at).toLocaleString('en-US')}</span>
-                              {ev.note && <div className="italic" style={{color: "#5C6853"}}>"{ev.note}"</div>}
-                            </div>
-                          ))}
-                        </div>
-                      </details>
-                    )}
-                  </div>
-                  <div className="flex gap-1 shrink-0">
-                    {canManageReq && <button data-testid={`update-status-${r.id}`} onClick={() => setStatusEdit({...r})} className="btn btn-secondary"><PencilSimple size={16}/> Update</button>}
-                    {isPortalAdminUser && (
-                      <button onClick={() => remove(r.id)} className="btn btn-ghost p-2 text-red-700 min-w-[44px] min-h-[44px]" title="Delete request">
-                        <Trash size={16}/>
-                      </button>
-                    )}
-                  </div>
-                </div>
+      <div className="req-split">
+        <section className="req-panel-left">
+          <div className="req-leave-balance mx-3 mt-3">
+            <div className="text-[10px] tracking-[0.2em] font-bold opacity-90 mb-2">REQUEST OVERVIEW</div>
+            <div className="req-leave-stat-grid">
+              <div className="req-leave-stat-box">
+                <div className="req-leave-stat-val">{items.length}</div>
+                <div className="req-leave-stat-lbl">Total</div>
+              </div>
+              <div className="req-leave-stat-box">
+                <div className="req-leave-stat-val">{pendingCount}</div>
+                <div className="req-leave-stat-lbl">Pending</div>
+              </div>
+              <div className="req-leave-stat-box">
+                <div className="req-leave-stat-val">{inProgressCount}</div>
+                <div className="req-leave-stat-lbl">In progress</div>
+              </div>
+              <div className="req-leave-stat-box">
+                <div className="req-leave-stat-val">{doneCount}</div>
+                <div className="req-leave-stat-lbl">Done</div>
               </div>
             </div>
-          );
-        })}
-      </div>
+          </div>
 
-      {leaveHr && (
-        <div className="mt-10">
-          <h2 className="font-display text-xl font-semibold mb-3" style={{ color: "#2C3625" }}>Recent Leave Requests</h2>
-          <div className="space-y-2">
-            {recentLeaves.length === 0 && (
-              <div className="card p-8 text-center text-sm" style={{ color: "#8B9E7A" }}>No leave requests yet</div>
-            )}
-            {recentLeaves.map(l => {
-              const st = LEAVE_STATUS[l.status] || LEAVE_STATUS.pending;
-              const tp = LEAVE_TYPES[l.leave_type] || { label: l.leave_type, color: "#7A8A6A" };
+          <div className="req-panel-head">
+            <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Staff Requests</h2>
+            <p className="text-xs mt-1 mb-2" style={{ color: "#8B9E7A" }}>Supplies · schedule changes · rewards · general</p>
+            <div className="flex gap-1.5 flex-wrap">
+              <button onClick={() => setFilter("all")} className={`pill text-[10px] ${filter==="all" ? "bg-[#7A8A6A] text-white" : "bg-[#F0E9D8]"}`}>All ({items.length})</button>
+              {Object.entries(STATUS_MAP).map(([k, v]) => (
+                <button key={k} onClick={() => setFilter(k)} className={`pill text-[10px] border ${filter===k ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : v.cls}`}>{v.label} ({items.filter(r=>r.status===k).length})</button>
+              ))}
+            </div>
+          </div>
+
+          <div className="req-panel-list">
+            {filtered.length === 0 && <div className="p-8 text-center text-sm" style={{color: "#8B9E7A"}}>No requests yet</div>}
+            {filtered.map(r => {
+              const st = STATUS_MAP[r.status] || STATUS_MAP.pending;
+              const tp = TYPES.find(t => t.id === r.request_type) || TYPES[4];
               return (
-                <div key={l.id} className="card p-4 flex items-center gap-3 flex-wrap">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className="pill text-xs font-bold" style={{ background: st.bg, color: st.color }}>{st.icon} {st.label}</span>
-                      <span className="pill text-xs" style={{ background: `${tp.color}20`, color: tp.color }}>{tp.label}</span>
-                      {permissionPayLabel(l) && (
-                        <span className="pill text-[10px] font-bold bg-[#F8EBE7] text-[#8A3F27]">{permissionPayLabel(l)}</span>
+                <div key={r.id} className="req-item">
+                  <div className="flex items-start gap-2">
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{background: `${tp.color}25`, color: tp.color}}>{tp.icon}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                        <span className={`pill border text-[10px] ${st.cls}`}>{st.icon} {st.label}</span>
+                        <span className="pill text-[10px]" style={{background: `${tp.color}20`, color: tp.color}}>{tp.label}</span>
+                        {r.priority && r.priority !== "normal" && (
+                          <span className="pill text-[10px]" style={{background: `${PRIORITIES.find(p=>p.id===r.priority)?.color}20`, color: PRIORITIES.find(p=>p.id===r.priority)?.color}}>
+                            {PRIORITIES.find(p=>p.id===r.priority)?.label}
+                          </span>
+                        )}
+                      </div>
+                      <div className="font-bold text-sm" style={{color: "#2C3625"}}>{r.title}</div>
+                      {r.description && <div className="text-xs mt-0.5 line-clamp-2" style={{color: "#5C6853"}}>{r.description}</div>}
+                      {canManageReq && r.therapist_name && (
+                        <div className="text-[10px] mt-1" style={{color: "#8B9E7A"}}>From <strong style={{color: "#5C6853"}}>{r.therapist_name}</strong></div>
+                      )}
+                      <div className="text-[10px] mt-0.5" style={{color: "#8B9E7A"}}>{new Date(r.created_at).toLocaleString('en-US')}</div>
+                      {r.admin_note && (
+                        <div className="mt-2 p-2 rounded-lg text-xs bg-[#E5EBE1]" style={{color: "#3D4F35"}}>{r.admin_note}</div>
                       )}
                     </div>
-                    <div className="font-bold" style={{ color: "#2C3625" }}>{l.therapist_name || "Therapist"}</div>
-                    <div className="text-sm flex items-center gap-1 mt-0.5" style={{ color: "#5C6853" }}>
-                      <CalendarBlank size={14}/> {fmtDateRange(l.start_date, l.end_date)} · {l.days} day{l.days !== 1 ? "s" : ""}
+                    <div className="flex flex-col gap-1 shrink-0">
+                      {canManageReq && <button data-testid={`update-status-${r.id}`} onClick={() => setStatusEdit({...r})} className="btn btn-secondary text-[10px] py-1 px-2"><PencilSimple size={12}/></button>}
+                      {isPortalAdminUser && (
+                        <button onClick={() => remove(r.id)} className="btn btn-ghost p-1.5 text-red-700" title="Delete"><Trash size={14}/></button>
+                      )}
                     </div>
-                    {l.notes && <div className="text-xs mt-1 italic" style={{ color: "#8B9E7A" }}>{l.notes}</div>}
                   </div>
-                  {l.status === "pending" && l.leave_type === "Permission" && (
-                    <>
-                      <button type="button" onClick={() => setLeaveStatus(l, "approved", { is_paid: true, deduct_balance: true })} className="btn btn-primary text-xs py-1.5">
-                        <CheckCircle size={14}/> Approve (Paid)
-                      </button>
-                      <button type="button" onClick={() => setLeaveStatus(l, "approved", { is_paid: false, deduct_balance: false })} className="btn btn-secondary text-xs py-1.5">
-                        Approve (Unpaid)
-                      </button>
-                      <button type="button" onClick={() => setLeaveStatus(l, "rejected")} className="btn btn-outline text-xs py-1.5" style={{ color: "#8A3F27" }}>
-                        <XCircle size={14}/> Reject
-                      </button>
-                    </>
-                  )}
-                  {l.status === "pending" && l.leave_type !== "Permission" && (
-                    <>
-                      <button type="button" onClick={() => setLeaveStatus(l, "approved")} className="btn btn-primary text-xs py-1.5">
-                        <CheckCircle size={14}/> Approve
-                      </button>
-                      <button type="button" onClick={() => setLeaveStatus(l, "rejected")} className="btn btn-outline text-xs py-1.5" style={{ color: "#8A3F27" }}>
-                        <XCircle size={14}/> Reject
-                      </button>
-                    </>
-                  )}
-                  <button type="button" onClick={() => removeLeave(l.id)} className="btn btn-ghost p-2 text-red-700 min-w-[44px] min-h-[44px]" title="Delete leave">
-                    <Trash size={16}/>
-                  </button>
                 </div>
               );
             })}
           </div>
-        </div>
-      )}
+        </section>
+
+        <aside className="req-panel-sidebar">
+          <div className="req-panel-head">
+            <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Request Types</h2>
+            <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>What therapists can submit</p>
+          </div>
+          <div className="p-3 space-y-2">
+            {TYPES.map(t => (
+              <div key={t.id} className="flex items-start gap-2 text-xs">
+                <span className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: `${t.color}22`, color: t.color }}>{t.icon}</span>
+                <div>
+                  <div className="font-bold" style={{ color: "#2C3625" }}>{t.label}</div>
+                  <div style={{ color: "#8B9E7A" }}>
+                    {t.id === "supplies" && "Materials, toys, or classroom items"}
+                    {t.id === "schedule_change" && "Session time or day adjustments"}
+                    {t.id === "reward" && "Recognition or bonus requests"}
+                    {t.id === "general" && "Other staff-related needs"}
+                    {t.id === "leave" && "Routed via leave panel below"}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {leaveHr && (
+            <>
+              <div className="req-panel-head border-t border-[#E2DDD4]">
+                <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Recent Leave Requests</h2>
+                <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>Approve or reject from here</p>
+              </div>
+              <div className="req-panel-list">
+                {recentLeaves.length === 0 && (
+                  <div className="p-6 text-center text-xs" style={{ color: "#8B9E7A" }}>No leave requests yet</div>
+                )}
+                {recentLeaves.map(l => {
+                  const st = LEAVE_STATUS[l.status] || LEAVE_STATUS.pending;
+                  const tp = LEAVE_TYPES[l.leave_type] || { label: l.leave_type, color: "#7A8A6A" };
+                  return (
+                    <div key={l.id} className="req-item">
+                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                        <span className="pill text-[10px] font-bold" style={{ background: st.bg, color: st.color }}>{st.icon} {st.label}</span>
+                        <span className="pill text-[10px]" style={{ background: `${tp.color}20`, color: tp.color }}>{tp.label}</span>
+                      </div>
+                      <div className="font-bold text-sm" style={{ color: "#2C3625" }}>{l.therapist_name || "Therapist"}</div>
+                      <div className="text-xs mt-0.5" style={{ color: "#5C6853" }}>
+                        {fmtDateRange(l.start_date, l.end_date)} · {l.days} day{l.days !== 1 ? "s" : ""}
+                      </div>
+                      {l.status === "pending" && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {l.leave_type === "Permission" ? (
+                            <>
+                              <button type="button" onClick={() => setLeaveStatus(l, "approved", { is_paid: true, deduct_balance: true })} className="btn btn-primary text-[10px] py-1 px-2">Paid</button>
+                              <button type="button" onClick={() => setLeaveStatus(l, "approved", { is_paid: false, deduct_balance: false })} className="btn btn-secondary text-[10px] py-1 px-2">Unpaid</button>
+                            </>
+                          ) : (
+                            <button type="button" onClick={() => setLeaveStatus(l, "approved")} className="btn btn-primary text-[10px] py-1 px-2">Approve</button>
+                          )}
+                          <button type="button" onClick={() => setLeaveStatus(l, "rejected")} className="btn btn-outline text-[10px] py-1 px-2" style={{ color: "#8A3F27" }}>Reject</button>
+                        </div>
+                      )}
+                      <button type="button" onClick={() => removeLeave(l.id)} className="btn btn-ghost p-1 text-red-700 mt-1 text-[10px]" title="Delete">Delete</button>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </aside>
+      </div>
 
       {/* Submit Leave Request Modal */}
       {leaveModal && (

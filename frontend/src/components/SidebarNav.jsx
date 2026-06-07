@@ -72,6 +72,7 @@ export default function SidebarNav({
   personalItems,
   referralsItems,
   hrItems,
+  financeItems = [],
   adminItems,
   therapistOnly,
   loc,
@@ -133,7 +134,8 @@ export default function SidebarNav({
       )}
 
       <SidebarSection title="Referrals" items={referralsItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
-      <SidebarSection title="HR" items={hrItems} loc={loc} defaultOpen={Boolean(hrItems.some(it => it.to === "/billing"))} onItemHover={onItemHover} collapsed={collapsed} />
+      <SidebarSection title="HR" items={hrItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
+      <SidebarSection title="Finance" items={financeItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
       <SidebarSection title="Administration" items={adminItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
     </nav>
   );
