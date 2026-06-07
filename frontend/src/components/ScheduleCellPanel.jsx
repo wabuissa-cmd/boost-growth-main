@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { X, FloppyDisk, BellRinging } from "@phosphor-icons/react";
 import { DAYS_EN, TIME_SLOTS, SERVICE_CODES } from "../api";
 import { DURATION_OPTIONS } from "../scheduleConstants";
+import { SERVICE_CELL_COLORS, resolveClientScheduleColor } from "../scheduleUtils";
 import { ModalBtnPrimary, ModalBtnSecondary } from "./Modal";
 
 const STATES = [
