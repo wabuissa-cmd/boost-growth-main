@@ -1,4 +1,4 @@
-/* Client Info — profile dashboard (purple-accent editorial) */
+/* Client Info — profile dashboard (sage theme) */
 
 .ci-naturora { margin: 0; }
 
@@ -8,12 +8,12 @@
   border: 1px solid #E2DDD4;
   border-radius: 16px;
   overflow: hidden;
-  background: #F5F2FA;
+  background: #F3EFE8;
   min-height: 520px;
 }
 
 .ci-pane-left {
-  background: #F5F2FA;
+  background: #F3EFE8;
   border-right: 1px solid #E2DDD4;
   display: flex;
   flex-direction: column;
@@ -23,7 +23,7 @@
 .ci-pane-brand {
   padding: 1.25rem 1rem 0.85rem;
   text-align: center;
-  border-bottom: 1px solid rgba(107, 91, 149, 0.12);
+  border-bottom: 1px solid rgba(122, 138, 106, 0.15);
 }
 
 .ci-pane-brand h2 {
@@ -32,7 +32,7 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #4E3F70;
+  color: #606E52;
 }
 
 .ci-pane-stats {
@@ -43,14 +43,14 @@
   font-size: 0.6rem;
   font-weight: 700;
   text-transform: uppercase;
-  color: #8B7BA8;
+  color: #8B9E7A;
 }
 
 .ci-pane-stats em {
   font-style: normal;
   display: block;
   font-size: 0.9rem;
-  color: #4E3F70;
+  color: #606E52;
 }
 
 .ci-pane-list {
@@ -68,7 +68,7 @@
   gap: 0.65rem;
   width: 100%;
   padding: 0.65rem 0.75rem;
-  border: 1px solid #DDD8E8;
+  border: 1px solid #E2DDD4;
   border-radius: 12px;
   background: #fff;
   cursor: pointer;
@@ -77,10 +77,10 @@
   transition: border-color 140ms, box-shadow 140ms;
 }
 
-.ci-pane-item:hover { border-color: #B8AED4; }
+.ci-pane-item:hover { border-color: #B4C2A9; }
 .ci-pane-item.selected {
-  border-color: #7B6BA8;
-  box-shadow: 0 2px 12px rgba(107, 91, 149, 0.12);
+  border-color: #7A8A6A;
+  box-shadow: 0 2px 12px rgba(122, 138, 106, 0.14);
 }
 
 .ci-pane-item-avatar {
@@ -120,7 +120,7 @@
 
 /* Right — profile dashboard */
 .ci-pane-right {
-  background: #EDE8F5;
+  background: #E5EBE1;
   overflow-y: auto;
   max-height: calc(100dvh - 10rem);
 }
@@ -136,7 +136,7 @@
   background: #fff;
   border-radius: 18px;
   padding: 1.1rem 1.15rem;
-  box-shadow: 0 4px 20px rgba(78, 63, 112, 0.08);
+  box-shadow: 0 4px 20px rgba(96, 110, 82, 0.08);
   display: flex;
   align-items: flex-start;
   gap: 1rem;
@@ -152,7 +152,7 @@
   font-weight: 700;
   font-size: 1.6rem;
   flex-shrink: 0;
-  border: 3px solid #EDE8F5;
+  border: 3px solid #E5EBE1;
   box-shadow: 0 4px 14px rgba(0,0,0,0.08);
 }
 
@@ -192,7 +192,7 @@
 }
 
 .ci-btn-purple {
-  background: #7B6BA8;
+  background: #7A8A6A;
   color: #fff;
   border: none;
   border-radius: 10px;
@@ -203,10 +203,12 @@
   cursor: pointer;
 }
 
+.ci-btn-purple:hover { background: #606E52; }
+
 .ci-btn-outline-p {
   background: #fff;
-  color: #7B6BA8;
-  border: 1px solid #C8BFE0;
+  color: #606E52;
+  border: 1px solid #B4C2A9;
   border-radius: 10px;
   padding: 0.45rem 0.75rem;
   font: inherit;
@@ -215,12 +217,17 @@
   cursor: pointer;
 }
 
+.ci-btn-outline-p:hover {
+  border-color: #7A8A6A;
+  background: #FAF7F2;
+}
+
 /* Timeline sections */
 .ci-timeline {
   background: #fff;
   border-radius: 18px;
   padding: 1rem 1.1rem;
-  box-shadow: 0 4px 20px rgba(78, 63, 112, 0.06);
+  box-shadow: 0 4px 20px rgba(96, 110, 82, 0.06);
 }
 
 .ci-timeline-title {
@@ -228,7 +235,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #8B7BA8;
+  color: #7A8A6A;
   margin: 0 0 0.75rem;
 }
 
@@ -265,7 +272,7 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #7B6BA8;
+  background: #7A8A6A;
   flex-shrink: 0;
   margin-top: 0.55rem;
 }
@@ -281,8 +288,8 @@
 
 .ci-timeline-card {
   flex: 1;
-  background: #F8F6FC;
-  border: 1px solid #E8E2F2;
+  background: #FAF7F2;
+  border: 1px solid #E2DDD4;
   border-radius: 14px;
   padding: 0.75rem 0.85rem;
   display: flex;
@@ -292,7 +299,7 @@
 }
 
 .ci-timeline-item:hover .ci-timeline-card {
-  border-color: #7B6BA8;
+  border-color: #7A8A6A;
   background: #fff;
 }
 
@@ -300,8 +307,8 @@
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: #EDE8F5;
-  color: #7B6BA8;
+  background: #E5EBE1;
+  color: #606E52;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -325,7 +332,7 @@
   background: #fff;
   border-radius: 14px;
   padding: 0.75rem 0.85rem;
-  border: 1px solid #E8E2F2;
+  border: 1px solid #E2DDD4;
 }
 
 .ci-pkg-mini {
@@ -346,7 +353,7 @@
 
 .ci-pkg-mini-fill {
   height: 100%;
-  background: #7B6BA8;
+  background: #7A8A6A;
   border-radius: 999px;
 }
 
@@ -392,10 +399,10 @@
 .intake-table tr:hover td { background: #FAFAF7; }
 .intake-table tr.priority-row td { background: #FFFBF3; }
 
-/* Requests split — medical app */
+/* Requests split — leave (wide) + general (sidebar) */
 .req-split {
   display: grid;
-  grid-template-columns: 1fr 340px;
+  grid-template-columns: 1fr 300px;
   gap: 1rem;
   align-items: start;
 }
@@ -405,9 +412,20 @@
   border: 1px solid #E2DDD4;
   border-radius: 20px;
   overflow: hidden;
-  min-height: 480px;
+  min-height: 520px;
   display: flex;
   flex-direction: column;
+}
+
+.req-panel-sidebar {
+  background: #fff;
+  border: 1px solid #E2DDD4;
+  border-radius: 20px;
+  overflow: hidden;
+  min-height: 520px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 10rem);
 }
 
 .req-panel-head {
@@ -423,6 +441,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  max-height: calc(100dvh - 18rem);
 }
 
 .req-item {
@@ -432,16 +451,10 @@
   background: #FAFAF7;
 }
 
-.req-panel-right {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
 .req-leave-balance {
   background: linear-gradient(135deg, #7A8A6A 0%, #606E52 100%);
   color: #fff;
-  border-radius: 20px;
+  border-radius: 16px;
   padding: 1.15rem;
 }
 

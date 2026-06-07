@@ -28,7 +28,7 @@ function MiniPkgBar({ row }) {
   const ur = formatPkgUsedRemaining(row);
   return (
     <div className="ci-pkg-mini">
-      <span style={{ fontWeight: 700, color: "#7B6BA8" }}>{row.service_type}</span>
+      <span style={{ fontWeight: 700, color: "#606E52" }}>{row.service_type}</span>
       <div className="ci-pkg-mini-track">
         <div className="ci-pkg-mini-fill" style={{ width: `${pct}%` }} />
       </div>
@@ -62,7 +62,7 @@ export default function ClientInfoLayout({
   const statusMeta = selected ? cardStatusMeta(selected.cardStatus || "ok") : null;
   const therapistName = selected ? findTherapist(selected.main_therapist_id)?.name?.replace("Ms. ", "") : "";
   const prCount = selected ? prSummaries?.[selected.id]?.count : 0;
-  const avatarBg = selected ? (getChildColor(selected.name) || selected.color || "#7B6BA8") : "#7B6BA8";
+  const avatarBg = selected ? (getChildColor(selected.name) || selected.color || "#7A8A6A") : "#7A8A6A";
 
   if (!clients.length) {
     return <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>No clients match your filters.</div>;
@@ -84,7 +84,7 @@ export default function ClientInfoLayout({
             {clients.map(c => {
               const dot = pkgAlertDot(pkgByClient[c.id]);
               const tName = findTherapist(c.main_therapist_id)?.name?.replace("Ms. ", "");
-              const bg = getChildColor(c.name) || c.color || "#7B6BA8";
+              const bg = getChildColor(c.name) || c.color || "#7A8A6A";
               return (
                 <button key={c.id} type="button" className={`ci-pane-item${selected?.id === c.id ? " selected" : ""}`} onClick={() => onSelect(c.id)}>
                   <div className="ci-pane-item-avatar" style={{ background: bg, color: readable(bg) }}>{c.initials || c.name?.charAt(0)}</div>
@@ -152,7 +152,7 @@ export default function ClientInfoLayout({
                             <h3>{s.title}</h3>
                             <p>{desc}</p>
                           </div>
-                          <CaretRight size={14} style={{ color: "#8B7BA8", flexShrink: 0 }} />
+                          <CaretRight size={14} style={{ color: "#8B9E7A", flexShrink: 0 }} />
                         </div>
                       </button>
                     );

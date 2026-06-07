@@ -27,7 +27,7 @@ const STATUS_MAP = {
 };
 
 const NEW_TYPES = [
-  { id: "general", label: "General", icon: <Briefcase size={20} weight="duotone"/>, color: "#8B7BA8" },
+  { id: "general", label: "General", icon: <Briefcase size={20} weight="duotone"/>, color: "#7A8A6A" },
   { id: "supplies", label: "Materials", icon: <Package size={20} weight="duotone"/>, color: "#D4A64A" },
   { id: "leave", label: "Leave Request", icon: <ClockCounterClockwise size={20} weight="duotone"/>, color: "#7A8A6A" },
   { id: "permission", label: "Permission", icon: <CalendarBlank size={20} weight="duotone"/>, color: "#6BAA9B" },
@@ -211,6 +211,60 @@ export default function TherapistRequests() {
 
       <div className="req-split">
         <section className="req-panel-left">
+          <div className="req-leave-balance mx-3 mt-3">
+            <div className="text-[10px] tracking-[0.2em] font-bold opacity-90 mb-1">LEAVE BALANCE</div>
+            {balance?.contract_period_start && (
+              <div className="text-[10px] opacity-80 mb-2">
+                Contract · {fmtContractPeriod(balance.contract_period_start, balance.contract_period_end)}
+              </div>
+            )}
+            {balance ? (
+              <div className="flex items-end gap-3 flex-wrap">
+                <div>
+                  <div className="font-display text-3xl font-semibold">{balance.remaining}</div>
+                  <div className="text-xs opacity-90">days left</div>
+                </div>
+                <div className="text-xs opacity-90">{balance.allocated} entitled · {(balance.used_annual || 0) + (balance.used_permission || 0)} used</div>
+              </div>
+            ) : (
+              <div className="text-sm opacity-90">Loading…</div>
+            )}
+          </div>
+          <div className="req-panel-head">
+            <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Leave Requests</h2>
+            <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>Annual · sick · permission · exam</p>
+          </div>
+          <div className="req-panel-list">
+            {leaves.length === 0 && (
+              <div className="p-8 text-center text-sm" style={{ color: "#8B9E7A" }}>No leave requests</div>
+            )}
+            {leaves.map(l => {
+              const st = LEAVE_STATUS[l.status] || LEAVE_STATUS.pending;
+              const tp = LEAVE_TYPES[l.leave_type] || { label: l.leave_type, color: "#7A8A6A" };
+              const unpaid = permissionPayLabel(l);
+              return (
+                <div key={l.id} className="req-item">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <span className="pill text-[10px] font-bold" style={{ background: st.bg, color: st.color }}>{st.icon} {leaveStatusLabel(l.status, true)}</span>
+                    <span className="pill text-[10px]" style={{ background: `${tp.color}22`, color: tp.color }}>{tp.label}</span>
+                    {unpaid && (
+                      <span className="pill text-[10px] font-bold bg-[#F8EBE7] text-[#8A3F27] border border-[#ECA6A6]">{unpaid}</span>
+                    )}
+                  </div>
+                  <div className="text-sm font-semibold" style={{ color: "#2C3625" }}>
+                    {fmtDateRange(l.start_date, l.end_date)} · {l.days} day{l.days !== 1 ? "s" : ""}
+                  </div>
+                  {l.notes && <div className="text-xs mt-1 italic" style={{ color: "#8B9E7A" }}>{l.notes}</div>}
+                  {l.admin_note && (
+                    <div className="mt-2 text-xs p-2 rounded-lg bg-[#E5EBE1]" style={{ color: "#3D4F35" }}>{l.admin_note}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="req-panel-sidebar">
           <div className="req-panel-head">
             <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>General Requests</h2>
             <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>Materials · notes · attachments</p>
@@ -266,62 +320,6 @@ export default function TherapistRequests() {
                 </div>
               );
             })}
-          </div>
-        </section>
-
-        <section className="req-panel-right">
-          <div className="req-leave-balance">
-            <div className="text-[10px] tracking-[0.2em] font-bold opacity-90 mb-1">LEAVE BALANCE</div>
-            {balance?.contract_period_start && (
-              <div className="text-[10px] opacity-80 mb-2">
-                Contract · {fmtContractPeriod(balance.contract_period_start, balance.contract_period_end)}
-              </div>
-            )}
-            {balance ? (
-              <div className="flex items-end gap-3 flex-wrap">
-                <div>
-                  <div className="font-display text-3xl font-semibold">{balance.remaining}</div>
-                  <div className="text-xs opacity-90">days left</div>
-                </div>
-                <div className="text-xs opacity-90">{balance.allocated} entitled · {(balance.used_annual || 0) + (balance.used_permission || 0)} used</div>
-              </div>
-            ) : (
-              <div className="text-sm opacity-90">Loading…</div>
-            )}
-          </div>
-          <div className="card p-4 flex-1 flex flex-col min-h-[360px]">
-            <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-[#E2DDD4]">
-              <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Leave Requests</h2>
-              <span className="text-xs pill bg-[#E5EBE1]" style={{ color: "#3D4F35" }}>{leaves.length}</span>
-            </div>
-            <div className="flex-1 space-y-2 overflow-y-auto max-h-[420px]">
-              {leaves.length === 0 && (
-                <div className="p-8 text-center text-sm" style={{ color: "#8B9E7A" }}>No leave requests</div>
-              )}
-              {leaves.map(l => {
-                const st = LEAVE_STATUS[l.status] || LEAVE_STATUS.pending;
-                const tp = LEAVE_TYPES[l.leave_type] || { label: l.leave_type, color: "#7A8A6A" };
-                const unpaid = permissionPayLabel(l);
-                return (
-                  <div key={l.id} className="rounded-[1.25rem] border border-[#E2DDD4] p-3">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className="pill text-[10px] font-bold" style={{ background: st.bg, color: st.color }}>{st.icon} {leaveStatusLabel(l.status, true)}</span>
-                      <span className="pill text-[10px]" style={{ background: `${tp.color}22`, color: tp.color }}>{tp.label}</span>
-                      {unpaid && (
-                        <span className="pill text-[10px] font-bold bg-[#F8EBE7] text-[#8A3F27] border border-[#ECA6A6]">{unpaid}</span>
-                      )}
-                    </div>
-                    <div className="text-sm font-semibold" style={{ color: "#2C3625" }}>
-                      {fmtDateRange(l.start_date, l.end_date)} · {l.days} day{l.days !== 1 ? "s" : ""}
-                    </div>
-                    {l.notes && <div className="text-xs mt-1 italic" style={{ color: "#8B9E7A" }}>{l.notes}</div>}
-                    {l.admin_note && (
-                      <div className="mt-2 text-xs p-2 rounded-lg bg-[#E5EBE1]" style={{ color: "#3D4F35" }}>{l.admin_note}</div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
           </div>
         </section>
       </div>
