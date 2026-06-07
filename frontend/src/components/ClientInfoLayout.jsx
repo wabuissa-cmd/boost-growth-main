@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 import {
   MapPin, Paperclip, ClipboardText, ChartLineUp,
-  Leaf, PencilSimple, CaretRight,
+  PencilSimple, CaretRight,
 } from "@phosphor-icons/react";
 import { getChildColor, readable } from "../childColors";
 import { prepTrackMeta, cardStatusMeta } from "../attendanceUtils";
@@ -73,11 +73,11 @@ export default function ClientInfoLayout({
       <div className="ci-canvas">
         <div className="ci-pane-left">
           <div className="ci-pane-brand">
-            <h2><Leaf size={14} className="inline mr-1" style={{ verticalAlign: -2 }} /> Client Directory</h2>
+            <h2>Client Directory</h2>
             <div className="ci-pane-stats">
               <span><em>{counts.active}</em> Active</span>
               <span><em>{counts.all}</em> Total</span>
-              {counts.attention > 0 && <span><em>{counts.attention}</em> Alerts</span>}
+              {counts.attention > 0 && <span className="ci-stat-alert"><em>{counts.attention}</em> Alerts</span>}
             </div>
           </div>
           <div className="ci-pane-list">
@@ -86,14 +86,23 @@ export default function ClientInfoLayout({
               const tName = findTherapist(c.main_therapist_id)?.name?.replace("Ms. ", "");
               const bg = getChildColor(c.name) || c.color || "#E5EBE1";
               const avatarColor = getChildColor(c.name) || c.color ? readable(bg) : "#606E52";
+              const isSelected = selected?.id === c.id;
               return (
-                <button key={c.id} type="button" className={`ci-pane-item${selected?.id === c.id ? " selected" : ""}`} onClick={() => onSelect(c.id)}>
-                  <div className="ci-pane-item-avatar" style={{ background: bg, color: avatarColor }}>{c.initials || c.name?.charAt(0)}</div>
-                  <div className="min-w-0 flex-1">
-                    <div className="ci-pane-item-name">{c.name}</div>
-                    <div className="ci-pane-item-sub">File #{c.file_no || "—"}{tName ? ` · ${tName}` : ""}</div>
+                <button key={c.id} type="button" className={`ci-client-card${isSelected ? " selected" : ""}`} onClick={() => onSelect(c.id)}>
+                  <div className="ci-client-card-inner">
+                    <div className="ci-client-card-avatar" style={{ background: bg, color: avatarColor }}>
+                      {c.initials || c.name?.charAt(0)}
+                    </div>
+                    <div className="ci-client-card-body">
+                      <div className="ci-client-card-top">
+                        <div className="ci-client-card-name">{c.name}</div>
+                        {dot && <span className="ci-client-card-alert" style={{ background: dot }} title="Package alert" />}
+                      </div>
+                      <div className="ci-client-card-meta">File #{c.file_no || "—"}</div>
+                      {tName && <div className="ci-client-card-therapist">Therapist · {tName}</div>}
+                    </div>
+                    <CaretRight size={14} className="ci-client-card-chevron" weight="bold" />
                   </div>
-                  {dot && <span className="ci-pane-item-dot" style={{ background: dot }} />}
                 </button>
               );
             })}

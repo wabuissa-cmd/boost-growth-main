@@ -7,7 +7,7 @@ import {
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
 import DashboardStatCard from "../components/DashboardStatCard";
-import "../clientInfoLayout.css";
+import "../dashboardLayout.css";
 
 const STATUS = { new: "New", contacted: "Contacted", scheduled: "Scheduled", completed: "Completed" };
 const STATUS_COLORS = {

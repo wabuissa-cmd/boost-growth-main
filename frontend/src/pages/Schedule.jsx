@@ -1258,7 +1258,12 @@ export default function Schedule() {
                 <div className="font-bold mb-2" style={{ color: "#1C2617" }}>Read receipts</div>
                 {notifyReceipts.map(r => (
                   <div key={r.id} className="flex items-center justify-between py-1 border-b border-[#F0EDE9] last:border-0">
-                    <span>{r.therapist_name || r.user_id}</span>
+                    <div>
+                      <span>{r.therapist_name || r.user_id}</span>
+                      {r.actor_name && (
+                        <span className="block text-[10px]" style={{ color: "#8B9E7A" }}>Sent by {r.actor_name}</span>
+                      )}
+                    </div>
                     <span style={{ color: r.acknowledged ? "#3D4F35" : "#8B6918" }}>
                       {r.acknowledged ? "✓ Received & Read" : "⏳ Pending"}
                     </span>

@@ -164,6 +164,15 @@ async def ops_or_admin(user: dict = Depends(get_current_user)) -> dict:
         return user
     raise HTTPException(status_code=403, detail="Admin access required")
 
+def _actor_display(user: dict) -> str:
+    name = (user.get("name") or "").strip()
+    if name:
+        return name.replace("Ms. ", "", 1) if name.startswith("Ms. ") else name
+    email = (user.get("email") or "").strip()
+    if email:
+        return email.split("@")[0].replace(".", " ").title()
+    return "Staff"
+
 def set_auth_cookie(response: Response, token: str):
     response.set_cookie(key="access_token", value=token, httponly=True,
                         secure=True, samesite="none", max_age=86400, path="/")
@@ -898,6 +907,30 @@ async def create_center_update(body: CenterUpdateIn, _=Depends(admin_only)):
     doc.pop("_id", None)
     return doc
 
+@api.put("/center-updates/{uid}")
+async def update_center_update(uid: str, body: CenterUpdateIn, _=Depends(admin_only)):
+    title = (body.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title required")
+    update = {
+        "title": title,
+        "body": (body.body or "").strip(),
+        "date": (body.date or now_iso()[:10]),
+        "updated_at": now_iso(),
+    }
+    res = await db.center_updates.update_one({"id": uid}, {"$set": update})
+    if not res.matched_count:
+        raise HTTPException(status_code=404, detail="Update not found")
+    doc = await db.center_updates.find_one({"id": uid}, {"_id": 0})
+    return doc
+
+@api.delete("/center-updates/{uid}")
+async def delete_center_update(uid: str, _=Depends(admin_only)):
+    res = await db.center_updates.delete_one({"id": uid})
+    if not res.deleted_count:
+        raise HTTPException(status_code=404, detail="Update not found")
+    return {"ok": True}
+
 async def _push_center_update(title: str, body: str = ""):
     """Broadcast a platform update visible on therapist home."""
     doc = {
@@ -1036,24 +1069,27 @@ async def create_schedule_cell(payload: ScheduleCellIn, _=Depends(ops_or_admin))
     return doc
 
 @api.put("/schedule/{cid}")
-async def update_schedule_cell(cid: str, payload: ScheduleCellIn, _=Depends(ops_or_admin)):
+async def update_schedule_cell(cid: str, payload: ScheduleCellIn, user=Depends(ops_or_admin)):
     update = payload.model_dump()
     await db.schedule_cells.update_one({"id": cid}, {"$set": update})
     cell = await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
     if cell and cell.get("child_name"):
         await _ensure_co_therapist_from_schedule(cell.get("therapist_id"), cell.get("child_name"))
+    actor = _actor_display(user)
     if cell and cell.get("therapist_id"):
         title = "Schedule update"
+        detail = f"{cell.get('service_code')} | {cell.get('child_name') or ''} at {cell.get('time_slot')}"
         if cell.get("state") == "cancel_therapist":
             title = "Session marked as Therapist Cancellation"
             await _notify_admins("cancel_alert", "Therapist cancellation",
-                                 f"{cell.get('child_name') or '—'} session on day {cell.get('day')} at {cell.get('time_slot')} marked Therapist Cancel")
+                                 f"{actor} marked {cell.get('child_name') or '—'} session on day {cell.get('day')} at {cell.get('time_slot')} as Therapist Cancel")
         elif cell.get("state") == "cancel_child":
             title = "Session marked as Client Cancellation"
             await _notify_admins("cancel_alert", "Client cancellation",
-                                 f"{cell.get('child_name') or '—'} session on day {cell.get('day')} at {cell.get('time_slot')} marked Client Cancel")
+                                 f"{actor} marked {cell.get('child_name') or '—'} session on day {cell.get('day')} at {cell.get('time_slot')} as Client Cancel")
         await _notify(cell["therapist_id"], "schedule", title,
-                      f"{cell.get('service_code')} | {cell.get('child_name') or ''} at {cell.get('time_slot')}")
+                      f"{actor} updated the schedule: {detail}",
+                      actor_id=user.get("id"), actor_name=actor)
     return cell
 
 @api.post("/schedule/{cid}/duplicate")
@@ -1072,11 +1108,13 @@ async def delete_schedule_cell(cid: str, _=Depends(ops_or_admin)):
     return {"ok": True}
 
 @api.post("/schedule/{cid}/notify")
-async def notify_schedule(cid: str, body: ScheduleNotifyIn, _=Depends(ops_or_admin)):
+async def notify_schedule(cid: str, body: ScheduleNotifyIn, user=Depends(ops_or_admin)):
     cell = await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
     if not cell:
         raise HTTPException(status_code=404, detail="Schedule cell not found")
+    actor = _actor_display(user)
     msg = body.message or f"Notice about session: {cell.get('child_name') or ''}"
+    title = f"Notice from {actor}"
     recipients = body.recipient_ids or ([cell["therapist_id"]] if cell.get("therapist_id") else [])
     if not recipients:
         raise HTTPException(status_code=400, detail="No recipients selected")
@@ -1084,15 +1122,24 @@ async def notify_schedule(cid: str, body: ScheduleNotifyIn, _=Depends(ops_or_adm
     for rid in recipients:
         if body.send_in_app:
             n = await _notify(
-                rid, "schedule_alert", "Notice from Admin", msg,
+                rid, "schedule_alert", title, msg,
                 schedule_cell_id=cid, requires_ack=True,
+                actor_id=user.get("id"), actor_name=actor,
             )
             sent.append({"user_id": rid, "notification_id": n["id"]})
         if body.send_email:
             therapist = await db.therapists.find_one({"id": rid}, {"_id": 0})
             if therapist and therapist.get("email"):
-                subj = "[Boost Growth] Notice from Admin"
-                await _send_email_stub(therapist["email"], subj, msg)
+                subj = f"[Boost Growth] Notice from {actor}"
+                email_body = (
+                    f"Hello {therapist.get('name', '')},\n\n"
+                    f"{actor} sent you a schedule notice:\n\n"
+                    f"{msg}\n\n"
+                    f"Session: {cell.get('service_code') or '—'} | {cell.get('child_name') or '—'}\n"
+                    f"Day: {cell.get('day')} | Time: {cell.get('time_slot') or '—'}\n\n"
+                    f"— Boost Growth Portal"
+                )
+                await _send_email_stub(therapist["email"], subj, email_body)
     return {"ok": True, "sent": sent}
 
 @api.get("/schedule/{cid}/notification-receipts")
@@ -5159,25 +5206,27 @@ async def _send_email_stub(to: str, subject: str, body: str) -> dict:
     return queue_doc
 
 @api.post("/schedule/cancel-notify")
-async def schedule_cancel_notify(payload: CancelNotifyIn, _=Depends(ops_or_admin)):
+async def schedule_cancel_notify(payload: CancelNotifyIn, user=Depends(ops_or_admin)):
     """Mark cell as cancelled (optional) + send in-app/email notifications to selected therapists."""
     cell = await db.schedule_cells.find_one({"id": payload.cell_id}, {"_id": 0})
     if not cell:
         raise HTTPException(status_code=404, detail="Schedule cell not found")
     if payload.state:
         await db.schedule_cells.update_one({"id": payload.cell_id}, {"$set": {"state": payload.state}})
+    actor = _actor_display(user)
     recipients = payload.recipient_ids or ([cell["therapist_id"]] if cell.get("therapist_id") else [])
-    title = "Notice from Admin"
+    title = f"Notice from {actor}"
     if payload.state == "cancel_therapist":
-        title = "Session Cancelled"
+        title = f"Session Cancelled — {actor}"
     elif payload.state == "cancel_child":
-        title = "Session Cancelled (Client)"
+        title = f"Session Cancelled (Client) — {actor}"
     sent = []
     for rid in recipients:
         if payload.send_in_app:
             n = await _notify(
                 rid, "schedule_cancel", title, payload.message,
                 schedule_cell_id=payload.cell_id, requires_ack=True,
+                actor_id=user.get("id"), actor_name=actor,
             )
             sent.append({"user_id": rid, "notification_id": n["id"]})
         therapist = await db.therapists.find_one({"id": rid}, {"_id": 0})
@@ -5196,17 +5245,19 @@ async def schedule_cancel_notify(payload: CancelNotifyIn, _=Depends(ops_or_admin
                     except Exception:
                         day_label = str(week_start)
                 if payload.state == "cancel_therapist":
-                    subj = f"Session Cancelled — {client_name} on {day_label or week_start}"
+                    subj = f"Session Cancelled — {client_name} on {day_label or week_start} ({actor})"
                     body = (
                         f"Dear {therapist.get('name', '')},\n\n"
-                        f"The session with {client_name} scheduled on {day_label or week_start} "
-                        f"at {cell.get('time_slot') or '—'} has been cancelled.\n\n"
+                        f"{actor} marked the session with {client_name} scheduled on {day_label or week_start} "
+                        f"at {cell.get('time_slot') or '—'} as a therapist cancellation.\n\n"
                         f"{payload.message}\n\n— Boost Growth Portal"
                     )
                 else:
                     subj = f"[Boost Growth] {title}"
                     body_lines = [
                         f"Hello {therapist.get('name') if therapist else ''},",
+                        "",
+                        f"{actor} sent a schedule notice:",
                         "",
                         payload.message,
                         "",

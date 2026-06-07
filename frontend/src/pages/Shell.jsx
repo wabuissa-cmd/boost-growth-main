@@ -329,6 +329,9 @@ export default function Shell() {
                     {notifs.map(n => (
                       <div key={n.id} className={`p-3 border-b border-[#F0EDE9] text-sm transition ${!n.read ? "bg-[#E5EBE1]/40" : ""}`}>
                         <div className="font-bold" style={{color: "#2C3625"}}>{n.title}</div>
+                        {n.actor_name && (
+                          <div className="text-[10px] font-semibold mt-0.5" style={{color: "#7A8A6A"}}>From {n.actor_name}</div>
+                        )}
                         <div className="text-xs mt-0.5" style={{color: "#5C6853"}}>{n.message}</div>
                         <div className="text-[10px] mt-1" style={{color: "#8B9E7A"}}>{new Date(n.created_at).toLocaleString('en-US')}</div>
                         {n.requires_ack && !n.acknowledged && (
