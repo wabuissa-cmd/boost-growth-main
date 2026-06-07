@@ -136,6 +136,29 @@ def _is_staff_admin(user: dict) -> bool:
     return _is_portal_admin(user) or _has_full_client_access(user)
 
 
+def _is_jenan(user: dict) -> bool:
+    email = (user.get("email") or "").lower().strip()
+    if email == "jsalmuhaisin@boostgrowthsa.com":
+        return True
+    key = (user.get("key") or "").lower()
+    if key == "msjenan":
+        return True
+    name = (user.get("name") or "").lower().replace("ms.", "").replace("ms ", "").strip()
+    return name.startswith("jenan")
+
+
+async def leave_manager(user: dict = Depends(get_current_user)) -> dict:
+    if _is_portal_admin(user) or _is_jenan(user):
+        return user
+    raise HTTPException(status_code=403, detail="Leave management access required")
+
+
+async def client_lead_or_admin(user: dict = Depends(get_current_user)) -> dict:
+    if _is_portal_admin(user) or _is_client_lead(user):
+        return user
+    raise HTTPException(status_code=403, detail="Admin access required")
+
+
 async def ops_or_admin(user: dict = Depends(get_current_user)) -> dict:
     if _is_portal_admin(user):
         return user
@@ -328,6 +351,12 @@ class PurchaseReminderSettingsIn(BaseModel):
     enabled: bool = True
     therapist_ids: List[str] = []
 
+class PersonalEventIn(BaseModel):
+    date: str
+    title: str
+    notes: Optional[str] = ""
+    time_label: Optional[str] = None
+
 class DirectoryContactIn(BaseModel):
     name: str
     role: Optional[str] = None
@@ -501,6 +530,11 @@ async def me(user: dict = Depends(get_current_user)):
     user["client_lead"] = _is_client_lead(user)
     user["portal_admin"] = user.get("role") == "admin" and not _is_client_lead(user)
     user["staff_admin"] = user["portal_admin"]
+    user["jenan_hr"] = _is_jenan(user)
+    user["can_manage_leaves"] = _is_portal_admin(user) or _is_jenan(user)
+    user["can_edit_staff_requests"] = _is_portal_admin(user) or _is_client_lead(user)
+    user["can_edit_intake"] = _is_portal_admin(user) or _is_client_lead(user)
+    user["schedule_lead"] = _is_client_lead(user) and not _is_portal_admin(user)
     return user
 
 @api.post("/auth/logout")
@@ -608,7 +642,7 @@ class LeaveBalanceIn(BaseModel):
     annual_balance: Optional[float] = None
 
 @api.put("/therapists/{tid}/leave-balance")
-async def set_leave_balance(tid: str, payload: LeaveBalanceIn, _=Depends(admin_only)):
+async def set_leave_balance(tid: str, payload: LeaveBalanceIn, _=Depends(leave_manager)):
     bal = float(payload.leave_balance)
     annual = float(payload.annual_balance) if payload.annual_balance is not None else bal
     await db.therapists.update_one(
@@ -875,6 +909,51 @@ async def _push_center_update(title: str, body: str = ""):
     }
     if doc["title"]:
         await db.center_updates.insert_one(doc)
+
+@api.get("/calendar/personal")
+async def list_personal_events(from_date: str = "", to_date: str = "", user=Depends(get_current_user)):
+    tid = await _resolve_user_therapist_id(user) or user.get("id")
+    if not tid:
+        raise HTTPException(status_code=403, detail="Therapist profile required")
+    q = {"therapist_id": tid}
+    if from_date and to_date:
+        q["date"] = {"$gte": from_date[:10], "$lte": to_date[:10]}
+    elif from_date:
+        q["date"] = {"$gte": from_date[:10]}
+    return await db.therapist_personal_events.find(q, {"_id": 0}).sort("date", 1).to_list(200)
+
+@api.post("/calendar/personal")
+async def create_personal_event(body: PersonalEventIn, user=Depends(get_current_user)):
+    tid = await _resolve_user_therapist_id(user) or user.get("id")
+    if not tid:
+        raise HTTPException(status_code=403, detail="Therapist profile required")
+    title = (body.title or "").strip()
+    date = (body.date or "").strip()[:10]
+    if not title or not date:
+        raise HTTPException(status_code=400, detail="title and date required")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "therapist_id": tid,
+        "date": date,
+        "title": title,
+        "notes": (body.notes or "").strip(),
+        "time_label": (body.time_label or "").strip() or None,
+        "created_at": now_iso(),
+    }
+    await db.therapist_personal_events.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.delete("/calendar/personal/{eid}")
+async def delete_personal_event(eid: str, user=Depends(get_current_user)):
+    tid = await _resolve_user_therapist_id(user) or user.get("id")
+    ev = await db.therapist_personal_events.find_one({"id": eid}, {"_id": 0})
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if ev.get("therapist_id") != tid and not _is_portal_admin(user):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    await db.therapist_personal_events.delete_one({"id": eid})
+    return {"ok": True}
 
 @api.get("/schedule")
 async def list_schedule(week_start: Optional[str] = None, user=Depends(get_current_user)):
@@ -3826,7 +3905,7 @@ async def download_request_attachment(rid: str, user=Depends(get_current_user)):
 
 
 @api.put("/requests/{rid}/status")
-async def update_request_status(rid: str, payload: RequestStatusUpdate, admin=Depends(admin_only)):
+async def update_request_status(rid: str, payload: RequestStatusUpdate, admin=Depends(client_lead_or_admin)):
     req = await db.requests.find_one({"id": rid})
     if not req:
         raise HTTPException(status_code=404, detail="Not found")
@@ -4679,7 +4758,7 @@ async def update_leave(lid: str, payload: LeaveIn, user=Depends(get_current_user
     return await db.leaves.find_one({"id": lid}, {"_id": 0})
 
 @api.put("/leaves/{lid}/status")
-async def update_leave_status(lid: str, payload: LeaveStatusUpdate, admin=Depends(admin_only)):
+async def update_leave_status(lid: str, payload: LeaveStatusUpdate, admin=Depends(leave_manager)):
     leave = await db.leaves.find_one({"id": lid})
     if not leave:
         raise HTTPException(status_code=404, detail="Not found")
@@ -4743,7 +4822,7 @@ async def delete_leave(lid: str, user=Depends(get_current_user)):
 
 
 @api.post("/leaves/mark-absence")
-async def mark_absence_without_request(payload: MarkAbsenceIn, admin=Depends(admin_only)):
+async def mark_absence_without_request(payload: MarkAbsenceIn, admin=Depends(leave_manager)):
     """Admin: record absence/permission and optionally cancel schedule sessions."""
     t = await db.therapists.find_one({"id": payload.therapist_id}, {"_id": 0, "id": 1, "name": 1})
     if not t:
@@ -4781,7 +4860,7 @@ async def mark_absence_without_request(payload: MarkAbsenceIn, admin=Depends(adm
 
 
 @api.post("/leaves/{lid}/mark-absent")
-async def mark_leave_absent(lid: str, payload: MarkAbsentIn, admin=Depends(admin_only)):
+async def mark_leave_absent(lid: str, payload: MarkAbsentIn, admin=Depends(leave_manager)):
     leave = await db.leaves.find_one({"id": lid}, {"_id": 0})
     if not leave:
         raise HTTPException(status_code=404, detail="Leave not found")
@@ -4889,7 +4968,7 @@ async def delete_leave_document(lid: str, user=Depends(get_current_user)):
 
 
 @api.put("/leaves/{lid}/verify-document")
-async def verify_leave_document(lid: str, payload: LeaveDocumentVerifyIn, _=Depends(admin_only)):
+async def verify_leave_document(lid: str, payload: LeaveDocumentVerifyIn, _=Depends(leave_manager)):
     leave = await db.leaves.find_one({"id": lid}, {"_id": 0})
     if not leave:
         raise HTTPException(status_code=404, detail="Leave not found")
@@ -5142,11 +5221,11 @@ async def schedule_cancel_notify(payload: CancelNotifyIn, _=Depends(ops_or_admin
 
 # ------------------- Intake (admin only) -------------------
 @api.get("/intake")
-async def list_intake(_=Depends(admin_only)):
+async def list_intake(_=Depends(client_lead_or_admin)):
     return await db.intake.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
 
 @api.post("/intake")
-async def create_intake(payload: IntakeIn, _=Depends(admin_only)):
+async def create_intake(payload: IntakeIn, _=Depends(client_lead_or_admin)):
     iid = str(uuid.uuid4())
     data = payload.model_dump()
     name = (data.get("child_name") or "").strip()
@@ -5163,7 +5242,7 @@ async def create_intake(payload: IntakeIn, _=Depends(admin_only)):
     return doc
 
 @api.put("/intake/{iid}")
-async def update_intake(iid: str, payload: IntakeIn, _=Depends(admin_only)):
+async def update_intake(iid: str, payload: IntakeIn, _=Depends(client_lead_or_admin)):
     data = payload.model_dump()
     name = (data.get("child_name") or "").strip()
     itype = data.get("intake_type") or "pre"
@@ -5173,7 +5252,7 @@ async def update_intake(iid: str, payload: IntakeIn, _=Depends(admin_only)):
     return await db.intake.find_one({"id": iid}, {"_id": 0})
 
 @api.delete("/intake/{iid}")
-async def delete_intake(iid: str, _=Depends(admin_only)):
+async def delete_intake(iid: str, _=Depends(client_lead_or_admin)):
     await db.intake.delete_one({"id": iid})
     return {"ok": True}
 

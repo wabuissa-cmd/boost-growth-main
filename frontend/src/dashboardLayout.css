@@ -658,6 +658,39 @@ a.dash-stat-card:hover {
 
 .cal-compact-day.has-events { background: #fff; }
 
+.cal-compact-day.is-empty {
+  background: repeating-linear-gradient(
+    -45deg,
+    #FAFAF7,
+    #FAFAF7 4px,
+    #F3EFE8 4px,
+    #F3EFE8 8px
+  );
+  border-style: dashed;
+}
+
+.cal-compact-empty {
+  font-size: 0.65rem;
+  color: #B4C2A9;
+  font-weight: 700;
+}
+
+.cal-empty-cell {
+  border: 1px dashed #D8DED3;
+  border-radius: 8px;
+  padding: 0.75rem 0.35rem;
+  text-align: center;
+  font-size: 0.62rem;
+  color: #8B9E7A;
+  background: #FAFAF7;
+}
+
+.cal-event.cal-personal {
+  background: #F3EFE8;
+  border-left: 3px solid #D4A64A;
+  color: #5C6853;
+}
+
 .cal-compact-dow {
   font-size: 0.55rem;
   font-weight: 700;

@@ -108,7 +108,48 @@ export function isStaffAdmin(user) {
   return isPortalAdmin(user) || hasOpsAccess(user);
 }
 
-/** @deprecated use hasFullClientAccess */
-export function hasFullClientAccessLegacy(user) {
-  return hasFullClientAccess(user);
+const JENAN_EMAILS = new Set(["jsalmuhaisin@boostgrowthsa.com"]);
+const JENAN_KEYS = new Set(["msjenan"]);
+
+/** Jenan — leave/absence/balance HR in addition to ops-lead tools */
+export function isJenan(user) {
+  if (!user) return false;
+  if (user.jenan_hr) return true;
+  const email = (user.email || "").toLowerCase().trim();
+  if (JENAN_EMAILS.has(email)) return true;
+  const key = (user.key || "").toLowerCase();
+  if (JENAN_KEYS.has(key)) return true;
+  const first = (user.name || "").replace(/^Ms\.?\s*/i, "").split(/\s+/)[0]?.toLowerCase();
+  return first === "jenan";
+}
+
+/** Walaa, Maha, Fahda — ops leads without Jenan's leave powers */
+export function isOpsLead(user) {
+  return isClientLead(user) && !isJenan(user);
+}
+
+export function canManageLeaves(user) {
+  if (!user) return false;
+  if (user.can_manage_leaves) return true;
+  return isPortalAdmin(user) || isJenan(user);
+}
+
+export function canEditStaffRequests(user) {
+  if (!user) return false;
+  if (user.can_edit_staff_requests) return true;
+  return isPortalAdmin(user) || isClientLead(user);
+}
+
+export function canEditIntake(user) {
+  if (!user) return false;
+  if (user.can_edit_intake) return true;
+  return isPortalAdmin(user) || isClientLead(user);
+}
+
+export function canEditOwnSchedule(user) {
+  return isPortalAdmin(user) || isClientLead(user);
+}
+
+export function showSystemAdmin(user) {
+  return isPortalAdmin(user);
 }

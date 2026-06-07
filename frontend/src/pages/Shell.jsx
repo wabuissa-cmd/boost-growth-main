@@ -1,12 +1,12 @@
 import { useEffect, useState, useRef, Suspense } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { useAuth, showAdminNav, isClientLead, hasOpsAccess } from "../auth";
+import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canEditStaffRequests, canEditIntake, canManageLeaves } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch } from "../dataCache";
 import {
   House, CalendarBlank, ClipboardText, UsersThree, Receipt,
   Bell, SignOut,   ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, CaretDown, Folder, UserCircle,
-  SidebarSimple, Rows, ShoppingBag,
+  SidebarSimple, Rows, ShoppingBag, FileText,
 } from "@phosphor-icons/react";
 
 import SidebarNav from "../components/SidebarNav";
@@ -58,6 +58,10 @@ export default function Shell() {
   });
   const loc = useLocation();
   const portalAdmin = showAdminNav(user);
+  const clientLead = isClientLead(user);
+  const staffRequestsAccess = canEditStaffRequests(user);
+  const leaveManager = canManageLeaves(user);
+  const intakeAccess = canEditIntake(user);
   const showPersonal = !portalAdmin;
   const showBilling = hasOpsAccess(user);
   const therapistOnly = Boolean(user && !portalAdmin);
@@ -87,8 +91,7 @@ export default function Shell() {
     { to: "/home", icon: <House size={18} weight="duotone"/>, label: "Home", testid: "nav-home" },
   ];
 
-  // Referrals dropdown (admin only — Intake)
-  const referralsItems = portalAdmin
+  const referralsItems = intakeAccess
     ? [{ to: "/intake", label: "Intake", testid: "nav-intake" }]
     : [];
 
@@ -98,13 +101,15 @@ export default function Shell() {
     { to: "/my-reports", label: "My Report", testid: "nav-my-reports" },
   ] : [];
 
-  // Requests dropdown — admin only: staff requests + leave management
+  // HR — staff requests for ops leads; leave tools for Jenan + portal admin
   const requestsItems = [];
-  if (portalAdmin) {
+  if (staffRequestsAccess) {
     requestsItems.push({ to: "/requests", label: "Staff Requests", testid: "nav-requests" });
+    if (portalAdmin) requestsItems.push({ to: "/purchases", label: "Purchases", testid: "nav-purchases" });
+  }
+  if (leaveManager) {
     requestsItems.push({ to: "/leaves", label: "Leave Requests", testid: "nav-leave-requests" });
     requestsItems.push({ to: "/leave-balance", label: "Leave Balance", testid: "nav-leave-balance" });
-    requestsItems.push({ to: "/purchases", label: "Purchases", testid: "nav-purchases" });
   }
 
   // Admin tools — Reports, Import, Admin page
@@ -134,7 +139,9 @@ export default function Shell() {
 
   const personalNavItems = myPortalItems.map(it => ({
     ...it,
-    icon: <UserCircle size={17} weight="duotone"/>,
+    icon: it.to === "/my-reports"
+      ? <FileText size={17} weight="duotone"/>
+      : <ListChecks size={17} weight="duotone"/>,
   }));
   const referralsNavItems = referralsItems.map(it => ({
     ...it,

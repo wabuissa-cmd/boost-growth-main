@@ -213,19 +213,32 @@ export default function TherapistRequests() {
       <div className="req-split">
         <section className="req-panel-left">
           <div className="req-leave-balance mx-3 mt-3">
-            <div className="text-[10px] tracking-[0.2em] font-bold opacity-90 mb-1">LEAVE BALANCE</div>
+            <div className="text-[10px] tracking-[0.2em] font-bold opacity-90 mb-2">LEAVE BALANCE</div>
             {balance?.contract_period_start && (
-              <div className="text-[10px] opacity-80 mb-2">
+              <div className="text-[10px] opacity-85 mb-2.5">
                 Contract · {fmtContractPeriod(balance.contract_period_start, balance.contract_period_end)}
               </div>
             )}
             {balance ? (
-              <div className="flex items-end gap-3 flex-wrap">
-                <div>
-                  <div className="font-display text-3xl font-semibold">{balance.remaining}</div>
-                  <div className="text-xs opacity-90">days left</div>
+              <div className="req-leave-stat-grid">
+                <div className="req-leave-stat-box">
+                  <div className="req-leave-stat-val">{balance.remaining}</div>
+                  <div className="req-leave-stat-lbl">Days left</div>
                 </div>
-                <div className="text-xs opacity-90">{balance.allocated} entitled · {(balance.used_annual || 0) + (balance.used_permission || 0)} used</div>
+                <div className="req-leave-stat-box">
+                  <div className="req-leave-stat-val">{balance.allocated}</div>
+                  <div className="req-leave-stat-lbl">Entitled</div>
+                </div>
+                <div className="req-leave-stat-box">
+                  <div className="req-leave-stat-val">{(balance.used_annual || 0) + (balance.used_permission || 0)}</div>
+                  <div className="req-leave-stat-lbl">Used</div>
+                </div>
+                {balance.used_permission > 0 && (
+                  <div className="req-leave-stat-box">
+                    <div className="req-leave-stat-val">{balance.used_permission}</div>
+                    <div className="req-leave-stat-lbl">Permission</div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-sm opacity-90">Loading…</div>

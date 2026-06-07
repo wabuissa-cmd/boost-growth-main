@@ -6,7 +6,7 @@ import { useAuth, showAdminNav, hasOpsAccess } from "../auth";
 import {
   CalendarBlank, ClipboardText, UsersThree, ListChecks, Plant, ArrowRight,
   CheckCircle, Clock, XCircle, CalendarCheck, Warning, Receipt, ChartBar, Heart,
-  Leaf, Sun,
+  Leaf, Sun, FileText,
 } from "@phosphor-icons/react";
 import { quoteOfTheDay } from "../data/quotes";
 import DashboardStatCard from "../components/DashboardStatCard";
@@ -30,7 +30,10 @@ export default function Home() {
   const [clients, setClients] = useState([]);
   const [closures, setClosures] = useState([]);
   const [updates, setUpdates] = useState([]);
+  const [personalEvents, setPersonalEvents] = useState([]);
   const loadUpdates = () => api.get("/center-updates").then(r => setUpdates(Array.isArray(r.data) ? r.data : [])).catch(() => {});
+  const loadPersonal = () => api.get("/calendar/personal", { params: { from_date: weekISO, to_date: weekEndISO } })
+    .then(r => setPersonalEvents(Array.isArray(r.data) ? r.data : [])).catch(() => {});
   const quote = quoteOfTheDay();
   const weekISO = toISODate(weekStart);
   const weekEndISO = toISODate(addDays(weekStart, 6));
@@ -100,6 +103,8 @@ export default function Home() {
     })();
   }, [user?.id, isPortalAdminUser, user, weekISO, weekEndISO]);
 
+  useEffect(() => { if (!isPortalAdminUser) loadPersonal(); }, [weekISO, weekEndISO, isPortalAdminUser]);
+
   const displayName = user?.name?.replace(/^Ms\.?\s*/i, "") || "Friend";
   const dateStr = new Date().toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
@@ -119,7 +124,7 @@ export default function Home() {
     { to: "/schedule", label: "Schedule", icon: CalendarBlank },
     { to: "/attendance", label: "Attendance", icon: ClipboardText },
     { to: "/my-requests", label: "Request", icon: ListChecks },
-    { to: "/my-reports", label: "My Report", icon: ChartBar },
+    { to: "/my-reports", label: "My Report", icon: FileText },
   ];
 
   return (
@@ -222,11 +227,14 @@ export default function Home() {
               <div className="text-xs font-bold mb-2 uppercase tracking-wide" style={{ color: "#8B9E7A" }}>Week at a glance</div>
               <TherapistWeekCalendar
                 compact
+                editable
                 weekStart={weekStart}
                 onWeekChange={setWeekStart}
                 cells={scheduleCells}
                 clients={clients}
                 closures={closures}
+                personalEvents={personalEvents}
+                onPersonalChange={loadPersonal}
                 therapistId={user?.id}
               />
             </div>

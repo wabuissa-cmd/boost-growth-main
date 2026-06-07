@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import api from "../api";
-import { useAuth, showAdminNav } from "../auth";
+import { useAuth, showAdminNav, canEditStaffRequests, canManageLeaves } from "../auth";
 import { Navigate } from "react-router-dom";
 import { Plus, PencilSimple, Trash, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Calendar, Package, UploadSimple } from "@phosphor-icons/react";
 import {
@@ -54,7 +54,9 @@ function emptyLeaveForm() {
 
 export default function Requests({ personal = false }) {
   const { user } = useAuth();
-  const isAdmin = !personal && showAdminNav(user);
+  const canManageReq = !personal && canEditStaffRequests(user);
+  const leaveHr = !personal && canManageLeaves(user);
+  const isPortalAdminUser = !personal && showAdminNav(user);
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState("all");
   const [edit, setEdit] = useState(null);
@@ -76,11 +78,11 @@ export default function Requests({ personal = false }) {
   };
   useEffect(() => {
     load();
-    if (isAdmin) {
+    if (canManageReq) {
       api.get("/therapists").then(r => setTherapists(r.data || [])).catch(() => {});
-      loadLeaves();
     }
-  }, [isAdmin]);
+    if (leaveHr) loadLeaves();
+  }, [canManageReq, leaveHr]);
 
   const submitNew = async () => {
     await api.post("/requests", edit);
@@ -139,25 +141,22 @@ export default function Requests({ personal = false }) {
     loadLeaves();
   };
 
-  const filtered = items.filter(r => filter === "all" || r.status === filter);
+  const filtered = items
+    .filter(r => r.request_type !== "leave")
+    .filter(r => filter === "all" || r.status === filter);
 
-  if (!personal && !showAdminNav(user)) {
+  if (!personal && !canEditStaffRequests(user)) {
     return <Navigate to="/my-requests" replace/>;
   }
 
   return (
     <div>
       <PageBanner
-        title={isAdmin ? "Requests" : "My Requests"}
-        subtitle={isAdmin ? "Manage all team requests" : "Submit and track your staff requests"}
+        title={canManageReq ? "Staff Requests" : "My Requests"}
+        subtitle={canManageReq ? "Materials, general & session-related requests" : "Submit and track your staff requests"}
         badge={(
           <>
-            {!isAdmin && (
-              <button data-testid="new-request-btn" onClick={() => { setEdit({ title: "", description: "", request_type: "general", priority: "normal" }); setStep(1); }} className="btn btn-primary text-[11px] px-2.5 py-1 min-h-0">
-                <Plus size={13}/> New Request
-              </button>
-            )}
-            {isAdmin && (
+            {leaveHr && isPortalAdminUser && (
               <button data-testid="submit-leave-btn" onClick={() => setLeaveModal(emptyLeaveForm())} className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0">
                 <Plus size={13}/> Submit Leave Request
               </button>
@@ -217,7 +216,7 @@ export default function Requests({ personal = false }) {
                     </div>
                     {r.extra_notes && <div className="text-xs mt-2 italic" style={{color: "#8B9E7A"}}>"{r.extra_notes}"</div>}
 
-                    {isAdmin && r.therapist_name && <div className="text-xs mt-3 flex items-center gap-1" style={{color: "#8B9E7A"}}>From: <strong style={{color: "#5C6853"}}>{r.therapist_name}</strong></div>}
+                    {canManageReq && r.therapist_name && <div className="text-xs mt-3 flex items-center gap-1" style={{color: "#8B9E7A"}}>From: <strong style={{color: "#5C6853"}}>{r.therapist_name}</strong></div>}
                     <div className="text-[11px] mt-1 flex items-center gap-1" style={{color: "#8B9E7A"}}><Clock size={11}/> {new Date(r.created_at).toLocaleString('en-US')}</div>
 
                     {r.admin_note && (
@@ -244,8 +243,8 @@ export default function Requests({ personal = false }) {
                     )}
                   </div>
                   <div className="flex gap-1 shrink-0">
-                    {isAdmin && <button data-testid={`update-status-${r.id}`} onClick={() => setStatusEdit({...r})} className="btn btn-secondary"><PencilSimple size={16}/> Update</button>}
-                    {isAdmin && (
+                    {canManageReq && <button data-testid={`update-status-${r.id}`} onClick={() => setStatusEdit({...r})} className="btn btn-secondary"><PencilSimple size={16}/> Update</button>}
+                    {isPortalAdminUser && (
                       <button onClick={() => remove(r.id)} className="btn btn-ghost p-2 text-red-700 min-w-[44px] min-h-[44px]" title="Delete request">
                         <Trash size={16}/>
                       </button>
@@ -258,7 +257,7 @@ export default function Requests({ personal = false }) {
         })}
       </div>
 
-      {isAdmin && (
+      {leaveHr && (
         <div className="mt-10">
           <h2 className="font-display text-xl font-semibold mb-3" style={{ color: "#2C3625" }}>Recent Leave Requests</h2>
           <div className="space-y-2">

@@ -62,7 +62,7 @@ export default function ClientInfoLayout({
   const statusMeta = selected ? cardStatusMeta(selected.cardStatus || "ok") : null;
   const therapistName = selected ? findTherapist(selected.main_therapist_id)?.name?.replace("Ms. ", "") : "";
   const prCount = selected ? prSummaries?.[selected.id]?.count : 0;
-  const avatarBg = selected ? (getChildColor(selected.name) || selected.color || "#7A8A6A") : "#7A8A6A";
+  const avatarBg = selected ? (getChildColor(selected.name) || selected.color || "#E5EBE1") : "#E5EBE1";
 
   if (!clients.length) {
     return <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>No clients match your filters.</div>;
@@ -84,10 +84,11 @@ export default function ClientInfoLayout({
             {clients.map(c => {
               const dot = pkgAlertDot(pkgByClient[c.id]);
               const tName = findTherapist(c.main_therapist_id)?.name?.replace("Ms. ", "");
-              const bg = getChildColor(c.name) || c.color || "#7A8A6A";
+              const bg = getChildColor(c.name) || c.color || "#E5EBE1";
+              const avatarColor = getChildColor(c.name) || c.color ? readable(bg) : "#606E52";
               return (
                 <button key={c.id} type="button" className={`ci-pane-item${selected?.id === c.id ? " selected" : ""}`} onClick={() => onSelect(c.id)}>
-                  <div className="ci-pane-item-avatar" style={{ background: bg, color: readable(bg) }}>{c.initials || c.name?.charAt(0)}</div>
+                  <div className="ci-pane-item-avatar" style={{ background: bg, color: avatarColor }}>{c.initials || c.name?.charAt(0)}</div>
                   <div className="min-w-0 flex-1">
                     <div className="ci-pane-item-name">{c.name}</div>
                     <div className="ci-pane-item-sub">File #{c.file_no || "—"}{tName ? ` · ${tName}` : ""}</div>

@@ -1,7 +1,12 @@
-import { useMemo } from "react";
-import { CaretLeft, CaretRight, MapPin, VideoCamera } from "@phosphor-icons/react";
+import { useMemo, useState } from "react";
+import { CaretLeft, CaretRight, MapPin, VideoCamera, Plus } from "@phosphor-icons/react";
 import { DAYS_SHORT, TIME_SLOTS, addDays, toISODate, formatDateRange } from "../api";
 import { getCellStyle } from "../scheduleUtils";
+import {
+  ModalBase, FormSection, FormField,
+  ModalBtnPrimary, ModalBtnSecondary,
+} from "./Modal";
+import api, { formatErr } from "../api";
 
 const META = new Set(["LEAVE", "BREAK", "AVC", "AVAILABLE", "MEETING", "SUPERVISION", "OBSERVATION"]);
 
@@ -43,18 +48,28 @@ function closureForDay(closures, iso, therapistId) {
   });
 }
 
+function personalForDay(personalEvents, iso) {
+  return (personalEvents || []).filter(e => e.date === iso);
+}
+
 export default function TherapistWeekCalendar({
   weekStart,
   onWeekChange,
   cells = [],
   clients = [],
   closures = [],
+  personalEvents = [],
+  onPersonalChange,
   therapistId,
   compact = false,
+  editable = false,
 }) {
   const todayISO = toISODate(new Date());
   const jsDow = new Date().getDay();
   const todayDayIdx = jsDow <= 4 ? jsDow : -1;
+  const [addOpen, setAddOpen] = useState(false);
+  const [addForm, setAddForm] = useState({ date: "", title: "", notes: "", time_label: "" });
+  const [saving, setSaving] = useState(false);
 
   const byDay = useMemo(() => {
     const map = {};
@@ -72,29 +87,104 @@ export default function TherapistWeekCalendar({
     return map;
   }, [cells, therapistId]);
 
+  const openAdd = (iso) => {
+    setAddForm({ date: iso || toISODate(new Date()), title: "", notes: "", time_label: "" });
+    setAddOpen(true);
+  };
+
+  const submitPersonal = async () => {
+    if (!addForm.title.trim() || !addForm.date) {
+      alert("Title and date required");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.post("/calendar/personal", addForm);
+      setAddOpen(false);
+      onPersonalChange?.();
+    } catch (e) {
+      alert(formatErr(e.response?.data?.detail) || e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (compact) {
     return (
-      <div className="cal-compact" data-testid="therapist-week-calendar-compact">
-        <div className="cal-compact-nav">
-          <button type="button" className="cal-nav-btn" onClick={() => onWeekChange?.(addDays(weekStart, -7))} aria-label="Previous week"><CaretLeft size={14} /></button>
-          <span className="text-[10px] font-bold" style={{ color: "#5C6853" }}>{formatDateRange(weekStart)}</span>
-          <button type="button" className="cal-nav-btn" onClick={() => onWeekChange?.(addDays(weekStart, 7))} aria-label="Next week"><CaretRight size={14} /></button>
+      <>
+        <div className="cal-compact" data-testid="therapist-week-calendar-compact">
+          <div className="cal-compact-nav">
+            <button type="button" className="cal-nav-btn" onClick={() => onWeekChange?.(addDays(weekStart, -7))} aria-label="Previous week"><CaretLeft size={14} /></button>
+            <span className="text-[10px] font-bold" style={{ color: "#5C6853" }}>{formatDateRange(weekStart)}</span>
+            <button type="button" className="cal-nav-btn" onClick={() => onWeekChange?.(addDays(weekStart, 7))} aria-label="Next week"><CaretRight size={14} /></button>
+          </div>
+          {editable && (
+            <button type="button" className="btn btn-outline text-[10px] w-full mb-2 min-h-0 py-1" onClick={() => openAdd()}>
+              <Plus size={12}/> Add personal note
+            </button>
+          )}
+          <div className="cal-compact-days">
+            {DAYS_SHORT.map((dayName, di) => {
+              const iso = toISODate(dayDate(weekStart, di));
+              const isToday = di === todayDayIdx;
+              const sessions = (byDay[di] || []).length;
+              const clos = closureForDay(closures, iso, therapistId).length;
+              const personal = personalForDay(personalEvents, iso).length;
+              const n = sessions + clos + personal;
+              const empty = n === 0;
+              return (
+                <div
+                  key={dayName}
+                  className={`cal-compact-day${isToday ? " today" : ""}${n > 0 ? " has-events" : ""}${empty ? " is-empty" : ""}`}
+                  title={empty ? "No sessions — tap + to add a note" : `${n} item(s)`}
+                  onClick={editable && empty ? () => openAdd(iso) : undefined}
+                  role={editable && empty ? "button" : undefined}
+                >
+                  <span className="cal-compact-dow">{dayName.slice(0, 3)}</span>
+                  <span className="cal-compact-num">{dayDate(weekStart, di).getDate()}</span>
+                  {empty ? (
+                    <span className="cal-compact-empty">—</span>
+                  ) : (
+                    <span className="cal-compact-dot">{n}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-[9px] mt-2 text-center leading-snug" style={{ color: "#8B9E7A" }}>
+            Each cell is one day · dot = sessions or notes · dashed = free day
+          </p>
         </div>
-        <div className="cal-compact-days">
-          {DAYS_SHORT.map((dayName, di) => {
-            const iso = toISODate(dayDate(weekStart, di));
-            const isToday = di === todayDayIdx;
-            const n = (byDay[di] || []).length + closureForDay(closures, iso, therapistId).length;
-            return (
-              <div key={dayName} className={`cal-compact-day${isToday ? " today" : ""}${n > 0 ? " has-events" : ""}`} title={`${n} session(s)`}>
-                <span className="cal-compact-dow">{dayName.slice(0, 3)}</span>
-                <span className="cal-compact-num">{dayDate(weekStart, di).getDate()}</span>
-                {n > 0 && <span className="cal-compact-dot">{n}</span>}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+        {addOpen && (
+          <ModalBase
+            title="Add personal note"
+            subtitle="Your private reminder on the calendar"
+            onClose={() => setAddOpen(false)}
+            size="sm"
+            footer={(
+              <>
+                <ModalBtnSecondary type="button" onClick={() => setAddOpen(false)}>Cancel</ModalBtnSecondary>
+                <ModalBtnPrimary type="button" onClick={submitPersonal} disabled={saving}>{saving ? "Saving…" : "Save"}</ModalBtnPrimary>
+              </>
+            )}
+          >
+            <FormSection title="Event">
+              <FormField label="Date" required>
+                <input type="date" className="modal-input" value={addForm.date} onChange={e => setAddForm(f => ({ ...f, date: e.target.value }))} />
+              </FormField>
+              <FormField label="Title" required>
+                <input className="modal-input" value={addForm.title} onChange={e => setAddForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Follow up with parent" />
+              </FormField>
+              <FormField label="Time (optional)">
+                <input className="modal-input" value={addForm.time_label} onChange={e => setAddForm(f => ({ ...f, time_label: e.target.value }))} placeholder="e.g. 2:00 PM" />
+              </FormField>
+              <FormField label="Notes">
+                <textarea className="modal-input" rows={2} value={addForm.notes} onChange={e => setAddForm(f => ({ ...f, notes: e.target.value }))} />
+              </FormField>
+            </FormSection>
+          </ModalBase>
+        )}
+      </>
     );
   }
 
@@ -117,7 +207,9 @@ export default function TherapistWeekCalendar({
           const iso = toISODate(dayDate(weekStart, di));
           const isToday = di === todayDayIdx && iso.slice(0, 10) <= todayISO && todayISO <= toISODate(addDays(weekStart, 4));
           const dayClosures = closureForDay(closures, iso, therapistId);
+          const dayPersonal = personalForDay(personalEvents, iso);
           const events = byDay[di] || [];
+          const empty = !events.length && !dayClosures.length && !dayPersonal.length;
 
           return (
             <div key={dayName} className={`cal-day-col${isToday ? " today" : ""}`}>
@@ -132,8 +224,15 @@ export default function TherapistWeekCalendar({
                     <div className="cal-event-loc">Center closure</div>
                   </div>
                 ))}
-                {events.length === 0 && dayClosures.length === 0 && (
-                  <div className="text-[0.65rem] text-center py-4 opacity-50" style={{ color: "#8B9E7A" }}>—</div>
+                {dayPersonal.map(ev => (
+                  <div key={ev.id} className="cal-event cal-personal">
+                    <div className="cal-event-time">{ev.time_label || "Note"}</div>
+                    <div className="cal-event-title">{ev.title}</div>
+                    {ev.notes && <div className="cal-event-loc">{ev.notes}</div>}
+                  </div>
+                ))}
+                {empty && (
+                  <div className="cal-empty-cell">No sessions</div>
                 )}
                 {events.map(cell => {
                   const client = resolveClient(clients, cell);

@@ -7,7 +7,7 @@ import {
   resolveSelfTherapist, findClientForScheduleCell, isScheduleClientLogCell,
 } from "../scheduleUtils";
 import { MAX_SCHEDULE_MERGE_SLOTS } from "../scheduleConstants";
-import { useAuth, showAdminNav } from "../auth";
+import { useAuth, showAdminNav, isClientLead } from "../auth";
 import {
   CaretLeft, CaretRight, CaretDown, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
   CopySimple, Table, CalendarBlank, CheckCircle, PencilSimple, GridFour, Printer,
@@ -119,8 +119,10 @@ function cellClassNameBlock(cell, isAdmin, leaveInfo, selected, copied, canQuick
 
 export default function Schedule() {
   const { user } = useAuth();
-  const isAdmin = showAdminNav(user);
-  const canQuickLog = !isAdmin;
+  const scheduleAdmin = showAdminNav(user);
+  const scheduleLead = isClientLead(user) && !scheduleAdmin;
+  const isAdmin = scheduleAdmin;
+  const canQuickLog = !scheduleAdmin && !scheduleLead;
   const [view, setView] = useState(() => {
     // Default to "Per Therapist" (blocks) view for all users per business request.
     return "blocks";
@@ -168,12 +170,12 @@ export default function Schedule() {
   }, [adminEditsOpen]);
 
   const openCtxAt = (x, y, cell, therapist_id, day, time_slot) => {
-    if (!isAdmin) return;
+    if (!canNotifySchedule) return;
     setCtxMenu({ x, y, cell, therapist_id, day, time_slot });
   };
 
   const onCellTouchStart = (e, cell, therapist_id, day, time_slot) => {
-    if (!isAdmin) return;
+    if (!canNotifySchedule) return;
     const t = e.touches[0];
     touchStartPos.current = { x: t.clientX, y: t.clientY };
     longPressTimer.current = setTimeout(() => {
@@ -360,10 +362,16 @@ export default function Schedule() {
     [user, therapists]
   );
 
+  const canEditRow = useCallback(
+    (tid) => scheduleAdmin || (scheduleLead && tid === selfTherapist?.id),
+    [scheduleAdmin, scheduleLead, selfTherapist?.id]
+  );
+  const canNotifySchedule = scheduleAdmin || scheduleLead;
+
   const blocksTherapists = useMemo(() => {
-    if (isAdmin) return visibleTherapists;
+    if (scheduleAdmin || scheduleLead) return visibleTherapists;
     return selfTherapist ? [selfTherapist] : [];
-  }, [visibleTherapists, isAdmin, selfTherapist]);
+  }, [visibleTherapists, scheduleAdmin, scheduleLead, selfTherapist]);
 
   const isSelected = (therapist_id, day, time_slot) => {
     if (!selection) return false;
@@ -541,6 +549,7 @@ export default function Schedule() {
       }
       return;
     }
+    if (scheduleLead && !canEditRow(therapist_id)) return;
     if (clipboard && !existing) {
       pasteAt(therapist_id, day, time_slot);
       return;
@@ -737,7 +746,8 @@ export default function Schedule() {
     load();
   };
   const onCtx = (e, cell, therapist_id, day, time_slot) => {
-    if (!isAdmin) return;
+    if (!canNotifySchedule) return;
+    if (scheduleLead && !canEditRow(therapist_id) && !cell) return;
     e.preventDefault();
     e.stopPropagation();
     setCtxMenu({ x: e.clientX, y: e.clientY, cell, therapist_id, day, time_slot });
@@ -825,10 +835,10 @@ export default function Schedule() {
                         key={ts}
                         colSpan={colSpan}
                         data-testid={`sheet-cell-${t.id}-${di}-${ts}`}
-                        className={cellClassName(cell, isAdmin, leaveInfo, isSelected(t.id, di, ts), isCopied(t.id, di, ts))}
+                        className={cellClassName(cell, canEditRow(t.id), leaveInfo, isSelected(t.id, di, ts), isCopied(t.id, di, ts))}
                         style={cellStyle}
                         onClick={(e) => handleCellClick(e, t.id, di, ts, cell)}
-                        onContextMenu={(e) => onCtx(e, cell, t.id, di, ts)}
+                        onContextMenu={canNotifySchedule ? (e) => onCtx(e, cell, t.id, di, ts) : undefined}
                         onTouchStart={(e) => onCellTouchStart(e, cell, t.id, di, ts)}
                         onTouchMove={onCellTouchMove}
                         onTouchEnd={onCellTouchEnd}
@@ -915,12 +925,12 @@ export default function Schedule() {
                   const baseStyle = getSheetCellStyle(cell, clients);
                   const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
                   return (
-                    <td key={ts} className={cellClassNameBlock(cell, isAdmin, leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts), canQuickLog && therapist.id === selfTherapist?.id)}
+                    <td key={ts} className={cellClassNameBlock(cell, canEditRow(therapist.id), leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts), canQuickLog && therapist.id === selfTherapist?.id)}
                       colSpan={colSpan}
                       style={cellStyle}
                       data-testid={`cell-${therapist.id}-${di}-${ts}`}
                       onClick={(e) => handleCellClick(e, therapist.id, di, ts, cell)}
-                      onContextMenu={(e) => onCtx(e, cell, therapist.id, di, ts)}
+                      onContextMenu={canNotifySchedule ? (e) => onCtx(e, cell, therapist.id, di, ts) : undefined}
                       onTouchStart={(e) => onCellTouchStart(e, cell, therapist.id, di, ts)}
                       onTouchMove={onCellTouchMove}
                       onTouchEnd={onCellTouchEnd}>
@@ -1072,7 +1082,7 @@ export default function Schedule() {
         />
       )}
 
-      {ctxMenu && isAdmin && (
+      {ctxMenu && canNotifySchedule && (
         <div
           ref={ctxMenuRef}
           className="fixed z-[70] schedule-ctx-menu bg-white rounded-xl shadow-2xl border py-1 min-w-[220px] text-sm"
@@ -1087,6 +1097,8 @@ export default function Schedule() {
           onClick={e => e.stopPropagation()}
           data-testid="schedule-context-menu"
         >
+          {canEditRow(ctxMenu.therapist_id) ? (
+            <>
           <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "#8B9E7A" }}>Session Options</div>
           <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
             onClick={ctxAction(() => { openPanel(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.time_slot, ctxMenu.cell); setCtxMenu(null); })}>
@@ -1098,7 +1110,7 @@ export default function Schedule() {
               Copy Cell
             </button>
           )}
-          {!ctxMenu.cell && clipboard && (
+          {!ctxMenu.cell && clipboard && scheduleAdmin && (
             <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
               onClick={ctxAction(() => { pasteAt(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.time_slot); setCtxMenu(null); })}>
               Paste Here
@@ -1118,6 +1130,8 @@ export default function Schedule() {
             onClick={ctxAction(() => bulkFillAt("leave_week", ctxMenu))}>
             Full Week Leave
           </button>
+            </>
+          ) : null}
           {ctxMenu.cell && (
             <>
               <div className="my-1 border-t" style={{ borderColor: "#EDE9E3" }} />
@@ -1128,6 +1142,8 @@ export default function Schedule() {
               </button>
             </>
           )}
+          {canEditRow(ctxMenu.therapist_id) && (
+          <>
           <div className="my-1 border-t" style={{ borderColor: "#EDE9E3" }} />
           <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "#8B9E7A" }}>Remove</div>
           <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#FCE0E8]" style={{ color: "#8A3F27" }}
@@ -1142,6 +1158,8 @@ export default function Schedule() {
             })}>
             Clear Cell
           </button>
+          </>
+          )}
         </div>
       )}
 

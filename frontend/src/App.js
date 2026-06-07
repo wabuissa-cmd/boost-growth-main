@@ -1,6 +1,6 @@
 import { Component, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth, isClientLead, hasOpsAccess } from "./auth";
+import { AuthProvider, useAuth, isClientLead, hasOpsAccess, canEditStaffRequests, canEditIntake, canManageLeaves } from "./auth";
 import Login from "./pages/Login";
 import Shell from "./pages/Shell";
 import "./App.css";
@@ -52,6 +52,30 @@ function OpsOnly({ children }) {
   return children;
 }
 
+function LeaveManagerOnly({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <Loading/>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!canManageLeaves(user)) return <Navigate to="/home" replace />;
+  return children;
+}
+
+function ClientLeadOrAdmin({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <Loading/>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!canEditStaffRequests(user)) return <Navigate to="/home" replace />;
+  return children;
+}
+
+function IntakeAccess({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <Loading/>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!canEditIntake(user)) return <Navigate to="/home" replace />;
+  return children;
+}
+
 function AppRoutes() {
   const { user } = useAuth();
   return (
@@ -69,19 +93,19 @@ function AppRoutes() {
         <Route path="/attendance" element={<Attendance/>}/>
         <Route path="/billing" element={<OpsOnly><Billing/></OpsOnly>}/>
         <Route path="/clients" element={<Clients/>}/>
-        <Route path="/intake" element={<AdminOnly><Intake/></AdminOnly>}/>
+        <Route path="/intake" element={<IntakeAccess><Intake/></IntakeAccess>}/>
         <Route path="/my-requests" element={<TherapistRequests/>}/>
         <Route path="/my-reports" element={<TherapistMyReports/>}/>
         <Route path="/my-leaves" element={<Navigate to="/my-requests" replace/>}/>
-        <Route path="/requests" element={<AdminOnly><Requests/></AdminOnly>}/>
+        <Route path="/requests" element={<ClientLeadOrAdmin><Requests/></ClientLeadOrAdmin>}/>
         <Route path="/directory" element={<Directory/>}/>
         <Route path="/resources" element={<Resources/>}/>
         <Route path="/reports" element={<AdminOnly><Reports/></AdminOnly>}/>
         <Route path="/import" element={<AdminOnly><ImportPage/></AdminOnly>}/>
         <Route path="/admin" element={<AdminOnly><Admin/></AdminOnly>}/>
-        <Route path="/leave-balance" element={<AdminOnly><LeaveBalance/></AdminOnly>}/>
+        <Route path="/leave-balance" element={<LeaveManagerOnly><LeaveBalance/></LeaveManagerOnly>}/>
         <Route path="/purchases" element={<AdminOnly><Purchases/></AdminOnly>}/>
-        <Route path="/leaves" element={<AdminOnly><LeaveRequests/></AdminOnly>}/>
+        <Route path="/leaves" element={<LeaveManagerOnly><LeaveRequests/></LeaveManagerOnly>}/>
         <Route path="/leave-requests" element={<Navigate to="/leaves" replace/>}/>
         <Route path="/therapist-leaves" element={<Navigate to="/leave-balance" replace/>}/>
       </Route>

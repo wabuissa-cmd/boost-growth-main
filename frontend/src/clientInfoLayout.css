@@ -67,17 +67,20 @@
   align-items: center;
   gap: 0.65rem;
   width: 100%;
-  padding: 0.65rem 0.75rem;
+  padding: 0.7rem 0.8rem;
   border: 1px solid #E2DDD4;
   border-radius: 12px;
   background: #fff;
   cursor: pointer;
   text-align: left;
   font: inherit;
-  transition: border-color 140ms, box-shadow 140ms;
+  transition: border-color 140ms, box-shadow 140ms, background 140ms;
 }
 
-.ci-pane-item:hover { border-color: #B4C2A9; }
+.ci-pane-item:hover {
+  border-color: #B4C2A9;
+  background: #FAF7F2;
+}
 .ci-pane-item.selected {
   border-color: #7A8A6A;
   box-shadow: 0 2px 12px rgba(122, 138, 106, 0.14);
@@ -96,18 +99,20 @@
 }
 
 .ci-pane-item-name {
-  font-size: 0.82rem;
+  font-size: 0.84rem;
   font-weight: 700;
   color: #2C3625;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  letter-spacing: 0.01em;
 }
 
 .ci-pane-item-sub {
-  font-size: 0.65rem;
-  color: #8B9E7A;
-  margin-top: 0.1rem;
+  font-size: 0.68rem;
+  color: #606E52;
+  margin-top: 0.15rem;
+  font-weight: 500;
 }
 
 .ci-pane-item-dot {
@@ -490,6 +495,36 @@
   color: #fff;
   border-radius: 16px;
   padding: 1.15rem;
+}
+
+.req-leave-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+}
+
+.req-leave-stat-box {
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 12px;
+  padding: 0.65rem 0.5rem;
+  text-align: center;
+}
+
+.req-leave-stat-val {
+  font-family: var(--font-display, inherit);
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.req-leave-stat-lbl {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.88;
+  margin-top: 0.2rem;
 }
 
 .req-modal-split {
