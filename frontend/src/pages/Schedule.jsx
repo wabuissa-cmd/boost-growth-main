@@ -369,9 +369,12 @@ export default function Schedule() {
   const canNotifySchedule = scheduleAdmin || scheduleLead;
 
   const blocksTherapists = useMemo(() => {
-    if (scheduleAdmin || scheduleLead) return visibleTherapists;
+    if (scheduleAdmin) return visibleTherapists;
+    // Per Therapist view: ops leads (Walaa, Maha, Fahda, Jenan) and regular therapists see own block only.
+    // Sheet view still uses visibleTherapists for the full team grid.
+    if (scheduleLead && !scheduleOwnBlockOnly(user)) return visibleTherapists;
     return selfTherapist ? [selfTherapist] : [];
-  }, [visibleTherapists, scheduleAdmin, scheduleLead, selfTherapist]);
+  }, [visibleTherapists, scheduleAdmin, scheduleLead, selfTherapist, user]);
 
   const isSelected = (therapist_id, day, time_slot) => {
     if (!selection) return false;
