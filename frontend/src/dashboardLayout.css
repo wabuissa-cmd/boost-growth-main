@@ -26,12 +26,12 @@ a.dash-stat-card:hover {
   border-color: #E5C387;
 }
 .dash-stat-card.sage {
-  background: linear-gradient(135deg, #F4F7F3 0%, rgba(139, 168, 137, 0.22) 100%);
-  border-color: #C8D5C6;
+  background: linear-gradient(135deg, #FAFCF8 0%, rgba(168, 201, 172, 0.28) 100%);
+  border-color: #D4E0D4;
 }
 .dash-stat-card.dark {
-  background: linear-gradient(135deg, #49654E 0%, #253528 100%);
-  border-color: #253528;
+  background: linear-gradient(135deg, #6B9075 0%, #5A7D64 100%);
+  border-color: #5A7D64;
   color: #fff;
 }
 .dash-stat-card.dark .dash-stat-label { color: rgba(255,255,255,0.72); }
@@ -96,25 +96,25 @@ a.dash-stat-card:hover {
   margin-bottom: 1.75rem;
   display: flex;
   align-items: stretch;
-  border: 1px solid rgba(37, 53, 40, 0.12);
-  box-shadow: 0 16px 48px rgba(37, 53, 40, 0.12);
+  border: 1px solid rgba(90, 125, 100, 0.15);
+  box-shadow: 0 12px 40px rgba(90, 125, 100, 0.1);
 }
 .portal-hero-bg {
   position: absolute;
   inset: 0;
   background-size: cover;
-  background-position: center 30%;
+  background-position: 72% center;
   transform: scale(1.02);
 }
 .portal-hero-overlay {
   position: absolute;
   inset: 0;
   background: linear-gradient(
-    105deg,
-    rgba(37, 53, 40, 0.92) 0%,
-    rgba(37, 53, 40, 0.72) 42%,
-    rgba(73, 101, 78, 0.35) 72%,
-    rgba(139, 168, 137, 0.15) 100%
+    100deg,
+    rgba(74, 102, 82, 0.78) 0%,
+    rgba(90, 125, 100, 0.48) 38%,
+    rgba(168, 201, 172, 0.12) 68%,
+    transparent 100%
   );
 }
 .portal-hero-content {
@@ -364,8 +364,8 @@ a.dash-stat-card:hover {
   gap: 0.65rem;
 }
 .home-feature-card.featured {
-  background: linear-gradient(145deg, #253528 0%, #49654E 100%);
-  border-color: #253528;
+  background: linear-gradient(145deg, #6B9075 0%, #5A7D64 100%);
+  border-color: #5A7D64;
   color: #fff;
 }
 .home-feature-card.featured .home-feature-title,

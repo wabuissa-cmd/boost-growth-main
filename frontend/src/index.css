@@ -5,23 +5,23 @@
 @import "./thmanyah.css";
 
 :root {
-    --bg-base: #E8EBE4;
+    --bg-base: #F2F6F0;
     --bg-surface: #FFFFFF;
-    --bg-warm: #E8EBE4;
-    --brand: #49654E;
-    --brand-hover: #253528;
-    --brand-dark: #253528;
-    --brand-light: rgba(139, 168, 137, 0.22);
-    --brand-sage: #8BA889;
-    --brand-sidebar: linear-gradient(180deg, #49654E 0%, #354539 55%, #253528 100%);
+    --bg-warm: #F2F6F0;
+    --brand: #6B9075;
+    --brand-hover: #5A7D64;
+    --brand-dark: #4A6652;
+    --brand-light: rgba(168, 201, 172, 0.35);
+    --brand-sage: #A8C9AC;
+    --brand-sidebar: linear-gradient(180deg, #8BA889 0%, #6B9075 52%, #5A7D64 100%);
     --secondary: #D4A64A;
     --secondary-hover: #C4963A;
     --secondary-light: #FAF0D1;
-    --text-primary: #253528;
-    --text-secondary: #49654E;
-    --text-muted: #8BA889;
-    --border-default: #C8D5C6;
-    --border-light: #E8EBE4;
+    --text-primary: #3D5244;
+    --text-secondary: #5A7560;
+    --text-muted: #8FA893;
+    --border-default: #D4E0D4;
+    --border-light: #E8F0E8;
     --font-body: "Thmanyah Sans", system-ui, sans-serif;
     --font-display: "Thmanyah Sans", system-ui, sans-serif;
     --radius-card: 1.25rem;
@@ -75,11 +75,11 @@ main, .page-enter { min-width: 0; }
 .bg-organic {
     background-color: var(--bg-base);
     background-image:
-        radial-gradient(at 8% 12%, rgba(73, 101, 78, 0.07) 0px, transparent 50%),
-        radial-gradient(at 92% 88%, rgba(139, 168, 137, 0.08) 0px, transparent 50%);
+        radial-gradient(at 8% 12%, rgba(107, 144, 117, 0.06) 0px, transparent 50%),
+        radial-gradient(at 92% 88%, rgba(168, 201, 172, 0.1) 0px, transparent 50%);
 }
 .bg-sage-hero {
-    background: linear-gradient(135deg, #49654E 0%, #354539 55%, #253528 100%);
+    background: linear-gradient(135deg, #8BA889 0%, #6B9075 55%, #5A7D64 100%);
 }
 
 /* Scrollbar */
@@ -585,7 +585,7 @@ main, .page-enter { min-width: 0; }
     border-radius: 0 28px 28px 0;
     color: #fff;
     transition: width 200ms ease;
-    box-shadow: 4px 0 24px rgba(37, 53, 40, 0.18);
+    box-shadow: 4px 0 24px rgba(90, 125, 100, 0.12);
 }
 .app-sidebar--collapsed {
     width: 4rem;
@@ -773,9 +773,9 @@ main, .page-enter { min-width: 0; }
 .ui-text-sm { font-size: 0.8125rem; line-height: 1.45; }
 .ui-caption { font-size: 0.75rem; color: #8B9E7A; line-height: 1.4; }
 
-/* Page banner — Plantitas-inspired green gradient */
+/* Page banner — soft sage gradient */
 .page-banner-head {
-  background: linear-gradient(135deg, #253528 0%, #49654E 42%, #8BA889 100%);
+  background: linear-gradient(135deg, #5A7D64 0%, #6B9075 45%, #A8C9AC 100%);
 }
 .page-banner-title {
   font-family: var(--font-display);
