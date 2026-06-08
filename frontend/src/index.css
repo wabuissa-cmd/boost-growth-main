@@ -404,6 +404,8 @@ main, .page-enter { min-width: 0; }
 }
 .sched-sheet .sheet-slot.editable { cursor: pointer; }
 .sched-sheet .sheet-slot.editable:hover { outline: 2px solid #6B8F71; outline-offset: -2px; }
+.sched-sheet .sheet-therapist.editable { cursor: pointer; }
+.sched-sheet .sheet-therapist.editable:hover { background: #F0F4EC; }
 .sched-sheet .sheet-slot.cell-empty {
     background: #E5E7EB !important;
     border-color: #D1D5DB !important;

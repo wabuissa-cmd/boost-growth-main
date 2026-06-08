@@ -159,6 +159,13 @@ async def client_lead_or_admin(user: dict = Depends(get_current_user)) -> dict:
     raise HTTPException(status_code=403, detail="Admin access required")
 
 
+async def schedule_edit_or_admin(user: dict = Depends(get_current_user)) -> dict:
+    """Portal admin or ops leads (Walaa, Maha, Fahda, Jenan) may edit schedule cells."""
+    if _is_portal_admin(user) or _is_client_lead(user):
+        return user
+    raise HTTPException(status_code=403, detail="Admin access required")
+
+
 async def ops_or_admin(user: dict = Depends(get_current_user)) -> dict:
     if _is_portal_admin(user):
         return user
@@ -1056,7 +1063,7 @@ async def _ensure_co_therapist_from_schedule(therapist_id: str, child_name: Opti
 
 
 @api.post("/schedule")
-async def create_schedule_cell(payload: ScheduleCellIn, _=Depends(ops_or_admin)):
+async def create_schedule_cell(payload: ScheduleCellIn, _=Depends(schedule_edit_or_admin)):
     cid = str(uuid.uuid4())
     doc = {"id": cid, **payload.model_dump(), "created_at": now_iso()}
     await db.schedule_cells.insert_one(doc)
@@ -1069,7 +1076,7 @@ async def create_schedule_cell(payload: ScheduleCellIn, _=Depends(ops_or_admin))
     return doc
 
 @api.put("/schedule/{cid}")
-async def update_schedule_cell(cid: str, payload: ScheduleCellIn, user=Depends(ops_or_admin)):
+async def update_schedule_cell(cid: str, payload: ScheduleCellIn, user=Depends(schedule_edit_or_admin)):
     update = payload.model_dump()
     await db.schedule_cells.update_one({"id": cid}, {"$set": update})
     cell = await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
@@ -1093,7 +1100,7 @@ async def update_schedule_cell(cid: str, payload: ScheduleCellIn, user=Depends(o
     return cell
 
 @api.post("/schedule/{cid}/duplicate")
-async def duplicate_cell(cid: str, _=Depends(ops_or_admin)):
+async def duplicate_cell(cid: str, _=Depends(schedule_edit_or_admin)):
     cell = await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
     if not cell:
         raise HTTPException(status_code=404, detail="Not found")
@@ -1103,12 +1110,12 @@ async def duplicate_cell(cid: str, _=Depends(ops_or_admin)):
     return new_cell
 
 @api.delete("/schedule/{cid}")
-async def delete_schedule_cell(cid: str, _=Depends(ops_or_admin)):
+async def delete_schedule_cell(cid: str, _=Depends(schedule_edit_or_admin)):
     await db.schedule_cells.delete_one({"id": cid})
     return {"ok": True}
 
 @api.post("/schedule/{cid}/notify")
-async def notify_schedule(cid: str, body: ScheduleNotifyIn, user=Depends(ops_or_admin)):
+async def notify_schedule(cid: str, body: ScheduleNotifyIn, user=Depends(schedule_edit_or_admin)):
     cell = await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
     if not cell:
         raise HTTPException(status_code=404, detail="Schedule cell not found")
@@ -1143,7 +1150,7 @@ async def notify_schedule(cid: str, body: ScheduleNotifyIn, user=Depends(ops_or_
     return {"ok": True, "sent": sent}
 
 @api.get("/schedule/{cid}/notification-receipts")
-async def schedule_notification_receipts(cid: str, _=Depends(ops_or_admin)):
+async def schedule_notification_receipts(cid: str, _=Depends(schedule_edit_or_admin)):
     items = await db.notifications.find(
         {"schedule_cell_id": cid}, {"_id": 0}
     ).sort("created_at", -1).to_list(100)
@@ -5206,7 +5213,7 @@ async def _send_email_stub(to: str, subject: str, body: str) -> dict:
     return queue_doc
 
 @api.post("/schedule/cancel-notify")
-async def schedule_cancel_notify(payload: CancelNotifyIn, user=Depends(ops_or_admin)):
+async def schedule_cancel_notify(payload: CancelNotifyIn, user=Depends(schedule_edit_or_admin)):
     """Mark cell as cancelled (optional) + send in-app/email notifications to selected therapists."""
     cell = await db.schedule_cells.find_one({"id": payload.cell_id}, {"_id": 0})
     if not cell:

@@ -32,7 +32,7 @@ function getSheetCellStyle(cell, clients) {
   return { ...base, height: 38, minHeight: 38, padding: "2px 1px", fontSize: 10 };
 }
 
-function ClosureBannerCell({ label, className, isAdmin, therapist_id, day, onCtx, onTouchStart, onTouchMove, onTouchEnd }) {
+function ClosureBannerCell({ label, className, canEdit, therapist_id, day, onCtx, onTouchStart, onTouchMove, onTouchEnd }) {
   return (
     <td
       colSpan={TIME_SLOTS.length}
@@ -44,8 +44,8 @@ function ClosureBannerCell({ label, className, isAdmin, therapist_id, day, onCtx
         textAlign: "center",
         verticalAlign: "middle",
       }}
-      onContextMenu={isAdmin ? (e) => onCtx(e, null, therapist_id, day, TIME_SLOTS[0]) : undefined}
-      onTouchStart={isAdmin ? (e) => onTouchStart(e, null, therapist_id, day, TIME_SLOTS[0]) : undefined}
+      onContextMenu={canEdit ? (e) => onCtx(e, null, therapist_id, day, TIME_SLOTS[0]) : undefined}
+      onTouchStart={canEdit ? (e) => onTouchStart(e, null, therapist_id, day, TIME_SLOTS[0]) : undefined}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
@@ -200,24 +200,6 @@ export default function Schedule() {
     longPressTimer.current = null;
   };
 
-  const renderCellMenuBtn = (cell, therapist_id, day, time_slot) => {
-    if (!isAdmin) return null;
-    return (
-      <button
-        type="button"
-        className="schedule-cell-menu-btn"
-        aria-label="Cell options"
-        onClick={(e) => {
-          e.stopPropagation();
-          const rect = e.currentTarget.getBoundingClientRect();
-          openCtxAt(rect.left, rect.bottom, cell, therapist_id, day, time_slot);
-        }}
-      >
-        ⋮
-      </button>
-    );
-  };
-
   useLayoutEffect(() => {
     if (!ctxMenu) {
       setCtxMenuPos({ left: 0, top: 0, ready: false });
@@ -363,10 +345,28 @@ export default function Schedule() {
   );
 
   const canEditRow = useCallback(
-    (tid) => scheduleAdmin || (scheduleLead && tid === selfTherapist?.id),
-    [scheduleAdmin, scheduleLead, selfTherapist?.id]
+    (tid) => scheduleAdmin || (scheduleLead && (view === "sheet" || tid === selfTherapist?.id)),
+    [scheduleAdmin, scheduleLead, selfTherapist?.id, view]
   );
   const canNotifySchedule = scheduleAdmin || scheduleLead;
+
+  const renderCellMenuBtn = (cell, therapist_id, day, time_slot) => {
+    if (!canEditRow(therapist_id)) return null;
+    return (
+      <button
+        type="button"
+        className="schedule-cell-menu-btn"
+        aria-label="Cell options"
+        onClick={(e) => {
+          e.stopPropagation();
+          const rect = e.currentTarget.getBoundingClientRect();
+          openCtxAt(rect.left, rect.bottom, cell, therapist_id, day, time_slot);
+        }}
+      >
+        ⋮
+      </button>
+    );
+  };
 
   const blocksTherapists = useMemo(() => {
     if (scheduleAdmin) return visibleTherapists;
@@ -552,7 +552,7 @@ export default function Schedule() {
       }
       return;
     }
-    if (scheduleLead && !canEditRow(therapist_id)) return;
+    if (!canEditRow(therapist_id)) return;
     if (clipboard && !existing) {
       pasteAt(therapist_id, day, time_slot);
       return;
@@ -750,10 +750,18 @@ export default function Schedule() {
   };
   const onCtx = (e, cell, therapist_id, day, time_slot) => {
     if (!canNotifySchedule) return;
-    if (scheduleLead && !canEditRow(therapist_id) && !cell) return;
+    if (!canEditRow(therapist_id) && !cell) return;
     e.preventDefault();
     e.stopPropagation();
     setCtxMenu({ x: e.clientX, y: e.clientY, cell, therapist_id, day, time_slot });
+  };
+
+  const onTherapistNameInteract = (e, therapist_id) => {
+    if (!canEditRow(therapist_id)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const cell = findCellAt(therapist_id, 0, TIME_SLOTS[0], cellMap, cells);
+    openCtxAt(e.clientX, e.clientY, cell, therapist_id, 0, TIME_SLOTS[0]);
   };
 
   const ctxAction = (fn) => (e) => {
@@ -794,7 +802,12 @@ export default function Schedule() {
                       <td rowSpan={5} className="sheet-td sheet-idx font-bold text-center">
                         {ti + 1}
                       </td>
-                      <td rowSpan={5} className="sheet-td sheet-therapist">
+                      <td
+                        rowSpan={5}
+                        className={`sheet-td sheet-therapist${canEditRow(t.id) ? " editable" : ""}`}
+                        onClick={(e) => onTherapistNameInteract(e, t.id)}
+                        onContextMenu={(e) => onTherapistNameInteract(e, t.id)}
+                      >
                         <div className="flex flex-col items-center justify-center gap-1 text-center px-1 py-2">
                           <div className="w-7 h-7 rounded-full text-white text-[10px] flex items-center justify-center font-bold shrink-0" style={{ background: t.color }}>
                             {t.name.replace("Ms. ", "").charAt(0)}
@@ -817,7 +830,7 @@ export default function Schedule() {
                     <ClosureBannerCell
                       label={closureLabel}
                       className="sheet-td sheet-slot schedule-closure-cell"
-                      isAdmin={isAdmin}
+                      canEdit={canEditRow(t.id)}
                       therapist_id={t.id}
                       day={di}
                       onCtx={onCtx}
@@ -911,7 +924,7 @@ export default function Schedule() {
                   <ClosureBannerCell
                     label={closureLabel}
                     className="cell-base schedule-closure-cell"
-                    isAdmin={isAdmin}
+                    canEdit={canEditRow(therapist.id)}
                     therapist_id={therapist.id}
                     day={di}
                     onCtx={onCtx}
@@ -959,9 +972,11 @@ export default function Schedule() {
       <SchedulePageHeader
         subtitle={isAdmin
           ? "Right-click any cell for actions · Click to edit · Drag to select multiple slots"
-          : view === "blocks"
-            ? "Per Therapist — click your sessions to log preparation"
-            : "Sheet — view full team schedule (read-only)"}
+          : scheduleLead && view === "sheet"
+            ? "Sheet — right-click or click therapist name or any cell to edit"
+            : view === "blocks"
+              ? "Per Therapist — click your sessions to log preparation"
+              : "Sheet — view full team schedule"}
         badge={isAdmin ? (
           weekStatus === "draft" ? (
             <span className="pill text-[10px] px-2 py-1 font-bold bg-[#FAF0D1] text-[#6B5218] border border-[#E5C387]">
@@ -1035,7 +1050,7 @@ export default function Schedule() {
         )}
       />
 
-      {clipboard && isAdmin && (
+      {clipboard && (isAdmin || (scheduleLead && view === "sheet")) && (
         <div className="card p-3 mb-4 flex items-center gap-3 text-sm" style={{ background: "#FFF7E1", borderColor: "#E8C572" }} data-testid="clipboard-banner">
           <Copy size={18} weight="duotone" style={{ color: "#8B6918" }} />
           <div className="flex-1">
@@ -1113,7 +1128,7 @@ export default function Schedule() {
               Copy Cell
             </button>
           )}
-          {!ctxMenu.cell && clipboard && scheduleAdmin && (
+          {!ctxMenu.cell && clipboard && canEditRow(ctxMenu.therapist_id) && (
             <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
               onClick={ctxAction(() => { pasteAt(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.time_slot); setCtxMenu(null); })}>
               Paste Here
