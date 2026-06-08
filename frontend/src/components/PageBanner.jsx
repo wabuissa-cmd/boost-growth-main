@@ -3,7 +3,7 @@ export default function PageBanner({ title, subtitle, badge, stats = [], childre
   const hasBody = stats.length > 0 || children || toolbar;
 
   return (
-    <div className="page-banner rounded-[1.25rem] mb-4 border border-[#606E52]/20 shadow-sm overflow-hidden">
+    <div className="page-banner rounded-[1.25rem] mb-4 border border-[#4d4930]/20 shadow-sm overflow-hidden">
       <div className="page-banner-head px-4 py-3.5 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="page-banner-title m-0">{title}</h1>
@@ -23,14 +23,14 @@ export default function PageBanner({ title, subtitle, badge, stats = [], childre
                 <div
                   key={s.label}
                   className="rounded-[14px] px-2.5 py-2 min-w-0"
-                  style={{ background: "#FAFAF7", border: "1px solid #E2DDD4" }}
+                  style={{ background: "#F5F0E6", border: "1px solid #DED4C0" }}
                 >
-                  <div className="text-[10px] tracking-widest font-bold truncate" style={{ color: "#8B9E7A" }}>
+                  <div className="text-[10px] tracking-widest font-bold truncate" style={{ color: "#8A8670" }}>
                     {s.label.toUpperCase()}
                   </div>
                   <div
                     className="text-base font-display font-semibold leading-tight mt-0.5 truncate"
-                    style={{ color: s.color || "#2C3625" }}
+                    style={{ color: s.color || "#4d4930" }}
                     title={String(s.n)}
                   >
                     {s.n}

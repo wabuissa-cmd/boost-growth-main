@@ -109,10 +109,10 @@ export default function Home() {
   const dateStr = new Date().toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   const adminFeatures = [
-    { to: "/schedule", icon: CalendarBlank, title: "Weekly Schedule", desc: "Plan sessions, manage closures, and publish the team calendar.", color: "rgba(168,201,172,0.35)", iconColor: "#5A7D64", featured: true },
-    { to: "/attendance", icon: ClipboardText, title: "Session Preparation", desc: "Daily prep sheets, progress tracking, and session logging.", color: "rgba(168,201,172,0.22)", iconColor: "#4A6652" },
-    { to: "/clients", icon: UsersThree, title: "Client Portfolios", desc: "Profiles, locations, packages, and progress reports.", color: "#fff", iconColor: "#6B9075" },
-    { to: "/reports", icon: ChartBar, title: "Reports & Analytics", desc: "Center-wide performance, hours, and package health.", color: "#fff", iconColor: "#5A7D64" },
+    { to: "/schedule", icon: CalendarBlank, title: "Weekly Schedule", desc: "Plan sessions, manage closures, and publish the team calendar.", color: "rgba(237,225,201,0.65)", iconColor: "#4d4930", featured: true },
+    { to: "/attendance", icon: ClipboardText, title: "Session Preparation", desc: "Daily prep sheets, progress tracking, and session logging.", color: "rgba(150,146,109,0.18)", iconColor: "#4d4930" },
+    { to: "/clients", icon: UsersThree, title: "Client Portfolios", desc: "Profiles, locations, packages, and progress reports.", color: "#fff", iconColor: "#96926d" },
+    { to: "/reports", icon: ChartBar, title: "Reports & Analytics", desc: "Center-wide performance, hours, and package health.", color: "#fff", iconColor: "#827E5E" },
   ];
 
   const HeroBanner = ({ compact }) => (
@@ -202,10 +202,10 @@ export default function Home() {
 
           <CreativeSection title="This week at a glance">
             <div className="dash-stat-row stagger mb-4">
-              <DashboardStatCard to="/schedule" variant="sage" value={stats.weekSessions} label="Sessions scheduled" desc={`${stats.weekHours}h total`} icon={<CalendarBlank size={22} weight="fill" style={{ color: "#4A6652", background: "rgba(168,201,172,0.4)", borderRadius: 14, padding: 8 }} />} testId="home-tile-schedule" />
-              <DashboardStatCard to="/clients" value={stats.clients} label="Active clients" icon={<UsersThree size={22} weight="fill" style={{ color: "#6B9075", background: "#F2F6F0", borderRadius: 14, padding: 8 }} />} testId="home-tile-clients" />
-              <DashboardStatCard to="/requests" variant="gold" value={stats.requests} label="Pending requests" icon={<ListChecks size={22} weight="fill" style={{ color: "#6B5218", background: "#FAF0D1", borderRadius: 14, padding: 8 }} />} testId="home-tile-requests" />
-              <DashboardStatCard to="/attendance" value={stats.therapists} label="Team therapists" icon={<Heart size={22} weight="fill" style={{ color: "#6B9075", background: "rgba(168,201,172,0.3)", borderRadius: 14, padding: 8 }} />} testId="home-tile-attendance" />
+              <DashboardStatCard to="/schedule" variant="sage" value={stats.weekSessions} label="Sessions scheduled" desc={`${stats.weekHours}h total`} icon={<CalendarBlank size={22} weight="fill" style={{ color: "#4d4930", background: "rgba(237,225,201,0.65)", borderRadius: 14, padding: 8 }} />} testId="home-tile-schedule" />
+              <DashboardStatCard to="/clients" value={stats.clients} label="Active clients" icon={<UsersThree size={22} weight="fill" style={{ color: "#96926d", background: "#F7F3EB", borderRadius: 14, padding: 8 }} />} testId="home-tile-clients" />
+              <DashboardStatCard to="/requests" variant="gold" value={stats.requests} label="Pending requests" icon={<ListChecks size={22} weight="fill" style={{ color: "#965132", background: "#F0E0D4", borderRadius: 14, padding: 8 }} />} testId="home-tile-requests" />
+              <DashboardStatCard to="/attendance" value={stats.therapists} label="Team therapists" icon={<Heart size={22} weight="fill" style={{ color: "#96926d", background: "rgba(237,225,201,0.5)", borderRadius: 14, padding: 8 }} />} testId="home-tile-attendance" />
             </div>
           </CreativeSection>
         </>
@@ -214,10 +214,10 @@ export default function Home() {
           <HeroBanner compact />
 
           <div className="dash-stat-row stagger mb-4">
-            <DashboardStatCard value={stats.completedThisWeek} label="Completed this week" desc="Sessions logged" icon={<CheckCircle size={22} weight="fill" style={{ color: "#6B9075", background: "rgba(168,201,172,0.3)", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-0" />
-            <DashboardStatCard variant="gold" value={`${stats.hoursThisWeek.toFixed(1)}h`} label="Hours delivered" icon={<Clock size={22} weight="fill" style={{ color: "#6B5218", background: "#FAF0D1", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-1" />
+            <DashboardStatCard value={stats.completedThisWeek} label="Completed this week" desc="Sessions logged" icon={<CheckCircle size={22} weight="fill" style={{ color: "#96926d", background: "rgba(237,225,201,0.5)", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-0" />
+            <DashboardStatCard variant="gold" value={`${stats.hoursThisWeek.toFixed(1)}h`} label="Hours delivered" icon={<Clock size={22} weight="fill" style={{ color: "#965132", background: "#F0E0D4", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-1" />
             <DashboardStatCard value={stats.cancelledThisWeek} label="Cancelled / missed" icon={<XCircle size={22} weight="fill" style={{ color: "#8A3F27", background: "#F8EBE7", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-2" />
-            <DashboardStatCard value={stats.todayUpcoming} label="Today's sessions" icon={<CalendarCheck size={22} weight="fill" style={{ color: "#4A6652", background: "#F2F6F0", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-3" />
+            <DashboardStatCard value={stats.todayUpcoming} label="Today's sessions" icon={<CalendarCheck size={22} weight="fill" style={{ color: "#4d4930", background: "#F7F3EB", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-3" />
           </div>
 
           <div className="grid lg:grid-cols-[1fr_260px] gap-4 mb-4">
@@ -265,7 +265,7 @@ export default function Home() {
         </div>
         <div className="card p-5 relative overflow-hidden rounded-[22px]" data-testid="daily-quote">
           <div className="absolute -top-3 -right-3 opacity-10"><Plant size={130} weight="duotone"/></div>
-          <div className="text-[10px] tracking-[0.2em] font-bold mb-2 relative" style={{color: "#7A8A6A"}}>QUOTE OF THE DAY</div>
+          <div className="text-[10px] tracking-[0.2em] font-bold mb-2 relative" style={{color: "#96926d"}}>QUOTE OF THE DAY</div>
           <p className="text-base leading-relaxed relative italic" style={{color: "#2C3625"}}>&ldquo;{quote.text}&rdquo;</p>
           <div className="text-xs mt-3 relative" style={{color: "#8B9E7A"}}>— {quote.by}</div>
         </div>

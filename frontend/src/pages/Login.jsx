@@ -3,7 +3,7 @@ import { useAuth } from "../auth";
 import { formatErr } from "../api";
 import { ArrowRight, ShieldCheck, UserCircle } from "@phosphor-icons/react";
 
-const GREEN_GRADIENT = "linear-gradient(135deg, #7A8A6A 0%, #6B7A5E 55%, #606E52 100%)";
+const GREEN_GRADIENT = "linear-gradient(135deg, #96926d 0%, #827E5E 55%, #4d4930 100%)";
 
 function LoginHero({ className = "" }) {
   return (
@@ -28,13 +28,13 @@ function LoginHero({ className = "" }) {
 function ChooseButtons({ onAdmin, onTherapist }) {
   return (
     <div className="stagger">
-      <div className="text-xs font-bold tracking-[0.25em] mb-1" style={{ color: "#8B9E7A" }}>WELCOME BACK 👋</div>
-      <h2 className="font-display text-xl md:text-2xl mb-5" style={{ color: "#2C3625" }}>Sign in to continue</h2>
+      <div className="text-xs font-bold tracking-[0.25em] mb-1" style={{ color: "#8A8670" }}>WELCOME BACK 👋</div>
+      <h2 className="font-display text-xl md:text-2xl mb-5" style={{ color: "#4d4930" }}>Sign in to continue</h2>
       <button
         data-testid="login-as-admin-btn"
         onClick={onAdmin}
         className="w-full mb-3 p-4 rounded-2xl text-white flex items-center gap-3 transition-all active:scale-[0.99] shadow-md min-h-[52px]"
-        style={{ background: "#7A8A6A" }}
+        style={{ background: "#96926d" }}
       >
         <ShieldCheck size={28} weight="duotone" />
         <div className="flex-1 text-left">
@@ -47,16 +47,16 @@ function ChooseButtons({ onAdmin, onTherapist }) {
         data-testid="login-as-therapist-btn"
         onClick={onTherapist}
         className="w-full p-4 rounded-2xl flex items-center gap-3 transition-all active:scale-[0.99] min-h-[52px]"
-        style={{ background: "#F0E9D8", color: "#2C3625" }}
+        style={{ background: "#EDE1C9", color: "#4d4930" }}
       >
-        <UserCircle size={28} weight="duotone" color="#7A8A6A" />
+        <UserCircle size={28} weight="duotone" color="#96926d" />
         <div className="flex-1 text-left">
           <div className="font-bold">I'm a Therapist</div>
-          <div className="text-xs" style={{ color: "#5C6853" }}>My clients · Session tools</div>
+          <div className="text-xs" style={{ color: "#6B6650" }}>My clients · Session tools</div>
         </div>
         <ArrowRight size={20} />
       </button>
-      <div className="text-center text-xs mt-5" style={{ color: "#8B9E7A" }}>boost-growthsa.com · Staff Access Only</div>
+      <div className="text-center text-xs mt-5" style={{ color: "#8A8670" }}>boost-growthsa.com · Staff Access Only</div>
     </div>
   );
 }

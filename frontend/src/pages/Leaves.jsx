@@ -116,7 +116,7 @@ export default function Leaves() {
 
       {/* My balance card (therapist) */}
       {!isAdmin && myBalance && (
-        <div className="card p-6 mb-5" style={{ background: "linear-gradient(135deg, #7A8A6A 0%, #606E52 100%)", borderColor: "transparent", color: "white" }}>
+        <div className="card p-6 mb-5" style={{ background: "linear-gradient(135deg, #96926d 0%, #4d4930 100%)", borderColor: "transparent", color: "white" }}>
           <div className="text-xs tracking-[0.25em] font-bold opacity-90 mb-1">YOUR ANNUAL BALANCE — {year}</div>
           <div className="flex items-end gap-4 flex-wrap">
             <div>

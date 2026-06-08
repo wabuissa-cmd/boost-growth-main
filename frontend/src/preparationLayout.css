@@ -52,10 +52,10 @@
   width: 100%;
   font: inherit;
 }
-.prep-client-card:hover { border-color: var(--brand, #7A8A6A); }
+.prep-client-card:hover { border-color: var(--brand, #96926d); }
 .prep-client-card.selected {
-  border-color: var(--brand, #7A8A6A);
-  box-shadow: 0 0 0 1px var(--brand, #7A8A6A);
+  border-color: var(--brand, #96926d);
+  box-shadow: 0 0 0 1px var(--brand, #96926d);
 }
 .prep-client-avatar {
   width: 42px;

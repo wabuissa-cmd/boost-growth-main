@@ -1,6 +1,6 @@
 /** Attendance / invoice billing helpers — home (hours) vs school (4-week cycle). */
 
-export const WEEK_ROW_BG = ["#FFFFFF", "#F6F9F3", "#EDF4E8", "#E4EDE0"];
+export const WEEK_ROW_BG = ["#FFFFFF", "#FAF8F3", "#F5F0E6", "#EDE1C9"];
 
 export function parseISO(iso) {
   if (!iso) return new Date();
@@ -755,7 +755,7 @@ export function cardStatusMeta(cardStatus) {
   if (cardStatus === "warning") {
     return { label: "Nearing End", bg: "#FAF0D1", color: "#6B5218", border: "#E5C387", bar: "#D4A64A" };
   }
-  return { label: "Safe", bg: "#E5EBE1", color: "#3D4F35", border: "#B8C8A8", bar: "#7A8A6A" };
+  return { label: "Safe", bg: "#EDE1C9", color: "#4d4930", border: "#C9C0A8", bar: "#96926d" };
 }
 
 /** Progress ring / bar for preparation cards (HS hours or SS weeks). */
