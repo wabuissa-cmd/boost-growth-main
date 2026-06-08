@@ -15,6 +15,29 @@ import TherapistWeekCalendar from "../components/TherapistWeekCalendar";
 import PlatformUpdates from "../components/PlatformUpdates";
 import "../dashboardLayout.css";
 
+const HERO_OPTIONS = [
+  { id: "default", src: "/hero-boost-growth.jpg", label: "Boost Growth" },
+  { id: "home", src: "/service-home.jpg", label: "Home Therapy" },
+  { id: "school", src: "/service-school.jpg", label: "School Support" },
+  { id: "outdoor", src: "/service-outdoor.jpg", label: "Outdoor Training" },
+];
+
+function heroStorageKey(user) {
+  const uid = user?.id || user?.email;
+  return uid ? `bg_hero_image_${uid}` : null;
+}
+
+function loadHeroPreference(user) {
+  const key = heroStorageKey(user);
+  if (!key) return "default";
+  try {
+    const saved = localStorage.getItem(key);
+    return HERO_OPTIONS.some(o => o.id === saved) ? saved : "default";
+  } catch {
+    return "default";
+  }
+}
+
 export default function Home() {
   const { user } = useAuth();
   const isPortalAdminUser = showAdminNav(user);
@@ -31,6 +54,20 @@ export default function Home() {
   const [closures, setClosures] = useState([]);
   const [updates, setUpdates] = useState([]);
   const [personalEvents, setPersonalEvents] = useState([]);
+  const [heroImageId, setHeroImageId] = useState(() => loadHeroPreference(user));
+
+  useEffect(() => {
+    setHeroImageId(loadHeroPreference(user));
+  }, [user?.id, user?.email]);
+
+  const selectHeroImage = (id) => {
+    setHeroImageId(id);
+    const key = heroStorageKey(user);
+    if (!key) return;
+    try { localStorage.setItem(key, id); } catch { /* ignore */ }
+  };
+
+  const heroImage = HERO_OPTIONS.find(o => o.id === heroImageId)?.src || HERO_OPTIONS[0].src;
   const loadUpdates = () => api.get("/center-updates").then(r => setUpdates(Array.isArray(r.data) ? r.data : [])).catch(() => {});
   const loadPersonal = () => api.get("/calendar/personal", { params: { from_date: weekISO, to_date: weekEndISO } })
     .then(r => setPersonalEvents(Array.isArray(r.data) ? r.data : [])).catch(() => {});
@@ -117,8 +154,23 @@ export default function Home() {
 
   const HeroBanner = ({ compact }) => (
     <header className="portal-hero">
-      <div className="portal-hero-bg" style={{ backgroundImage: "url(/hero-boost-growth.jpg)" }} aria-hidden />
+      <div className="portal-hero-bg" style={{ backgroundImage: `url(${heroImage})` }} aria-hidden />
       <div className="portal-hero-overlay" aria-hidden />
+      <div className="portal-hero-picker" role="group" aria-label="Choose hero background">
+        {HERO_OPTIONS.map(o => (
+          <button
+            key={o.id}
+            type="button"
+            className={`portal-hero-picker-btn${heroImageId === o.id ? " active" : ""}`}
+            onClick={() => selectHeroImage(o.id)}
+            aria-label={o.label}
+            aria-pressed={heroImageId === o.id}
+            title={o.label}
+          >
+            <img src={o.src} alt="" />
+          </button>
+        ))}
+      </div>
       <div className="portal-hero-content">
         <div className="portal-hero-eyebrow">
           <Leaf size={14} weight="fill" /> Boost Growth · Staff Portal
