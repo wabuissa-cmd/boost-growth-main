@@ -755,7 +755,7 @@ export function cardStatusMeta(cardStatus) {
   if (cardStatus === "warning") {
     return { label: "Nearing End", bg: "#FAF0D1", color: "#6B5218", border: "#E5C387", bar: "#D4A64A" };
   }
-  return { label: "Safe", bg: "#EDE1C9", color: "#4d4930", border: "#C9C0A8", bar: "#96926d" };
+  return { label: "Safe", bg: "#EDE1C9", color: "#2F4A35", border: "#C9C0A8", bar: "#6B8F71" };
 }
 
 /** Progress ring / bar for preparation cards (HS hours or SS weeks). */

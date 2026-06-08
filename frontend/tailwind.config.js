@@ -10,14 +10,14 @@ module.exports = {
       },
       colors: {
         brand: {
-          DEFAULT: '#7A8A6A',
-          hover: '#6B7A5E',
-          light: '#E5EBE1',
-          dark: '#606E52',
+          DEFAULT: '#6B8F71',
+          hover: '#5A7D60',
+          light: '#D4E5D6',
+          dark: '#2F4A35',
         },
         cream: {
-          DEFAULT: '#F3EFE8',
-          warm: '#F0E9D8',
+          DEFAULT: '#F7F3EB',
+          warm: '#F5F0E6',
         },
         gold: {
           DEFAULT: '#D4A64A',
@@ -25,9 +25,9 @@ module.exports = {
           light: '#FAF0D1',
         },
         ink: {
-          DEFAULT: '#2C3625',
-          soft: '#5C6853',
-          mute: '#8B9E7A',
+          DEFAULT: '#2F4A35',
+          soft: '#4A6350',
+          mute: '#6B8270',
         },
       },
       borderRadius: {

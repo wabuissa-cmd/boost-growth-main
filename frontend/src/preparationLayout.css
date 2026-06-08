@@ -22,7 +22,7 @@
   flex-shrink: 0;
 }
 .prep-stat-value { font-size: 1.35rem; font-weight: 700; line-height: 1.1; color: var(--text-primary, #2C3625); }
-.prep-stat-label { font-size: 0.75rem; color: var(--text-secondary, #5C6853); margin-top: 0.15rem; }
+.prep-stat-label { font-size: 0.75rem; color: var(--text-secondary, #4A6350); margin-top: 0.15rem; }
 
 .prep-content {
   display: grid;
@@ -52,10 +52,10 @@
   width: 100%;
   font: inherit;
 }
-.prep-client-card:hover { border-color: var(--brand, #96926d); }
+.prep-client-card:hover { border-color: var(--brand, #6B8F71); }
 .prep-client-card.selected {
-  border-color: var(--brand, #96926d);
-  box-shadow: 0 0 0 1px var(--brand, #96926d);
+  border-color: var(--brand, #6B8F71);
+  box-shadow: 0 0 0 1px var(--brand, #6B8F71);
 }
 .prep-client-avatar {
   width: 42px;
@@ -69,18 +69,18 @@
   color: #fff;
 }
 .prep-client-name { font-weight: 700; font-size: 0.95rem; color: var(--text-primary, #2C3625); }
-.prep-client-meta { font-size: 0.75rem; color: var(--text-secondary, #5C6853); margin-top: 0.1rem; }
+.prep-client-meta { font-size: 0.75rem; color: var(--text-secondary, #4A6350); margin-top: 0.1rem; }
 .prep-pill {
   font-size: 0.7rem;
   font-weight: 700;
   padding: 0.25rem 0.6rem;
   border-radius: 999px;
-  background: var(--secondary-light, #FAF0D1);
-  color: #6B5218;
+  background: var(--bg-panel, #EDE1C9);
+  color: var(--brand-dark, #2F4A35);
   white-space: nowrap;
 }
 .prep-card-btn {
-  background: var(--brand, #7A8A6A);
+  background: var(--brand, #6B8F71);
   color: #fff;
   border: none;
   border-radius: 999px;
@@ -91,10 +91,10 @@
   cursor: pointer;
   white-space: nowrap;
 }
-.prep-card-btn:hover { background: var(--brand-hover, #6B7A5E); }
+.prep-card-btn:hover { background: var(--brand-hover, #5A7D60); }
 
 .prep-detail {
-  background: var(--brand-sidebar, linear-gradient(180deg, #7A8A6A 0%, #6B7A5E 52%, #606E52 100%));
+  background: var(--brand-sidebar, linear-gradient(180deg, #6B8F71 0%, #5A7D60 52%, #2F4A35 100%));
   color: #fff;
   border-radius: 24px;
   padding: 1.25rem;
@@ -134,8 +134,8 @@
 
 .prep-detail-actions { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.25rem; }
 .prep-detail-cta {
-  background: var(--secondary, #D4A64A);
-  color: var(--text-primary, #2C3625);
+  background: #fff;
+  color: var(--brand-dark, #2F4A35);
   border: none;
   border-radius: 999px;
   padding: 0.75rem;

@@ -3,7 +3,7 @@ import { useAuth } from "../auth";
 import { formatErr } from "../api";
 import { ArrowRight, ShieldCheck, UserCircle } from "@phosphor-icons/react";
 
-const GREEN_GRADIENT = "linear-gradient(135deg, #96926d 0%, #827E5E 55%, #4d4930 100%)";
+const GREEN_GRADIENT = "linear-gradient(135deg, #6B8F71 0%, #5A7D60 55%, #2F4A35 100%)";
 
 function LoginHero({ className = "" }) {
   return (
@@ -29,12 +29,12 @@ function ChooseButtons({ onAdmin, onTherapist }) {
   return (
     <div className="stagger">
       <div className="text-xs font-bold tracking-[0.25em] mb-1" style={{ color: "#8A8670" }}>WELCOME BACK 👋</div>
-      <h2 className="font-display text-xl md:text-2xl mb-5" style={{ color: "#4d4930" }}>Sign in to continue</h2>
+      <h2 className="font-display text-xl md:text-2xl mb-5" style={{ color: "#2F4A35" }}>Sign in to continue</h2>
       <button
         data-testid="login-as-admin-btn"
         onClick={onAdmin}
         className="w-full mb-3 p-4 rounded-2xl text-white flex items-center gap-3 transition-all active:scale-[0.99] shadow-md min-h-[52px]"
-        style={{ background: "#96926d" }}
+        style={{ background: "#6B8F71" }}
       >
         <ShieldCheck size={28} weight="duotone" />
         <div className="flex-1 text-left">
@@ -47,9 +47,9 @@ function ChooseButtons({ onAdmin, onTherapist }) {
         data-testid="login-as-therapist-btn"
         onClick={onTherapist}
         className="w-full p-4 rounded-2xl flex items-center gap-3 transition-all active:scale-[0.99] min-h-[52px]"
-        style={{ background: "#EDE1C9", color: "#4d4930" }}
+        style={{ background: "#EDE1C9", color: "#2F4A35" }}
       >
-        <UserCircle size={28} weight="duotone" color="#96926d" />
+        <UserCircle size={28} weight="duotone" color="#6B8F71" />
         <div className="flex-1 text-left">
           <div className="font-bold">I'm a Therapist</div>
           <div className="text-xs" style={{ color: "#6B6650" }}>My clients · Session tools</div>

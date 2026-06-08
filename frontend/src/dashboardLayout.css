@@ -8,7 +8,7 @@
 
 .dash-stat-card {
   background: var(--bg-surface, #fff);
-  border: 1px solid var(--border-default, #E2DDD4);
+  border: 1px solid var(--border-default, #D4DEC8);
   border-radius: 20px;
   padding: 1rem 1.1rem;
   display: flex;
@@ -17,21 +17,21 @@
   transition: box-shadow 180ms ease, transform 180ms ease;
 }
 a.dash-stat-card:hover {
-  border-color: var(--brand, #96926d);
-  box-shadow: 0 8px 24px rgba(77, 73, 48, 0.08);
+  border-color: var(--brand, #6B8F71);
+  box-shadow: 0 8px 24px rgba(47, 74, 53, 0.08);
   transform: translateY(-1px);
 }
 .dash-stat-card.gold {
-  background: linear-gradient(135deg, #FFFBF7 0%, var(--secondary-light, #F0E0D4) 100%);
-  border-color: #D4A890;
+  background: linear-gradient(135deg, #FAFCF8 0%, var(--brand-light, rgba(107, 143, 113, 0.22)) 100%);
+  border-color: var(--brand-sage, #8FB396);
 }
 .dash-stat-card.sage {
   background: linear-gradient(135deg, #FAF8F3 0%, rgba(237, 225, 201, 0.55) 100%);
-  border-color: var(--border-default, #DED4C0);
+  border-color: var(--border-default, #D4DEC8);
 }
 .dash-stat-card.dark {
-  background: linear-gradient(135deg, #96926d 0%, #4d4930 100%);
-  border-color: #4d4930;
+  background: linear-gradient(135deg, #6B8F71 0%, #2F4A35 100%);
+  border-color: #2F4A35;
   color: #fff;
 }
 .dash-stat-card.dark .dash-stat-label { color: rgba(255,255,255,0.72); }
@@ -50,17 +50,17 @@ a.dash-stat-card:hover {
   font-size: 1.35rem;
   font-weight: 700;
   line-height: 1.1;
-  color: var(--text-primary, #2C3625);
+  color: var(--text-primary, #2F4A35);
   font-family: var(--font-display);
 }
 .dash-stat-label {
   font-size: 0.75rem;
-  color: var(--text-secondary, #5C6853);
+  color: var(--text-secondary, #4A6350);
   margin-top: 0.15rem;
 }
 .dash-stat-desc {
   font-size: 0.7rem;
-  color: var(--text-muted, #8B9E7A);
+  color: var(--text-muted, #6B8270);
   margin-top: 0.1rem;
 }
 
@@ -78,12 +78,12 @@ a.dash-stat-card:hover {
   font-family: var(--font-display);
   font-size: 1.15rem;
   font-weight: 700;
-  color: var(--text-primary, #2C3625);
+  color: var(--text-primary, #2F4A35);
   margin: 0;
 }
 .dash-section-sub {
   font-size: 0.8rem;
-  color: var(--text-muted, #8B9E7A);
+  color: var(--text-muted, #6B8270);
   margin: 0.15rem 0 0;
 }
 
@@ -96,8 +96,8 @@ a.dash-stat-card:hover {
   margin-bottom: 1.75rem;
   display: flex;
   align-items: stretch;
-  border: 1px solid rgba(77, 73, 48, 0.12);
-  box-shadow: 0 12px 40px rgba(77, 73, 48, 0.1);
+  border: 1px solid rgba(47, 74, 53, 0.12);
+  box-shadow: 0 12px 40px rgba(47, 74, 53, 0.1);
 }
 .portal-hero-bg {
   position: absolute;
@@ -111,8 +111,8 @@ a.dash-stat-card:hover {
   inset: 0;
   background: linear-gradient(
     100deg,
-    rgba(77, 73, 48, 0.82) 0%,
-    rgba(150, 146, 109, 0.52) 38%,
+    rgba(47, 74, 53, 0.82) 0%,
+    rgba(107, 143, 113, 0.52) 38%,
     rgba(237, 225, 201, 0.14) 68%,
     transparent 100%
   );
@@ -146,7 +146,7 @@ a.dash-stat-card:hover {
   margin: 0;
   color: #fff;
 }
-.portal-hero-accent { color: var(--brand-sage, #B0AC88); }
+.portal-hero-accent { color: var(--brand-sage, #8FB396); }
 .portal-hero-lead {
   font-size: clamp(0.88rem, 1.8vw, 1rem);
   color: rgba(255, 255, 255, 0.82);
@@ -180,10 +180,10 @@ a.dash-stat-card:hover {
 }
 .portal-hero-btn.primary {
   background: #fff;
-  color: var(--brand-dark, #4d4930);
+  color: var(--brand-dark, #2F4A35);
 }
 .portal-hero-btn.primary:hover {
-  background: var(--secondary, #965132);
+  background: var(--brand-hover, #5A7D60);
   color: #fff;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
 }
@@ -255,7 +255,7 @@ a.dash-stat-card:hover {
 /* Legacy beige hero — kept for pages not yet migrated */
 .home-hero {
   background: linear-gradient(165deg, #FFFCF7 0%, #F3EFE8 45%, #EAE4DA 100%);
-  border: 1px solid var(--border-default, #E2DDD4);
+  border: 1px solid var(--border-default, #D4DEC8);
   border-radius: 28px;
   padding: 2.5rem 2rem;
   margin-bottom: 1.75rem;
@@ -269,7 +269,7 @@ a.dash-stat-card:hover {
   right: -10%;
   width: 420px;
   height: 420px;
-  background: radial-gradient(circle, rgba(150,146,109,0.12) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(107,143,113,0.12) 0%, transparent 70%);
   pointer-events: none;
 }
 .home-hero::after {
@@ -279,7 +279,7 @@ a.dash-stat-card:hover {
   left: 5%;
   width: 280px;
   height: 280px;
-  background: radial-gradient(circle, rgba(150,81,50,0.1) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(107,143,113,0.08) 0%, transparent 70%);
   pointer-events: none;
 }
 .home-hero-inner { position: relative; max-width: 720px; }
@@ -287,7 +287,7 @@ a.dash-stat-card:hover {
   font-size: 0.65rem;
   letter-spacing: 0.28em;
   font-weight: 700;
-  color: var(--brand, #96926d);
+  color: var(--brand, #6B8F71);
   text-transform: uppercase;
   margin-bottom: 0.75rem;
   display: flex;
@@ -299,14 +299,14 @@ a.dash-stat-card:hover {
   font-size: clamp(2rem, 5vw, 3.25rem);
   font-weight: 700;
   line-height: 1.08;
-  color: var(--text-primary, #2C3625);
+  color: var(--text-primary, #2F4A35);
   margin: 0;
 }
-.home-hero-accent { color: var(--brand-dark, #4d4930); }
-.home-hero-gold { color: var(--secondary, #965132); }
+.home-hero-accent { color: var(--brand-dark, #2F4A35); }
+.home-hero-gold { color: var(--brand, #6B8F71); }
 .home-hero-lead {
   font-size: 1rem;
-  color: var(--text-secondary, #5C6853);
+  color: var(--text-secondary, #4A6350);
   margin: 1rem 0 0;
   max-width: 520px;
   line-height: 1.6;
@@ -331,17 +331,17 @@ a.dash-stat-card:hover {
   transition: all 180ms ease;
 }
 .home-hero-btn.primary {
-  background: var(--brand, #96926d);
+  background: var(--brand, #6B8F71);
   color: #fff;
 }
 .home-hero-btn.primary:hover {
-  background: var(--brand-hover, #827E5E);
-  box-shadow: 0 6px 20px rgba(150,146,109,0.35);
+  background: var(--brand-hover, #5A7D60);
+  box-shadow: 0 6px 20px rgba(107,143,113,0.35);
 }
 .home-hero-btn.outline {
   background: rgba(255,255,255,0.7);
-  color: var(--text-primary, #2C3625);
-  border: 1px solid var(--border-default, #E2DDD4);
+  color: var(--text-primary, #2F4A35);
+  border: 1px solid var(--border-default, #D4DEC8);
 }
 .home-hero-btn.outline:hover { border-color: var(--brand); color: var(--brand); }
 
@@ -353,7 +353,7 @@ a.dash-stat-card:hover {
 }
 .home-feature-card {
   background: var(--bg-surface, #fff);
-  border: 1px solid var(--border-default, #E2DDD4);
+  border: 1px solid var(--border-default, #D4DEC8);
   border-radius: 22px;
   padding: 1.35rem;
   text-decoration: none;
@@ -364,15 +364,15 @@ a.dash-stat-card:hover {
   gap: 0.65rem;
 }
 .home-feature-card.featured {
-  background: linear-gradient(145deg, #96926d 0%, #4d4930 100%);
-  border-color: #4d4930;
+  background: linear-gradient(145deg, #6B8F71 0%, #2F4A35 100%);
+  border-color: #2F4A35;
   color: #fff;
 }
 .home-feature-card.featured .home-feature-title,
 .home-feature-card.featured .home-feature-desc { color: rgba(255,255,255,0.92); }
-.home-feature-card.featured .home-feature-link { color: var(--brand-sage, #B0AC88); }
+.home-feature-card.featured .home-feature-link { color: var(--brand-sage, #8FB396); }
 .home-feature-card.featured:hover {
-  border-color: #B0AC88;
+  border-color: #8FB396;
   box-shadow: 0 16px 40px rgba(37, 53, 40, 0.25);
 }
 .home-feature-card:hover {
@@ -411,7 +411,7 @@ a.dash-stat-card:hover {
 
 /* Flight-dashboard reports panel */
 .reports-hero {
-  background: linear-gradient(135deg, #4d4930 0%, #5C5844 50%, #4d4930 100%);
+  background: linear-gradient(135deg, #2F4A35 0%, #3D5C44 50%, #2F4A35 100%);
   border-radius: 24px;
   padding: 1.75rem 1.5rem;
   margin-bottom: 1.25rem;
@@ -544,12 +544,12 @@ a.dash-stat-card:hover {
   width: 100%;
   max-width: 36px;
   border-radius: 8px 8px 4px 4px;
-  background: linear-gradient(180deg, #96926d 0%, #4d4930 100%);
+  background: linear-gradient(180deg, #6B8F71 0%, #2F4A35 100%);
   min-height: 4px;
   transition: height 400ms ease;
 }
 .reports-bar-fill.gold {
-  background: linear-gradient(180deg, var(--secondary, #965132) 0%, #7D4529 100%);
+  background: linear-gradient(180deg, #8FB396 0%, #6B8F71 100%);
 }
 .reports-bar-label {
   font-size: 0.6rem;
@@ -668,7 +668,7 @@ a.dash-stat-card:hover {
 }
 .cal-closure {
   background: #FFF4C4;
-  border-left-color: var(--secondary, #965132);
+  border-left-color: var(--brand, #6B8F71);
   color: #6B5218;
 }
 
@@ -814,7 +814,7 @@ a.dash-stat-card:hover {
 }
 
 .cal-compact-day {
-  border: 1px solid var(--border-default, #E2DDD4);
+  border: 1px solid var(--border-default, #D4DEC8);
   border-radius: 10px;
   padding: 0.35rem 0.25rem;
   text-align: center;
@@ -829,7 +829,7 @@ a.dash-stat-card:hover {
 }
 
 .cal-compact-day.today {
-  border-color: var(--brand, #96926d);
+  border-color: var(--brand, #6B8F71);
   background: var(--bg-panel, #EDE1C9);
 }
 
@@ -848,7 +848,7 @@ a.dash-stat-card:hover {
 
 .cal-compact-empty {
   font-size: 0.65rem;
-  color: #96926d;
+  color: #6B8F71;
   font-weight: 700;
 }
 
@@ -858,27 +858,27 @@ a.dash-stat-card:hover {
   padding: 0.75rem 0.35rem;
   text-align: center;
   font-size: 0.62rem;
-  color: #8B9E7A;
+  color: #6B8270;
   background: #FAFAF7;
 }
 
 .cal-event.cal-personal {
   background: #F3EFE8;
-  border-left: 3px solid var(--secondary, #965132);
-  color: #5C6853;
+  border-left: 3px solid var(--brand, #6B8F71);
+  color: #4A6350;
 }
 
 .cal-compact-dow {
   font-size: 0.55rem;
   font-weight: 700;
   text-transform: uppercase;
-  color: #8B9E7A;
+  color: #6B8270;
 }
 
 .cal-compact-num {
   font-size: 0.85rem;
   font-weight: 700;
-  color: #2C3625;
+  color: #2F4A35;
 }
 
 .cal-compact-dot {
@@ -887,8 +887,8 @@ a.dash-stat-card:hover {
   right: 5px;
   font-size: 0.55rem;
   font-weight: 700;
-  background: var(--secondary, #965132);
-  color: #2C3625;
+  background: var(--brand, #6B8F71);
+  color: #fff;
   border-radius: 999px;
   min-width: 14px;
   height: 14px;

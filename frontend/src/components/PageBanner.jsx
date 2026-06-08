@@ -3,7 +3,7 @@ export default function PageBanner({ title, subtitle, badge, stats = [], childre
   const hasBody = stats.length > 0 || children || toolbar;
 
   return (
-    <div className="page-banner rounded-[1.25rem] mb-4 border border-[#4d4930]/20 shadow-sm overflow-hidden">
+    <div className="page-banner rounded-[1.25rem] mb-4 border border-[#2F4A35]/20 shadow-sm overflow-hidden">
       <div className="page-banner-head px-4 py-3.5 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="page-banner-title m-0">{title}</h1>
@@ -30,7 +30,7 @@ export default function PageBanner({ title, subtitle, badge, stats = [], childre
                   </div>
                   <div
                     className="text-base font-display font-semibold leading-tight mt-0.5 truncate"
-                    style={{ color: s.color || "#4d4930" }}
+                    style={{ color: s.color || "#2F4A35" }}
                     title={String(s.n)}
                   >
                     {s.n}

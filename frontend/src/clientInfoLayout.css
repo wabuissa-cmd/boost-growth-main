@@ -10,7 +10,7 @@
   overflow: hidden;
   background: #fff;
   min-height: 520px;
-  box-shadow: 0 4px 24px rgba(77, 73, 48, 0.05);
+  box-shadow: 0 4px 24px rgba(47, 74, 53, 0.05);
 }
 
 .ci-pane-left {
@@ -34,7 +34,7 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--brand-dark, #4d4930);
+  color: var(--brand-dark, #2F4A35);
 }
 
 .ci-pane-stats {
@@ -52,10 +52,10 @@
   font-style: normal;
   display: block;
   font-size: 0.9rem;
-  color: var(--brand-dark, #4d4930);
+  color: var(--brand-dark, #2F4A35);
 }
 
-.ci-stat-alert em { color: var(--secondary, #965132); }
+.ci-stat-alert em { color: var(--brand, #6B8F71); }
 
 .ci-pane-list {
   flex: 1;
@@ -90,12 +90,12 @@
 
 .ci-client-card:hover .ci-client-card-inner {
   border-color: #C9C0A8;
-  box-shadow: 0 3px 12px rgba(77, 73, 48, 0.06);
+  box-shadow: 0 3px 12px rgba(47, 74, 53, 0.06);
 }
 
 .ci-client-card.selected .ci-client-card-inner {
-  border-color: var(--brand, #96926d);
-  box-shadow: 0 0 0 1px var(--brand, #96926d), 0 4px 14px rgba(150, 146, 109, 0.14);
+  border-color: var(--brand, #6B8F71);
+  box-shadow: 0 0 0 1px var(--brand, #6B8F71), 0 4px 14px rgba(107, 143, 113, 0.14);
   background: #fff;
 }
 
@@ -125,7 +125,7 @@
 .ci-client-card-name {
   font-weight: 700;
   font-size: 0.86rem;
-  color: var(--text-primary, #4d4930);
+  color: var(--text-primary, #2F4A35);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -147,7 +147,7 @@
 .ci-client-card-therapist {
   font-size: 0.68rem;
   font-weight: 600;
-  color: var(--brand-dark, #4d4930);
+  color: var(--brand-dark, #2F4A35);
   margin-top: 0.15rem;
 }
 
@@ -158,7 +158,7 @@
 }
 
 .ci-client-card.selected .ci-client-card-chevron {
-  color: var(--brand, #96926d);
+  color: var(--brand, #6B8F71);
 }
 
 /* legacy list item classes — kept for compatibility */
@@ -182,8 +182,8 @@
   background: var(--bg-warm, #F5F0E6);
 }
 .ci-pane-item.selected {
-  border-color: var(--brand, #96926d);
-  box-shadow: 0 2px 12px rgba(150, 146, 109, 0.14);
+  border-color: var(--brand, #6B8F71);
+  box-shadow: 0 2px 12px rgba(107, 143, 113, 0.14);
 }
 
 .ci-pane-item-avatar {
@@ -201,7 +201,7 @@
 .ci-pane-item-name {
   font-size: 0.84rem;
   font-weight: 700;
-  color: var(--text-primary, #4d4930);
+  color: var(--text-primary, #2F4A35);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -210,7 +210,7 @@
 
 .ci-pane-item-sub {
   font-size: 0.68rem;
-  color: var(--brand-dark, #4d4930);
+  color: var(--brand-dark, #2F4A35);
   margin-top: 0.15rem;
   font-weight: 500;
 }
@@ -267,7 +267,7 @@
   margin: 0;
   font-size: 1.15rem;
   font-weight: 700;
-  color: var(--text-primary, #4d4930);
+  color: var(--text-primary, #2F4A35);
 }
 
 .ci-profile-grid {
@@ -285,7 +285,7 @@
 
 .ci-profile-grid dd {
   margin: 0;
-  color: var(--text-primary, #4d4930);
+  color: var(--text-primary, #2F4A35);
   font-weight: 600;
 }
 
@@ -297,7 +297,7 @@
 }
 
 .ci-btn-purple {
-  background: var(--brand, #96926d);
+  background: var(--brand, #6B8F71);
   color: #fff;
   border: none;
   border-radius: 10px;
@@ -308,11 +308,11 @@
   cursor: pointer;
 }
 
-.ci-btn-purple:hover { background: var(--brand-dark, #4d4930); }
+.ci-btn-purple:hover { background: var(--brand-dark, #2F4A35); }
 
 .ci-btn-outline-p {
   background: #fff;
-  color: var(--brand-dark, #4d4930);
+  color: var(--brand-dark, #2F4A35);
   border: 1px solid #C9C0A8;
   border-radius: 10px;
   padding: 0.45rem 0.75rem;
@@ -323,7 +323,7 @@
 }
 
 .ci-btn-outline-p:hover {
-  border-color: var(--brand, #96926d);
+  border-color: var(--brand, #6B8F71);
   background: var(--bg-warm, #F5F0E6);
 }
 
@@ -340,7 +340,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--brand, #96926d);
+  color: var(--brand, #6B8F71);
   margin: 0 0 0.75rem;
 }
 
@@ -377,7 +377,7 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: var(--brand, #96926d);
+  background: var(--brand, #6B8F71);
   flex-shrink: 0;
   margin-top: 0.55rem;
 }
@@ -404,7 +404,7 @@
 }
 
 .ci-timeline-item:hover .ci-timeline-card {
-  border-color: var(--brand, #96926d);
+  border-color: var(--brand, #6B8F71);
   background: var(--bg-warm, #F5F0E6);
 }
 
@@ -413,7 +413,7 @@
   height: 36px;
   border-radius: 10px;
   background: var(--bg-panel, #EDE1C9);
-  color: var(--brand-dark, #4d4930);
+  color: var(--brand-dark, #2F4A35);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -424,7 +424,7 @@
   margin: 0;
   font-size: 0.82rem;
   font-weight: 700;
-  color: var(--text-primary, #4d4930);
+  color: var(--text-primary, #2F4A35);
 }
 
 .ci-timeline-card p {
@@ -458,7 +458,7 @@
 
 .ci-pkg-mini-fill {
   height: 100%;
-  background: var(--brand, #96926d);
+  background: var(--brand, #6B8F71);
   border-radius: 999px;
 }
 
@@ -496,7 +496,7 @@
 .intake-table td {
   padding: 0.65rem 0.85rem;
   border-bottom: 1px solid #F0EDE9;
-  color: var(--text-primary, #4d4930);
+  color: var(--text-primary, #2F4A35);
   vertical-align: middle;
 }
 
@@ -591,7 +591,7 @@
 }
 
 .req-leave-balance {
-  background: linear-gradient(135deg, #96926d 0%, #4d4930 100%);
+  background: linear-gradient(135deg, #6B8F71 0%, #3D5C44 55%, #2F4A35 100%);
   color: #fff;
   border-radius: 16px;
   padding: 1.15rem;

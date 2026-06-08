@@ -677,7 +677,7 @@ export default function LeaveRequests({ personal = false }) {
       )}
 
       {(personal || therapistFilter) && (
-        <div className="card p-5 sm:p-6 mb-5" style={{ background: "linear-gradient(135deg, #96926d 0%, #4d4930 100%)", borderColor: "transparent", color: "white" }}>
+        <div className="card p-5 sm:p-6 mb-5" style={{ background: "linear-gradient(135deg, #6B8F71 0%, #3D5C44 55%, #2F4A35 100%)", borderColor: "transparent", color: "white" }}>
           <div className="text-xs tracking-[0.2em] font-bold opacity-90 mb-1">
             LEAVE BALANCE{filteredTherapist && !personal ? ` · ${filteredTherapist.name}` : ""}
           </div>
