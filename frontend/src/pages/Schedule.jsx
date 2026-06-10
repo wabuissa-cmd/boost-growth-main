@@ -10,7 +10,7 @@ import { MAX_SCHEDULE_MERGE_SLOTS } from "../scheduleConstants";
 import { useAuth, showAdminNav, isClientLead } from "../auth";
 import {
   CaretLeft, CaretRight, CaretDown, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
-  CopySimple, Table, CalendarBlank, CheckCircle, PencilSimple, GridFour, Printer,
+  CopySimple, Table, CalendarBlank, CheckCircle, PencilSimple, GridFour, Printer, WhatsappLogo,
 } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
@@ -19,7 +19,9 @@ import {
 import ScheduleCellPanel from "../components/ScheduleCellPanel";
 import SchedulePageHeader from "../components/SchedulePageHeader";
 import ScheduleHolidaysModal from "../components/ScheduleHolidaysModal";
+import ParentWhatsAppModal from "../components/ParentWhatsAppModal";
 import LogSessionModal, { slotToTime24, addHoursToTime } from "../components/LogSessionModal";
+import { buildParentMessages } from "../scheduleParentMessages";
 import { sortTherapistsForSchedule, getTherapistScheduleName, scheduleOwnBlockOnly, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
 import { cachedGet } from "../dataCache";
 import "../dashboardLayout.css";
@@ -158,6 +160,8 @@ export default function Schedule() {
   const [showHolidays, setShowHolidays] = useState(false);
   const [closures, setClosures] = useState([]);
   const [quickLog, setQuickLog] = useState(null);
+  const [parentMessagesOpen, setParentMessagesOpen] = useState(false);
+  const [parentMessagesNote, setParentMessagesNote] = useState("");
 
   useEffect(() => {
     if (!adminEditsOpen) return;
@@ -279,9 +283,15 @@ export default function Schedule() {
     if (!window.confirm(`Publish schedule for ${formatDateRange(weekStart)}? All therapists will be emailed.`)) return;
     const r = await api.post("/schedule/publish", { week_start: weekStartISO });
     setWeekStatus("published");
-    alert(`Published. Emails sent: ${r.data?.emails_sent ?? 0}`);
+    setParentMessagesNote(`Published · ${r.data?.emails_sent ?? 0} therapist email(s) sent`);
+    setParentMessagesOpen(true);
     load();
   };
+
+  const parentMessages = useMemo(
+    () => buildParentMessages(cells, clients),
+    [cells, clients]
+  );
 
   useEffect(() => {
     const onKey = (e) => {
@@ -1024,6 +1034,21 @@ export default function Schedule() {
               </div>
             )}
             <button onClick={() => window.print()} className="btn btn-ghost p-1.5 min-h-0 shrink-0" title="Print"><Printer size={14} /></button>
+            {canNotifySchedule && (
+              <button
+                type="button"
+                data-testid="parent-whatsapp-messages-btn"
+                onClick={() => {
+                  setParentMessagesNote("");
+                  setParentMessagesOpen(true);
+                }}
+                className="btn btn-outline text-[11px] flex items-center gap-1 px-2 py-1 min-h-0 shrink-0"
+                title="Generate parent WhatsApp messages for this week"
+              >
+                <WhatsappLogo size={14} weight="fill" />
+                Parent Messages
+              </button>
+            )}
             {isAdmin && (
               <div className="relative ml-auto shrink-0" ref={adminEditsRef}>
                 <button
@@ -1042,6 +1067,13 @@ export default function Schedule() {
                     <button type="button" onClick={() => { setShowHolidays(true); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start">Official holidays</button>
                     <button type="button" onClick={() => { setDraft(); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start">Save as Draft</button>
                     <button type="button" onClick={() => { publishWeek(); setAdminEditsOpen(false); }} className="btn btn-primary text-xs w-full justify-start">Publish Week</button>
+                    <button
+                      type="button"
+                      onClick={() => { setParentMessagesNote(""); setParentMessagesOpen(true); setAdminEditsOpen(false); }}
+                      className="btn btn-outline text-xs w-full justify-start"
+                    >
+                      <WhatsappLogo size={14} weight="fill" /> Parent WhatsApp Messages
+                    </button>
                     <button
                       type="button"
                       data-testid="duplicate-week-btn"
@@ -1371,6 +1403,14 @@ export default function Schedule() {
           onSaved={() => { setQuickLog(null); }}
         />
       )}
+
+      <ParentWhatsAppModal
+        open={parentMessagesOpen}
+        onClose={() => setParentMessagesOpen(false)}
+        messages={parentMessages}
+        weekLabel={formatDateRange(weekStart)}
+        publishedNote={parentMessagesNote}
+      />
     </div>
     </div>
   );

@@ -1,9 +1,9 @@
 {
   "files": {
-    "main.css": "./static/css/main.40e84535.css",
-    "main.js": "./static/js/main.d40bc27a.js",
+    "main.css": "./static/css/main.32b389b8.css",
+    "main.js": "./static/js/main.77919502.js",
     "static/js/294.69caf15b.chunk.js": "./static/js/294.69caf15b.chunk.js",
-    "static/js/112.5cb2c667.chunk.js": "./static/js/112.5cb2c667.chunk.js",
+    "static/js/419.ba8092c6.chunk.js": "./static/js/419.ba8092c6.chunk.js",
     "static/css/15.850a2427.chunk.css": "./static/css/15.850a2427.chunk.css",
     "static/css/421.1b23938a.chunk.css": "./static/css/421.1b23938a.chunk.css",
     "static/js/421.d75c0405.chunk.js": "./static/js/421.d75c0405.chunk.js",
@@ -27,16 +27,16 @@
     "static/js/322.390e9034.chunk.js": "./static/js/322.390e9034.chunk.js",
     "static/css/123.3dada3d8.chunk.css": "./static/css/123.3dada3d8.chunk.css",
     "static/js/123.709b7445.chunk.js": "./static/js/123.709b7445.chunk.js",
-    "static/js/139.6b6315c4.chunk.js": "./static/js/139.6b6315c4.chunk.js",
+    "static/js/761.fa58e414.chunk.js": "./static/js/761.fa58e414.chunk.js",
     "static/js/250.10b2226b.chunk.js": "./static/js/250.10b2226b.chunk.js",
-    "static/js/765.6faa6305.chunk.js": "./static/js/765.6faa6305.chunk.js",
     "static/js/472.76053c22.chunk.js": "./static/js/472.76053c22.chunk.js",
+    "static/js/116.6252d4d3.chunk.js": "./static/js/116.6252d4d3.chunk.js",
     "static/js/632.44eee8b0.chunk.js": "./static/js/632.44eee8b0.chunk.js",
+    "static/js/501.4e102704.chunk.js": "./static/js/501.4e102704.chunk.js",
     "static/js/559.a68da4fa.chunk.js": "./static/js/559.a68da4fa.chunk.js",
-    "static/js/106.b1cba9c4.chunk.js": "./static/js/106.b1cba9c4.chunk.js",
     "static/js/471.9b9e97f7.chunk.js": "./static/js/471.9b9e97f7.chunk.js",
     "static/css/254.da596972.chunk.css": "./static/css/254.da596972.chunk.css",
-    "static/js/989.2ddeca9d.chunk.js": "./static/js/989.2ddeca9d.chunk.js",
+    "static/js/989.be485fb5.chunk.js": "./static/js/989.be485fb5.chunk.js",
     "static/media/thmanyahsans-Bold.woff2": "./static/media/thmanyahsans-Bold.8c8bf277ccdc5dc06407.woff2",
     "static/media/thmanyahsans-Medium.woff2": "./static/media/thmanyahsans-Medium.a85bf71a0082eec59ed7.woff2",
     "static/media/thmanyahsans-Regular.woff2": "./static/media/thmanyahsans-Regular.cf09715d7345290df114.woff2",
@@ -44,7 +44,7 @@
     "index.html": "./index.html"
   },
   "entrypoints": [
-    "static/css/main.40e84535.css",
-    "static/js/main.d40bc27a.js"
+    "static/css/main.32b389b8.css",
+    "static/js/main.77919502.js"
   ]
 }
