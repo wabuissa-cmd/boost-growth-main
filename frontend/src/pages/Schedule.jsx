@@ -139,6 +139,7 @@ export default function Schedule() {
   const [notify, setNotify] = useState(null);
   const [notifyReceipts, setNotifyReceipts] = useState([]);
   const [showDup, setShowDup] = useState(false);
+  const [dupSource, setDupSource] = useState(null);
   const [dupTarget, setDupTarget] = useState(null);
   const [dupClear, setDupClear] = useState(false);
   const [clipboard, setClipboard] = useState(null);  // copied cell content
@@ -225,11 +226,18 @@ export default function Schedule() {
     return () => document.removeEventListener("mousedown", close);
   }, [ctxMenu]);
 
+  const openDupModal = (sourceISO, targetISO) => {
+    setDupSource(sourceISO);
+    setDupTarget(targetISO);
+    setShowDup(true);
+  };
+
   const dupWeekToTarget = async () => {
-    if (!dupTarget) return;
-    await api.post("/schedule/duplicate-week", { source_week: weekStartISO, target_week: dupTarget, clear_target: dupClear });
+    if (!dupTarget || !dupSource) return;
+    await api.post("/schedule/duplicate-week", { source_week: dupSource, target_week: dupTarget, clear_target: dupClear });
     setShowDup(false);
-    alert(`Week duplicated to ${dupTarget}. Navigate to that week to view.`);
+    setDupSource(null);
+    alert(`Week duplicated: ${dupSource} → ${dupTarget}. Navigate to that week to view.`);
   };
 
   const load = useCallback(async (force = false) => {
@@ -1037,7 +1045,7 @@ export default function Schedule() {
                     <button
                       type="button"
                       data-testid="duplicate-week-btn"
-                      onClick={() => { setDupTarget(toISODate(addDays(weekStart, 7))); setShowDup(true); setAdminEditsOpen(false); }}
+                      onClick={() => { openDupModal(weekStartISO, toISODate(addDays(weekStart, 7))); setAdminEditsOpen(false); }}
                       className="btn btn-gold text-xs w-full justify-start"
                     >
                       <CopySimple size={14} /> Duplicate Week →
@@ -1071,7 +1079,7 @@ export default function Schedule() {
             <div className="flex gap-2 justify-center flex-wrap">
               <button onClick={() => setWeekStart(addDays(weekStart, -7))} className="btn btn-outline text-sm">← Go to previous week</button>
               {isAdmin && (
-                <button onClick={() => { setDupTarget(toISODate(weekStart)); setShowDup(true); setWeekStart(addDays(weekStart, -7)); }} className="btn btn-gold text-sm">
+                <button onClick={() => openDupModal(toISODate(addDays(weekStart, -7)), weekStartISO)} className="btn btn-gold text-sm">
                   <CopySimple size={14} /> Duplicate previous week here
                 </button>
               )}
@@ -1296,19 +1304,24 @@ export default function Schedule() {
       {showDup && (
         <ModalBase
           title="Duplicate Week"
-          subtitle={`Copy ${formatDateRange(weekStart)} to a target week`}
-          onClose={() => setShowDup(false)}
+          subtitle={`Copy ${dupSource ? formatDateRange(new Date(`${dupSource}T12:00:00`)) : "…"} → target week below`}
+          onClose={() => { setShowDup(false); setDupSource(null); }}
           size="sm"
           footer={
             <>
-              <ModalBtnSecondary onClick={() => setShowDup(false)}>Cancel</ModalBtnSecondary>
-              <ModalBtnPrimary data-testid="dup-confirm-btn" onClick={dupWeekToTarget} disabled={!dupTarget}>
+              <ModalBtnSecondary onClick={() => { setShowDup(false); setDupSource(null); }}>Cancel</ModalBtnSecondary>
+              <ModalBtnPrimary data-testid="dup-confirm-btn" onClick={dupWeekToTarget} disabled={!dupTarget || !dupSource}>
                 <CopySimple size={16} className="inline mr-1" /> Duplicate
               </ModalBtnPrimary>
             </>
           }
         >
           <FormSection title="Target Week">
+            {dupSource && (
+              <p className="text-xs mb-3" style={{ color: "#5C6853" }}>
+                Source week: <strong>{dupSource}</strong> ({formatDateRange(new Date(`${dupSource}T12:00:00`))})
+              </p>
+            )}
             <FormField label="Target week start (Sunday)">
               <input
                 type="date"
@@ -1317,17 +1330,19 @@ export default function Schedule() {
                 onChange={e => setDupTarget(e.target.value)}
               />
             </FormField>
-            <div className="flex gap-2 flex-wrap">
-              <ModalBtnSecondary type="button" className="!px-3 !py-1.5 !text-xs" onClick={() => setDupTarget(toISODate(addDays(weekStart, 7)))}>
-                Next week
-              </ModalBtnSecondary>
-              <ModalBtnSecondary type="button" className="!px-3 !py-1.5 !text-xs" onClick={() => setDupTarget(toISODate(addDays(weekStart, 14)))}>
-                +2 weeks
-              </ModalBtnSecondary>
-              <ModalBtnSecondary type="button" className="!px-3 !py-1.5 !text-xs" onClick={() => setDupTarget(toISODate(addDays(weekStart, 28)))}>
-                +4 weeks
-              </ModalBtnSecondary>
-            </div>
+            {dupSource && (
+              <div className="flex gap-2 flex-wrap">
+                <ModalBtnSecondary type="button" className="!px-3 !py-1.5 !text-xs" onClick={() => setDupTarget(toISODate(addDays(new Date(`${dupSource}T12:00:00`), 7)))}>
+                  Next week
+                </ModalBtnSecondary>
+                <ModalBtnSecondary type="button" className="!px-3 !py-1.5 !text-xs" onClick={() => setDupTarget(toISODate(addDays(new Date(`${dupSource}T12:00:00`), 14)))}>
+                  +2 weeks
+                </ModalBtnSecondary>
+                <ModalBtnSecondary type="button" className="!px-3 !py-1.5 !text-xs" onClick={() => setDupTarget(toISODate(addDays(new Date(`${dupSource}T12:00:00`), 28)))}>
+                  +4 weeks
+                </ModalBtnSecondary>
+              </div>
+            )}
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input type="checkbox" checked={dupClear} onChange={e => setDupClear(e.target.checked)} />
               <span style={{ color: "#5C6853" }}>Clear target week first (replace existing cells)</span>

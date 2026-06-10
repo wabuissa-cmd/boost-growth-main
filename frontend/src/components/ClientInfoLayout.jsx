@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 import {
   MapPin, Paperclip, ClipboardText, ChartLineUp,
-  Leaf, PencilSimple, CaretRight,
+  Leaf, PencilSimple, CaretRight, Trash,
 } from "@phosphor-icons/react";
 import { getChildColor, readable } from "../childColors";
 import { prepTrackMeta, cardStatusMeta } from "../attendanceUtils";
@@ -46,7 +46,7 @@ const SECTIONS = [
 
 export default function ClientInfoLayout({
   clients, selectedId, onSelect, pkgByClient, findTherapist, prSummaries, counts,
-  isAdmin, hasOps, onOpenSection, onEdit, onBilling,
+  isAdmin, hasOps, canDeleteClient, onOpenSection, onEdit, onRemove, onBilling,
 }) {
   const selected = useMemo(
     () => clients.find(c => c.id === selectedId) || clients[0] || null,
@@ -133,6 +133,18 @@ export default function ClientInfoLayout({
                 <div className="ci-profile-actions">
                   {hasOps && <button type="button" className="ci-btn-purple" onClick={onBilling}>Billing</button>}
                   {isAdmin && <button type="button" className="ci-btn-outline-p" onClick={() => onEdit(selected)}>Edit</button>}
+                  {canDeleteClient && (
+                    <button
+                      type="button"
+                      data-testid="delete-client-btn"
+                      className="ci-btn-outline-p"
+                      style={{ color: "#B91C1C", borderColor: "#FECACA" }}
+                      onClick={() => onRemove(selected)}
+                    >
+                      <Trash size={14} className="inline mr-1" style={{ verticalAlign: -2 }} />
+                      Remove
+                    </button>
+                  )}
                 </div>
               </div>
 

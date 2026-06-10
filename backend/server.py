@@ -1260,7 +1260,7 @@ async def update_client_schedule_color(cid: str, body: ClientScheduleColorIn, _=
     return {"ok": True, "schedule_color": color, "client_id": cid}
 
 @api.delete("/clients/{cid}")
-async def delete_client(cid: str, _=Depends(ops_or_admin)):
+async def delete_client(cid: str, _=Depends(client_lead_or_admin)):
     """Soft-delete: mark deleted=true; sessions/invoices are preserved."""
     client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0, "id": 1})
     if not client:
@@ -6474,6 +6474,36 @@ def _google_sheet_export_url(sheet_url: str) -> str:
     return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=xlsx"
 
 
+def _parse_week_start_from_sheet_name(name: str, ref_year: Optional[int] = None) -> Optional[str]:
+    """Parse week Sunday from tab names like '7 Jun - 11 Jun' or '14 Jun - 18 Jun'."""
+    from datetime import date, timedelta
+    if not name:
+        return None
+    m = re.search(
+        r"\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b",
+        name,
+        re.I,
+    )
+    if not m:
+        return None
+    day = int(m.group(1))
+    month_map = {
+        "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+        "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+    }
+    month = month_map.get(m.group(2).lower())
+    if not month:
+        return None
+    year = ref_year or date.today().year
+    try:
+        d = date(year, month, day)
+    except ValueError:
+        return None
+    days_since_sunday = (d.weekday() + 1) % 7
+    sunday = d - timedelta(days=days_since_sunday)
+    return sunday.isoformat()
+
+
 def _pick_sheet_for_week(sheet_names: List[str], week_start: str) -> Optional[str]:
     """Pick the tab whose name best matches week_start (e.g. 2026-06-07 → '7 Jun - 11 Jun')."""
     from datetime import date
@@ -6484,11 +6514,33 @@ def _pick_sheet_for_week(sheet_names: List[str], week_start: str) -> Optional[st
     month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     mon = month_names[d.month - 1]
     day = d.day
+    pattern = re.compile(rf"\b{day}\s+{mon}\b", re.I)
     for name in sheet_names:
-        low = name.lower()
-        if mon.lower() in low and str(day) in low:
+        if pattern.search(name):
             return name
     return sheet_names[0] if sheet_names else None
+
+
+def _resolve_import_week_start(requested: str, sheet_name: Optional[str]) -> tuple:
+    """Return (week_start, warning). Prefer dates parsed from the sheet tab name."""
+    from datetime import date
+    requested = _normalize_week_start(requested)
+    ref_year = None
+    try:
+        ref_year = date.fromisoformat(requested[:10]).year
+    except ValueError:
+        pass
+    parsed = _parse_week_start_from_sheet_name(sheet_name or "", ref_year)
+    if parsed and parsed != requested:
+        logger.info(
+            f"Schedule import: sheet {sheet_name!r} implies week {parsed}, "
+            f"overriding requested {requested}"
+        )
+        return parsed, (
+            f"Sheet tab '{sheet_name}' is for week starting {parsed}; "
+            f"used that instead of requested {requested}."
+        )
+    return requested, None
 
 
 def _load_schedule_xlsx_bytes(content: bytes, sheet_name: Optional[str] = None):
@@ -6601,11 +6653,16 @@ async def import_schedule_excel(file: UploadFile = File(...),
         merge_anchors, merge_skip = {}, set()
         used_sheet = None
     else:
-        grid, merge_anchors, merge_skip, used_sheet, _ = _load_schedule_xlsx_bytes(content, sheet_name)
+        grid, merge_anchors, merge_skip, used_sheet, sheet_names = _load_schedule_xlsx_bytes(content, sheet_name)
+        if not sheet_name:
+            picked = _pick_sheet_for_week(sheet_names, week_start)
+            if picked and picked != used_sheet:
+                grid, merge_anchors, merge_skip, used_sheet, _ = _load_schedule_xlsx_bytes(content, picked)
         logger.info(
             f"Schedule Excel sheet={used_sheet!r} merges: {len(merge_anchors)} anchors, {len(merge_skip)} covered"
         )
 
+    week_start, week_warning = _resolve_import_week_start(week_start, used_sheet)
     inserted, skipped = await _import_schedule_grid(
         grid, week_start, t_by_name, clear_existing == "true",
         merge_anchors=merge_anchors, merge_skip=merge_skip,
@@ -6616,6 +6673,7 @@ async def import_schedule_excel(file: UploadFile = File(...),
         "skipped_therapists": skipped[:20],
         "sheet_used": used_sheet,
         "merge_spans_detected": len(merge_anchors),
+        "week_start_warning": week_warning,
     }
 
 
@@ -6647,6 +6705,7 @@ async def import_schedule_google(body: dict, _=Depends(admin_only)):
         f"Google schedule import week={week_start} sheet={used_sheet!r} "
         f"merges={len(merge_anchors)} bytes={len(content)}"
     )
+    week_start, week_warning = _resolve_import_week_start(week_start, used_sheet)
     therapists = await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).to_list(100)
     t_by_name = {t["name"]: t["id"] for t in therapists}
     for t in therapists:
@@ -6664,6 +6723,7 @@ async def import_schedule_google(body: dict, _=Depends(admin_only)):
         "sheet_used": used_sheet,
         "merge_spans_detected": len(merge_anchors),
         "available_sheets": sheet_names[:30],
+        "week_start_warning": week_warning,
     }
 
 @api.get("/")

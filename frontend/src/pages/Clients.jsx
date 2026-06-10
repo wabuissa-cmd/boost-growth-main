@@ -17,6 +17,7 @@ export default function Clients() {
   const { user } = useAuth();
   const isAdmin = showAdminNav(user);
   const hasOps = hasOpsAccess(user);
+  const canDeleteClient = hasFullClientAccess(user);
   const [items, setItems] = useState([]);
   const [therapists, setTherapists] = useState([]);
   const [edit, setEdit] = useState(null);
@@ -66,7 +67,12 @@ export default function Clients() {
     else await api.post("/clients", edit);
     setEdit(null); load();
   };
-  const remove = async (id) => { if (!window.confirm("Remove this client from the active list? (Can be restored from Admin)")) return; await api.delete(`/clients/${id}`); load(); };
+  const remove = async (client) => {
+    if (!window.confirm(`Remove ${client.name} from the active list?\n\nThis is a soft delete — restore from Admin → Deleted Clients if needed.`)) return;
+    await api.delete(`/clients/${client.id}`);
+    if (selectedClientId === client.id) setSelectedClientId(null);
+    load();
+  };
   const findT = id => therapists.find(t => t.id === id);
 
   const activeCount = items.filter(c => (c.status || "Active") !== "Inactive").length;
@@ -155,8 +161,10 @@ export default function Clients() {
         counts={layoutCounts}
         isAdmin={isAdmin}
         hasOps={hasOps}
+        canDeleteClient={canDeleteClient}
         onOpenSection={openSection}
         onEdit={(c) => setEdit({ ...c, co_therapist_ids: c.co_therapist_ids || [], locations: c.locations || [] })}
+        onRemove={remove}
         onBilling={() => selectedClient && navigate(`/billing?client=${selectedClient.id}`)}
       />
 

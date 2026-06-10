@@ -38,7 +38,8 @@ export default function ImportPage() {
     const day = d.getDate();
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const mon = months[d.getMonth()];
-    return sheets.find(s => s.includes(String(day)) && s.includes(mon)) || sheets[0];
+    const pattern = new RegExp(`\\b${day}\\s+${mon}\\b`, "i");
+    return sheets.find(s => pattern.test(s)) || sheets[0];
   };
 
   // When schedule file is picked, list its sheet names so user can choose
@@ -72,7 +73,7 @@ export default function ImportPage() {
       }
       const { data } = await api.post(endpoint, fd, { headers: {"Content-Type": "multipart/form-data"}});
       const msg = type === "schedule"
-        ? `${data.cells_inserted} cells for week ${data.week_start}${data.sheet_used ? ` · sheet "${data.sheet_used}"` : ""}${data.merge_spans_detected != null ? ` · ${data.merge_spans_detected} merged spans detected` : ""}`
+        ? `${data.cells_inserted} cells for week ${data.week_start}${data.sheet_used ? ` · sheet "${data.sheet_used}"` : ""}${data.merge_spans_detected != null ? ` · ${data.merge_spans_detected} merged spans detected` : ""}${data.week_start_warning ? ` · ${data.week_start_warning}` : ""}`
         : type === "intake"
         ? [data.message, data.hint].filter(Boolean).join(' — ')
         : `${data.created} created, ${data.skipped} skipped`;
@@ -94,7 +95,7 @@ export default function ImportPage() {
       });
       setResult({
         ok: true,
-        msg: `${data.cells_inserted} cells for week ${data.week_start} · sheet "${data.sheet_used}" · ${data.merge_spans_detected} merged spans`,
+        msg: `${data.cells_inserted} cells for week ${data.week_start} · sheet "${data.sheet_used}" · ${data.merge_spans_detected} merged spans${data.week_start_warning ? ` · ${data.week_start_warning}` : ""}`,
       });
     } catch (e) {
       setResult({ ok: false, msg: e.response?.data?.detail || e.message });
