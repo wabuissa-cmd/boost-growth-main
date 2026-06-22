@@ -583,21 +583,6 @@ function CaseDetailsPanelModal({ client, therapists, isAdmin, onClose, onSaved }
           </dl>
 
           <div>
-            {(client.drive_links?.filter(l => l.url && !/attendance/i.test(l.title || "")).length > 0) && (
-              <div className="mb-6">
-                <div className="text-xs font-bold mb-2 tracking-wide" style={{ color: "#8B9E7A" }}>DRIVE LINKS</div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {client.drive_links.filter(l => l.url && !/attendance/i.test(l.title || "")).map((link, i) => (
-                    <a key={i} href={link.url} target="_blank" rel="noreferrer"
-                      className="p-3 rounded-xl border flex items-center justify-between gap-2 hover:bg-[#F5FAF3] transition"
-                      style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
-                      <span className="text-sm font-medium truncate" style={{ color: "#2C3625" }}>{link.title}</span>
-                      <ArrowSquareOut size={14} style={{ color: "#5C8A47", flexShrink: 0 }} />
-                    </a>
-                  ))}
-                </div>
-              </div>
-            )}
             <div className="text-xs font-bold mb-3 tracking-wide" style={{ color: "#8B9E7A" }}>CASE SUMMARY</div>
             {summaryLoading ? (
               <div className="text-sm italic py-4 text-center" style={{ color: "#8B9E7A" }}>Loading case summary…</div>

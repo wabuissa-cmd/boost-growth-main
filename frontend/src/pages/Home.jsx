@@ -18,11 +18,17 @@ import { saudiGreetingParts, saudiDateString } from "../saudiGreeting";
 import "../dashboardLayout.css";
 
 const HERO_OPTIONS = [
-  { id: "default", src: "/hero-boost-growth.jpg", label: "Boost Growth" },
-  { id: "home", src: "/service-home.jpg", label: "Home Therapy" },
-  { id: "school", src: "/service-school.jpg", label: "School Support" },
-  { id: "outdoor", src: "/service-outdoor.jpg", label: "Outdoor Training" },
+  { id: "none", src: null, label: "Plain" },
+  { id: "blocks", src: "/service-outdoor.jpg", label: "Building blocks" },
+  { id: "reading", src: "/service-home.jpg", label: "Reading story" },
 ];
+
+const LEGACY_HERO_MAP = {
+  default: "none",
+  home: "reading",
+  school: "none",
+  outdoor: "blocks",
+};
 
 function heroStorageKey(user) {
   const uid = user?.id || user?.email;
@@ -31,12 +37,13 @@ function heroStorageKey(user) {
 
 function loadHeroPreference(user) {
   const key = heroStorageKey(user);
-  if (!key) return "default";
+  if (!key) return "none";
   try {
     const saved = localStorage.getItem(key);
-    return HERO_OPTIONS.some(o => o.id === saved) ? saved : "default";
+    const mapped = LEGACY_HERO_MAP[saved] || saved;
+    return HERO_OPTIONS.some(o => o.id === mapped) ? mapped : "none";
   } catch {
-    return "default";
+    return "none";
   }
 }
 
@@ -73,7 +80,8 @@ export default function Home() {
     try { localStorage.setItem(key, id); } catch { /* ignore */ }
   };
 
-  const heroImage = HERO_OPTIONS.find(o => o.id === heroImageId)?.src || HERO_OPTIONS[0].src;
+  const heroOption = HERO_OPTIONS.find(o => o.id === heroImageId) || HERO_OPTIONS[0];
+  const heroImage = heroOption.src;
   const loadUpdates = () => api.get("/center-updates").then(r => setUpdates(Array.isArray(r.data) ? r.data : [])).catch(() => {});
   const loadPersonal = () => api.get("/calendar/personal", { params: { from_date: weekISO, to_date: weekEndISO } })
     .then(r => setPersonalEvents(Array.isArray(r.data) ? r.data : [])).catch(() => {});
@@ -182,58 +190,72 @@ export default function Home() {
   ];
 
   const HeroBanner = ({ compact, greetingParts }) => (
-    <header className="portal-hero">
-      <div className="portal-hero-bg" style={{ backgroundImage: `url(${heroImage})` }} aria-hidden />
-      <div className="portal-hero-overlay" aria-hidden />
+    <header className={`portal-hero${heroImage ? "" : " portal-hero-plain"}`}>
+      {heroImage && (
+        <div className="portal-hero-bg" style={{ backgroundImage: `url(${heroImage})` }} aria-hidden />
+      )}
       <div className="portal-hero-picker" role="group" aria-label="Choose hero background">
         {HERO_OPTIONS.map(o => (
           <button
             key={o.id}
             type="button"
-            className={`portal-hero-picker-btn${heroImageId === o.id ? " active" : ""}`}
+            className={`portal-hero-picker-btn${heroImageId === o.id ? " active" : ""}${o.src ? "" : " plain"}`}
             onClick={() => selectHeroImage(o.id)}
             aria-label={o.label}
             aria-pressed={heroImageId === o.id}
             title={o.label}
           >
-            <img src={o.src} alt="" />
+            {o.src ? <img src={o.src} alt="" /> : <span className="portal-hero-picker-plain" aria-hidden />}
           </button>
         ))}
       </div>
-      <div className="portal-hero-content">
-        <div className="portal-hero-eyebrow">
-          <Leaf size={14} weight="fill" /> Boost Growth · Staff Portal
+      <div className="portal-hero-inner">
+        <div className="portal-hero-content">
+          <div className="portal-hero-eyebrow">
+            <Leaf size={14} weight="fill" /> Boost Growth · Staff Portal
+          </div>
+          <h1 className="portal-hero-title">
+            {greetingParts ? (
+              <>
+                <span className="portal-hero-greeting">{greetingParts.prefix}</span>
+                {greetingParts.name && (
+                  <>
+                    {", "}
+                    <span className="portal-hero-name">{greetingParts.name}</span>
+                  </>
+                )}
+              </>
+            ) : compact ? (
+              <>
+                <span className="portal-hero-greeting">Hello</span>
+                {", "}
+                <span className="portal-hero-name">{displayName}</span>
+              </>
+            ) : (
+              <>
+                <span className="portal-hero-greeting">Welcome back</span>
+                {", "}
+                <span className="portal-hero-name">{displayName}</span>
+              </>
+            )}
+          </h1>
+          <p className="portal-hero-lead">
+            {compact
+              ? "Your week at a glance — sessions, locations, and center updates in one calm place."
+              : "Each growth begins with seeds — nurture every child's journey with care, preparation, and intention."}
+          </p>
+          <p className="portal-hero-date">{dateStr}</p>
+          <div className="portal-hero-actions">
+            <Link to="/attendance" className="portal-hero-btn primary">
+              <ClipboardText size={18} weight="duotone" /> {compact ? "Log a session" : "Open Preparation"}
+            </Link>
+            <Link to="/schedule" className="portal-hero-btn outline">
+              <CalendarBlank size={18} weight="duotone" /> View Schedule
+            </Link>
+          </div>
         </div>
-        <h1 className="portal-hero-title">
-          {greetingParts ? (
-            <>
-              <span className="portal-hero-greeting">{greetingParts.prefix}</span>
-              {greetingParts.name && (
-                <>
-                  {", "}
-                  <span className="portal-hero-name">{greetingParts.name}</span>
-                </>
-              )}
-            </>
-          ) : compact ? (
-            <>Hello, <span className="portal-hero-name">{displayName}</span></>
-          ) : (
-            <>Welcome back, <span className="portal-hero-name">{displayName}</span></>
-          )}
-        </h1>
-        <p className="portal-hero-lead">
-          {compact
-            ? "Your week at a glance — sessions, locations, and center updates in one calm place."
-            : "Each growth begins with seeds — nurture every child's journey with care, preparation, and intention."}
-        </p>
-        <p className="portal-hero-date">{dateStr}</p>
-        <div className="portal-hero-actions">
-          <Link to="/attendance" className="portal-hero-btn primary">
-            <ClipboardText size={18} weight="duotone" /> {compact ? "Log a session" : "Open Preparation"}
-          </Link>
-          <Link to="/schedule" className="portal-hero-btn outline">
-            <CalendarBlank size={18} weight="duotone" /> View Schedule
-          </Link>
+        <div className="portal-hero-logo" aria-hidden>
+          <img src="/bg-logo.png" alt="" />
         </div>
       </div>
     </header>

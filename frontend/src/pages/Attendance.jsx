@@ -185,7 +185,9 @@ export default function Attendance() {
   useEffect(() => { load(); }, [load]);
 
   const enriched = useMemo(
-    () => clients.map(c => enrichClientForCardView(c, packageRows)),
+    () => clients
+      .filter(c => (c.status || "Active") !== "Inactive")
+      .map(c => enrichClientForCardView(c, packageRows)),
     [clients, packageRows]
   );
 
@@ -737,6 +739,8 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   const [showInvoiceDetails, setShowInvoiceDetails] = useState(false);
   const [savingClient, setSavingClient] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [syncMenuOpen, setSyncMenuOpen] = useState(false);
+  const [localSessions, setLocalSessions] = useState(sessions);
   const [showExportColumns, setShowExportColumns] = useState(false);
   const [exportPendingMode, setExportPendingMode] = useState(null);
   const [sheetColIds, setSheetColIds] = useState(() => {
@@ -748,7 +752,6 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
     }
   });
   const [newInvMenuOpen, setNewInvMenuOpen] = useState(false);
-  const [localSessions, setLocalSessions] = useState(sessions);
   const invoicesInitialized = useRef(false);
   const prevServiceFilter = useRef(serviceTypeFilter);
   const autoNewInvDone = useRef(false);
@@ -1165,19 +1168,19 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
 
   return (
     <div className="fixed inset-0 bg-black/40 modal-backdrop invoice-print-shell flex items-center justify-center p-2 z-50" onClick={onClose}>
-      <div className="card p-0 relative w-full max-w-4xl modal-card max-h-[80vh] flex flex-col invoice-print-root printable" onClick={e=>e.stopPropagation()}>
+      <div className="card p-0 relative w-full max-w-4xl modal-card max-h-[82vh] flex flex-col invoice-print-root printable" onClick={e=>e.stopPropagation()}>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="absolute top-1.5 right-1.5 z-20 btn btn-ghost p-1.5 min-h-[32px] min-w-[32px] rounded-lg no-print"
+          className="absolute top-1 right-1 z-20 btn btn-ghost p-1 min-h-[28px] min-w-[28px] rounded-lg no-print"
         >
-          <X size={20}/>
+          <X size={18}/>
         </button>
         {/* Action bar */}
-        <div className="flex items-center gap-2 px-3 py-1.5 pr-10 border-b border-[#E2DDD4] no-print shrink-0">
-          <div className="font-bold text-sm truncate min-w-0 flex-1" style={{color: "#2C3625"}}>Invoice Sheet · {client.name}</div>
-          <div className="flex gap-1.5 flex-wrap items-center shrink-0">
+        <div className="flex items-center gap-1.5 px-2.5 py-1 pr-9 border-b border-[#E2DDD4] no-print shrink-0">
+          <div className="font-bold text-xs truncate min-w-0 flex-1" style={{color: "#2C3625"}}>Invoice Sheet · {client.name}</div>
+          <div className="flex gap-1 flex-wrap items-center justify-end shrink-0">
             {tabState.showToggle && (
               <ServiceTypeToggle
                 value={serviceTypeFilter}
@@ -1186,9 +1189,9 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               />
             )}
             {sortedInvoices.length > 0 ? (
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1 flex-wrap">
               <select data-testid="invoice-dropdown" value={selectedInvoiceId} onChange={e => setSelectedInvoiceId(e.target.value)}
-                      className="select text-xs min-h-[44px]" style={{maxWidth: 260}}>
+                      className="select text-xs min-h-[30px] py-1 px-2" style={{maxWidth: 220}}>
                 {sortedInvoices.map(inv => (
                   <option key={inv.id} value={inv.id}>
                     {inv.invoice_number} · {inv.is_closed ? "Closed" : "Open"}
@@ -1196,7 +1199,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                 ))}
               </select>
               {selectedInvoice && (
-                <span className="pill text-[10px] font-bold px-2 py-1 min-h-[28px] flex items-center"
+                <span className="pill text-[10px] font-bold px-1.5 py-0.5"
                   style={{
                     background: selectedInvoice.is_closed ? "#F0EDE9" : "#E5EBE1",
                     color: selectedInvoice.is_closed ? "#5C6853" : "#3D4F35",
@@ -1207,63 +1210,72 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               )}
               </div>
             ) : tabState.showToggle ? (
-              <span className="text-[11px] italic px-2 py-1.5" style={{color: "#8B6918", background: "#FAE8C8", borderRadius: 8}}>
+              <span className="text-[10px] italic px-1.5 py-1" style={{color: "#8B6918", background: "#FAE8C8", borderRadius: 6}}>
                 No {serviceTypeFilter} invoices
               </span>
             ) : (
-              <span className="text-[11px] italic px-2 py-1.5" style={{color: "#8B6918", background: "#FAE8C8", borderRadius: 8}}>
+              <span className="text-[10px] italic px-1.5 py-1" style={{color: "#8B6918", background: "#FAE8C8", borderRadius: 6}}>
                 No invoices
               </span>
             )}
             {isAdmin && (
-              <>
+              <div className="relative">
                 <input id={`sync-xlsx-${client.id}`} type="file" accept=".xlsx" className="hidden"
                        data-testid="sync-xlsx-input"
                        onChange={e => { const f = e.target.files?.[0]; if (f) { syncFromExcel(f); } e.target.value = ""; }}/>
-                <button data-testid="sync-xlsx-btn" onClick={() => document.getElementById(`sync-xlsx-${client.id}`).click()}
-                        className="btn btn-secondary text-xs min-h-[44px] min-w-[44px]"><FileXls size={14}/> Sync from Excel</button>
-                <button data-testid="sync-drive-btn" type="button" onClick={syncFromDrive}
-                        className="btn btn-outline text-xs min-h-[44px]"><Download size={14}/> Sync from Drive</button>
-              </>
-            )}
-            {isAdmin && (
-              <div className="relative">
-                <button data-testid="new-invoice-btn" onClick={() => setNewInvMenuOpen(o => !o)} className="btn btn-primary text-xs min-h-[44px] min-w-[44px]">
-                  <Plus size={14}/> New Invoice <CaretDown size={12}/>
+                <button
+                  data-testid="sync-menu-btn"
+                  type="button"
+                  onClick={() => setSyncMenuOpen(o => !o)}
+                  className="btn btn-secondary text-xs min-h-[30px] px-2 py-1"
+                >
+                  Sync <CaretDown size={11}/>
                 </button>
-                {newInvMenuOpen && (
+                {syncMenuOpen && (
                   <div
-                    className="absolute right-0 mt-1 z-50 min-w-[200px] shadow-lg rounded-xl border overflow-hidden mobile-action-menu"
+                    className="absolute right-0 mt-1 z-50 min-w-[168px] shadow-lg rounded-lg border overflow-hidden mobile-action-menu"
                     style={{ background: "#FFFFFF", borderColor: "#EDE9E3" }}
                   >
                     <button
                       type="button"
-                      onClick={() => { setShowNewInvModal(true); setNewInvMenuOpen(false); }}
-                      className="w-full text-left px-4 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] transition min-h-[44px]"
+                      data-testid="sync-xlsx-btn"
+                      onClick={() => { document.getElementById(`sync-xlsx-${client.id}`).click(); setSyncMenuOpen(false); }}
+                      className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-[#FAFAF7] transition"
                       style={{ color: "#374151" }}
                     >
-                      New Invoice
+                      <FileXls size={13} className="inline mr-1.5" /> From Excel
                     </button>
                     <button
                       type="button"
-                      onClick={() => { setShowResetConfirm(true); setNewInvMenuOpen(false); }}
-                      className="w-full text-left px-4 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] transition border-t min-h-[44px]"
+                      data-testid="sync-drive-btn"
+                      onClick={() => { syncFromDrive(); setSyncMenuOpen(false); }}
+                      className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-[#FAFAF7] transition border-t"
                       style={{ color: "#374151", borderColor: "#EDE9E3" }}
                     >
-                      Start New Package
+                      <Download size={13} className="inline mr-1.5" /> From Drive
                     </button>
                   </div>
                 )}
               </div>
             )}
+            {isAdmin && (
+              <button
+                data-testid="new-invoice-btn"
+                type="button"
+                onClick={() => setShowNewInvModal(true)}
+                className="btn btn-primary text-xs min-h-[30px] px-2 py-1"
+              >
+                <Plus size={13}/> New Invoice
+              </button>
+            )}
             <div className="relative">
-              <button onClick={() => setExportOpen(o => !o)} className="btn btn-gold text-xs min-h-[44px] min-w-[44px]">Export <CaretDown size={12}/></button>
+              <button onClick={() => setExportOpen(o => !o)} className="btn btn-gold text-xs min-h-[30px] px-2 py-1">Export <CaretDown size={11}/></button>
               {exportOpen && (
-                <div className="absolute right-0 mt-1 card p-1 z-50 min-w-[180px] shadow-lg mobile-action-menu">
-                  <button data-testid="export-excel-btn" onClick={() => { setExportOpen(false); setExportPendingMode("excel"); setShowExportColumns(true); }} className="btn btn-ghost w-full justify-start text-xs min-h-[44px]"><FileXls size={14}/> Export as Excel</button>
-                  <button onClick={() => { setExportOpen(false); setExportPendingMode("pdf"); setShowExportColumns(true); }} className="btn btn-ghost w-full justify-start text-xs min-h-[44px]"><Printer size={14}/> Export as PDF</button>
+                <div className="absolute right-0 mt-1 card p-1 z-50 min-w-[160px] shadow-lg mobile-action-menu">
+                  <button data-testid="export-excel-btn" onClick={() => { setExportOpen(false); setExportPendingMode("excel"); setShowExportColumns(true); }} className="btn btn-ghost w-full justify-start text-xs min-h-[30px] py-1"><FileXls size={13}/> Export as Excel</button>
+                  <button onClick={() => { setExportOpen(false); setExportPendingMode("pdf"); setShowExportColumns(true); }} className="btn btn-ghost w-full justify-start text-xs min-h-[30px] py-1"><Printer size={13}/> Export as PDF</button>
                   {isAdmin && selectedInvoice && (
-                    <button onClick={() => { savePackageInfo(); setExportOpen(false); }} className="btn btn-ghost w-full justify-start text-xs">Save</button>
+                    <button onClick={() => { savePackageInfo(); setExportOpen(false); }} className="btn btn-ghost w-full justify-start text-xs min-h-[30px] py-1">Save</button>
                   )}
                 </div>
               )}

@@ -200,7 +200,9 @@ def list_client_folder_links(client_folder_id: str) -> Dict[str, Any]:
         entry = {"title": title, "url": url, "kind": kind}
         links.append(entry)
         tl = title.lower()
-        if not case_summary_url and "case summary" in tl:
+        if not case_summary_url and (
+            "case summary" in tl or "ملخص الحالة" in title or "ملخص حالة" in title
+        ):
             case_summary_url = url
         if not intake_file_url and "intake" in tl:
             intake_file_url = url

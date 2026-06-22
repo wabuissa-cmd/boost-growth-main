@@ -35,6 +35,96 @@ def _active_client_filter(extra: Optional[dict] = None) -> dict:
         q.update(extra)
     return q
 
+INACTIVE_CLIENT_FILE_NOS = frozenset({"047"})
+
+
+async def _client_data_score(client_id: str) -> int:
+    """Higher = richer record; used when picking which duplicate client to keep."""
+    inv_count = await db.invoices.count_documents({"client_id": client_id})
+    sess_count = await db.sessions.count_documents({"client_id": client_id})
+    client = await db.clients.find_one(
+        {"id": client_id},
+        {"_id": 0, "attendance_sheet_url": 1, "drive_links": 1, "case_summary_url": 1, "file_no": 1},
+    ) or {}
+    score = inv_count * 100 + sess_count * 10
+    if client.get("attendance_sheet_url"):
+        score += 50
+    if client.get("drive_links"):
+        score += 20
+    if client.get("case_summary_url"):
+        score += 10
+    if client.get("file_no"):
+        score += 5
+    return score
+
+
+async def _dedupe_duplicate_clients() -> dict:
+    """Soft-delete duplicate client rows; keep the record with invoices/sessions."""
+    clients = await db.clients.find({"deleted": {"$ne": True}}, {"_id": 0}).to_list(500)
+    by_name: dict = {}
+    by_file_no: dict = {}
+    for c in clients:
+        name_key = re.sub(r"\s+", " ", (c.get("name") or "").strip().lower())
+        if name_key:
+            by_name.setdefault(name_key, []).append(c)
+        fn = str(c.get("file_no") or "").strip()
+        if fn:
+            by_file_no.setdefault(fn.zfill(3), []).append(c)
+
+    to_delete: set = set()
+    actions: List[dict] = []
+
+    async def pick_winner(group: List[dict], reason: str):
+        if len(group) < 2:
+            return
+        scored = []
+        for c in group:
+            if c["id"] in to_delete:
+                continue
+            scored.append((await _client_data_score(c["id"]), c))
+        if len(scored) < 2:
+            return
+        scored.sort(key=lambda x: (-x[0], x[1].get("created_at") or ""))
+        winner = scored[0][1]
+        for _, loser in scored[1:]:
+            if loser["id"] == winner["id"] or loser["id"] in to_delete:
+                continue
+            to_delete.add(loser["id"])
+            actions.append({
+                "kept": winner.get("name"),
+                "kept_id": winner["id"],
+                "kept_file_no": winner.get("file_no"),
+                "removed": loser.get("name"),
+                "removed_id": loser["id"],
+                "removed_file_no": loser.get("file_no"),
+                "reason": reason,
+            })
+
+    for name_key, group in by_name.items():
+        await pick_winner(group, f"duplicate name: {name_key}")
+    for file_no, group in by_file_no.items():
+        active = [c for c in group if c["id"] not in to_delete]
+        await pick_winner(active, f"duplicate file_no: {file_no}")
+
+    for cid in to_delete:
+        await db.clients.update_one(
+            {"id": cid},
+            {"$set": {"deleted": True, "deleted_at": now_iso(), "dedupe_note": "auto-deduped duplicate"}},
+        )
+    return {"removed": len(to_delete), "actions": actions}
+
+
+async def _apply_inactive_client_status() -> int:
+    """Ensure known inactive clients stay out of active billing/prep lists."""
+    n = 0
+    for file_no in INACTIVE_CLIENT_FILE_NOS:
+        res = await db.clients.update_many(
+            {"file_no": file_no, "deleted": {"$ne": True}},
+            {"$set": {"status": "Inactive"}},
+        )
+        n += res.modified_count
+    return n
+
 UPLOAD_DIR = ROOT_DIR / 'uploads'
 UPLOAD_DIR.mkdir(exist_ok=True)
 
@@ -5641,6 +5731,19 @@ async def admin_dedupe_intake(_=Depends(admin_only)):
     total = await db.intake.count_documents({})
     return {"ok": True, "removed": removed, "total": total, "message": f"Removed {removed} duplicate(s). {total} intake records remain."}
 
+
+@api.post("/admin/dedupe-clients")
+async def admin_dedupe_clients(_=Depends(admin_only)):
+    """Soft-delete duplicate clients (same name or file_no); keep the record with data."""
+    result = await _dedupe_duplicate_clients()
+    total = await db.clients.count_documents(_active_client_filter())
+    return {
+        "ok": True,
+        **result,
+        "total_clients": total,
+        "message": f"Removed {result['removed']} duplicate client(s). {total} active clients remain.",
+    }
+
 @api.post("/admin/seed-intake-master")
 async def seed_intake_master(replace: bool = True, _=Depends(admin_only)):
     """Replace intake list from INTAKE_SEED (default) or upsert without deleting when replace=false."""
@@ -7361,6 +7464,20 @@ async def _run_startup():
         if settings_doc:
             _apply_email_settings(settings_doc)
 
+        try:
+            dedupe = await _dedupe_duplicate_clients()
+            if dedupe.get("removed"):
+                logger.info(f"Client dedupe: removed {dedupe['removed']} duplicate(s)")
+        except Exception as e:
+            logger.warning(f"Client dedupe skipped: {e}")
+
+        try:
+            inactive_n = await _apply_inactive_client_status()
+            if inactive_n:
+                logger.info(f"Marked {inactive_n} client(s) inactive")
+        except Exception as e:
+            logger.warning(f"Inactive client migration skipped: {e}")
+
         # Seed clients ONLY on first-time setup (no active clients). Preserves user edits and soft-deletions.
         cl_count = await db.clients.count_documents(_active_client_filter())
         if cl_count == 0:
@@ -7368,7 +7485,7 @@ async def _run_startup():
             for c in CLIENT_SEED:
                 if await db.clients.find_one({"file_no": c["file_no"]}, {"_id": 0, "id": 1}):
                     continue
-                await db.clients.insert_one({
+                seed_doc = {
                     "id": str(uuid.uuid4()),
                     "file_no": c["file_no"], "name": c["name"],
                     "package_hours": c["pkg"], "supervisor": c["sup"],
@@ -7377,7 +7494,10 @@ async def _run_startup():
                     "color": c["color"], "locations": c["locs"],
                     "parent_name": None, "parent_phone": None, "age": None,
                     "notes": None, "created_at": now_iso(),
-                })
+                }
+                if c["file_no"] in INACTIVE_CLIENT_FILE_NOS:
+                    seed_doc["status"] = "Inactive"
+                await db.clients.insert_one(seed_doc)
             await db.meta.update_one({"key": "client_seed_version"},
                                      {"$set": {"version": 1, "updated_at": now_iso()}},
                                      upsert=True)
