@@ -141,6 +141,16 @@ export function buildParentMessages(cells, clients = []) {
         phone: client?.parent_phone || client?.phone || null,
         sessions: [],
       });
+    } else {
+      const entry = byChild.get(mapKey);
+      if (!entry.client && client) {
+        entry.client = client;
+        entry.parentName = client.parent_name || entry.parentName;
+        entry.phone = client.parent_phone || client.phone || entry.phone;
+      } else if (entry.client && client && !entry.phone) {
+        entry.phone = client.parent_phone || client.phone || entry.phone;
+        entry.parentName = entry.parentName || client.parent_name || null;
+      }
     }
     byChild.get(mapKey).sessions.push({
       day: cell.day,

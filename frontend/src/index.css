@@ -369,6 +369,21 @@ main, .page-enter { min-width: 0; }
 .sched-sheet-v2 .sheet-day {
     background: #FAFAF7 !important;
 }
+.sched-sheet-v2 tr.sheet-group-hours .sheet-th {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: #F6F4F0 !important;
+    box-shadow: 0 1px 0 #E2DDD4;
+}
+.sched-sheet-v2 tr.sheet-group-hours .sheet-idx,
+.sched-sheet-v2 tr.sheet-group-hours .sheet-therapist,
+.sched-sheet-v2 tr.sheet-group-hours .sheet-day {
+    z-index: 6;
+}
+.schedule-admin-edits-menu {
+    box-sizing: border-box;
+}
 .schedule-cell-menu-btn {
     display: none;
     position: absolute; top: 2px; right: 2px; z-index: 4;
@@ -417,6 +432,10 @@ main, .page-enter { min-width: 0; }
 @media print {
     .sched-sheet .sheet-th { background: #EFE8D2 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .sched-sheet .sheet-td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .sched-sheet-v2 tr.sheet-group-hours .sheet-th {
+        position: static !important;
+        box-shadow: none !important;
+    }
 }
 
 /* Mobile responsive (≤768px) */
@@ -926,12 +945,14 @@ main, .page-enter { min-width: 0; }
 
 .divider { height: 1px; background: var(--border-default); }
 
-/* Print styles for Attendance invoice */
+/* Print styles for Attendance invoice + Schedule */
 @media print {
-    @page { size: A4 portrait; margin: 10mm; }
+    @page { margin: 8mm; }
     body * { visibility: hidden; }
-    .printable, .printable * { visibility: visible; }
-    .printable {
+    .printable, .printable *,
+    .schedule-printable, .schedule-printable * { visibility: visible; }
+    .printable,
+    .schedule-printable {
         position: static !important;
         left: auto !important;
         top: auto !important;
@@ -944,6 +965,38 @@ main, .page-enter { min-width: 0; }
         box-shadow: none !important;
         border: none !important;
     }
+    .schedule-printable {
+        padding: 0 !important;
+        border-radius: 0 !important;
+    }
+    .schedule-printable .sched-zoom {
+        --sched-zoom: 1 !important;
+        border-radius: 0 !important;
+    }
+    .schedule-printable .table-scroll,
+    .schedule-printable .overflow-x-auto,
+    .schedule-printable .overflow-hidden {
+        overflow: visible !important;
+        max-height: none !important;
+    }
+    .schedule-printable .card {
+        box-shadow: none !important;
+        border: none !important;
+        overflow: visible !important;
+    }
+    .schedule-printable table {
+        width: 100% !important;
+        page-break-inside: auto;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+    .schedule-printable tr { page-break-inside: avoid; }
+    .schedule-printable .sheet-th,
+    .schedule-printable .sheet-td,
+    .schedule-printable .cell-base {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
     .printable .flex-1,
     .printable .overflow-y-auto,
     .printable .overflow-x-auto {
@@ -954,7 +1007,10 @@ main, .page-enter { min-width: 0; }
     .printable table { page-break-inside: auto; width: 100% !important; }
     .printable tr { page-break-inside: avoid; page-break-after: auto; }
     .printable thead { display: table-header-group; }
-    .no-print { display: none !important; }
+    .no-print,
+    .app-sidebar,
+    .mobile-nav-bar,
+    .sidebar-toggle-btn { display: none !important; }
     .fixed.inset-0 { position: static !important; background: white !important; }
 }
 

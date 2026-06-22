@@ -16,7 +16,7 @@ export const THERAPIST_FAMILY_NAMES = {
   msRahaf: "Aljuhani",
   msShatha: "Alhammami",
   msAlhanouf: "Alromman",
-  msWaad: "Alhamed",
+  msWaad: "Alhamad",
   msBodoor: "Alkhlifah",
   msFatimah: "Alkhater",
   msShrooq: "Alamri",
@@ -27,10 +27,18 @@ export const THERAPIST_FAMILY_NAMES = {
 /** Supervisors who only see their own block in Per Therapist view. */
 export const SCHEDULE_OWN_BLOCK_KEYS = new Set(["msmaha", "msfahda", "mswalaa", "msjenan"]);
 
+export function therapistFamilyName(key) {
+  if (!key) return null;
+  const lower = String(key).toLowerCase();
+  for (const [k, v] of Object.entries(THERAPIST_FAMILY_NAMES)) {
+    if (k.toLowerCase() === lower) return v;
+  }
+  return null;
+}
+
 export function getTherapistScheduleName(t) {
   if (!t) return "";
-  const key = t.key || "";
-  const family = THERAPIST_FAMILY_NAMES[key];
+  const family = therapistFamilyName(t.key);
   const first = (t.name || "").replace(/^Ms\.?\s*/i, "").trim();
   if (family) return `${first} ${family}`;
   return first || t.name || "";
@@ -58,11 +66,9 @@ export function scheduleOwnBlockOnly(user) {
 
 /** Unified schedule legend — cell states + service codes + cancellations. */
 export const SCHEDULE_LEGEND_ITEMS = [
-  { bg: "#D8E4D0", border: "#9CB08A", label: "Session" },
   { bg: "#FFFFFF", border: "#DDD8D0", label: "Available" },
   { bg: "#FFF4C4", border: "#E8C572", label: "Therapist Cancel" },
   { bg: "#FCE0E8", border: "#E8A4BD", label: "Client Cancel" },
-  { bg: "#F0EDE9", border: "#E2DDD4", label: "Empty" },
   { bg: "#D9EAD3", border: "#B6D7A8", label: "Leave" },
   { bg: "#E5EBE1", border: "#B4C2A9", label: "SS" },
   { bg: "#D4E0E8", border: "#A4BCCB", label: "HS" },

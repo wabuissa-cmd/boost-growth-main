@@ -184,20 +184,44 @@ export function resolveSelfTherapist(user, therapists = []) {
   return null;
 }
 
+function normScheduleName(s) {
+  return (s || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
 /** Match schedule cell child_name to a client (mirrors backend _find_client_by_schedule_child_name). */
 export function findClientForScheduleCell(childName, clients = []) {
   const name = (childName || "").trim();
   if (!name || !clients.length) return null;
+
   let client = clients.find(c => (c.name || "").trim() === name);
   if (client) return client;
+
+  const nameNorm = normScheduleName(name);
+  client = clients.find(c => normScheduleName(c.name) === nameNorm);
+  if (client) return client;
+
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const prefixRe = new RegExp(`^${escaped}($|\\s)`, "i");
   client = clients.find(c => prefixRe.test((c.name || "").trim()));
   if (client) return client;
+
   for (const c of clients) {
     const cn = (c.name || "").trim();
     if (cn && (name === cn || name.startsWith(cn + " "))) return c;
   }
+
+  const scheduleFirst = name.split(/\s+/)[0];
+  if (scheduleFirst.length >= 3) {
+    const firstLower = scheduleFirst.toLowerCase();
+    const byFirst = clients.filter(c => {
+      const cn = (c.name || "").trim();
+      return cn && cn.split(/\s+/)[0]?.toLowerCase() === firstLower;
+    });
+    if (byFirst.length === 1) return byFirst[0];
+    const withPhone = byFirst.filter(c => c.parent_phone || c.phone);
+    if (withPhone.length === 1) return withPhone[0];
+  }
+
   return null;
 }
 

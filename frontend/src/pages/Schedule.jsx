@@ -28,6 +28,10 @@ import "../dashboardLayout.css";
 
 const SCHEDULE_ZOOM = 80;
 
+function formatSlotHeader(ts) {
+  return ts.replace(" AM", "a").replace(" PM", "p").replace(" - ", "–");
+}
+
 function getSheetCellStyle(cell, clients) {
   if (!cell) return { background: "#E5E7EB", borderColor: "#D1D5DB", height: 38, minHeight: 38, padding: "2px 1px", fontSize: 10 };
   const base = getCellStyle(cell, clients);
@@ -795,20 +799,18 @@ export default function Schedule() {
     <div className="card p-0 overflow-hidden">
       <div className="table-scroll overflow-x-auto">
         <table className="text-xs border-collapse sched-sheet sched-sheet-v2" style={{ minWidth: 980 }}>
-          <thead>
-            <tr>
-              <th className="sheet-th sheet-idx" style={{ minWidth: 32, width: 32 }}>#</th>
-              <th className="sheet-th sheet-therapist" style={{ minWidth: 96 }}>Therapist</th>
-              <th className="sheet-th sheet-day" style={{ minWidth: 58 }}>Day</th>
-              {TIME_SLOTS.map(ts => (
-                <th key={ts} className="sheet-th" style={{ minWidth: 68 }}>
-                  {ts.replace(' AM', 'a').replace(' PM', 'p').replace(' - ', '–')}
-                </th>
-              ))}
-            </tr>
-          </thead>
           {visibleTherapists.map((t, ti) => (
             <tbody key={t.id} className="sheet-therapist-group">
+              <tr className="sheet-group-hours">
+                <th className="sheet-th sheet-idx" style={{ minWidth: 32, width: 32 }} aria-hidden />
+                <th className="sheet-th sheet-therapist" style={{ minWidth: 96 }} aria-hidden />
+                <th className="sheet-th sheet-day" style={{ minWidth: 58 }}>Day</th>
+                {TIME_SLOTS.map(ts => (
+                  <th key={ts} className="sheet-th sheet-time" style={{ minWidth: 68 }}>
+                    {formatSlotHeader(ts)}
+                  </th>
+                ))}
+              </tr>
             {DAYS_EN.map((d, di) => {
                 const leaveInfo = leaveByTherapistDay[`${t.id}_${di}`];
                 const dayISO = toISODate(addDays(weekStart, di));
@@ -988,6 +990,7 @@ export default function Schedule() {
     <div className="relative">
         <div className={`transition-all ${panelOpen && isAdmin ? "lg:mr-[420px]" : ""}`}>
       <SchedulePageHeader
+        className="no-print"
         subtitle={isAdmin
           ? "Right-click any cell for actions · Click to edit · Drag to select multiple slots"
           : scheduleLead && view === "sheet"
@@ -1033,8 +1036,7 @@ export default function Schedule() {
                 <input data-testid="schedule-search-input" className="input pl-7 py-1 text-[11px] min-h-0 h-7" placeholder="Search therapist…" value={search} onChange={e => setSearch(e.target.value)} />
               </div>
             )}
-            <button onClick={() => window.print()} className="btn btn-ghost p-1.5 min-h-0 shrink-0" title="Print"><Printer size={14} /></button>
-            {canNotifySchedule && (
+            {canNotifySchedule && !isAdmin && (
               <button
                 type="button"
                 data-testid="parent-whatsapp-messages-btn"
@@ -1063,14 +1065,14 @@ export default function Schedule() {
                   <CaretDown size={11} className={`transition-transform ${adminEditsOpen ? "rotate-180" : ""}`} />
                 </button>
                 {adminEditsOpen && (
-                  <div className="absolute right-0 top-full mt-1 z-[100] card p-2 min-w-[220px] shadow-lg border border-[#E2DDD4] flex flex-col gap-1.5">
-                    <button type="button" onClick={() => { setShowHolidays(true); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start">Official holidays</button>
-                    <button type="button" onClick={() => { setDraft(); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start">Save as Draft</button>
-                    <button type="button" onClick={() => { publishWeek(); setAdminEditsOpen(false); }} className="btn btn-primary text-xs w-full justify-start">Publish Week</button>
+                  <div className="schedule-admin-edits-menu absolute right-0 top-[calc(100%+6px)] z-[200] card p-2.5 min-w-[228px] shadow-lg border border-[#E2DDD4] flex flex-col gap-2 bg-white">
+                    <button type="button" onClick={() => { setShowHolidays(true); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start min-h-[36px]">Official holidays</button>
+                    <button type="button" onClick={() => { setDraft(); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start min-h-[36px]">Save as Draft</button>
+                    <button type="button" onClick={() => { publishWeek(); setAdminEditsOpen(false); }} className="btn btn-primary text-xs w-full justify-start min-h-[36px]">Publish Week</button>
                     <button
                       type="button"
                       onClick={() => { setParentMessagesNote(""); setParentMessagesOpen(true); setAdminEditsOpen(false); }}
-                      className="btn btn-outline text-xs w-full justify-start"
+                      className="btn btn-outline text-xs w-full justify-start min-h-[36px]"
                     >
                       <WhatsappLogo size={14} weight="fill" /> Parent WhatsApp Messages
                     </button>
@@ -1078,9 +1080,16 @@ export default function Schedule() {
                       type="button"
                       data-testid="duplicate-week-btn"
                       onClick={() => { openDupModal(weekStartISO, toISODate(addDays(weekStart, 7))); setAdminEditsOpen(false); }}
-                      className="btn btn-gold text-xs w-full justify-start"
+                      className="btn btn-gold text-xs w-full justify-start min-h-[36px]"
                     >
                       <CopySimple size={14} /> Duplicate Week →
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { window.print(); setAdminEditsOpen(false); }}
+                      className="btn btn-outline text-xs w-full justify-start min-h-[36px]"
+                    >
+                      <Printer size={14} /> Print
                     </button>
                   </div>
                 )}
@@ -1091,7 +1100,7 @@ export default function Schedule() {
       />
 
       {clipboard && (isAdmin || (scheduleLead && view === "sheet")) && (
-        <div className="card p-3 mb-4 flex items-center gap-3 text-sm" style={{ background: "#FFF7E1", borderColor: "#E8C572" }} data-testid="clipboard-banner">
+        <div className="card p-3 mb-4 flex items-center gap-3 text-sm no-print" style={{ background: "#FFF7E1", borderColor: "#E8C572" }} data-testid="clipboard-banner">
           <Copy size={18} weight="duotone" style={{ color: "#8B6918" }} />
           <div className="flex-1">
             <div className="font-bold" style={{ color: "#6B5218" }}>📋 Cell copied — right-click empty slot → Paste Here</div>
@@ -1101,7 +1110,10 @@ export default function Schedule() {
         </div>
       )}
 
-      <div className="dash-schedule-wrap">
+      <div className="dash-schedule-wrap schedule-printable">
+      <div className="schedule-print-title hidden print:block font-display text-lg font-semibold mb-2" style={{ color: "#2F4A35" }}>
+        Weekly Schedule · {formatDateRange(weekStart)}
+      </div>
       <div className="sched-zoom" style={{ "--sched-zoom": SCHEDULE_ZOOM / 100 }}>
         {cells.length === 0 && (
           <div className="card p-10 text-center mb-4" style={{ background: "linear-gradient(135deg, #FAF5E8 0%, #F0E9D8 100%)", borderColor: "#E8C572" }}>

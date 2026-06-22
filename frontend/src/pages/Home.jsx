@@ -231,12 +231,7 @@ export default function Home() {
     </header>
   );
 
-  const quickLinks = isPortalAdminUser ? [
-    { to: "/schedule", label: "Schedule", icon: CalendarBlank },
-    { to: "/attendance", label: "Attendance", icon: ClipboardText },
-    { to: "/requests", label: "Requests", icon: ListChecks },
-    { to: "/clients", label: "Clients", icon: UsersThree },
-  ] : [
+  const quickLinks = [
     { to: "/schedule", label: "Schedule", icon: CalendarBlank },
     { to: "/attendance", label: "Attendance", icon: ClipboardText },
     { to: "/my-requests", label: "Request", icon: ListChecks },
@@ -249,23 +244,23 @@ export default function Home() {
         <>
           <HeroBanner adminGreeting={saudiGreeting(displayName)} />
 
+          <div className="home-admin-panels">
+            <PlatformUpdates items={updates} canPost onPosted={loadUpdates} />
+            <AdminRemindersPanel items={adminReminders} />
+          </div>
+
           <CreativeSection title="Explore the portal" subtitle="Tools to run the center with clarity and care">
-            <div className="home-explore-split">
-              <div className="home-explore-updates">
-                <PlatformUpdates items={updates} canPost onPosted={loadUpdates} />
-              </div>
-              <div className="home-feature-stack">
-                {adminFeatures.map(f => (
-                  <Link key={f.to} to={f.to} className={`home-feature-card${f.featured ? " featured" : ""}`} data-testid={`home-feature-${f.to.slice(1)}`}>
-                    <div className="home-feature-icon" style={{ background: f.color, color: f.iconColor }}>
-                      <f.icon size={24} weight="duotone" />
-                    </div>
-                    <div className="home-feature-title">{f.title}</div>
-                    <div className="home-feature-desc">{f.desc}</div>
-                    <span className="home-feature-link">Open <ArrowRight size={14} /></span>
-                  </Link>
-                ))}
-              </div>
+            <div className="home-feature-grid stagger">
+              {adminFeatures.map(f => (
+                <Link key={f.to} to={f.to} className={`home-feature-card${f.featured ? " featured" : ""}`} data-testid={`home-feature-${f.to.slice(1)}`}>
+                  <div className="home-feature-icon" style={{ background: f.color, color: f.iconColor }}>
+                    <f.icon size={24} weight="duotone" />
+                  </div>
+                  <div className="home-feature-title">{f.title}</div>
+                  <div className="home-feature-desc">{f.desc}</div>
+                  <span className="home-feature-link">Open <ArrowRight size={14} /></span>
+                </Link>
+              ))}
             </div>
           </CreativeSection>
 
@@ -310,33 +305,29 @@ export default function Home() {
         </>
       )}
 
-      <div className="grid md:grid-cols-2 gap-4">
-        <div className="card p-5 rounded-[22px]">
-          <div className="dash-section-title mb-3">Quick Links</div>
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            {quickLinks.map(l => (
-              <Link key={l.label} to={l.to} className="btn btn-outline justify-start gap-2 min-h-[44px] rounded-[14px]">
-                <l.icon size={18} weight="duotone"/><span>{l.label}</span>
-              </Link>
-            ))}
-          </div>
-          {!isPortalAdminUser && (
+      {!isPortalAdminUser && (
+        <div className="grid md:grid-cols-2 gap-4">
+          <div className="card p-5 rounded-[22px]">
+            <div className="dash-section-title mb-3">Quick Links</div>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              {quickLinks.map(l => (
+                <Link key={l.label} to={l.to} className="btn btn-outline justify-start gap-2 min-h-[44px] rounded-[14px]">
+                  <l.icon size={18} weight="duotone"/><span>{l.label}</span>
+                </Link>
+              ))}
+            </div>
             <Link to="/attendance" className="btn btn-primary w-full mt-3 min-h-[44px] justify-center gap-2 rounded-[14px]">
               <ClipboardText size={18} weight="duotone"/> Log a session
             </Link>
-          )}
+          </div>
+          <div className="card p-5 relative overflow-hidden rounded-[22px]" data-testid="daily-quote">
+            <div className="absolute -top-3 -right-3 opacity-10"><Plant size={130} weight="duotone"/></div>
+            <div className="text-[10px] tracking-[0.2em] font-bold mb-2 relative" style={{color: "#6B8F71"}}>QUOTE OF THE DAY</div>
+            <p className="text-base leading-relaxed relative italic" style={{color: "#2C3625"}}>&ldquo;{quote.text}&rdquo;</p>
+            <div className="text-xs mt-3 relative" style={{color: "#8B9E7A"}}>— {quote.by}</div>
+          </div>
         </div>
-        {isPortalAdminUser ? (
-          <AdminRemindersPanel items={adminReminders} />
-        ) : (
-        <div className="card p-5 relative overflow-hidden rounded-[22px]" data-testid="daily-quote">
-          <div className="absolute -top-3 -right-3 opacity-10"><Plant size={130} weight="duotone"/></div>
-          <div className="text-[10px] tracking-[0.2em] font-bold mb-2 relative" style={{color: "#6B8F71"}}>QUOTE OF THE DAY</div>
-          <p className="text-base leading-relaxed relative italic" style={{color: "#2C3625"}}>&ldquo;{quote.text}&rdquo;</p>
-          <div className="text-xs mt-3 relative" style={{color: "#8B9E7A"}}>— {quote.by}</div>
-        </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }

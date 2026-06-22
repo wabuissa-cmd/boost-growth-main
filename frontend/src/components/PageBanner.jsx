@@ -1,9 +1,9 @@
 /** Sage green gradient page header — shared template across portal pages. */
-export default function PageBanner({ title, subtitle, badge, stats = [], children, toolbar }) {
+export default function PageBanner({ title, subtitle, badge, stats = [], children, toolbar, className = "" }) {
   const hasBody = stats.length > 0 || children || toolbar;
 
   return (
-    <div className="page-banner rounded-[1.25rem] mb-4 border border-[#2F4A35]/20 shadow-sm overflow-hidden">
+    <div className={`page-banner rounded-[1.25rem] mb-4 border border-[#2F4A35]/20 shadow-sm overflow-visible ${className}`.trim()}>
       <div className="page-banner-head px-4 py-3.5 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="page-banner-title m-0">{title}</h1>

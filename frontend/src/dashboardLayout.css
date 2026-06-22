@@ -452,29 +452,22 @@ a.dash-stat-card:hover {
   gap: 0.25rem;
 }
 
-/* Admin home: Platform Updates left, 3 feature cards right */
-.home-explore-split {
+/* Admin home: Platform Updates + Admin Reminders side by side */
+.home-admin-panels {
   display: grid;
-  grid-template-columns: minmax(260px, 320px) 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 1rem;
+  margin-bottom: 1.75rem;
   align-items: stretch;
 }
-.home-explore-updates {
+.home-admin-panels > * {
   min-height: 100%;
 }
-.home-explore-updates .updates-panel {
-  min-height: 100%;
-}
-.home-feature-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-}
-.home-feature-stack .home-feature-card {
-  flex: 1;
+.home-admin-panels .updates-panel {
+  height: 100%;
 }
 @media (max-width: 900px) {
-  .home-explore-split {
+  .home-admin-panels {
     grid-template-columns: 1fr;
   }
 }
@@ -865,6 +858,15 @@ a.dash-stat-card:hover {
   border-radius: 22px;
   padding: 0.75rem;
   overflow: hidden;
+}
+@media print {
+  .dash-schedule-wrap.schedule-printable {
+    overflow: visible !important;
+    border: none !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    background: white !important;
+  }
 }
 .dash-schedule-wrap .sched-zoom {
   border-radius: 14px;

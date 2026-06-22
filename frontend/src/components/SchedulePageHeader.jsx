@@ -1,9 +1,9 @@
 import PageBanner from "./PageBanner";
 import { SCHEDULE_LEGEND_ITEMS } from "../scheduleConstants";
 
-export default function SchedulePageHeader({ subtitle, badge, stats = [], toolbar }) {
+export default function SchedulePageHeader({ subtitle, badge, stats = [], toolbar, className = "" }) {
   return (
-    <PageBanner title="Weekly Schedule" subtitle={subtitle} badge={badge} stats={stats} toolbar={toolbar}>
+    <PageBanner title="Weekly Schedule" subtitle={subtitle} badge={badge} stats={stats} toolbar={toolbar} className={className}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <span className="ui-caption font-bold uppercase tracking-wide shrink-0" style={{ color: "#8B9E7A" }}>Legend</span>
         {SCHEDULE_LEGEND_ITEMS.map(it => (
