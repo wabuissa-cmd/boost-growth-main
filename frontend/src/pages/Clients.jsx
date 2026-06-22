@@ -26,19 +26,9 @@ export default function Clients() {
   const [therapistFilter, setTherapistFilter] = useState("");
   const [selectedClientId, setSelectedClientId] = useState(null);
   const [panelClient, setPanelClient] = useState(null); // { client, section }
-  const [prSummaries, setPrSummaries] = useState({});
   const [pkgByClient, setPkgByClient] = useState({});
 
-  const refreshPrSummaries = () => {
-    api.get("/progress-reports/summary").then(r => setPrSummaries(r.data || {})).catch(() => {});
-  };
-
-  const openPanel = (client, section) => setPanelClient({ client, section });
-  const closePanel = () => {
-    const wasProgress = panelClient?.section === "progress";
-    setPanelClient(null);
-    if (wasProgress) refreshPrSummaries();
-  };
+  const closePanel = () => setPanelClient(null);
 
   const load = async () => {
     const [c, t] = await Promise.all([
@@ -51,7 +41,6 @@ export default function Clients() {
   useEffect(() => { load(); }, []);
 
   useEffect(() => {
-    refreshPrSummaries();
     cachedGet("/clients/package-status").then(rows => {
       const map = {};
       for (const row of rows || []) {
@@ -157,7 +146,6 @@ export default function Clients() {
         onSelect={setSelectedClientId}
         pkgByClient={pkgByClient}
         findTherapist={findT}
-        prSummaries={prSummaries}
         counts={layoutCounts}
         isAdmin={isAdmin}
         hasOps={hasOps}
@@ -177,9 +165,6 @@ export default function Clients() {
       {panelClient?.section === "details" && (
         <CaseDetailsPanelModal client={panelClient.client} therapists={therapists} isAdmin={isAdmin}
           onClose={closePanel} onSaved={() => { closePanel(); load(); }} />
-      )}
-      {panelClient?.section === "progress" && (
-        <ProgressReportPanelModal client={panelClient.client} isAdmin={isAdmin} onClose={closePanel} />
       )}
 
       {edit && (
@@ -314,31 +299,6 @@ export default function Clients() {
   );
 }
 
-// ----- Helper components for client cards -----
-function SectionBtn({ icon, label, onClick, testId }) {
-  return (
-    <button type="button" data-testid={testId} onClick={onClick} title={label}
-      className="flex-1 min-h-[44px] sm:min-h-[36px] py-1.5 px-1 rounded-md border hover:bg-[#F0EDE9] transition flex items-center justify-center gap-0.5"
-      style={{ borderColor: "#E0DCC4", color: "#3D4F35", background: "white", fontSize: "10px" }}>
-      <span className="text-sm leading-none">{icon}</span>
-      <span className="font-semibold hidden sm:inline">{label}</span>
-    </button>
-  );
-}
-
-function ProgressTracker({ summary, onOpen }) {
-  const s = summary || { uploaded: false, reviewed: false, resolved: false, count: 0 };
-  const allDone = s.uploaded && s.reviewed && s.resolved;
-  return (
-    <button type="button" onClick={onOpen} title="Progress Report"
-      className="flex-1 min-h-[44px] sm:min-h-[36px] py-1.5 px-1 rounded-md border hover:bg-[#F0EDE9] transition flex items-center justify-center gap-0.5"
-      style={{ borderColor: allDone ? "#86EFAC" : "#E0DCC4", background: allDone ? "#F0FDF4" : "white", fontSize: "10px" }}>
-      <span className="text-sm">📊</span>
-      <span className="font-semibold hidden sm:inline">PR{s.count > 0 ? ` (${s.count})` : ""}</span>
-    </button>
-  );
-}
-
 function LocationPanelModal({ client, onClose }) {
   const locs = client.locations || [];
   return (
@@ -372,61 +332,170 @@ function AttachmentsPanelModal({ client, isAdmin, onClose, onSaved }) {
   const [att, setAtt] = useState({
     intake_file_url: client.intake_file_url || "",
     attendance_sheet_url: client.attendance_sheet_url || client.drive_url || "",
-    progress_reports_url: client.progress_reports_url || "",
     case_summary_url: client.case_summary_url || "",
   });
+  const [syncing, setSyncing] = useState(false);
+  const [driveLinks, setDriveLinks] = useState(
+    (client.drive_links || []).filter(l => l.url && !/attendance/i.test(l.title || ""))
+  );
   const [saving, setSaving] = useState(false);
+
+  const syncFromDrive = async () => {
+    setSyncing(true);
+    try {
+      const { data } = await api.post(`/clients/${client.id}/sync-drive-links`);
+      setDriveLinks((data.links || []).filter(l => l.url && !/attendance/i.test(l.title || "")));
+      if (data.case_summary_url) setAtt(s => ({ ...s, case_summary_url: data.case_summary_url }));
+      if (data.intake_file_url) setAtt(s => ({ ...s, intake_file_url: data.intake_file_url }));
+      onSaved && onSaved();
+    } catch (e) {
+      alert("Drive sync failed: " + (e.response?.data?.detail || e.message));
+    } finally { setSyncing(false); }
+  };
+
   const saveAttachments = async () => {
     setSaving(true);
     try {
-      await api.put(`/clients/${client.id}`, { ...client, ...att });
+      await api.put(`/clients/${client.id}`, { ...client, ...att, drive_links: driveLinks });
       onSaved && onSaved();
     } catch (e) {
       alert("Save failed: " + (e.response?.data?.detail || e.message));
     } finally { setSaving(false); }
   };
-  const fields = [
+
+  const manualFields = [
     { key: "intake_file_url", label: "Intake File", hint: "Google Drive link to the intake document" },
-    { key: "attendance_sheet_url", label: "Attendance Sheet", hint: "Google Sheets URL in the client's Attendance Sheets folder" },
-    { key: "progress_reports_url", label: "Progress Reports Folder", hint: "Drive folder link for Progress Reports" },
-    { key: "case_summary_url", label: "Case Summary", hint: "Drive folder or document link" },
+    { key: "case_summary_url", label: "Case Summary", hint: "Google Doc link for case summary" },
   ];
+
+  const kindLabel = (kind) => {
+    if (kind === "doc") return "Document";
+    if (kind === "sheet") return "Spreadsheet";
+    if (kind === "folder") return "Folder";
+    if (kind === "file") return "File";
+    return "Link";
+  };
+
   return (
-    <ModalBase title="Attachments" subtitle={`${client.name} · Google Drive links`} onClose={onClose} size="lg"
+    <ModalBase title="Records & Files" subtitle={`${client.name} · Google Drive links`} onClose={onClose} size="lg"
       footer={
-        isAdmin ? (
-          <>
-            <ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>
+        <>
+          <ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>
+          {isAdmin && (
+            <ModalBtnSecondary type="button" onClick={syncFromDrive} disabled={syncing}>
+              {syncing ? "Syncing…" : "Sync from Drive"}
+            </ModalBtnSecondary>
+          )}
+          {isAdmin ? (
             <ModalBtnPrimary data-testid="save-attachments-btn" type="button" onClick={saveAttachments} disabled={saving}>
               {saving ? <span className="spinner" /> : "Save Links"}
             </ModalBtnPrimary>
-          </>
-        ) : (
-          <ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>
-        )
+          ) : null}
+        </>
       }>
-      <div className="space-y-3">
-        {fields.map(f => (
+      <div className="space-y-4">
+        {driveLinks.length > 0 && (
+          <div>
+            <div className="text-xs font-bold mb-2 tracking-wide" style={{ color: "#8B9E7A" }}>DRIVE FOLDER LINKS</div>
+            <div className="space-y-2">
+              {driveLinks.map((link, i) => (
+                <div key={i} className="p-3 rounded-xl border flex items-center justify-between gap-3" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
+                  <div className="min-w-0">
+                    <div className="text-sm font-bold truncate" style={{ color: "#1C2617" }}>{link.title}</div>
+                    <div className="text-[10px]" style={{ color: "#9CA3AF" }}>{kindLabel(link.kind)}</div>
+                  </div>
+                  <a href={link.url} target="_blank" rel="noreferrer" className="text-[11px] underline shrink-0 flex items-center gap-1" style={{ color: "#5C8A47" }}>
+                    Open ↗ <ArrowSquareOut size={12} />
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {driveLinks.length === 0 && (
+          <div className="text-sm py-4 text-center rounded-xl border" style={{ color: "#8B9E7A", borderColor: "#EDE9E3", background: "#FAFAF7" }}>
+            No Drive links synced yet.{isAdmin ? " Use Sync from Drive to pull links from the child's folder." : ""}
+          </div>
+        )}
+
+        {isAdmin && manualFields.map(f => (
           <div key={f.key} className="p-3 rounded-xl border" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
             <div className="flex items-center justify-between mb-1">
               <div className="text-sm font-bold" style={{ color: "#1C2617" }}>{f.label}</div>
               {att[f.key] && (
                 <a href={att[f.key]} target="_blank" rel="noreferrer" className="text-[11px] underline flex items-center gap-1" style={{ color: "#5C8A47" }}>
-                  Open in Drive ↗ <ArrowSquareOut size={12} />
+                  Open ↗ <ArrowSquareOut size={12} />
                 </a>
               )}
             </div>
             <div className="text-[10px] mb-2" style={{ color: "#9CA3AF" }}>{f.hint}</div>
-            {isAdmin ? (
-              <input data-testid={`att-${f.key}`} className="modal-input text-xs" placeholder="https://drive.google.com/..."
-                value={att[f.key]} onChange={e => setAtt(s => ({ ...s, [f.key]: e.target.value }))} />
-            ) : (
-              <div className="text-xs truncate" style={{ color: att[f.key] ? "#1C2617" : "#9CA3AF" }}>{att[f.key] || "— not provided —"}</div>
-            )}
+            <input data-testid={`att-${f.key}`} className="modal-input text-xs" placeholder="https://drive.google.com/..."
+              value={att[f.key]} onChange={e => setAtt(s => ({ ...s, [f.key]: e.target.value }))} />
+          </div>
+        ))}
+
+        {!isAdmin && manualFields.map(f => att[f.key] && (
+          <div key={f.key} className="p-3 rounded-xl border" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
+            <div className="text-sm font-bold mb-1" style={{ color: "#1C2617" }}>{f.label}</div>
+            <a href={att[f.key]} target="_blank" rel="noreferrer" className="text-xs underline" style={{ color: "#5C8A47" }}>{att[f.key]}</a>
           </div>
         ))}
       </div>
     </ModalBase>
+  );
+}
+
+function CaseSummaryView({ sections, url }) {
+  if (!sections?.length) {
+    return (
+      <div className="text-sm py-6 text-center rounded-xl border" style={{ color: "#8B9E7A", borderColor: "#EDE9E3", background: "#FAFAF7" }}>
+        No case summary content yet.{url ? " Open the linked document or sync from Drive." : " Add a Case Summary link in Records & Files."}
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-4">
+      {url && (
+        <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs underline" style={{ color: "#5C8A47" }}>
+          Open source document ↗ <ArrowSquareOut size={12} />
+        </a>
+      )}
+      {sections.map((sec, i) => (
+        <div key={i} className="rounded-xl border overflow-hidden" style={{ borderColor: "#E2DDD4" }}>
+          <div className="px-4 py-2 text-xs font-bold tracking-wide" style={{ background: "#EDF4E8", color: "#2C5035" }}>
+            {sec.heading || "Section"}
+          </div>
+          <div className="px-4 py-3 space-y-2 text-sm" style={{ background: "#FAFAF7", color: "#2C3625" }}>
+            {(sec.paragraphs || []).map((p, j) => (
+              <p key={j} className="leading-relaxed">{p}</p>
+            ))}
+            {(sec.bullets || []).length > 0 && (
+              <ul className="list-disc pl-5 space-y-1">
+                {sec.bullets.map((b, j) => <li key={j}>{b}</li>)}
+              </ul>
+            )}
+            {(sec.tables || []).map((table, ti) => (
+              <div key={ti} className="overflow-x-auto rounded-lg border" style={{ borderColor: "#E2DDD4" }}>
+                <table className="w-full text-xs">
+                  <tbody>
+                    {table.map((row, ri) => (
+                      <tr key={ri} style={{ background: ri === 0 ? "#E5EBE1" : "white" }}>
+                        {row.map((cell, ci) => (
+                          <td key={ci} className="px-3 py-2 border-b" style={{ borderColor: "#EDE9E3", fontWeight: ri === 0 ? 700 : 400 }}>
+                            {cell}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -439,6 +508,21 @@ function CaseDetailsPanelModal({ client, therapists, isAdmin, onClose, onSaved }
     locations: client.locations || [],
   });
   const [saving, setSaving] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [summary, setSummary] = useState({
+    sections: client.case_summary_sections?.sections || [],
+    url: client.case_summary_url || null,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    setSummaryLoading(true);
+    api.get(`/clients/${client.id}/case-summary`)
+      .then(r => { if (!cancelled) setSummary({ sections: r.data?.sections || [], url: r.data?.url || client.case_summary_url }); })
+      .catch(() => { if (!cancelled) setSummary({ sections: client.case_summary_sections?.sections || [], url: client.case_summary_url }); })
+      .finally(() => { if (!cancelled) setSummaryLoading(false); });
+    return () => { cancelled = true; };
+  }, [client.id, client.case_summary_url, client.case_summary_sections]);
 
   const save = async () => {
     setSaving(true);
@@ -459,7 +543,7 @@ function CaseDetailsPanelModal({ client, therapists, isAdmin, onClose, onSaved }
   );
 
   return (
-    <ModalBase title="Case Details" subtitle={`${client.name} · File #${client.file_no || "—"}`} onClose={onClose} size="lg"
+    <ModalBase title="Case Summary" subtitle={`${client.name} · File #${client.file_no || "—"}`} onClose={onClose} size="lg"
       footer={
         editing ? (
           <>
@@ -474,28 +558,54 @@ function CaseDetailsPanelModal({ client, therapists, isAdmin, onClose, onSaved }
         )
       }>
       {!editing ? (
-        <dl className="grid grid-cols-3 gap-y-1 text-sm">
-          <Field label="Full name"><span className="font-medium" style={{ color: "#1C2617" }}>{client.name}</span></Field>
-          <Field label="File number"><span className="font-medium" style={{ color: "#1C2617" }}>{client.file_no || "—"}</span></Field>
-          <Field label="Package hours"><span className="font-medium" style={{ color: "#1C2617" }}>{client.billing_mode === "weeks" ? `${client.cycle_weeks || 4}-week cycle` : `${client.package_hours || 24}h`}</span></Field>
-          <Field label="Main therapist"><span className="font-medium" style={{ color: "#1C2617" }}>{findT(client.main_therapist_id)?.name || "—"}</span></Field>
-          <Field label="Co-therapists"><span className="font-medium" style={{ color: "#1C2617" }}>{client.co_therapist_ids?.length ? client.co_therapist_ids.map(id => findT(id)?.name).filter(Boolean).join(", ") : "—"}</span></Field>
-          <Field label="Supervisor"><span className="font-medium" style={{ color: "#1C2617" }}>{client.supervisor || "—"}</span></Field>
-          <Field label="Service type"><span className="font-medium" style={{ color: "#1C2617" }}>{client.service_type || "—"}</span></Field>
-          <Field label="Status"><span className="font-medium" style={{ color: "#1C2617" }}>{client.status || "Active"}</span></Field>
-          <Field label="Age"><span className="font-medium" style={{ color: "#1C2617" }}>{client.age || "—"}</span></Field>
-          <Field label="Locations">
-            {client.locations?.length ? (
-              <div className="flex flex-wrap gap-1.5">
-                {client.locations.map((loc, i) => (
-                  <span key={i} className="pill text-[10px] px-2 py-1" style={{ background: "#F0E9D8", color: "#2C3625" }}>
-                    <strong>{loc.service}</strong> · {loc.address}
-                  </span>
-                ))}
+        <div className="space-y-6">
+          <dl className="grid grid-cols-3 gap-y-1 text-sm">
+            <Field label="Full name"><span className="font-medium" style={{ color: "#1C2617" }}>{client.name}</span></Field>
+            <Field label="File number"><span className="font-medium" style={{ color: "#1C2617" }}>{client.file_no || "—"}</span></Field>
+            <Field label="Package hours"><span className="font-medium" style={{ color: "#1C2617" }}>{client.billing_mode === "weeks" ? `${client.cycle_weeks || 4}-week cycle` : `${client.package_hours || 24}h`}</span></Field>
+            <Field label="Main therapist"><span className="font-medium" style={{ color: "#1C2617" }}>{findT(client.main_therapist_id)?.name || "—"}</span></Field>
+            <Field label="Co-therapists"><span className="font-medium" style={{ color: "#1C2617" }}>{client.co_therapist_ids?.length ? client.co_therapist_ids.map(id => findT(id)?.name).filter(Boolean).join(", ") : "—"}</span></Field>
+            <Field label="Supervisor"><span className="font-medium" style={{ color: "#1C2617" }}>{client.supervisor || "—"}</span></Field>
+            <Field label="Service type"><span className="font-medium" style={{ color: "#1C2617" }}>{client.service_type || "—"}</span></Field>
+            <Field label="Status"><span className="font-medium" style={{ color: "#1C2617" }}>{client.status || "Active"}</span></Field>
+            <Field label="Age"><span className="font-medium" style={{ color: "#1C2617" }}>{client.age || "—"}</span></Field>
+            <Field label="Locations">
+              {client.locations?.length ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {client.locations.map((loc, i) => (
+                    <span key={i} className="pill text-[10px] px-2 py-1" style={{ background: "#F0E9D8", color: "#2C3625" }}>
+                      <strong>{loc.service}</strong> · {loc.address}
+                    </span>
+                  ))}
+                </div>
+              ) : "—"}
+            </Field>
+          </dl>
+
+          <div>
+            {(client.drive_links?.filter(l => l.url && !/attendance/i.test(l.title || "")).length > 0) && (
+              <div className="mb-6">
+                <div className="text-xs font-bold mb-2 tracking-wide" style={{ color: "#8B9E7A" }}>DRIVE LINKS</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {client.drive_links.filter(l => l.url && !/attendance/i.test(l.title || "")).map((link, i) => (
+                    <a key={i} href={link.url} target="_blank" rel="noreferrer"
+                      className="p-3 rounded-xl border flex items-center justify-between gap-2 hover:bg-[#F5FAF3] transition"
+                      style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+                      <span className="text-sm font-medium truncate" style={{ color: "#2C3625" }}>{link.title}</span>
+                      <ArrowSquareOut size={14} style={{ color: "#5C8A47", flexShrink: 0 }} />
+                    </a>
+                  ))}
+                </div>
               </div>
-            ) : "—"}
-          </Field>
-        </dl>
+            )}
+            <div className="text-xs font-bold mb-3 tracking-wide" style={{ color: "#8B9E7A" }}>CASE SUMMARY</div>
+            {summaryLoading ? (
+              <div className="text-sm italic py-4 text-center" style={{ color: "#8B9E7A" }}>Loading case summary…</div>
+            ) : (
+              <CaseSummaryView sections={summary.sections} url={summary.url} />
+            )}
+          </div>
+        </div>
       ) : (
         <div className="space-y-4">
           <FormField label="Full name"><input className="modal-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></FormField>
@@ -552,367 +662,5 @@ function CaseDetailsPanelModal({ client, therapists, isAdmin, onClose, onSaved }
         </div>
       )}
     </ModalBase>
-  );
-}
-
-function ProgressReportPanelModal({ client, isAdmin, onClose }) {
-  return (
-    <ModalBase title="Progress Reports" subtitle={`${client.name} · File #${client.file_no || "—"}`} onClose={onClose} size="lg"
-      footer={<ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>}>
-      <ProgressReportsList clientId={client.id} fileNo={client.file_no} client={client} isAdmin={isAdmin} embedded />
-    </ModalBase>
-  );
-}
-
-
-const SUPERVISOR_CLIENTS = {
-  msMaha:  ["035","037","038","040","041","042","047","052","054","060","063","065","070"],
-  msFahda: ["009","011","018","023","024","027","030","034","061","062","068","072","079"],
-};
-
-function ProgressReportsList({ clientId, fileNo, client, isAdmin, embedded }) {
-  const { user } = useAuth();
-  const [items, setItems]    = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [adding, setAdding]  = useState(false);
-  const [draft, setDraft]    = useState({ title: "", report_date: "", notes: "", url: "" });
-  const [draftFile, setDraftFile] = useState(null);
-  const [editingLinkId, setEditingLinkId] = useState(null);
-  const [linkDraft, setLinkDraft] = useState("");
-  const [busy, setBusy]      = useState(null);
-
-  const isSupervisor = () => {
-    if (hasFullClientAccess(user)) return true;
-    if (isAdmin) return true;
-    if (!user) return false;
-    const key = user.key || "";
-    const fn = String(fileNo || "").padStart(3, "0");
-    return (SUPERVISOR_CLIENTS[key] || []).includes(fn);
-  };
-
-  const isAssigned = () => {
-    if (isAdmin) return true;
-    if (!user || !client) return false;
-    return client.main_therapist_id === user.id || (client.co_therapist_ids || []).includes(user.id);
-  };
-
-  const canAdd      = isAdmin || isSupervisor() || isAssigned();
-  const canUploaded = isAdmin || isSupervisor() || isAssigned();
-  const canReviewed = isAdmin || isSupervisor();
-  const canResolved = isAdmin || isSupervisor();
-  const canDeleteFile = isAdmin || isSupervisor() || isAssigned();
-  const canEditLink   = canUploaded;
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const { data } = await api.get(`/clients/${clientId}/progress-reports`);
-      setItems(data || []);
-    } catch (_) { setItems([]); }
-    finally { setLoading(false); }
-  };
-
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [clientId]);
-
-  const uploadFile = async (rid, file) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    await api.post(`/progress-reports/${rid}/file`, fd, { headers: { "Content-Type": "multipart/form-data" } });
-    await load();
-  };
-
-  const downloadFile = async (rid, fileName) => {
-    const res = await api.get(`/progress-reports/${rid}/file`, { responseType: "blob" });
-    const url = window.URL.createObjectURL(new Blob([res.data]));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName || "progress-report.pdf";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.URL.revokeObjectURL(url);
-  };
-
-  const deleteFile = async (rid) => {
-    if (!window.confirm("Delete this file?")) return;
-    setBusy(rid + "file");
-    try {
-      await api.delete(`/progress-reports/${rid}/file`);
-      await load();
-    } catch (e) {
-      alert("Failed: " + (e.response?.data?.detail || e.message));
-    } finally { setBusy(null); }
-  };
-
-  const saveDriveLink = async (rid, url) => {
-    setBusy(rid + "link");
-    try {
-      await api.put(`/progress-reports/${rid}/link`, { url: (url || "").trim() || null });
-      setEditingLinkId(null);
-      setLinkDraft("");
-      await load();
-    } catch (e) {
-      alert("Failed: " + (e.response?.data?.detail || e.message));
-    } finally { setBusy(null); }
-  };
-
-  const addReport = async () => {
-    if (!draft.title.trim()) { alert("Please enter a report title"); return; }
-    setBusy("add");
-    try {
-      const { data } = await api.post(`/clients/${clientId}/progress-reports`, {
-        ...draft, uploaded: false, reviewed: false, resolved: false,
-      });
-      if (draftFile && data?.id) {
-        await uploadFile(data.id, draftFile);
-      }
-      setDraft({ title: "", report_date: "", notes: "", url: "" });
-      setDraftFile(null);
-      setAdding(false);
-      await load();
-    } catch (e) {
-      alert("Failed: " + (e.response?.data?.detail || e.message));
-    } finally { setBusy(null); }
-  };
-
-  const toggleStep = async (rid, step, currentValue) => {
-    setBusy(rid + step);
-    try {
-      await api.put(`/progress-reports/${rid}/steps`, {
-        [step]: !currentValue,
-        [`${step}_by`]: user?.name || user?.email || "User",
-        [`${step}_at`]: new Date().toISOString(),
-      });
-      await load();
-    } catch (e) {
-      alert("Failed: " + (e.response?.data?.detail || e.message));
-    } finally { setBusy(null); }
-  };
-
-  const removeReport = async (rid) => {
-    if (!window.confirm("Delete this progress report?")) return;
-    setBusy(rid);
-    try { await api.delete(`/progress-reports/${rid}`); await load(); }
-    finally { setBusy(null); }
-  };
-
-  const StepBadge = ({ rid, step, label, value, enabled, by, at }) => {
-    const colors = {
-      uploaded: { on: "#D97706", bg: "#FEF3C7", border: "#FCD34D" },
-      reviewed: { on: "#2563EB", bg: "#DBEAFE", border: "#93C5FD" },
-      resolved: { on: "#16A34A", bg: "#DCFCE7", border: "#86EFAC" },
-    };
-    const c = colors[step];
-    const isBusy = busy === rid + step;
-    return (
-      <button
-        disabled={!enabled || isBusy}
-        onClick={() => enabled && toggleStep(rid, step, value)}
-        title={value && by ? `${label} by ${by}${at ? " · " + new Date(at).toLocaleDateString() : ""}` : (enabled ? `Mark as ${label}` : `Only supervisors can mark ${label}`)}
-        className="flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-bold transition-all"
-        style={{
-          background: value ? c.bg : "#F9F9F7",
-          color: value ? c.on : "#9CA3AF",
-          borderColor: value ? c.border : "#E5E7EB",
-          cursor: enabled ? "pointer" : "default",
-          opacity: (!enabled && !value) ? 0.45 : 1,
-        }}
-      >
-        <span style={{ fontSize: 13 }}>{isBusy ? "…" : value ? "✓" : "○"}</span>
-        {label}
-      </button>
-    );
-  };
-
-  return (
-    <div className={embedded ? "" : "p-3 rounded-xl border mt-3"} style={embedded ? undefined : { borderColor: "#E2DDD4" }}>
-      <div className="flex items-center justify-between mb-3">
-        {!embedded && (
-          <div>
-            <div className="text-sm font-bold" style={{ color: "#2C3625" }}>Progress Reports</div>
-            <div className="text-[10px]" style={{ color: "#8B9E7A" }}>
-              {items.length} report{items.length !== 1 ? "s" : ""}
-              {" · "}
-              <span style={{ color: "#D97706" }}>Uploaded</span>
-              {" → "}
-              <span style={{ color: "#2563EB" }}>Reviewed</span>
-              {" → "}
-              <span style={{ color: "#16A34A" }}>Resolved</span>
-            </div>
-          </div>
-        )}
-        {embedded && (
-          <div className="text-[10px] flex-1" style={{ color: "#8B9E7A" }}>
-            {items.length} report{items.length !== 1 ? "s" : ""} · click steps to update status
-          </div>
-        )}
-        {canAdd && !adding && (
-          <button onClick={() => setAdding(true)}
-            className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg border font-bold transition hover:bg-[#F0EDE9]"
-            style={{ borderColor: "#C4963A", color: "#C4963A", background: "#FBF3E2" }}>
-            + Add Report
-          </button>
-        )}
-      </div>
-
-      {adding && (
-        <div className="p-3 rounded-lg mb-3 space-y-2 border" style={{ background: "#FAFAF7", borderColor: "#E2DDD4" }}>
-          <input className="input text-xs w-full" placeholder="Report title (e.g. Progress Report — Apr 2026)"
-            value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} autoFocus />
-          <div className="flex gap-2 flex-wrap">
-            <input type="date" className="input text-xs flex-1 min-w-[140px]"
-              value={draft.report_date} onChange={e => setDraft({ ...draft, report_date: e.target.value })} />
-            <label className="text-xs px-3 py-2 rounded-lg border cursor-pointer flex items-center gap-1" style={{ borderColor: "#C4D4B8", color: "#3D5C3A", background: "#F5FAF3" }}>
-              📎 {draftFile ? draftFile.name : "Add File (optional)"}
-              <input type="file" accept=".pdf,.doc,.docx,image/*" className="hidden"
-                onChange={e => setDraftFile(e.target.files?.[0] || null)} />
-            </label>
-          </div>
-          <input className="input text-xs w-full" placeholder="Google Drive link — Word file for editing (optional)"
-            value={draft.url} onChange={e => setDraft({ ...draft, url: e.target.value })} />
-          <input className="input text-xs w-full" placeholder="Notes (optional)"
-            value={draft.notes} onChange={e => setDraft({ ...draft, notes: e.target.value })} />
-          <div className="flex justify-end gap-2 pt-1">
-            <button onClick={() => { setAdding(false); setDraft({ title: "", report_date: "", notes: "", url: "" }); setDraftFile(null); }}
-              className="text-xs px-3 py-1.5 rounded-lg border" style={{ borderColor: "#E2DDD4", color: "#6B7280" }}>
-              Cancel
-            </button>
-            <button onClick={addReport} disabled={busy === "add"}
-              className="text-xs px-3 py-1.5 rounded-lg font-bold"
-              style={{ background: "#3D5C3A", color: "white" }}>
-              {busy === "add" ? "Saving…" : "Save Report"}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {loading && <div className="text-xs italic py-3 text-center" style={{ color: "#8B9E7A" }}>Loading…</div>}
-      {!loading && items.length === 0 && (
-        <div className="text-xs italic py-4 text-center" style={{ color: "#B8C0AC" }}>
-          No progress reports yet
-        </div>
-      )}
-
-      <div className="space-y-2">
-        {items.map(r => (
-          <div key={r.id} className="p-3 rounded-lg border" style={{ borderColor: "#E2DDD4", background: "white" }}>
-            <div className="flex items-start justify-between mb-2">
-              <div className="flex-1 min-w-0">
-                <div className="font-bold text-xs" style={{ color: "#2C3625" }}>{r.title}</div>
-                <div className="text-[10px] flex items-center gap-2 mt-0.5" style={{ color: "#8B9E7A" }}>
-                  {r.report_date && <span>📅 {r.report_date}</span>}
-                  {r.notes && <span>· {r.notes}</span>}
-                </div>
-              </div>
-              <div className="flex items-center gap-1 ml-2 flex-shrink-0 flex-wrap justify-end">
-                {r.file_path || r.file_name ? (
-                  <>
-                    <button type="button" onClick={() => downloadFile(r.id, r.file_name)}
-                      className="text-[10px] px-1.5 py-0.5 rounded border underline"
-                      style={{ color: "#3D5C3A", borderColor: "#C4D4B8" }}>
-                      📄 {r.file_name || "Download"}
-                    </button>
-                    {r.file_uploaded_at && (
-                      <span className="text-[9px]" style={{ color: "#9CA3AF" }}>
-                        {new Date(r.file_uploaded_at).toLocaleDateString()}
-                      </span>
-                    )}
-                    {canDeleteFile && (
-                      <button type="button" onClick={() => deleteFile(r.id)} disabled={busy === r.id + "file"}
-                        className="text-[10px] px-1 py-0.5 rounded" style={{ color: "#DC2626" }}>Delete file</button>
-                    )}
-                  </>
-                ) : canUploaded ? (
-                  <label className="text-[10px] px-1.5 py-0.5 rounded border cursor-pointer"
-                    style={{ color: "#3D5C3A", borderColor: "#C4D4B8", background: "#F5FAF3" }}>
-                    Add File
-                    <input type="file" accept=".pdf,.doc,.docx,image/*" className="hidden"
-                      onChange={async e => {
-                        const f = e.target.files?.[0];
-                        if (!f) return;
-                        setBusy(r.id + "up");
-                        try { await uploadFile(r.id, f); }
-                        catch (err) { alert("Upload failed: " + (err.response?.data?.detail || err.message)); }
-                        finally { setBusy(null); e.target.value = ""; }
-                      }} />
-                  </label>
-                ) : null}
-                {(isAdmin || isSupervisor()) && (
-                  <button onClick={() => removeReport(r.id)} disabled={busy === r.id}
-                    className="text-[11px] px-1.5 py-0.5 rounded border ml-1"
-                    style={{ color: "#DC2626", borderColor: "#FCA5A5", background: "#FEF2F2" }}>
-                    ✕
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="flex gap-2 flex-wrap">
-              <StepBadge rid={r.id} step="uploaded" label="Uploaded"
-                value={r.uploaded} enabled={canUploaded}
-                by={r.uploaded_by} at={r.uploaded_at} />
-              <StepBadge rid={r.id} step="reviewed" label="Reviewed"
-                value={r.reviewed} enabled={canReviewed}
-                by={r.reviewed_by} at={r.reviewed_at} />
-              <StepBadge rid={r.id} step="resolved" label="Resolved"
-                value={r.resolved} enabled={canResolved}
-                by={r.resolved_by} at={r.resolved_at} />
-            </div>
-
-            <div className="mt-2 pt-2 border-t space-y-1.5" style={{ borderColor: "#F0EDE9" }}>
-              <div className="text-[10px] font-bold" style={{ color: "#5C6853" }}>
-                Word file (Drive link for editing)
-              </div>
-              {editingLinkId === r.id ? (
-                <div className="flex gap-1.5 flex-wrap">
-                  <input
-                    className="input text-xs flex-1 min-w-[200px]"
-                    placeholder="https://drive.google.com/file/d/..."
-                    value={linkDraft}
-                    onChange={e => setLinkDraft(e.target.value)}
-                    autoFocus
-                  />
-                  <button type="button" onClick={() => saveDriveLink(r.id, linkDraft)} disabled={busy === r.id + "link"}
-                    className="text-xs px-2 py-1 rounded-lg font-bold" style={{ background: "#3D5C3A", color: "white" }}>
-                    {busy === r.id + "link" ? "…" : "Save"}
-                  </button>
-                  <button type="button" onClick={() => { setEditingLinkId(null); setLinkDraft(""); }}
-                    className="text-xs px-2 py-1 rounded-lg border" style={{ borderColor: "#E2DDD4", color: "#6B7280" }}>
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 flex-wrap">
-                  {r.url ? (
-                    <a href={r.url} target="_blank" rel="noreferrer"
-                      className="text-[10px] px-1.5 py-0.5 rounded border underline flex items-center gap-1"
-                      style={{ color: "#3D5C3A", borderColor: "#C4D4B8" }}>
-                      Open in Drive ↗ <ArrowSquareOut size={10} />
-                    </a>
-                  ) : (
-                    <span className="text-[10px]" style={{ color: "#9CA3AF" }}>— no Drive link —</span>
-                  )}
-                  {canEditLink && (
-                    <button type="button" onClick={() => { setEditingLinkId(r.id); setLinkDraft(r.url || ""); }}
-                      className="text-[10px] px-1.5 py-0.5 rounded border"
-                      style={{ color: "#5C6853", borderColor: "#DDD8D0" }}>
-                      {r.url ? "Edit link" : "Add link"}
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {(r.uploaded_by || r.reviewed_by || r.resolved_by) && (
-              <div className="mt-2 text-[10px] space-y-0.5 pt-2 border-t" style={{ color: "#9CA3AF", borderColor: "#F0EDE9" }}>
-                {r.uploaded_by && <div>📤 Uploaded by <strong>{r.uploaded_by}</strong></div>}
-                {r.reviewed_by && <div>🔍 Reviewed by <strong>{r.reviewed_by}</strong></div>}
-                {r.resolved_by && <div>✅ Resolved by <strong>{r.resolved_by}</strong></div>}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
   );
 }

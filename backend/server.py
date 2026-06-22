@@ -9,7 +9,7 @@ import re
 import uuid
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import bcrypt
 import jwt
@@ -261,6 +261,9 @@ class ClientIn(BaseModel):
     attendance_sheet_url: Optional[str] = None
     progress_reports_url: Optional[str] = None
     case_summary_url: Optional[str] = None
+    drive_folder_id: Optional[str] = None
+    drive_links: Optional[List[dict]] = None
+    case_summary_sections: Optional[dict] = None
 
 class InvoiceIn(BaseModel):
     invoice_number: str  # manual entry, e.g. "INV 4042"
@@ -1795,7 +1798,7 @@ async def admin_clear_all_requests(body: ClearRequestsIn, _=Depends(admin_only))
 @api.get("/clients/{cid}/invoices")
 async def list_invoices(cid: str, service_type: Optional[str] = None, user=Depends(get_current_user)):
     items = await db.invoices.find({"client_id": cid}, {"_id": 0}).to_list(200)
-    items = _sort_invoices_by_date(items)
+    items = sorted(items, key=lambda i: (_invoice_num_key(i), (i.get("start_date") or i.get("created_at") or "")))
     if service_type:
         code = _normalize_service_type(service_type)
         if code:
@@ -2069,10 +2072,16 @@ async def billing_send_reminders(_=Depends(ops_or_admin)):
     return result
 
 # ------------------- Package status (last open invoice) -------------------
+def _invoice_num_key(inv: dict) -> int:
+    m = _INV_NUM_RE.search((inv.get("invoice_number") or "").strip())
+    return int(m.group(1)) if m else 0
+
+
 def _sort_invoices_by_date(invoices: list) -> list:
+    """Newest / highest INV number first (for open-invoice pickers)."""
     return sorted(
         invoices,
-        key=lambda i: (i.get("start_date") or i.get("created_at") or ""),
+        key=lambda i: (_invoice_num_key(i), (i.get("start_date") or i.get("created_at") or "")),
         reverse=True,
     )
 
@@ -2088,7 +2097,10 @@ def _last_open_invoice(invoices: list, service_code: str) -> Optional[dict]:
 
 def _sorted_invoices_for_client(client_id: str, invoices: list) -> list:
     client_invs = [i for i in (invoices or []) if i.get("client_id") == client_id]
-    return sorted(client_invs, key=lambda i: (i.get("start_date") or i.get("created_at") or ""))
+    return sorted(
+        client_invs,
+        key=lambda i: (_invoice_num_key(i), (i.get("start_date") or i.get("created_at") or "")),
+    )
 
 
 def _invoice_window_bounds(inv: dict, sorted_client_invoices: list) -> tuple:
@@ -2719,6 +2731,95 @@ async def sync_invoices_from_drive(cid: str, payload: SyncFromDriveIn, user=Depe
     return await _ingest_workbook_for_client(cid, client, wb, user["id"], origin="drive-sync")
 
 
+@api.post("/clients/{cid}/sync-drive-links")
+async def sync_client_drive_links(cid: str, user=Depends(ops_or_admin)):
+    """Crawl the client's Active Clients Drive folder for document links (excludes attendance sheets)."""
+    from drive_sync import (
+        extract_folder_id,
+        fetch_doc_text,
+        list_active_client_folders,
+        list_client_folder_links,
+        parse_case_summary_text,
+        ACTIVE_CLIENTS_FOLDER_ID,
+    )
+
+    client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    folder_id = client.get("drive_folder_id")
+    if not folder_id:
+        file_no = str(client.get("file_no") or "").strip().zfill(3)
+        for entry in list_active_client_folders(ACTIVE_CLIENTS_FOLDER_ID):
+            if entry["file_no"] == file_no:
+                folder_id = entry["folder_id"]
+                break
+    if not folder_id:
+        folder_id = extract_folder_id(client.get("drive_url") or "")
+    if not folder_id:
+        raise HTTPException(status_code=400, detail="No Drive folder found for this client")
+
+    meta = list_client_folder_links(folder_id)
+    patch = {
+        "drive_folder_id": folder_id,
+        "drive_url": meta.get("folder_url"),
+        "drive_links": meta.get("links") or [],
+    }
+    if meta.get("case_summary_url"):
+        patch["case_summary_url"] = meta["case_summary_url"]
+    if meta.get("intake_file_url"):
+        patch["intake_file_url"] = meta["intake_file_url"]
+
+    cs_url = meta.get("case_summary_url") or client.get("case_summary_url")
+    sections = None
+    if cs_url and "document" in cs_url:
+        try:
+            text = fetch_doc_text(cs_url)
+            sections = parse_case_summary_text(text)
+            patch["case_summary_sections"] = sections
+        except Exception as exc:
+            sections = {"error": str(exc)}
+
+    await db.clients.update_one({"id": cid}, {"$set": patch})
+    return {"ok": True, **meta, "case_summary_sections": sections}
+
+
+@api.get("/clients/{cid}/case-summary")
+async def get_client_case_summary(cid: str, refresh: bool = False, user=Depends(get_current_user)):
+    """Return structured case summary sections; optionally refresh from Google Doc."""
+    from drive_sync import fetch_doc_text, parse_case_summary_text, extract_doc_id
+
+    client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    url = (client.get("case_summary_url") or "").strip()
+    cached = client.get("case_summary_sections")
+
+    if refresh and url and extract_doc_id(url):
+        try:
+            text = fetch_doc_text(url)
+            sections = parse_case_summary_text(text)
+            await db.clients.update_one({"id": cid}, {"$set": {"case_summary_sections": sections}})
+            return {"url": url, "sections": sections.get("sections", []), "cached": False}
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Could not fetch case summary: {exc}")
+
+    if cached and cached.get("sections"):
+        return {"url": url or None, "sections": cached["sections"], "cached": True}
+
+    if url and extract_doc_id(url):
+        try:
+            text = fetch_doc_text(url)
+            sections = parse_case_summary_text(text)
+            await db.clients.update_one({"id": cid}, {"$set": {"case_summary_sections": sections}})
+            return {"url": url, "sections": sections.get("sections", []), "cached": False}
+        except Exception:
+            pass
+
+    return {"url": url or None, "sections": [], "cached": bool(cached)}
+
+
 class SyncActiveClientsIn(BaseModel):
     folder_url: Optional[str] = None
     file_nos: Optional[List[str]] = None
@@ -2736,8 +2837,11 @@ async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends
     from drive_sync import (
         ACTIVE_CLIENTS_FOLDER_ID,
         extract_folder_id,
+        fetch_doc_text,
         fetch_workbook_from_url,
         list_active_client_folders,
+        list_client_folder_links,
+        parse_case_summary_text,
         resolve_attendance_sheet_url,
     )
 
@@ -2765,15 +2869,36 @@ async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends
                 })
                 continue
             if body.dry_run:
+                link_meta = list_client_folder_links(entry["folder_id"])
                 results.append({
                     "file_no": file_no,
                     "client_name": client.get("name"),
                     "status": "dry_run",
                     "sheet_url": sheet_url,
+                    "drive_links": len(link_meta.get("links") or []),
+                    "case_summary_url": link_meta.get("case_summary_url"),
                 })
                 continue
             wb = fetch_workbook_from_url(sheet_url)
-            await db.clients.update_one({"id": client["id"]}, {"$set": {"attendance_sheet_url": sheet_url}})
+            link_meta = list_client_folder_links(entry["folder_id"])
+            client_patch = {
+                "attendance_sheet_url": sheet_url,
+                "drive_url": entry.get("folder_url") or link_meta.get("folder_url"),
+                "drive_folder_id": entry["folder_id"],
+                "drive_links": link_meta.get("links") or [],
+            }
+            if link_meta.get("case_summary_url"):
+                client_patch["case_summary_url"] = link_meta["case_summary_url"]
+            if link_meta.get("intake_file_url"):
+                client_patch["intake_file_url"] = link_meta["intake_file_url"]
+            cs_url = link_meta.get("case_summary_url") or client.get("case_summary_url")
+            if cs_url and "document" in cs_url:
+                try:
+                    text = fetch_doc_text(cs_url)
+                    client_patch["case_summary_sections"] = parse_case_summary_text(text)
+                except Exception:
+                    pass
+            await db.clients.update_one({"id": client["id"]}, {"$set": client_patch})
             ingest = await _ingest_workbook_for_client(
                 client["id"], client, wb, user["id"], origin="drive-bulk-sync"
             )
@@ -2782,6 +2907,7 @@ async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends
                 "client_name": client.get("name"),
                 "status": "synced",
                 "sheet_url": sheet_url,
+                "drive_links": len(link_meta.get("links") or []),
                 **ingest,
             })
         except Exception as exc:
@@ -3030,7 +3156,29 @@ async def admin_migrate_therapist_emails(_=Depends(admin_only)):
 
 
 _INV_SHEET_RE = _re_top.compile(r"^(copy of\s+)?inv[\s\-_]*\d+", _re_top.IGNORECASE)
+_INV_NUM_RE = _re_top.compile(r"inv[\s\-_]*(\d+)", _re_top.IGNORECASE)
 _HEADER_TOKENS = {"day", "days", "date", "status", "time", "hrs", "hours", "# of hrs", "therapist", "note", "notes"}
+_SKIP_TAB_HINTS = (
+    "summary", "info", "readme", "template", "cover", "index", "master",
+    "dashboard", "lookup", "archive", "settings", "data", "pivot",
+)
+
+
+def _invoice_number_from_name(name: str) -> Optional[str]:
+    sn = (name or "").strip()
+    m = _INV_NUM_RE.search(sn)
+    if not m:
+        return None
+    return f"INV{m.group(1)}"
+
+
+def _invoice_sort_key(name: str) -> int:
+    m = _INV_NUM_RE.search(name or "")
+    return int(m.group(1)) if m else 0
+
+
+def _is_copy_sheet_name(name: str) -> bool:
+    return (name or "").lower().startswith("copy of ")
 
 
 def _sheet_has_session_table(ws) -> bool:
@@ -3044,34 +3192,116 @@ def _sheet_has_session_table(ws) -> bool:
 
 
 def _discover_invoice_sheets(wb, client_file_no: str = None) -> list:
-    """Sheets named INV*, matching client file_no, or containing a session table header."""
-    out = []
+    """Invoice tabs only: INV-prefixed names or sheets whose header embeds an invoice number."""
+    candidates: List[str] = []
     fn_raw = (client_file_no or "").strip()
     fn_padded = fn_raw.zfill(3) if fn_raw else ""
     fn_stripped = fn_raw.lstrip("0") or fn_raw
-    skip_hints = ("summary", "info", "readme", "template", "cover", "index")
+
     for name in wb.sheetnames:
         sn = name.strip()
         sn_low = sn.lower()
-        if any(h in sn_low for h in skip_hints):
+        if any(h in sn_low for h in _SKIP_TAB_HINTS):
             continue
         if _INV_SHEET_RE.match(sn):
-            out.append(name)
+            candidates.append(name)
             continue
         sn_compact = _re_top.sub(r"[\s\-_]+", "", sn)
         if fn_padded and (fn_padded in sn_compact or (fn_stripped and fn_stripped in sn_compact)):
             try:
-                if _sheet_has_session_table(wb[name]):
-                    out.append(name)
+                ws = wb[name]
+                if _sheet_has_session_table(ws) and _invoice_number_from_name(sn):
+                    candidates.append(name)
                     continue
             except Exception:
                 pass
         try:
-            if _sheet_has_session_table(wb[name]):
-                out.append(name)
+            ws = wb[name]
+            if not _sheet_has_session_table(ws):
+                continue
+            header_info = _parse_invoice_header(ws, sn)
+            inv_from_header = header_info.get("invoice_number") or ""
+            if _invoice_number_from_name(inv_from_header) or _invoice_number_from_name(sn):
+                candidates.append(name)
         except Exception:
             continue
-    return out
+
+    # Deduplicate by invoice number — prefer non-"Copy of" tabs
+    by_num: Dict[str, str] = {}
+    for name in candidates:
+        inv = _invoice_number_from_name(name)
+        if not inv:
+            try:
+                inv = _invoice_number_from_name(
+                    (_parse_invoice_header(wb[name], name).get("invoice_number") or "")
+                )
+            except Exception:
+                inv = None
+        if not inv:
+            continue
+        prev = by_num.get(inv)
+        if not prev:
+            by_num[inv] = name
+        elif _is_copy_sheet_name(name) and not _is_copy_sheet_name(prev):
+            continue
+        elif not _is_copy_sheet_name(name) and _is_copy_sheet_name(prev):
+            by_num[inv] = name
+
+    return sorted(by_num.values(), key=_invoice_sort_key)
+
+
+async def _reconcile_invoices_after_sync(cid: str, synced_nums: set) -> dict:
+    """Drop duplicate/orphan invoices after Drive import; keep highest-session copy per INV number."""
+    if not synced_nums:
+        return {"removed": 0, "merged": 0}
+    all_invs = await db.invoices.find({"client_id": cid}, {"_id": 0}).to_list(500)
+    by_num: Dict[str, list] = {}
+    for inv in all_invs:
+        num = _invoice_number_from_name(inv.get("invoice_number") or "")
+        if num:
+            by_num.setdefault(num, []).append(inv)
+    removed = merged = 0
+    keep_by_num: Dict[str, str] = {}
+    for num, group in by_num.items():
+        if num not in synced_nums and len(group) == 1:
+            raw = group[0].get("invoice_number") or ""
+            if _re_top.match(r"^INV_[a-f0-9]{8}_\d+$", raw, _re_top.I):
+                await db.invoices.delete_one({"id": group[0]["id"]})
+                await db.sessions.delete_many({"invoice_id": group[0]["id"]})
+                removed += 1
+            continue
+        if len(group) < 2:
+            keep_by_num[num] = group[0]["id"]
+            continue
+        scored = []
+        for inv in group:
+            sess_n = await db.sessions.count_documents({"invoice_id": inv["id"]})
+            scored.append((sess_n, inv.get("created_at") or "", inv))
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        keep = scored[0][2]
+        keep_by_num[num] = keep["id"]
+        for _, _, dup in scored[1:]:
+            await db.sessions.update_many(
+                {"invoice_id": dup["id"]},
+                {"$set": {"invoice_id": keep["id"], "source_invoice": num}},
+            )
+            await db.invoices.delete_one({"id": dup["id"]})
+            removed += 1
+            merged += 1
+    for inv in all_invs:
+        raw = (inv.get("invoice_number") or "").strip()
+        if not _re_top.match(r"^INV_[a-f0-9]{8}_\d+$", raw, _re_top.I):
+            continue
+        norm = _invoice_number_from_name(inv.get("source_sheet") or "")
+        keep_id = keep_by_num.get(norm or "")
+        if norm and norm in synced_nums and keep_id and keep_id != inv["id"]:
+            await db.sessions.update_many(
+                {"invoice_id": inv["id"]},
+                {"$set": {"invoice_id": keep_id, "source_invoice": norm}},
+            )
+            await db.invoices.delete_one({"id": inv["id"]})
+            removed += 1
+    return {"removed": removed, "merged": merged}
 
 
 def _parse_invoice_header(ws, sheet_name: str = "") -> dict:
@@ -3260,7 +3490,10 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
         clean = name.strip()
         header_info = _parse_invoice_header(ws, clean)
         inv_num = header_info.get("invoice_number") or clean
-        if not _INV_SHEET_RE.match(inv_num):
+        normalized = _invoice_number_from_name(inv_num) or _invoice_number_from_name(clean)
+        if normalized:
+            inv_num = normalized
+        elif not _INV_SHEET_RE.match(inv_num):
             inv_num = f"INV_{cid[:8]}_{tab_idx + 1}"
         header_info["invoice_number"] = inv_num
         sheet_hs = sheet_ss = 0
@@ -3452,6 +3685,13 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
                 patch["week_number"] = None
             await db.sessions.update_one({"id": s["id"]}, {"$set": patch})
 
+    synced_nums = set()
+    for n in invoices_added + invoices_updated:
+        norm = _invoice_number_from_name(n)
+        if norm:
+            synced_nums.add(norm)
+    reconcile = await _reconcile_invoices_after_sync(cid, synced_nums)
+
     return {
         "matched_sheets": matched_sheets,
         "workbook_tabs": all_tabs,
@@ -3460,6 +3700,7 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
         "invoices_updated": invoices_updated,
         "sessions_added": sessions_added,
         "sessions_skipped_existing": sessions_skipped,
+        "invoices_reconciled": reconcile,
         "warning": (
             None if matched_sheets
             else f"No invoice sheets found. Tabs in file: {', '.join(all_tabs)}"

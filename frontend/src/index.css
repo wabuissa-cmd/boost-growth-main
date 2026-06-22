@@ -947,15 +947,27 @@ main, .page-enter { min-width: 0; }
 
 /* Print styles for Attendance invoice + Schedule */
 @media print {
-    @page { margin: 8mm; }
+    @page { margin: 6mm; size: A4 portrait; }
     body * { visibility: hidden; }
+    .invoice-print-root, .invoice-print-root *,
     .printable, .printable *,
     .schedule-printable, .schedule-printable * { visibility: visible; }
+    .modal-backdrop:not(.invoice-print-shell),
+    .fixed.inset-0.no-print { display: none !important; }
+    .invoice-print-shell {
+        display: block !important;
+        position: static !important;
+        background: white !important;
+        min-height: 0 !important;
+        padding: 0 !important;
+        align-items: flex-start !important;
+    }
+    .invoice-print-root,
     .printable,
     .schedule-printable {
-        position: static !important;
-        left: auto !important;
-        top: auto !important;
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
         width: 100% !important;
         max-width: none !important;
         max-height: none !important;
@@ -964,6 +976,10 @@ main, .page-enter { min-width: 0; }
         background: white !important;
         box-shadow: none !important;
         border: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        page-break-before: avoid !important;
+        page-break-after: avoid !important;
     }
     .schedule-printable {
         padding: 0 !important;
@@ -1004,14 +1020,25 @@ main, .page-enter { min-width: 0; }
         max-height: none !important;
         flex: none !important;
     }
-    .printable table { page-break-inside: auto; width: 100% !important; }
+    .printable table { page-break-inside: auto; width: 100% !important; font-size: 10px !important; }
     .printable tr { page-break-inside: avoid; page-break-after: auto; }
     .printable thead { display: table-header-group; }
+    .invoice-print-root .pill,
+    .invoice-print-root [style*="background"],
+    .printable .pill,
+    .printable [style*="background: #7A8A6A"],
+    .printable [style*="background: #EDF4E8"],
+    .printable [style*="background: #E5EBE1"],
+    .printable [style*="background: #FAFAF7"],
+    .printable [style*="background: #FAE8C8"],
+    .printable [style*="background: #F4EDE3"] {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
     .no-print,
     .app-sidebar,
     .mobile-nav-bar,
     .sidebar-toggle-btn { display: none !important; }
-    .fixed.inset-0 { position: static !important; background: white !important; }
 }
 
 /* Status badge bar at top of card */

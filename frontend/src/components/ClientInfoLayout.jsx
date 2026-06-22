@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import {
-  MapPin, Paperclip, ClipboardText, ChartLineUp,
+  MapPin, Paperclip, ClipboardText,
   Leaf, PencilSimple, CaretRight, Trash,
 } from "@phosphor-icons/react";
 import { getChildColor, readable } from "../childColors";
@@ -39,13 +39,12 @@ function MiniPkgBar({ row }) {
 
 const SECTIONS = [
   { id: "location", icon: MapPin, title: "Locations", desc: "Home, school & clinic addresses" },
-  { id: "attachments", icon: Paperclip, title: "Attachments", desc: "Documents & uploaded files" },
+  { id: "attachments", icon: Paperclip, title: "Records & files", desc: "Drive links, intake & case documents" },
   { id: "details", icon: ClipboardText, title: "Case summary", desc: "Diagnosis, goals & clinical notes" },
-  { id: "progress", icon: ChartLineUp, title: "Progress reports", desc: "Development milestones & reports" },
 ];
 
 export default function ClientInfoLayout({
-  clients, selectedId, onSelect, pkgByClient, findTherapist, prSummaries, counts,
+  clients, selectedId, onSelect, pkgByClient, findTherapist, counts,
   isAdmin, hasOps, canDeleteClient, onOpenSection, onEdit, onRemove, onBilling,
 }) {
   const selected = useMemo(
@@ -61,7 +60,7 @@ export default function ClientInfoLayout({
   const track = selected ? prepTrackMeta(selected) : null;
   const statusMeta = selected ? cardStatusMeta(selected.cardStatus || "ok") : null;
   const therapistName = selected ? findTherapist(selected.main_therapist_id)?.name?.replace("Ms. ", "") : "";
-  const prCount = selected ? prSummaries?.[selected.id]?.count : 0;
+  const driveLinkCount = selected ? (selected.drive_links?.length || 0) : 0;
   const avatarBg = selected ? (getChildColor(selected.name) || selected.color || "#E5EBE1") : "#E5EBE1";
 
   if (!clients.length) {
@@ -161,7 +160,9 @@ export default function ClientInfoLayout({
                 <div className="ci-timeline-list">
                   {SECTIONS.map((s, i) => {
                     const Icon = s.icon;
-                    const desc = s.id === "progress" && prCount > 0 ? `${prCount} report(s) on file` : s.desc;
+                    const desc = s.id === "attachments" && driveLinkCount > 0
+                      ? `${driveLinkCount} Drive link${driveLinkCount !== 1 ? "s" : ""} on file`
+                      : s.desc;
                     return (
                       <button key={s.id} type="button" className="ci-timeline-item" onClick={() => onOpenSection(s.id)}>
                         <div className="ci-timeline-rail">

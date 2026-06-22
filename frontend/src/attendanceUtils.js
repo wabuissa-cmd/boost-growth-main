@@ -198,11 +198,21 @@ export function filterSessionsForInvoice(sessions, invoice, allInvoices = []) {
   return sortSessionsByDateAsc(out);
 }
 
+/** Numeric key from invoice_number (e.g. INV0490 → 490). */
+export function invoiceNumberSortKey(inv) {
+  const m = String(inv?.invoice_number || "").match(/inv[\s\-_]*(\d+)/i);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+/** Chronological invoice order — lowest INV number first (history top → bottom). */
 export function sortInvoicesByRecent(invoiceList) {
   return [...(invoiceList || [])].sort((a, b) => {
+    const na = invoiceNumberSortKey(a);
+    const nb = invoiceNumberSortKey(b);
+    if (na !== nb) return na - nb;
     const da = a.start_date || a.created_at || "";
     const db = b.start_date || b.created_at || "";
-    return String(db).localeCompare(String(da));
+    return String(da).localeCompare(String(db));
   });
 }
 
@@ -615,7 +625,7 @@ export function inferDefaultServiceType(allInvoices, client, user, sessions) {
 export function pickLatestOpenInvoice(invoiceList) {
   const sorted = sortInvoicesByRecent(invoiceList);
   const open = sorted.filter(i => !i.is_closed);
-  return open[0] || sorted[0] || null;
+  return open[open.length - 1] || sorted[sorted.length - 1] || null;
 }
 
 export function hasOpenInvoice(invoiceList) {

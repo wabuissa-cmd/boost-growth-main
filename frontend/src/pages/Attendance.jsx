@@ -1164,8 +1164,8 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   const savedExportCols = sheetColIds;
 
   return (
-    <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-2 z-50" onClick={onClose}>
-      <div className="card p-0 relative w-full max-w-4xl modal-card max-h-[80vh] flex flex-col printable" onClick={e=>e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/40 modal-backdrop invoice-print-shell flex items-center justify-center p-2 z-50" onClick={onClose}>
+      <div className="card p-0 relative w-full max-w-4xl modal-card max-h-[80vh] flex flex-col invoice-print-root printable" onClick={e=>e.stopPropagation()}>
         <button
           type="button"
           onClick={onClose}
