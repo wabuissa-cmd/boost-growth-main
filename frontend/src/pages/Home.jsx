@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import api, { startOfWeek, toISODate, addDays } from "../api";
 import { cachedGet } from "../dataCache";
 import { useAuth, showAdminNav, hasOpsAccess } from "../auth";
 import {
   CalendarBlank, ClipboardText, UsersThree, ListChecks, Plant, ArrowRight,
-  CheckCircle, Clock, XCircle, CalendarCheck, Warning, Receipt, ChartBar, Heart,
+  CheckCircle, Clock, XCircle, CalendarCheck, Heart,
   Leaf, FileText,
 } from "@phosphor-icons/react";
 import { quoteOfTheDay } from "../data/quotes";
@@ -13,6 +13,8 @@ import DashboardStatCard from "../components/DashboardStatCard";
 import CreativeSection from "../components/CreativeSection";
 import TherapistWeekCalendar from "../components/TherapistWeekCalendar";
 import PlatformUpdates from "../components/PlatformUpdates";
+import AdminRemindersPanel, { buildAdminReminders } from "../components/AdminRemindersPanel";
+import { saudiGreeting, saudiDateString } from "../saudiGreeting";
 import "../dashboardLayout.css";
 
 const HERO_OPTIONS = [
@@ -55,6 +57,10 @@ export default function Home() {
   const [updates, setUpdates] = useState([]);
   const [personalEvents, setPersonalEvents] = useState([]);
   const [heroImageId, setHeroImageId] = useState(() => loadHeroPreference(user));
+  const [notifications, setNotifications] = useState([]);
+  const [billingSummary, setBillingSummary] = useState(null);
+  const [pendingLeaves, setPendingLeaves] = useState(0);
+  const [newIntake, setNewIntake] = useState(0);
 
   useEffect(() => {
     setHeroImageId(loadHeroPreference(user));
@@ -83,7 +89,7 @@ export default function Home() {
         const todayDayIdx = jsDow <= 4 ? jsDow : -1;
         const asList = (r) => (Array.isArray(r?.data) ? r.data : Array.isArray(r) ? r : []);
 
-        const [c, t, r, s, sess, pkg, clos, ups] = await Promise.all([
+        const [c, t, r, s, sess, pkg, clos, ups, notifs, billing, leaves, intake] = await Promise.all([
           cachedGet("/clients").catch(() => []),
           cachedGet("/therapists").catch(() => []),
           cachedGet("/requests").catch(() => []),
@@ -92,6 +98,10 @@ export default function Home() {
           cachedGet("/clients/package-status").catch(() => []),
           api.get("/schedule/closures", { params: { from_date: weekISO, to_date: weekEndISO } }).catch(() => ({ data: [] })),
           api.get("/center-updates").catch(() => ({ data: [] })),
+          isPortalAdminUser ? api.get("/notifications").catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+          isPortalAdminUser && opsAccess ? api.get("/billing/dashboard").catch(() => ({ data: null })) : Promise.resolve({ data: null }),
+          isPortalAdminUser ? api.get("/leaves").catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+          isPortalAdminUser ? api.get("/intake").catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
         ]);
 
         const clientsList = asList({ data: c });
@@ -100,10 +110,16 @@ export default function Home() {
         const schedule = asList({ data: s });
         const sessions = asList({ data: sess });
         const pkgRows = asList({ data: pkg });
+        const leavesList = asList(leaves);
+        const intakeList = asList(intake);
         setClients(clientsList);
         setScheduleCells(schedule);
         setClosures(asList(clos));
         setUpdates(asList(ups));
+        setNotifications(asList(notifs));
+        setBillingSummary(billing?.data || null);
+        setPendingLeaves(leavesList.filter(l => l.status === "pending").length);
+        setNewIntake(intakeList.filter(i => (i.status || "new") === "new").length);
 
         setPkgAlerts({
           critical: pkgRows.filter(x => x.status === "critical" || x.status === "expired").length,
@@ -138,21 +154,34 @@ export default function Home() {
         });
       } catch (_e) { /* ignore */ }
     })();
-  }, [user?.id, isPortalAdminUser, user, weekISO, weekEndISO]);
+  }, [user?.id, isPortalAdminUser, user, weekISO, weekEndISO, opsAccess]);
+
+  const adminReminders = useMemo(
+    () => buildAdminReminders({
+      notifications,
+      pkgAlerts,
+      pendingRequests: stats.requests,
+      billing: billingSummary,
+      pendingLeaves,
+      newIntake,
+    }),
+    [notifications, pkgAlerts, stats.requests, billingSummary, pendingLeaves, newIntake]
+  );
 
   useEffect(() => { if (!isPortalAdminUser) loadPersonal(); }, [weekISO, weekEndISO, isPortalAdminUser]);
 
   const displayName = user?.name?.replace(/^Ms\.?\s*/i, "") || "Friend";
-  const dateStr = new Date().toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const dateStr = isPortalAdminUser
+    ? saudiDateString()
+    : new Date().toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   const adminFeatures = [
     { to: "/schedule", icon: CalendarBlank, title: "Weekly Schedule", desc: "Plan sessions, manage closures, and publish the team calendar.", color: "rgba(237,225,201,0.65)", iconColor: "#2F4A35", featured: true },
     { to: "/attendance", icon: ClipboardText, title: "Session Preparation", desc: "Daily prep sheets, progress tracking, and session logging.", color: "rgba(107,143,113,0.18)", iconColor: "#2F4A35" },
     { to: "/clients", icon: UsersThree, title: "Client Portfolios", desc: "Profiles, locations, packages, and progress reports.", color: "#fff", iconColor: "#6B8F71" },
-    { to: "/reports", icon: ChartBar, title: "Reports & Analytics", desc: "Center-wide performance, hours, and package health.", color: "#fff", iconColor: "#5A7D60" },
   ];
 
-  const HeroBanner = ({ compact }) => (
+  const HeroBanner = ({ compact, adminGreeting }) => (
     <header className="portal-hero">
       <div className="portal-hero-bg" style={{ backgroundImage: `url(${heroImage})` }} aria-hidden />
       <div className="portal-hero-overlay" aria-hidden />
@@ -176,7 +205,9 @@ export default function Home() {
           <Leaf size={14} weight="fill" /> Boost Growth · Staff Portal
         </div>
         <h1 className="portal-hero-title">
-          {compact ? (
+          {adminGreeting ? (
+            <><span className="portal-hero-accent">{adminGreeting}</span></>
+          ) : compact ? (
             <>Hello, <span className="portal-hero-accent">{displayName}</span></>
           ) : (
             <>Welcome back, <span className="portal-hero-accent">{displayName}</span></>
@@ -216,39 +247,25 @@ export default function Home() {
     <div className="page-enter">
       {isPortalAdminUser ? (
         <>
-          <HeroBanner />
-
-          {opsAccess && (pkgAlerts.critical > 0 || pkgAlerts.low > 0) && (
-            <div className="card p-4 mb-4 flex flex-wrap items-center justify-between gap-3 border-2" style={{ borderColor: "#E5C387", background: "#FFFBF3" }}>
-              <div className="flex items-start gap-2">
-                <Warning size={22} weight="duotone" style={{ color: "#6B5218" }} />
-                <div>
-                  <div className="ui-title-sm" style={{ color: "#6B5218" }}>Package attention needed</div>
-                  <div className="ui-caption mt-0.5">
-                    {pkgAlerts.critical > 0 && <span><strong>{pkgAlerts.critical}</strong> critical · </span>}
-                    {pkgAlerts.low > 0 && <span><strong>{pkgAlerts.low}</strong> running low</span>}
-                  </div>
-                </div>
-              </div>
-              <div className="flex gap-2 flex-wrap">
-                <Link to="/attendance" className="btn btn-primary text-xs min-h-[40px]">Open Attendance</Link>
-                {opsAccess && <Link to="/billing" className="btn btn-outline text-xs min-h-[40px]"><Receipt size={14}/> Billing</Link>}
-              </div>
-            </div>
-          )}
+          <HeroBanner adminGreeting={saudiGreeting(displayName)} />
 
           <CreativeSection title="Explore the portal" subtitle="Tools to run the center with clarity and care">
-            <div className="home-feature-grid stagger">
-              {adminFeatures.map(f => (
-                <Link key={f.to} to={f.to} className={`home-feature-card${f.featured ? " featured" : ""}`} data-testid={`home-feature-${f.to.slice(1)}`}>
-                  <div className="home-feature-icon" style={{ background: f.color, color: f.iconColor }}>
-                    <f.icon size={24} weight="duotone" />
-                  </div>
-                  <div className="home-feature-title">{f.title}</div>
-                  <div className="home-feature-desc">{f.desc}</div>
-                  <span className="home-feature-link">Open <ArrowRight size={14} /></span>
-                </Link>
-              ))}
+            <div className="home-explore-split">
+              <div className="home-explore-updates">
+                <PlatformUpdates items={updates} canPost onPosted={loadUpdates} />
+              </div>
+              <div className="home-feature-stack">
+                {adminFeatures.map(f => (
+                  <Link key={f.to} to={f.to} className={`home-feature-card${f.featured ? " featured" : ""}`} data-testid={`home-feature-${f.to.slice(1)}`}>
+                    <div className="home-feature-icon" style={{ background: f.color, color: f.iconColor }}>
+                      <f.icon size={24} weight="duotone" />
+                    </div>
+                    <div className="home-feature-title">{f.title}</div>
+                    <div className="home-feature-desc">{f.desc}</div>
+                    <span className="home-feature-link">Open <ArrowRight size={14} /></span>
+                  </Link>
+                ))}
+              </div>
             </div>
           </CreativeSection>
 
@@ -293,12 +310,6 @@ export default function Home() {
         </>
       )}
 
-      {isPortalAdminUser && (
-        <div className="mb-4 max-w-md">
-          <PlatformUpdates items={updates} canPost onPosted={loadUpdates} />
-        </div>
-      )}
-
       <div className="grid md:grid-cols-2 gap-4">
         <div className="card p-5 rounded-[22px]">
           <div className="dash-section-title mb-3">Quick Links</div>
@@ -315,12 +326,16 @@ export default function Home() {
             </Link>
           )}
         </div>
+        {isPortalAdminUser ? (
+          <AdminRemindersPanel items={adminReminders} />
+        ) : (
         <div className="card p-5 relative overflow-hidden rounded-[22px]" data-testid="daily-quote">
           <div className="absolute -top-3 -right-3 opacity-10"><Plant size={130} weight="duotone"/></div>
           <div className="text-[10px] tracking-[0.2em] font-bold mb-2 relative" style={{color: "#6B8F71"}}>QUOTE OF THE DAY</div>
           <p className="text-base leading-relaxed relative italic" style={{color: "#2C3625"}}>&ldquo;{quote.text}&rdquo;</p>
           <div className="text-xs mt-3 relative" style={{color: "#8B9E7A"}}>— {quote.by}</div>
         </div>
+        )}
       </div>
     </div>
   );
