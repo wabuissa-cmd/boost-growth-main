@@ -2700,31 +2700,110 @@ async def sync_invoices_from_drive(cid: str, payload: SyncFromDriveIn, user=Depe
     public xlsx export endpoint (no OAuth needed): 
         https://docs.google.com/spreadsheets/d/{ID}/export?format=xlsx
     """
+    from drive_sync import fetch_workbook_from_url, extract_sheet_id
     import re as _re
-    import io
-    import urllib.request
-    import openpyxl
+
     client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     url = (payload.drive_url or "").strip()
     if not url:
         raise HTTPException(status_code=400, detail="drive_url is required")
-    m = _re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", url) or _re.search(r"[?&]id=([a-zA-Z0-9-_]+)", url)
-    if not m:
+    if not extract_sheet_id(url):
         raise HTTPException(status_code=400, detail="Could not extract Google Sheets ID from URL. Make sure it is a /spreadsheets/d/<id>/... link.")
-    sheet_id = m.group(1)
-    export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
     try:
-        req = urllib.request.Request(export_url, headers={"User-Agent": "Mozilla/5.0 BoostGrowthSync/1.0"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            content = resp.read()
-        wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+        wb = fetch_workbook_from_url(url)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not fetch sheet from Drive (make sure 'Anyone with the link' has view access): {e}")
-    # Persist the source URL on the client for next time.
     await db.clients.update_one({"id": cid}, {"$set": {"attendance_sheet_url": url}})
     return await _ingest_workbook_for_client(cid, client, wb, user["id"], origin="drive-sync")
+
+
+class SyncActiveClientsIn(BaseModel):
+    folder_url: Optional[str] = None
+    file_nos: Optional[List[str]] = None
+    dry_run: bool = False
+
+
+@api.post("/admin/sync-active-clients-from-drive")
+async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends(ops_or_admin)):
+    """Bulk-sync attendance workbooks from the Active Clients Drive folder.
+
+    Each subfolder is named like ``009 | Child Name``. Inside, we locate the
+    Attendance Sheets subfolder and import the newest attendance spreadsheet
+    (prefers tabs whose title contains the latest year, e.g. 2026).
+    """
+    from drive_sync import (
+        ACTIVE_CLIENTS_FOLDER_ID,
+        extract_folder_id,
+        fetch_workbook_from_url,
+        list_active_client_folders,
+        resolve_attendance_sheet_url,
+    )
+
+    parent_id = extract_folder_id(body.folder_url or "") or ACTIVE_CLIENTS_FOLDER_ID
+    folders = list_active_client_folders(parent_id)
+    if body.file_nos:
+        wanted = {str(x).strip().zfill(3) for x in body.file_nos if str(x).strip()}
+        folders = [f for f in folders if f["file_no"] in wanted]
+
+    results: List[dict] = []
+    for entry in folders:
+        file_no = entry["file_no"]
+        client = await _find_client_by_file_no(file_no)
+        if not client:
+            results.append({"file_no": file_no, "status": "skipped", "reason": "client not in portal"})
+            continue
+        try:
+            sheet_url = resolve_attendance_sheet_url(entry["folder_id"])
+            if not sheet_url:
+                results.append({
+                    "file_no": file_no,
+                    "client_name": client.get("name"),
+                    "status": "skipped",
+                    "reason": "no attendance spreadsheet found in Drive folder",
+                })
+                continue
+            if body.dry_run:
+                results.append({
+                    "file_no": file_no,
+                    "client_name": client.get("name"),
+                    "status": "dry_run",
+                    "sheet_url": sheet_url,
+                })
+                continue
+            wb = fetch_workbook_from_url(sheet_url)
+            await db.clients.update_one({"id": client["id"]}, {"$set": {"attendance_sheet_url": sheet_url}})
+            ingest = await _ingest_workbook_for_client(
+                client["id"], client, wb, user["id"], origin="drive-bulk-sync"
+            )
+            results.append({
+                "file_no": file_no,
+                "client_name": client.get("name"),
+                "status": "synced",
+                "sheet_url": sheet_url,
+                **ingest,
+            })
+        except Exception as exc:
+            results.append({
+                "file_no": file_no,
+                "client_name": client.get("name"),
+                "status": "error",
+                "error": str(exc),
+            })
+
+    synced = sum(1 for r in results if r.get("status") == "synced")
+    skipped = sum(1 for r in results if r.get("status") == "skipped")
+    errors = sum(1 for r in results if r.get("status") == "error")
+    return {
+        "ok": True,
+        "parent_folder_id": parent_id,
+        "total_folders": len(folders),
+        "synced": synced,
+        "skipped": skipped,
+        "errors": errors,
+        "results": results,
+    }
 
 
 # ---------- Workbook parser shared by both sync endpoints ----------

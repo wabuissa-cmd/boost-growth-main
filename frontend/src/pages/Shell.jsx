@@ -83,7 +83,8 @@ export default function Shell() {
   // ── Grouped navigation
   const operationsItems = [
     { to: "/schedule", label: "Schedule", testid: "nav-schedule", icon: <CalendarBlank size={18} weight="duotone"/> },
-    { to: "/attendance", label: "Attendance", testid: "nav-attendance", icon: <ClipboardText size={18} weight="duotone"/> },
+    { to: "/attendance", label: "Session Preparation", testid: "nav-attendance", icon: <ClipboardText size={18} weight="duotone"/> },
+    ...(showBilling ? [{ to: "/billing", label: "Billing & Payments", testid: "nav-billing", icon: <Receipt size={18} weight="duotone"/> }] : []),
     { to: "/clients", label: "Client Info", testid: "nav-clients", icon: <UsersThree size={18} weight="duotone"/> },
   ];
 
@@ -112,9 +113,6 @@ export default function Shell() {
   }
 
   const financeItems = [];
-  if (showBilling) {
-    financeItems.push({ to: "/billing", label: "Billing", testid: "nav-billing", icon: <Receipt size={17} weight="duotone"/> });
-  }
   if (portalAdmin) {
     financeItems.push({ to: "/purchases", label: "Purchases", testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> });
   }

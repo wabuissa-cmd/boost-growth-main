@@ -1,7 +1,7 @@
 /** Excel schedule row order (matches master therapist list). */
 export const THERAPIST_SCHEDULE_ORDER = [
   "msmaha", "msfahda", "msrazan", "msmanal", "msasma", "mshajer", "msrahaf",
-  "msshatha", "msalhanouf", "mswaad", "msbodoor", "msfatimah", "msshoroq",
+  "msshatha", "msalhanouf", "mswaad", "msnajla", "msbodoor", "msfatimah", "msshoroq",
   "msabeer", "msjenan",
 ];
 
@@ -16,7 +16,8 @@ export const THERAPIST_FAMILY_NAMES = {
   msRahaf: "Aljuhani",
   msShatha: "Alhammami",
   msAlhanouf: "Alromman",
-  msWaad: "Alhamad",
+  msWaad: "Alhamed",
+  msNajla: "Alhamad",
   msBodoor: "Alkhlifah",
   msFatimah: "Alkhater",
   msShrooq: "Alamri",
@@ -38,8 +39,10 @@ export function therapistFamilyName(key) {
 
 export function getTherapistScheduleName(t) {
   if (!t) return "";
-  const family = therapistFamilyName(t.key);
   const first = (t.name || "").replace(/^Ms\.?\s*/i, "").trim();
+  const firstLower = first.toLowerCase();
+  if (firstLower === "najla") return "Najla Alhamad";
+  const family = therapistFamilyName(t.key);
   if (family) return `${first} ${family}`;
   return first || t.name || "";
 }

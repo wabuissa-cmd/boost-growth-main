@@ -149,6 +149,14 @@ a.dash-stat-card:hover {
   color: #fff;
 }
 .portal-hero-accent { color: var(--brand-sage, #8FB396); }
+.portal-hero-greeting {
+  color: #fff;
+  font-weight: 700;
+}
+.portal-hero-name {
+  color: var(--brand-sage, #A8D4B0);
+  font-weight: 700;
+}
 .portal-hero-lead {
   font-size: clamp(0.88rem, 1.8vw, 1rem);
   color: rgba(255, 255, 255, 0.82);

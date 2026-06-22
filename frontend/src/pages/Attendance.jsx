@@ -5,7 +5,7 @@ import { useAuth, showAdminNav } from "../auth";
 import {
   MagnifyingGlass, Plus, X, Trash, PencilSimple, ClipboardText, ClockCounterClockwise,
   CheckCircle, Prohibit, Warning, XCircle, Clock, MapPin, Printer, FileXls,
-  Receipt, ArrowsCounterClockwise, CalendarBlank, CaretDown
+  Receipt, ArrowsCounterClockwise, CalendarBlank, CaretDown, Download
 } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
@@ -940,7 +940,6 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
     if (selectedInvoiceId === iid) setSelectedInvoiceId("");
   };
 
-  // Sync invoices from an uploaded client workbook (.xlsx) — reads sheet names matching INV pattern.
   const syncFromExcel = async (file) => {
     if (!file) return;
     const fd = new FormData();
@@ -967,6 +966,35 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
       alert(lines.join("\n"));
     } catch (e) {
       alert("Sync failed: " + (e?.response?.data?.detail || e.message));
+    }
+  };
+
+  const syncFromDrive = async () => {
+    const url = (client.attendance_sheet_url || client.drive_url || "").trim();
+    if (!url) {
+      alert("No attendance sheet URL on this client. Run Import → Sync Active Clients from Drive, or add the URL in Client Info.");
+      return;
+    }
+    try {
+      const r = await api.post(`/clients/${client.id}/invoices/sync-from-drive`, { drive_url: url });
+      const {
+        invoices_added = [], invoices_updated = [], sessions_added = 0,
+        sessions_skipped_existing = 0, matched_sheets = [], workbook_tabs = [],
+        warning = null,
+      } = r.data || {};
+      const list = await loadInvoices();
+      setAllInvoices(list);
+      const lines = [
+        warning || `Invoice sheets detected: ${matched_sheets.length}`,
+        matched_sheets.length ? `Sheets: ${matched_sheets.join(", ")}` : (workbook_tabs.length ? `Tabs: ${workbook_tabs.join(", ")}` : ""),
+        `Invoices added: ${invoices_added.length}`,
+        `Invoices updated: ${invoices_updated.length}`,
+        `Sessions added: ${sessions_added}`,
+        `Sessions skipped: ${sessions_skipped_existing}`,
+      ].filter(Boolean);
+      alert(lines.join("\n"));
+    } catch (e) {
+      alert("Drive sync failed: " + (e?.response?.data?.detail || e.message));
     }
   };
 
@@ -1194,6 +1222,8 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                        onChange={e => { const f = e.target.files?.[0]; if (f) { syncFromExcel(f); } e.target.value = ""; }}/>
                 <button data-testid="sync-xlsx-btn" onClick={() => document.getElementById(`sync-xlsx-${client.id}`).click()}
                         className="btn btn-secondary text-xs min-h-[44px] min-w-[44px]"><FileXls size={14}/> Sync from Excel</button>
+                <button data-testid="sync-drive-btn" type="button" onClick={syncFromDrive}
+                        className="btn btn-outline text-xs min-h-[44px]"><Download size={14}/> Sync from Drive</button>
               </>
             )}
             {isAdmin && (

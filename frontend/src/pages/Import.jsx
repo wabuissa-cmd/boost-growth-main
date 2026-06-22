@@ -18,6 +18,11 @@ export default function ImportPage() {
   const [restoreResult, setRestoreResult] = useState(null);
   const [dedupeResult, setDedupeResult] = useState(null);
   const [deduping, setDeduping] = useState(false);
+  const [activeClientsFolderUrl, setActiveClientsFolderUrl] = useState(
+    "https://drive.google.com/drive/folders/1iMDwfucwzsEIl9WxwhJi_h6tg2vVtAFr"
+  );
+  const [driveSyncResult, setDriveSyncResult] = useState(null);
+  const [driveSyncing, setDriveSyncing] = useState(false);
 
   const dedupeIntake = async () => {
     if (!window.confirm("Remove duplicate intake records (same child name + type)?")) return;
@@ -129,6 +134,25 @@ export default function ImportPage() {
       setRestoreResult({ message: e.response?.data?.detail || e.message, ok: false });
     }
     setLoading(false);
+  };
+
+  const syncActiveClientsFromDrive = async (dryRun = false) => {
+    if (!dryRun && !window.confirm(
+      "Sync attendance workbooks for all active clients from Google Drive?\n\n"
+      + "This imports invoices + prep sessions from each child's Attendance Sheet (newest year)."
+    )) return;
+    setDriveSyncing(true);
+    setDriveSyncResult(null);
+    try {
+      const { data } = await api.post("/admin/sync-active-clients-from-drive", {
+        folder_url: activeClientsFolderUrl.trim() || undefined,
+        dry_run: dryRun,
+      });
+      setDriveSyncResult(data);
+    } catch (e) {
+      setDriveSyncResult({ ok: false, message: e.response?.data?.detail || e.message });
+    }
+    setDriveSyncing(false);
   };
 
   return (
@@ -271,6 +295,53 @@ export default function ImportPage() {
           )}
         </div>
       )}
+
+      <div className="card p-6 mt-5 border-2" style={{ borderColor: "#B4C2A9" }}>
+        <div className="font-bold mb-1" style={{ color: "#2C3625" }}>Sync Active Clients — Attendance & Invoices</div>
+        <div className="text-sm mb-4" style={{ color: "#5C6853" }}>
+          Reads each child folder in the Active Clients Drive folder, finds their Attendance Sheet (2026 preferred),
+          and imports invoices + prep sessions into Session Preparation. Package low/critical alerts update automatically.
+        </div>
+        <label className="label">Active Clients folder URL</label>
+        <input
+          type="url"
+          className="input mb-3 text-sm"
+          value={activeClientsFolderUrl}
+          onChange={e => setActiveClientsFolderUrl(e.target.value)}
+          placeholder="https://drive.google.com/drive/folders/..."
+        />
+        <div className="flex flex-wrap gap-2 mb-3">
+          <button type="button" onClick={() => syncActiveClientsFromDrive(true)} disabled={driveSyncing}
+            className="btn btn-outline text-sm disabled:opacity-50">
+            {driveSyncing ? <span className="spinner" /> : "Preview (dry run)"}
+          </button>
+          <button type="button" onClick={() => syncActiveClientsFromDrive(false)} disabled={driveSyncing}
+            className="btn btn-primary text-sm disabled:opacity-50">
+            {driveSyncing ? <span className="spinner" /> : <><Download size={16} /> Sync all from Drive</>}
+          </button>
+        </div>
+        {driveSyncResult && (
+          <div className="text-xs p-3 rounded-xl space-y-2" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+            {driveSyncResult.message && <div>{driveSyncResult.message}</div>}
+            {driveSyncResult.synced != null && (
+              <div>
+                <strong>{driveSyncResult.synced}</strong> synced · {driveSyncResult.skipped} skipped · {driveSyncResult.errors} errors
+                {" "}({driveSyncResult.total_folders} folders)
+              </div>
+            )}
+            {Array.isArray(driveSyncResult.results) && driveSyncResult.results.length > 0 && (
+              <div className="max-h-48 overflow-y-auto space-y-1 mt-2">
+                {driveSyncResult.results.map((r) => (
+                  <div key={r.file_no} className="flex justify-between gap-2 border-b border-[#D4DEC8] py-1">
+                    <span>{r.file_no} {r.client_name || ""}</span>
+                    <span className="font-semibold">{r.status}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="card p-6 mt-5 border-2" style={{ borderColor: "#C9BB91" }}>
         <div className="font-bold mb-1" style={{ color: "#2C3625" }}>Restore Official Clients (25)</div>

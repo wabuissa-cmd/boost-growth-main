@@ -1036,7 +1036,7 @@ export default function Schedule() {
                 <input data-testid="schedule-search-input" className="input pl-7 py-1 text-[11px] min-h-0 h-7" placeholder="Search therapist…" value={search} onChange={e => setSearch(e.target.value)} />
               </div>
             )}
-            {canNotifySchedule && !isAdmin && (
+            {canNotifySchedule && (
               <button
                 type="button"
                 data-testid="parent-whatsapp-messages-btn"
@@ -1048,7 +1048,7 @@ export default function Schedule() {
                 title="Generate parent WhatsApp messages for this week"
               >
                 <WhatsappLogo size={14} weight="fill" />
-                Parent Messages
+                Parent WhatsApp
               </button>
             )}
             {isAdmin && (
@@ -1069,13 +1069,6 @@ export default function Schedule() {
                     <button type="button" onClick={() => { setShowHolidays(true); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start min-h-[36px]">Official holidays</button>
                     <button type="button" onClick={() => { setDraft(); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start min-h-[36px]">Save as Draft</button>
                     <button type="button" onClick={() => { publishWeek(); setAdminEditsOpen(false); }} className="btn btn-primary text-xs w-full justify-start min-h-[36px]">Publish Week</button>
-                    <button
-                      type="button"
-                      onClick={() => { setParentMessagesNote(""); setParentMessagesOpen(true); setAdminEditsOpen(false); }}
-                      className="btn btn-outline text-xs w-full justify-start min-h-[36px]"
-                    >
-                      <WhatsappLogo size={14} weight="fill" /> Parent WhatsApp Messages
-                    </button>
                     <button
                       type="button"
                       data-testid="duplicate-week-btn"

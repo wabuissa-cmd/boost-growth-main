@@ -22,6 +22,13 @@ export function saudiGreeting(name) {
   return first ? `${saudiGreetingPrefix()}, ${first}` : saudiGreetingPrefix();
 }
 
+export function saudiGreetingParts(name) {
+  return {
+    prefix: saudiGreetingPrefix(),
+    name: (name || "").trim() || null,
+  };
+}
+
 /** Gregorian calendar date in English (portal standard). */
 export function saudiDateString() {
   return new Intl.DateTimeFormat("en-US", {

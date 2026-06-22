@@ -14,7 +14,7 @@ import CreativeSection from "../components/CreativeSection";
 import TherapistWeekCalendar from "../components/TherapistWeekCalendar";
 import PlatformUpdates from "../components/PlatformUpdates";
 import AdminRemindersPanel, { buildAdminReminders } from "../components/AdminRemindersPanel";
-import { saudiGreeting, saudiDateString } from "../saudiGreeting";
+import { saudiGreetingParts, saudiDateString } from "../saudiGreeting";
 import "../dashboardLayout.css";
 
 const HERO_OPTIONS = [
@@ -181,7 +181,7 @@ export default function Home() {
     { to: "/clients", icon: UsersThree, title: "Client Portfolios", desc: "Profiles, locations, packages, and progress reports.", color: "#fff", iconColor: "#6B8F71" },
   ];
 
-  const HeroBanner = ({ compact, adminGreeting }) => (
+  const HeroBanner = ({ compact, greetingParts }) => (
     <header className="portal-hero">
       <div className="portal-hero-bg" style={{ backgroundImage: `url(${heroImage})` }} aria-hidden />
       <div className="portal-hero-overlay" aria-hidden />
@@ -205,12 +205,20 @@ export default function Home() {
           <Leaf size={14} weight="fill" /> Boost Growth · Staff Portal
         </div>
         <h1 className="portal-hero-title">
-          {adminGreeting ? (
-            <><span className="portal-hero-accent">{adminGreeting}</span></>
+          {greetingParts ? (
+            <>
+              <span className="portal-hero-greeting">{greetingParts.prefix}</span>
+              {greetingParts.name && (
+                <>
+                  {", "}
+                  <span className="portal-hero-name">{greetingParts.name}</span>
+                </>
+              )}
+            </>
           ) : compact ? (
-            <>Hello, <span className="portal-hero-accent">{displayName}</span></>
+            <>Hello, <span className="portal-hero-name">{displayName}</span></>
           ) : (
-            <>Welcome back, <span className="portal-hero-accent">{displayName}</span></>
+            <>Welcome back, <span className="portal-hero-name">{displayName}</span></>
           )}
         </h1>
         <p className="portal-hero-lead">
@@ -242,12 +250,7 @@ export default function Home() {
     <div className="page-enter">
       {isPortalAdminUser ? (
         <>
-          <HeroBanner adminGreeting={saudiGreeting(displayName)} />
-
-          <div className="home-admin-panels">
-            <PlatformUpdates items={updates} canPost onPosted={loadUpdates} />
-            <AdminRemindersPanel items={adminReminders} />
-          </div>
+          <HeroBanner greetingParts={saudiGreetingParts(displayName)} />
 
           <CreativeSection title="Explore the portal" subtitle="Tools to run the center with clarity and care">
             <div className="home-feature-grid stagger">
@@ -263,6 +266,11 @@ export default function Home() {
               ))}
             </div>
           </CreativeSection>
+
+          <div className="home-admin-panels">
+            <PlatformUpdates items={updates} canPost onPosted={loadUpdates} />
+            <AdminRemindersPanel items={adminReminders} />
+          </div>
 
           <CreativeSection title="This week at a glance">
             <div className="dash-stat-row stagger mb-4">
