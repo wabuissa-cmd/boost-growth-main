@@ -18,9 +18,10 @@ import { saudiGreetingParts, saudiDateString } from "../saudiGreeting";
 import "../dashboardLayout.css";
 
 const HERO_OPTIONS = [
-  { id: "none", src: null, label: "Plain" },
-  { id: "blocks", src: "/service-outdoor.jpg", label: "Building blocks" },
-  { id: "reading", src: "/service-home.jpg", label: "Reading story" },
+  { id: "none", src: null, label: "Plain", style: "plain" },
+  { id: "olive", src: null, label: "Olive", style: "olive" },
+  { id: "blocks", src: "/service-outdoor.jpg", label: "Building blocks", style: "image" },
+  { id: "reading", src: "/service-home.jpg", label: "Reading story", style: "image" },
 ];
 
 const LEGACY_HERO_MAP = {
@@ -81,7 +82,8 @@ export default function Home() {
   };
 
   const heroOption = HERO_OPTIONS.find(o => o.id === heroImageId) || HERO_OPTIONS[0];
-  const heroImage = heroOption.src;
+  const heroImage = heroOption.style === "image" ? heroOption.src : null;
+  const heroStyle = heroOption.style || (heroImage ? "image" : "plain");
   const loadUpdates = () => api.get("/center-updates").then(r => setUpdates(Array.isArray(r.data) ? r.data : [])).catch(() => {});
   const loadPersonal = () => api.get("/calendar/personal", { params: { from_date: weekISO, to_date: weekEndISO } })
     .then(r => setPersonalEvents(Array.isArray(r.data) ? r.data : [])).catch(() => {});
@@ -190,7 +192,7 @@ export default function Home() {
   ];
 
   const HeroBanner = ({ compact, greetingParts }) => (
-    <header className={`portal-hero${heroImage ? "" : " portal-hero-plain"}`}>
+    <header className={`portal-hero${heroStyle === "plain" ? " portal-hero-plain" : ""}${heroStyle === "olive" ? " portal-hero-olive" : ""}`}>
       {heroImage && (
         <div className="portal-hero-bg" style={{ backgroundImage: `url(${heroImage})` }} aria-hidden />
       )}
@@ -199,13 +201,13 @@ export default function Home() {
           <button
             key={o.id}
             type="button"
-            className={`portal-hero-picker-btn${heroImageId === o.id ? " active" : ""}${o.src ? "" : " plain"}`}
+            className={`portal-hero-picker-btn${heroImageId === o.id ? " active" : ""}${o.style === "plain" ? " plain" : ""}${o.style === "olive" ? " olive" : ""}`}
             onClick={() => selectHeroImage(o.id)}
             aria-label={o.label}
             aria-pressed={heroImageId === o.id}
             title={o.label}
           >
-            {o.src ? <img src={o.src} alt="" /> : <span className="portal-hero-picker-plain" aria-hidden />}
+            {o.style === "image" && o.src ? <img src={o.src} alt="" /> : o.style === "olive" ? <span className="portal-hero-picker-olive" aria-hidden /> : <span className="portal-hero-picker-plain" aria-hidden />}
           </button>
         ))}
       </div>
@@ -298,7 +300,7 @@ export default function Home() {
             <div className="dash-stat-row stagger mb-4">
               <DashboardStatCard to="/schedule" variant="sage" value={stats.weekSessions} label="Sessions scheduled" desc={`${stats.weekHours}h total`} icon={<CalendarBlank size={22} weight="fill" style={{ color: "#2F4A35", background: "rgba(237,225,201,0.65)", borderRadius: 14, padding: 8 }} />} testId="home-tile-schedule" />
               <DashboardStatCard to="/clients" value={stats.clients} label="Active clients" icon={<UsersThree size={22} weight="fill" style={{ color: "#6B8F71", background: "#F7F3EB", borderRadius: 14, padding: 8 }} />} testId="home-tile-clients" />
-              <DashboardStatCard to="/requests" variant="gold" value={stats.requests} label="Pending requests" icon={<ListChecks size={22} weight="fill" style={{ color: "#965132", background: "#F0E0D4", borderRadius: 14, padding: 8 }} />} testId="home-tile-requests" />
+              <DashboardStatCard to="/staff-leave?tab=staff" variant="gold" value={stats.requests} label="Pending requests" icon={<ListChecks size={22} weight="fill" style={{ color: "#965132", background: "#F0E0D4", borderRadius: 14, padding: 8 }} />} testId="home-tile-requests" />
               <DashboardStatCard to="/attendance" value={stats.therapists} label="Team therapists" icon={<Heart size={22} weight="fill" style={{ color: "#6B8F71", background: "rgba(237,225,201,0.5)", borderRadius: 14, padding: 8 }} />} testId="home-tile-attendance" />
             </div>
           </CreativeSection>

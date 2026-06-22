@@ -102,14 +102,10 @@ export default function Shell() {
     { to: "/my-reports", label: "My Report", testid: "nav-my-reports" },
   ] : [];
 
-  // HR — staff requests & leave tools (no billing/purchases)
+  // HR — staff requests & leave tools (single page with tabs)
   const requestsItems = [];
-  if (staffRequestsAccess) {
-    requestsItems.push({ to: "/requests", label: "Staff Requests", testid: "nav-requests" });
-  }
-  if (leaveManager) {
-    requestsItems.push({ to: "/leaves", label: "Leave Requests", testid: "nav-leave-requests" });
-    requestsItems.push({ to: "/leave-balance", label: "Leave Balance", testid: "nav-leave-balance" });
+  if (staffRequestsAccess || leaveManager) {
+    requestsItems.push({ to: "/staff-leave", label: "Staff & Leave", testid: "nav-staff-leave" });
   }
 
   const financeItems = [];
@@ -135,9 +131,7 @@ export default function Shell() {
   const homeLink = baseLinks[0];
   const hrNavItems = requestsItems.map(it => ({
     ...it,
-    icon: it.to === "/leave-balance"
-      ? <UserList size={17} weight="duotone"/>
-      : <ListChecks size={17} weight="duotone"/>,
+    icon: <ListChecks size={17} weight="duotone"/>,
   }));
 
   const personalNavItems = myPortalItems.map(it => ({

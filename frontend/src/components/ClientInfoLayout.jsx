@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   MapPin, Paperclip, ClipboardText,
   Leaf, PencilSimple, CaretRight, Trash,
@@ -45,7 +45,7 @@ const SECTIONS = [
 
 export default function ClientInfoLayout({
   clients, selectedId, onSelect, pkgByClient, findTherapist, counts,
-  isAdmin, hasOps, canDeleteClient, onOpenSection, onEdit, onRemove, onBilling,
+  isAdmin, hasOps, canDeleteClient, onOpenSection, onEdit, onRemove, onBilling, onPhoneSave,
 }) {
   const selected = useMemo(
     () => clients.find(c => c.id === selectedId) || clients[0] || null,
@@ -62,6 +62,26 @@ export default function ClientInfoLayout({
   const therapistName = selected ? findTherapist(selected.main_therapist_id)?.name?.replace("Ms. ", "") : "";
   const driveLinkCount = selected ? (selected.drive_links?.length || 0) : 0;
   const avatarBg = selected ? (getChildColor(selected.name) || selected.color || "#E5EBE1") : "#E5EBE1";
+  const canEditPhone = isAdmin || hasOps;
+  const [phoneDraft, setPhoneDraft] = useState("");
+  const [phoneEditing, setPhoneEditing] = useState(false);
+  const [phoneSaving, setPhoneSaving] = useState(false);
+
+  useEffect(() => {
+    setPhoneDraft(selected?.parent_phone || "");
+    setPhoneEditing(false);
+  }, [selected?.id, selected?.parent_phone]);
+
+  const savePhone = async () => {
+    if (!selected || !onPhoneSave) return;
+    setPhoneSaving(true);
+    try {
+      await onPhoneSave(selected, phoneDraft.trim());
+      setPhoneEditing(false);
+    } finally {
+      setPhoneSaving(false);
+    }
+  };
 
   if (!clients.length) {
     return <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>No clients match your filters.</div>;
@@ -121,7 +141,33 @@ export default function ClientInfoLayout({
                     <dt>File</dt><dd>#{selected.file_no || "—"}</dd>
                     <dt>Status</dt><dd>{selected.status || "Active"}</dd>
                     <dt>Therapist</dt><dd>{therapistName || "—"}</dd>
-                    <dt>Phone</dt><dd>{selected.parent_phone || "—"}</dd>
+                    <dt>Phone</dt>
+                    <dd>
+                      {phoneEditing ? (
+                        <span className="flex items-center gap-1 flex-wrap">
+                          <input
+                            className="text-xs border rounded-lg px-2 py-1 min-w-[120px]"
+                            style={{ borderColor: "#C4D4B8" }}
+                            value={phoneDraft}
+                            onChange={e => setPhoneDraft(e.target.value)}
+                            placeholder="05xxxxxxxx"
+                          />
+                          <button type="button" className="text-[10px] font-bold px-2 py-0.5 rounded" style={{ background: "#7A8A6A", color: "#fff" }} onClick={savePhone} disabled={phoneSaving}>
+                            {phoneSaving ? "…" : "Save"}
+                          </button>
+                          <button type="button" className="text-[10px] underline" style={{ color: "#8B9E7A" }} onClick={() => { setPhoneEditing(false); setPhoneDraft(selected.parent_phone || ""); }}>Cancel</button>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1">
+                          {selected.parent_phone || "—"}
+                          {canEditPhone && onPhoneSave && (
+                            <button type="button" className="text-[10px] underline" style={{ color: "#5C8A47" }} onClick={() => setPhoneEditing(true)}>
+                              {selected.parent_phone ? "Edit" : "Add"}
+                            </button>
+                          )}
+                        </span>
+                      )}
+                    </dd>
                     <dt>Age</dt><dd>{selected.age || "—"}</dd>
                     <dt>Supervisor</dt><dd>{selected.supervisor || "—"}</dd>
                   </dl>

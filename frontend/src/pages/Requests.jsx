@@ -53,7 +53,7 @@ function emptyLeaveForm() {
   return { therapist_id: "", start_date: today, end_date: today, days: 1, leave_type: "Annual", notes: "" };
 }
 
-export default function Requests({ personal = false }) {
+export default function Requests({ personal = false, embedded = false }) {
   const { user } = useAuth();
   const canManageReq = !personal && canEditStaffRequests(user);
   const leaveHr = !personal && canManageLeaves(user);
@@ -156,6 +156,7 @@ export default function Requests({ personal = false }) {
 
   return (
     <div>
+      {!embedded && (
       <PageBanner
         title={canManageReq ? "Staff Requests" : "My Requests"}
         subtitle={canManageReq ? "Materials, general & session-related requests — leave tools on the right" : "Submit and track your staff requests"}
@@ -175,6 +176,7 @@ export default function Requests({ personal = false }) {
           { label: "Done", n: doneCount, color: "#3D4F35" },
         ]}
       />
+      )}
 
       <div className="req-split">
         <section className="req-panel-left">

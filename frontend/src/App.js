@@ -19,6 +19,7 @@ const Reports = lazy(() => import("./pages/Reports"));
 const ImportPage = lazy(() => import("./pages/Import"));
 const LeaveBalance = lazy(() => import("./pages/LeaveBalance"));
 const LeaveRequests = lazy(() => import("./pages/LeaveRequests"));
+const StaffLeave = lazy(() => import("./pages/StaffLeave"));
 const Billing = lazy(() => import("./pages/Billing"));
 const TherapistMyReports = lazy(() => import("./pages/TherapistMyReports"));
 const Purchases = lazy(() => import("./pages/Purchases"));
@@ -76,6 +77,14 @@ function IntakeAccess({ children }) {
   return children;
 }
 
+function StaffLeaveAccess({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <Loading/>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!canEditStaffRequests(user) && !canManageLeaves(user)) return <Navigate to="/home" replace />;
+  return children;
+}
+
 function AppRoutes() {
   const { user } = useAuth();
   return (
@@ -97,17 +106,18 @@ function AppRoutes() {
         <Route path="/my-requests" element={<TherapistRequests/>}/>
         <Route path="/my-reports" element={<TherapistMyReports/>}/>
         <Route path="/my-leaves" element={<Navigate to="/my-requests" replace/>}/>
-        <Route path="/requests" element={<ClientLeadOrAdmin><Requests/></ClientLeadOrAdmin>}/>
+        <Route path="/staff-leave" element={<StaffLeaveAccess><StaffLeave/></StaffLeaveAccess>}/>
+        <Route path="/requests" element={<Navigate to="/staff-leave?tab=staff" replace/>}/>
         <Route path="/directory" element={<Directory/>}/>
         <Route path="/resources" element={<Resources/>}/>
         <Route path="/reports" element={<AdminOnly><Reports/></AdminOnly>}/>
         <Route path="/import" element={<AdminOnly><ImportPage/></AdminOnly>}/>
         <Route path="/admin" element={<AdminOnly><Admin/></AdminOnly>}/>
-        <Route path="/leave-balance" element={<LeaveManagerOnly><LeaveBalance/></LeaveManagerOnly>}/>
+        <Route path="/leave-balance" element={<Navigate to="/staff-leave?tab=balance" replace/>}/>
         <Route path="/purchases" element={<AdminOnly><Purchases/></AdminOnly>}/>
-        <Route path="/leaves" element={<LeaveManagerOnly><LeaveRequests/></LeaveManagerOnly>}/>
-        <Route path="/leave-requests" element={<Navigate to="/leaves" replace/>}/>
-        <Route path="/therapist-leaves" element={<Navigate to="/leave-balance" replace/>}/>
+        <Route path="/leaves" element={<Navigate to="/staff-leave?tab=leave-requests" replace/>}/>
+        <Route path="/leave-requests" element={<Navigate to="/staff-leave?tab=leave-requests" replace/>}/>
+        <Route path="/therapist-leaves" element={<Navigate to="/staff-leave?tab=balance" replace/>}/>
       </Route>
       <Route path="*" element={<Navigate to="/home" replace/>}/>
     </Routes>

@@ -154,6 +154,10 @@ export default function Clients() {
         onEdit={(c) => setEdit({ ...c, co_therapist_ids: c.co_therapist_ids || [], locations: c.locations || [] })}
         onRemove={remove}
         onBilling={() => selectedClient && navigate(`/billing?client=${selectedClient.id}`)}
+        onPhoneSave={async (client, phone) => {
+          await api.put(`/clients/${client.id}`, { ...client, parent_phone: phone || null });
+          await load();
+        }}
       />
 
       {panelClient?.section === "location" && (

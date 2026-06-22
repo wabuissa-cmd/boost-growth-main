@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
-import { Plus, Trash, PencilSimple, Star, Phone, MapPin, Info } from "@phosphor-icons/react";
+import { Plus, Trash, PencilSimple, Star, Phone, MapPin, Info, ArrowsClockwise } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -9,6 +9,8 @@ import {
 import PageBanner from "../components/PageBanner";
 import "../clientInfoLayout.css";
 import "../dashboardLayout.css";
+
+const WAITING_LIST_SHEET_URL = "https://docs.google.com/spreadsheets/d/14DLxQZOWSRnS_4kWeOsgKfpYMQiZ6hQiv2be_-J_hBg/edit";
 
 const STATUS = { new: "New", contacted: "Contacted", scheduled: "Scheduled", completed: "Completed" };
 const STATUS_COLORS = {
@@ -30,6 +32,8 @@ export default function Intake() {
   const [edit, setEdit] = useState(null);
   const [tab, setTab] = useState("pre");
   const [priorityOnly, setPriorityOnly] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
 
   const load = async () => {
     try {
@@ -45,6 +49,20 @@ export default function Intake() {
     setEdit(null); load();
   };
   const remove = async (id) => { if (!window.confirm("Delete this record?")) return; await api.delete(`/intake/${id}`); load(); };
+
+  const syncFromGoogle = async () => {
+    if (!window.confirm("Sync waiting list from the official Google Sheet?\n\nExisting cases will be updated by child name + pre/post type.")) return;
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const { data } = await api.post("/import/intake-google", { sheet_url: WAITING_LIST_SHEET_URL });
+      setSyncResult({ ok: true, msg: data.message || "Sync complete" });
+      load();
+    } catch (e) {
+      setSyncResult({ ok: false, msg: e.response?.data?.detail || e.message });
+    }
+    setSyncing(false);
+  };
 
   const moveToPost = async (item) => {
     if (!window.confirm(`Move "${item.child_name}" to Post-Intake?\n\nThe original Pre-Intake record will be kept for reference.`)) return;
@@ -91,6 +109,12 @@ export default function Intake() {
         subtitle="Pre-Intake & Post-Intake registrations"
         badge={isAdmin ? (
           <div className="flex gap-2 flex-wrap justify-end">
+            <button type="button" onClick={syncFromGoogle} disabled={syncing} className="btn btn-outline text-[11px] px-2.5 py-1 min-h-0 border-white/40 text-white hover:bg-white/10">
+              {syncing ? <span className="spinner" /> : <><ArrowsClockwise size={13} /> Sync Sheet</>}
+            </button>
+            <a href={WAITING_LIST_SHEET_URL} target="_blank" rel="noreferrer" className="btn btn-outline text-[11px] px-2.5 py-1 min-h-0 border-white/40 text-white hover:bg-white/10 no-underline">
+              Open Sheet
+            </a>
             <button data-testid="add-pre-intake" onClick={() => setEdit(emptyItem("pre"))} className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0">
               <Plus size={13} /> Pre-Intake
             </button>
@@ -106,6 +130,12 @@ export default function Intake() {
           { label: "Priority", n: priCount, color: "#6B5218" },
         ]}
       />
+
+      {syncResult && (
+        <div className={`mb-4 p-3 rounded-xl border text-sm font-semibold ${syncResult.ok ? "bg-[#E5EBE1] border-[#B4C2A9] text-[#3D4F35]" : "bg-[#F8EBE7] border-[#ECA6A6] text-[#8A3F27]"}`}>
+          {syncResult.msg}
+        </div>
+      )}
 
       <div className="req-split">
         <section className="req-panel-left">

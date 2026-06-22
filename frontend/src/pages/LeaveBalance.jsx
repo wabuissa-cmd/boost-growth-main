@@ -4,7 +4,7 @@ import { useAuth, showAdminNav } from "../auth";
 import api from "../api";
 import LeaveBalanceTable from "../components/LeaveBalanceTable";
 
-export default function LeaveBalance() {
+export default function LeaveBalance({ embedded = false }) {
   const { user } = useAuth();
   const isAdmin = showAdminNav(user);
   const currentYear = new Date().getFullYear();
@@ -27,6 +27,7 @@ export default function LeaveBalance() {
 
   return (
     <div>
+      {!embedded && (
       <PageBanner
         title="Leave Balance"
         subtitle="Annual leave balances — HR overview"
@@ -36,6 +37,7 @@ export default function LeaveBalance() {
           </select>
         )}
       />
+      )}
 
       <LeaveBalanceTable year={year} leaves={leaves} showYearSelect={false} onRefresh={load} />
     </div>

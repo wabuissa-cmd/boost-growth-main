@@ -104,6 +104,27 @@ a.dash-stat-card:hover {
 .portal-hero-plain {
   background: linear-gradient(165deg, #FFFCF7 0%, #F3EFE8 55%, #EAE4DA 100%);
 }
+.portal-hero-olive {
+  background: linear-gradient(135deg, #8B9E7A 0%, #7A8A6A 42%, #606E52 100%);
+}
+.portal-hero-olive .portal-hero-eyebrow {
+  color: rgba(255, 255, 255, 0.82);
+}
+.portal-hero-olive .portal-hero-greeting {
+  color: #2F4A35;
+  text-shadow: 0 1px 8px rgba(255, 255, 255, 0.35);
+}
+.portal-hero-olive .portal-hero-name {
+  color: #fff;
+  text-shadow: 0 2px 12px rgba(47, 74, 53, 0.45);
+}
+.portal-hero-olive .portal-hero-lead,
+.portal-hero-olive .portal-hero-date {
+  color: rgba(255, 255, 255, 0.9);
+}
+.portal-hero-olive .portal-hero-logo img {
+  filter: drop-shadow(0 4px 14px rgba(30, 40, 25, 0.28));
+}
 .portal-hero-bg {
   position: absolute;
   inset: 0;
@@ -185,7 +206,7 @@ a.dash-stat-card:hover {
   line-height: 1.55;
   text-shadow: 0 1px 6px rgba(255, 255, 255, 0.5);
 }
-.portal-hero:not(.portal-hero-plain) .portal-hero-lead {
+.portal-hero:not(.portal-hero-plain):not(.portal-hero-olive) .portal-hero-lead {
   color: rgba(255, 255, 255, 0.92);
 }
 .portal-hero-date {
@@ -193,7 +214,7 @@ a.dash-stat-card:hover {
   color: #6B8270;
   margin-top: 0.35rem;
 }
-.portal-hero:not(.portal-hero-plain) .portal-hero-date {
+.portal-hero:not(.portal-hero-plain):not(.portal-hero-olive) .portal-hero-date {
   color: rgba(255, 255, 255, 0.72);
 }
 .portal-hero-actions {

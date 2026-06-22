@@ -1317,7 +1317,7 @@ async def resolve_client_by_schedule_name(child_name: str, user=Depends(get_curr
 
 
 @api.post("/clients")
-async def create_client(payload: ClientIn, _=Depends(ops_or_admin)):
+async def create_client(payload: ClientIn, _=Depends(client_lead_or_admin)):
     cid = str(uuid.uuid4())
     data = payload.model_dump()
     data["locations"] = [l for l in (data.get("locations") or [])]
@@ -1327,7 +1327,7 @@ async def create_client(payload: ClientIn, _=Depends(ops_or_admin)):
     return doc
 
 @api.put("/clients/{cid}")
-async def update_client(cid: str, payload: ClientIn, _=Depends(ops_or_admin)):
+async def update_client(cid: str, payload: ClientIn, _=Depends(client_lead_or_admin)):
     data = payload.model_dump()
     data["locations"] = [l for l in (data.get("locations") or [])]
     await db.clients.update_one({"id": cid}, {"$set": data})
@@ -6229,16 +6229,13 @@ def _read_intake_rows(content: bytes, filename: str) -> tuple:
                 logger.exception(f"Intake sheet skipped: {sheet}")
                 continue
 
-    # Dedupe: same child + intake type (case-insensitive)
-    seen: set = set()
-    unique: List[dict] = []
+    # Dedupe: same child + intake type — later sheets win (newer tabs overwrite older)
+    by_key: dict = {}
     for doc in parsed:
         key = (_normalize_intake_name(doc["child_name"]), doc["intake_type"])
-        if key in seen:
-            continue
-        seen.add(key)
         doc["name_key"] = _intake_name_key(doc["child_name"], doc["intake_type"])
-        unique.append(doc)
+        by_key[key] = doc
+    unique = list(by_key.values())
 
     meta = f"{len(unique)} records from {len(meta_parts)} sheet(s) — " + ", ".join(meta_parts)
     cols = list(dict.fromkeys(all_cols))[:20]
@@ -6361,14 +6358,11 @@ async def import_clients(file: UploadFile = File(...), _=Depends(admin_only)):
             created += 1
     return {"created": created, "updated": updated, "skipped": skipped}
 
-@api.post("/import/intake")
-async def import_intake(file: UploadFile = File(...), _=Depends(admin_only)):
-    try:
-        content = file.file.read()
-        rows, detected_columns, parse_meta = _read_intake_rows(content, file.filename or "")
-    except Exception as e:
-        logger.exception("Intake file parse failed")
-        raise HTTPException(status_code=400, detail=f"Could not read intake file: {e}")
+WAITING_LIST_SHEET_ID = "14DLxQZOWSRnS_4kWeOsgKfpYMQiZ6hQiv2be_-J_hBg"
+WAITING_LIST_SHEET_URL = f"https://docs.google.com/spreadsheets/d/{WAITING_LIST_SHEET_ID}/edit"
+
+
+async def _upsert_intake_rows(rows: List[dict], detected_columns: List[str], parse_meta: str) -> dict:
     created, updated, skipped = 0, 0, 0
     pre_count = sum(1 for d in rows if d.get("intake_type") == "pre")
     post_count = sum(1 for d in rows if d.get("intake_type") == "post")
@@ -6417,6 +6411,42 @@ async def import_intake(file: UploadFile = File(...), _=Depends(admin_only)):
         "message": f"{updated} updated, {created} added, {skipped} skipped, {deduped} duplicates removed · {total_in_db} total in list",
         "hint": hint,
     }
+
+
+@api.post("/import/intake")
+async def import_intake(file: UploadFile = File(...), _=Depends(admin_only)):
+    try:
+        content = file.file.read()
+        rows, detected_columns, parse_meta = _read_intake_rows(content, file.filename or "")
+    except Exception as e:
+        logger.exception("Intake file parse failed")
+        raise HTTPException(status_code=400, detail=f"Could not read intake file: {e}")
+    return await _upsert_intake_rows(rows, detected_columns, parse_meta)
+
+
+@api.post("/import/intake-google")
+async def import_intake_google(body: dict = None, _=Depends(client_lead_or_admin)):
+    """Sync waiting list from the official Google Sheet (public export xlsx)."""
+    import httpx
+    body = body or {}
+    sheet_url = (body.get("url") or body.get("sheet_url") or WAITING_LIST_SHEET_URL).strip()
+    export_url = _google_sheet_export_url(sheet_url)
+    async with httpx.AsyncClient(follow_redirects=True, timeout=120.0) as client:
+        resp = await client.get(export_url)
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not download waiting list sheet (HTTP {resp.status_code}). Share link must be viewable.",
+        )
+    try:
+        rows, detected_columns, parse_meta = _read_intake_rows(resp.content, "waiting_list.xlsx")
+    except Exception as e:
+        logger.exception("Intake Google Sheet parse failed")
+        raise HTTPException(status_code=400, detail=f"Could not parse waiting list sheet: {e}")
+    result = await _upsert_intake_rows(rows, detected_columns, parse_meta)
+    result["sheet_id"] = WAITING_LIST_SHEET_ID
+    result["sheet_url"] = WAITING_LIST_SHEET_URL
+    return result
 
 # ------------------- Historical Schedule Loader -------------------
 HISTORICAL_SCHEDULES = None  # lazy-loaded from JSON file

@@ -564,7 +564,7 @@ function LeaveRowAttachButton({ leave, onRefresh }) {
   );
 }
 
-export default function LeaveRequests({ personal = false }) {
+export default function LeaveRequests({ personal = false, embedded = false }) {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const therapistFilter = personal ? user?.id : (searchParams.get("therapist") || null);
@@ -647,6 +647,7 @@ export default function LeaveRequests({ personal = false }) {
 
   return (
     <div>
+      {!embedded && (
       <PageBanner
         title={therapistProfileView ? filteredTherapist?.name || "Therapist Leaves" : (isAdmin ? "Leave Requests" : "My Leaves")}
         subtitle={therapistProfileView
@@ -670,8 +671,9 @@ export default function LeaveRequests({ personal = false }) {
           </>
         )}
       />
+      )}
       {therapistProfileView && (
-        <Link to="/leave-balance" className="text-xs font-bold mb-3 inline-block hover:underline" style={{ color: "#7A8A6A" }}>
+        <Link to={embedded ? "/staff-leave?tab=balance" : "/leave-balance"} className="text-xs font-bold mb-3 inline-block hover:underline" style={{ color: "#7A8A6A" }}>
           ← Back to Leave Balance
         </Link>
       )}
