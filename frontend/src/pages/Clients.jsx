@@ -521,7 +521,7 @@ function CaseDetailsPanelModal({ client, therapists, isAdmin, onClose, onSaved }
   useEffect(() => {
     let cancelled = false;
     setSummaryLoading(true);
-    api.get(`/clients/${client.id}/case-summary`)
+    api.get(`/clients/${client.id}/case-summary`, { params: { refresh: true } })
       .then(r => { if (!cancelled) setSummary({ sections: r.data?.sections || [], url: r.data?.url || client.case_summary_url }); })
       .catch(() => { if (!cancelled) setSummary({ sections: client.case_summary_sections?.sections || [], url: client.case_summary_url }); })
       .finally(() => { if (!cancelled) setSummaryLoading(false); });

@@ -17,9 +17,11 @@ const STATUS_COLORS = {
   new: "#A4BCCB", contacted: "#D4A64A", scheduled: "#7A8A6A", completed: "#3D4F35"
 };
 
-function emptyItem(type) {
+function emptyItem(type, category = "intake") {
   return {
-    child_name: "", parent_name: "", phone: "", intake_type: type, status: "new",
+    child_name: "", parent_name: "", phone: "", intake_type: type,
+    list_category: category,
+    status: "new",
     notes: "", intake_date: "", age: "", service: "HS", district: "",
     time_pref: "", diagnosis: "", language: "", priority: false,
   };
@@ -30,6 +32,7 @@ export default function Intake() {
   const isAdmin = user?.role === "admin";
   const [items, setItems] = useState([]);
   const [edit, setEdit] = useState(null);
+  const [category, setCategory] = useState("intake"); // intake | school
   const [tab, setTab] = useState("pre");
   const [priorityOnly, setPriorityOnly] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -74,7 +77,11 @@ export default function Intake() {
     setTab("post");
   };
 
-  const filtered = items.filter(i => i.intake_type === tab);
+  const filtered = items.filter(i => {
+    const cat = i.list_category || (i.intake_type === "school" ? "school" : "intake");
+    if (category === "school") return cat === "school" || i.intake_type === "school";
+    return cat !== "school" && i.intake_type !== "school" && i.intake_type === tab;
+  });
   const displayed = useMemo(() => {
     const list = [...filtered];
     if (priorityOnly) {
@@ -86,14 +93,19 @@ export default function Intake() {
     return list;
   }, [filtered, priorityOnly]);
 
-  const totalPre = items.filter(i => i.intake_type === "pre").length;
-  const totalPost = items.filter(i => i.intake_type === "post").length;
+  const totalPre = items.filter(i => (i.list_category || "intake") !== "school" && i.intake_type === "pre").length;
+  const totalPost = items.filter(i => (i.list_category || "intake") !== "school" && i.intake_type === "post").length;
+  const totalSchool = items.filter(i => i.list_category === "school" || i.intake_type === "school").length;
   const hsCount = filtered.filter(i => (i.service || "").toUpperCase().includes("HS")).length;
   const ssCount = filtered.filter(i => (i.service || "").toUpperCase().includes("SS")).length;
   const priCount = filtered.filter(i => i.priority).length;
   const priorityList = useMemo(
-    () => items.filter(i => i.priority && i.intake_type === tab).slice(0, 6),
-    [items, tab]
+    () => items.filter(i => {
+      const cat = i.list_category || (i.intake_type === "school" ? "school" : "intake");
+      if (category === "school") return i.priority && (cat === "school" || i.intake_type === "school");
+      return i.priority && cat !== "school" && i.intake_type === tab;
+    }).slice(0, 6),
+    [items, tab, category]
   );
   const statusCounts = useMemo(() => {
     const counts = {};
@@ -105,8 +117,8 @@ export default function Intake() {
   return (
     <div className="page-enter">
       <PageBanner
-        title="Waiting List"
-        subtitle="Pre-Intake & Post-Intake registrations"
+        title="Waiting"
+        subtitle="Intake & school waiting queues"
         badge={isAdmin ? (
           <div className="flex gap-2 flex-wrap justify-end">
             <button type="button" onClick={syncFromGoogle} disabled={syncing} className="btn btn-outline text-[11px] px-2.5 py-1 min-h-0 border-white/40 text-white hover:bg-white/10">
@@ -115,11 +127,14 @@ export default function Intake() {
             <a href={WAITING_LIST_SHEET_URL} target="_blank" rel="noreferrer" className="btn btn-outline text-[11px] px-2.5 py-1 min-h-0 border-white/40 text-white hover:bg-white/10 no-underline">
               Open Sheet
             </a>
-            <button data-testid="add-pre-intake" onClick={() => setEdit(emptyItem("pre"))} className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0">
+            <button data-testid="add-pre-intake" onClick={() => setEdit(emptyItem("pre", "intake"))} className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0">
               <Plus size={13} /> Pre-Intake
             </button>
-            <button data-testid="add-post-intake" onClick={() => setEdit(emptyItem("post"))} className="btn btn-outline text-[11px] px-2.5 py-1 min-h-0 border-white/40 text-white hover:bg-white/10">
+            <button data-testid="add-post-intake" onClick={() => setEdit(emptyItem("post", "intake"))} className="btn btn-outline text-[11px] px-2.5 py-1 min-h-0 border-white/40 text-white hover:bg-white/10">
               <Plus size={13} /> Post-Intake
+            </button>
+            <button data-testid="add-school-waiting" onClick={() => setEdit(emptyItem("school", "school"))} className="btn btn-outline text-[11px] px-2.5 py-1 min-h-0 border-white/40 text-white hover:bg-white/10">
+              <Plus size={13} /> School
             </button>
           </div>
         ) : null}
@@ -140,12 +155,21 @@ export default function Intake() {
       <div className="req-split">
         <section className="req-panel-left">
           <div className="req-panel-head">
+            <div className="intake-tabs mb-3">
+              <button type="button" onClick={() => { setCategory("intake"); setTab("pre"); }} className={`intake-tab${category === "intake" ? " active" : ""}`}>
+                Intake Waiting
+              </button>
+              <button type="button" onClick={() => setCategory("school")} className={`intake-tab${category === "school" ? " active" : ""}`}>
+                School Waiting ({totalSchool})
+              </button>
+            </div>
             <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>
-              {tab === "pre" ? "Pre-Intake Queue" : "Post-Intake Queue"}
+              {category === "school" ? "School Waiting Queue" : tab === "pre" ? "Pre-Intake Queue" : "Post-Intake Queue"}
             </h2>
             <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>
-              {displayed.length} case{displayed.length !== 1 ? "s" : ""} · {tab === "pre" ? "Before formal intake" : "After intake, awaiting placement"}
+              {displayed.length} case{displayed.length !== 1 ? "s" : ""} · {category === "school" ? "School placement waiting list" : tab === "pre" ? "Before formal intake" : "After intake, awaiting placement"}
             </p>
+            {category === "intake" && (
             <div className="intake-tabs mt-3 mb-0">
               <button data-testid="tab-pre" type="button" onClick={() => setTab("pre")} className={`intake-tab${tab === "pre" ? " active" : ""}`}>
                 Pre-Intake ({totalPre})
@@ -163,6 +187,7 @@ export default function Intake() {
                 <Star size={14} weight={priorityOnly ? "fill" : "regular"} className="inline mr-1" /> Priority
               </button>
             </div>
+            )}
           </div>
 
           {displayed.length === 0 ? (

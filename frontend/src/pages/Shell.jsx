@@ -92,8 +92,8 @@ export default function Shell() {
     { to: "/home", icon: <House size={18} weight="duotone"/>, label: "Home", testid: "nav-home" },
   ];
 
-  const referralsItems = intakeAccess
-    ? [{ to: "/intake", label: "Intake", testid: "nav-intake" }]
+  const     referralsItems = intakeAccess
+    ? [{ to: "/intake", label: "Waiting", testid: "nav-intake" }]
     : [];
 
   // Personal portal dropdown (therapists + ops team; hidden for admin login)

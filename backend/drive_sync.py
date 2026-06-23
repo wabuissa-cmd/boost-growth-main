@@ -126,6 +126,88 @@ def fetch_doc_text(drive_url: str) -> str:
     return raw.decode("utf-8", errors="replace").strip()
 
 
+_PHONE_RE = re.compile(
+    r"(?:\+966[\s\-]?|966[\s\-]?|0)?(5\d{8})\b"
+)
+
+
+def extract_parent_phone_from_text(text: str) -> Optional[str]:
+    """Find Saudi mobile number in free text (intake docs)."""
+    if not text:
+        return None
+    compact = re.sub(r"[\s\-()]", "", text)
+    for m in _PHONE_RE.finditer(compact):
+        digits = m.group(1)
+        if digits and len(digits) == 9:
+            return f"0{digits}"
+    return None
+
+
+def fetch_intake_parent_phone(drive_url: str) -> Optional[str]:
+    """Extract guardian phone from intake Google Doc or Sheet."""
+    url = (drive_url or "").strip()
+    if not url:
+        return None
+    if "document" in url:
+        return extract_parent_phone_from_text(fetch_doc_text(url))
+    if "spreadsheets" in url:
+        import openpyxl
+        wb = fetch_workbook_from_url(url)
+        for ws in wb.worksheets:
+            for row in ws.iter_rows(min_row=1, max_row=80, values_only=True):
+                cells = [str(c).strip() if c is not None else "" for c in row]
+                joined = " ".join(cells).lower()
+                if not any(k in joined for k in ("phone", "mobile", "جوال", "هاتف", "ولي", "parent", "guardian")):
+                    continue
+                for c in cells:
+                    ph = extract_parent_phone_from_text(c)
+                    if ph:
+                        return ph
+                ph = extract_parent_phone_from_text(" ".join(cells))
+                if ph:
+                    return ph
+    return None
+
+
+def fetch_case_summary_content(drive_url: str) -> Dict[str, Any]:
+    """Parse case summary from Google Doc or Sheet."""
+    url = (drive_url or "").strip()
+    if not url:
+        return {"sections": [], "raw_preview": ""}
+    if "document" in url:
+        text = fetch_doc_text(url)
+        return parse_case_summary_text(text)
+    if "spreadsheets" in url:
+        wb = fetch_workbook_from_url(url)
+        rows: List[List[str]] = []
+        for ws in wb.worksheets:
+            for row in ws.iter_rows(min_row=1, max_row=120, values_only=True):
+                cells = [str(c).strip() for c in row if c is not None and str(c).strip()]
+                if cells:
+                    rows.append(cells)
+            if rows:
+                break
+        if not rows:
+            return {"sections": [], "raw_preview": ""}
+        sections: List[Dict[str, Any]] = []
+        current: Optional[Dict[str, Any]] = None
+        for cells in rows:
+            if len(cells) == 1 and len(cells[0]) < 60:
+                if current:
+                    sections.append(current)
+                current = {"heading": cells[0].rstrip(":"), "paragraphs": [], "bullets": [], "tables": []}
+            elif len(cells) >= 2:
+                if current is None:
+                    current = {"heading": "Details", "paragraphs": [], "bullets": [], "tables": []}
+                current.setdefault("tables", []).append(cells)
+            elif current is not None:
+                current["paragraphs"].append(cells[0])
+        if current:
+            sections.append(current)
+        return {"sections": sections, "raw_preview": ""}
+    return {"sections": [], "raw_preview": ""}
+
+
 def _year_score(title: str) -> int:
     years = [int(y) for y in re.findall(r"(20\d{2})", title or "")]
     return max(years) if years else 0
@@ -204,7 +286,9 @@ def list_client_folder_links(client_folder_id: str) -> Dict[str, Any]:
             "case summary" in tl or "ملخص الحالة" in title or "ملخص حالة" in title
         ):
             case_summary_url = url
-        if not intake_file_url and "intake" in tl:
+        if not intake_file_url and (
+            "intake" in tl or "انتيك" in title or "الانتيك" in title
+        ):
             intake_file_url = url
 
     links.sort(key=lambda x: (x.get("title") or "").lower())

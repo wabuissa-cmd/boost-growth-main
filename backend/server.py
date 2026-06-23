@@ -2099,8 +2099,27 @@ async def billing_dashboard(user=Depends(ops_or_admin)):
                 reminders_soon += 1
 
     items.sort(key=lambda r: (-(r.get("days_unpaid") or 0), r.get("client_name") or ""))
+    # One billing row per client — keep the invoice with the highest INV number
+    by_client: Dict[str, dict] = {}
+    for row in items:
+        cid = row.get("client_id")
+        if not cid:
+            continue
+        inv_num = row.get("invoice_number") or ""
+        score = _invoice_num_key({"invoice_number": inv_num})
+        prev = by_client.get(cid)
+        if not prev or score >= _invoice_num_key({"invoice_number": prev.get("invoice_number") or ""}):
+            by_client[cid] = row
+    items = list(by_client.values())
+    items.sort(key=lambda r: (-(r.get("days_unpaid") or 0), r.get("client_name") or ""))
+    unpaid = [r for r in items if r["payment_status"] == "pending"]
+    partial = [r for r in items if r["payment_status"] == "partial"]
     unpaid.sort(key=lambda r: -(r.get("days_unpaid") or 0))
     partial.sort(key=lambda r: (r.get("days_until_reminder") if r.get("days_until_reminder") is not None else 999, r.get("client_name") or ""))
+    reminders_soon = sum(
+        1 for r in partial
+        if r.get("days_until_reminder") is not None and 0 <= r.get("days_until_reminder") <= 2
+    )
 
     return {
         "summary": {
@@ -2821,6 +2840,36 @@ async def sync_invoices_from_drive(cid: str, payload: SyncFromDriveIn, user=Depe
     return await _ingest_workbook_for_client(cid, client, wb, user["id"], origin="drive-sync")
 
 
+def _merge_drive_client_meta(link_meta: dict, client: dict) -> dict:
+    """Build client patch from Drive folder crawl (case summary, intake phone, links)."""
+    from drive_sync import fetch_case_summary_content, fetch_intake_parent_phone
+
+    patch = {
+        "drive_folder_id": link_meta.get("folder_id"),
+        "drive_url": link_meta.get("folder_url"),
+        "drive_links": link_meta.get("links") or [],
+    }
+    if link_meta.get("case_summary_url"):
+        patch["case_summary_url"] = link_meta["case_summary_url"]
+    if link_meta.get("intake_file_url"):
+        patch["intake_file_url"] = link_meta["intake_file_url"]
+    cs_url = link_meta.get("case_summary_url") or client.get("case_summary_url")
+    if cs_url:
+        try:
+            patch["case_summary_sections"] = fetch_case_summary_content(cs_url)
+        except Exception as exc:
+            logger.warning(f"Case summary fetch failed: {exc}")
+    intake_url = link_meta.get("intake_file_url") or client.get("intake_file_url")
+    if intake_url:
+        try:
+            ph = fetch_intake_parent_phone(intake_url)
+            if ph:
+                patch["parent_phone"] = ph
+        except Exception as exc:
+            logger.warning(f"Intake phone fetch failed: {exc}")
+    return patch
+
+
 @api.post("/clients/{cid}/sync-drive-links")
 async def sync_client_drive_links(cid: str, user=Depends(ops_or_admin)):
     """Crawl the client's Active Clients Drive folder for document links (excludes attendance sheets)."""
@@ -2850,34 +2899,17 @@ async def sync_client_drive_links(cid: str, user=Depends(ops_or_admin)):
         raise HTTPException(status_code=400, detail="No Drive folder found for this client")
 
     meta = list_client_folder_links(folder_id)
-    patch = {
-        "drive_folder_id": folder_id,
-        "drive_url": meta.get("folder_url"),
-        "drive_links": meta.get("links") or [],
-    }
-    if meta.get("case_summary_url"):
-        patch["case_summary_url"] = meta["case_summary_url"]
-    if meta.get("intake_file_url"):
-        patch["intake_file_url"] = meta["intake_file_url"]
-
-    cs_url = meta.get("case_summary_url") or client.get("case_summary_url")
-    sections = None
-    if cs_url and "document" in cs_url:
-        try:
-            text = fetch_doc_text(cs_url)
-            sections = parse_case_summary_text(text)
-            patch["case_summary_sections"] = sections
-        except Exception as exc:
-            sections = {"error": str(exc)}
+    patch = _merge_drive_client_meta({**meta, "folder_id": folder_id}, client)
+    sections = patch.get("case_summary_sections")
 
     await db.clients.update_one({"id": cid}, {"$set": patch})
-    return {"ok": True, **meta, "case_summary_sections": sections}
+    return {"ok": True, **meta, "case_summary_sections": sections, "parent_phone": patch.get("parent_phone")}
 
 
 @api.get("/clients/{cid}/case-summary")
 async def get_client_case_summary(cid: str, refresh: bool = False, user=Depends(get_current_user)):
     """Return structured case summary sections; optionally refresh from Google Doc."""
-    from drive_sync import fetch_doc_text, parse_case_summary_text, extract_doc_id
+    from drive_sync import fetch_case_summary_content
 
     client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
     if not client:
@@ -2886,10 +2918,9 @@ async def get_client_case_summary(cid: str, refresh: bool = False, user=Depends(
     url = (client.get("case_summary_url") or "").strip()
     cached = client.get("case_summary_sections")
 
-    if refresh and url and extract_doc_id(url):
+    if refresh and url:
         try:
-            text = fetch_doc_text(url)
-            sections = parse_case_summary_text(text)
+            sections = fetch_case_summary_content(url)
             await db.clients.update_one({"id": cid}, {"$set": {"case_summary_sections": sections}})
             return {"url": url, "sections": sections.get("sections", []), "cached": False}
         except Exception as exc:
@@ -2898,12 +2929,12 @@ async def get_client_case_summary(cid: str, refresh: bool = False, user=Depends(
     if cached and cached.get("sections"):
         return {"url": url or None, "sections": cached["sections"], "cached": True}
 
-    if url and extract_doc_id(url):
+    if url:
         try:
-            text = fetch_doc_text(url)
-            sections = parse_case_summary_text(text)
-            await db.clients.update_one({"id": cid}, {"$set": {"case_summary_sections": sections}})
-            return {"url": url, "sections": sections.get("sections", []), "cached": False}
+            sections = fetch_case_summary_content(url)
+            if sections.get("sections"):
+                await db.clients.update_one({"id": cid}, {"$set": {"case_summary_sections": sections}})
+                return {"url": url, "sections": sections.get("sections", []), "cached": False}
         except Exception:
             pass
 
@@ -2973,21 +3004,10 @@ async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends
             link_meta = list_client_folder_links(entry["folder_id"])
             client_patch = {
                 "attendance_sheet_url": sheet_url,
+                **{k: v for k, v in _merge_drive_client_meta({**link_meta, "folder_id": entry["folder_id"]}, client).items() if k != "drive_folder_id"},
                 "drive_url": entry.get("folder_url") or link_meta.get("folder_url"),
                 "drive_folder_id": entry["folder_id"],
-                "drive_links": link_meta.get("links") or [],
             }
-            if link_meta.get("case_summary_url"):
-                client_patch["case_summary_url"] = link_meta["case_summary_url"]
-            if link_meta.get("intake_file_url"):
-                client_patch["intake_file_url"] = link_meta["intake_file_url"]
-            cs_url = link_meta.get("case_summary_url") or client.get("case_summary_url")
-            if cs_url and "document" in cs_url:
-                try:
-                    text = fetch_doc_text(cs_url)
-                    client_patch["case_summary_sections"] = parse_case_summary_text(text)
-                except Exception:
-                    pass
             await db.clients.update_one({"id": client["id"]}, {"$set": client_patch})
             ingest = await _ingest_workbook_for_client(
                 client["id"], client, wb, user["id"], origin="drive-bulk-sync"
@@ -3392,6 +3412,31 @@ async def _reconcile_invoices_after_sync(cid: str, synced_nums: set) -> dict:
             await db.invoices.delete_one({"id": inv["id"]})
             removed += 1
     return {"removed": removed, "merged": merged}
+
+
+async def _cleanup_orphan_invoices() -> dict:
+    """Remove auto-generated INV_{uuid}_N invoices when a real INV#### exists."""
+    removed = 0
+    invs = await db.invoices.find({}, {"_id": 0, "id": 1, "client_id": 1, "invoice_number": 1}).to_list(5000)
+    by_client: Dict[str, List[dict]] = {}
+    for inv in invs:
+        by_client.setdefault(inv.get("client_id") or "", []).append(inv)
+    for cid, group in by_client.items():
+        if not cid:
+            continue
+        reals = [i for i in group if _invoice_num_key(i) > 0]
+        autos = [i for i in group if _re_top.match(r"^INV_[a-f0-9]{8}_\d+$", i.get("invoice_number") or "", _re_top.I)]
+        if not reals or not autos:
+            continue
+        keep = max(reals, key=_invoice_num_key)
+        for inv in autos:
+            await db.sessions.update_many(
+                {"invoice_id": inv["id"]},
+                {"$set": {"invoice_id": keep["id"], "source_invoice": keep["invoice_number"]}},
+            )
+            await db.invoices.delete_one({"id": inv["id"]})
+            removed += 1
+    return {"removed": removed}
 
 
 def _parse_invoice_header(ws, sheet_name: str = "") -> dict:
@@ -5906,22 +5951,29 @@ def _normalize_intake_name(name: str) -> str:
     return s.strip()
 
 
-def _intake_name_key(name: str, intake_type: str) -> str:
+def _intake_name_key(name: str, intake_type: str, list_category: str = "intake") -> str:
     itype = (intake_type or "pre").lower()
+    if itype == "school" or (list_category or "").lower() == "school":
+        return f"{_normalize_intake_name(name)}|school|school"
     itype = "post" if "post" in itype else "pre"
-    return f"{_normalize_intake_name(name)}|{itype}"
+    cat = (list_category or "intake").lower()
+    return f"{_normalize_intake_name(name)}|{cat}|{itype}"
 
 
-async def _find_intake_for_upsert(name: str, intake_type: str) -> Optional[dict]:
-    key = _intake_name_key(name, intake_type)
+async def _find_intake_for_upsert(name: str, intake_type: str, list_category: str = "intake") -> Optional[dict]:
+    key = _intake_name_key(name, intake_type, list_category)
     match = await db.intake.find_one({"name_key": key}, {"_id": 0, "id": 1, "created_at": 1})
     if match:
         return match
-    itype = "post" if "post" in (intake_type or "").lower() else "pre"
+    itype = (intake_type or "pre").lower()
+    cat = (list_category or "intake").lower()
     norm = _normalize_intake_name(name)
     if not norm:
         return None
-    for row in await db.intake.find({"intake_type": itype}, {"_id": 0, "id": 1, "child_name": 1, "created_at": 1}).to_list(500):
+    query = {"intake_type": itype}
+    if cat == "school":
+        query = {"$or": [{"list_category": "school"}, {"intake_type": "school"}]}
+    for row in await db.intake.find(query, {"_id": 0, "id": 1, "child_name": 1, "created_at": 1}).to_list(500):
         if _normalize_intake_name(row.get("child_name", "")) == norm:
             return row
     return None
@@ -6021,11 +6073,20 @@ def _rows_from_dataframe(df) -> List[dict]:
 
 def _sheet_intake_type_hint(sheet_name: str) -> Optional[str]:
     low = (sheet_name or "").lower()
+    if "school" in low:
+        return "school"
     if "post" in low:
         return "post"
     if "pre" in low or "pending" in low:
         return "pre"
     return None
+
+
+def _sheet_list_category(sheet_name: str, intake_type: str) -> str:
+    low = (sheet_name or "").lower()
+    if "school" in low or intake_type == "school":
+        return "school"
+    return "intake"
 
 
 _INTAKE_JUNK_NAME_RE = _re_top.compile(
@@ -6133,12 +6194,16 @@ def _parse_intake_record(r: dict, sheet_name: str = "") -> Optional[dict]:
 
     raw_type = _clean_str(r.get("intake_type") or r.get("type") or r.get("_sheet_intake_type")) or _sheet_intake_type_hint(sheet_name) or "pre"
     intake_type = raw_type.lower()
-    if "post" in intake_type:
+    if "school" in intake_type or "school" in (sheet_name or "").lower():
+        intake_type = "school"
+    elif "post" in intake_type:
         intake_type = "post"
     elif "pre" in intake_type or "pending" in intake_type:
         intake_type = "pre"
     else:
         intake_type = "pre"
+
+    list_category = _sheet_list_category(sheet_name, intake_type)
 
     diagnosis, age_from_da = _split_diagnosis_age(r.get("diagnosis_age"))
     notes, language = _extract_notes_and_language(r)
@@ -6146,6 +6211,7 @@ def _parse_intake_record(r: dict, sheet_name: str = "") -> Optional[dict]:
     doc = {
         "child_name": name,
         "intake_type": intake_type,
+        "list_category": list_category,
         "parent_name": _clean_str(r.get("parent_name") or r.get("parent") or r.get("guardian")),
         "phone": _clean_str(r.get("phone") or r.get("parent_phone") or r.get("mobile")),
         "status": (_clean_str(r.get("status")) or "new").lower(),
@@ -6217,8 +6283,12 @@ def _read_intake_rows(content: bytes, filename: str) -> tuple:
     else:
         xl = pd.ExcelFile(io.BytesIO(content), engine="openpyxl")
         for sheet in xl.sheet_names:
-            low = sheet.lower()
-            if not any(k in low for k in ("intake", "waiting", "pending", "post", "pre", "list")):
+            low = sheet.lower().strip()
+            if low in ("readme", "template", "settings", "dashboard"):
+                continue
+            if len(xl.sheet_names) > 6 and not any(
+                k in low for k in ("intake", "waiting", "pending", "post", "pre", "list", "school")
+            ):
                 continue
             try:
                 df_raw = pd.read_excel(io.BytesIO(content), sheet_name=sheet, header=None, engine="openpyxl")
@@ -6232,8 +6302,10 @@ def _read_intake_rows(content: bytes, filename: str) -> tuple:
     # Dedupe: same child + intake type — later sheets win (newer tabs overwrite older)
     by_key: dict = {}
     for doc in parsed:
-        key = (_normalize_intake_name(doc["child_name"]), doc["intake_type"])
-        doc["name_key"] = _intake_name_key(doc["child_name"], doc["intake_type"])
+        cat = doc.get("list_category") or "intake"
+        itype = doc.get("intake_type") or "pre"
+        key = (_normalize_intake_name(doc["child_name"]), cat, itype)
+        doc["name_key"] = _intake_name_key(doc["child_name"], itype, cat)
         by_key[key] = doc
     unique = list(by_key.values())
 
@@ -6362,21 +6434,28 @@ WAITING_LIST_SHEET_ID = "14DLxQZOWSRnS_4kWeOsgKfpYMQiZ6hQiv2be_-J_hBg"
 WAITING_LIST_SHEET_URL = f"https://docs.google.com/spreadsheets/d/{WAITING_LIST_SHEET_ID}/edit"
 
 
-async def _upsert_intake_rows(rows: List[dict], detected_columns: List[str], parse_meta: str) -> dict:
+async def _upsert_intake_rows(rows: List[dict], detected_columns: List[str], parse_meta: str, replace_google_stale: bool = False) -> dict:
     created, updated, skipped = 0, 0, 0
     pre_count = sum(1 for d in rows if d.get("intake_type") == "pre")
     post_count = sum(1 for d in rows if d.get("intake_type") == "post")
+    school_count = sum(1 for d in rows if d.get("intake_type") == "school" or d.get("list_category") == "school")
+    synced_keys: set = set()
     for doc in rows:
         name = (doc.get("child_name") or "").strip()
         if not name:
             skipped += 1
             continue
         intake_type = doc.get("intake_type") or "pre"
-        name_key = _intake_name_key(name, intake_type)
-        match = await _find_intake_for_upsert(name, intake_type)
+        list_category = doc.get("list_category") or ("school" if intake_type == "school" else "intake")
+        name_key = _intake_name_key(name, intake_type, list_category)
+        synced_keys.add(name_key)
+        match = await _find_intake_for_upsert(name, intake_type, list_category)
         db_doc = {k: v for k, v in doc.items() if v is not None}
         db_doc["child_name"] = name
+        db_doc["list_category"] = list_category
         db_doc["name_key"] = name_key
+        if replace_google_stale:
+            db_doc["sync_source"] = "google_sheet"
         if match:
             await db.intake.update_one({"id": match["id"]}, {"$set": db_doc})
             await db.intake.delete_many({"name_key": name_key, "id": {"$ne": match["id"]}})
@@ -6392,6 +6471,13 @@ async def _upsert_intake_rows(rows: List[dict], detected_columns: List[str], par
             except Exception as e:
                 logger.warning(f"Intake insert skipped for {name}: {e}")
                 skipped += 1
+    if replace_google_stale and synced_keys:
+        stale = await db.intake.delete_many({
+            "sync_source": "google_sheet",
+            "name_key": {"$nin": list(synced_keys)},
+        })
+    else:
+        stale = type("R", (), {"deleted_count": 0})()
     deduped = await _dedupe_intake_records()
     total_in_db = await db.intake.count_documents({})
     hint = None
@@ -6401,11 +6487,13 @@ async def _upsert_intake_rows(rows: List[dict], detected_columns: List[str], par
         "created": created,
         "updated": updated,
         "skipped": skipped,
+        "removed_stale": stale.deleted_count,
         "deduped": deduped,
         "total_in_db": total_in_db,
         "rows_in_file": len(rows),
         "pre_count": pre_count,
         "post_count": post_count,
+        "school_count": school_count,
         "detected_columns": detected_columns,
         "parse_meta": parse_meta,
         "message": f"{updated} updated, {created} added, {skipped} skipped, {deduped} duplicates removed · {total_in_db} total in list",
@@ -6443,7 +6531,7 @@ async def import_intake_google(body: dict = None, _=Depends(client_lead_or_admin
     except Exception as e:
         logger.exception("Intake Google Sheet parse failed")
         raise HTTPException(status_code=400, detail=f"Could not parse waiting list sheet: {e}")
-    result = await _upsert_intake_rows(rows, detected_columns, parse_meta)
+    result = await _upsert_intake_rows(rows, detected_columns, parse_meta, replace_google_stale=True)
     result["sheet_id"] = WAITING_LIST_SHEET_ID
     result["sheet_url"] = WAITING_LIST_SHEET_URL
     return result
@@ -7500,6 +7588,13 @@ async def _run_startup():
                 logger.info(f"Client dedupe: removed {dedupe['removed']} duplicate(s)")
         except Exception as e:
             logger.warning(f"Client dedupe skipped: {e}")
+
+        try:
+            inv_clean = await _cleanup_orphan_invoices()
+            if inv_clean.get("removed"):
+                logger.info(f"Orphan invoice cleanup: removed {inv_clean['removed']}")
+        except Exception as e:
+            logger.warning(f"Orphan invoice cleanup skipped: {e}")
 
         try:
             inactive_n = await _apply_inactive_client_status()
