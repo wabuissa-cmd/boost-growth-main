@@ -253,6 +253,7 @@ export default function WaitingPage({ mode }) {
         title={title}
         subtitle={subtitle}
         badge={adminBadge}
+        compact
         tabs={bannerTabs}
         activeTab={bannerActiveTab}
         onTabChange={handleBannerTab}

@@ -800,22 +800,144 @@ main, .page-enter { min-width: 0; }
 .ui-text-sm { font-size: 0.8125rem; line-height: 1.45; }
 .ui-caption { font-size: 0.75rem; color: var(--text-muted); line-height: 1.4; }
 
-/* Page banner — forest-to-sage green gradient */
+/* Page banner — forest-to-sage green gradient (default inner pages) */
+.page-banner.classic {
+  margin-bottom: 0.85rem;
+  border-radius: 1rem;
+  overflow: hidden;
+  box-shadow: 0 4px 18px rgba(47, 74, 53, 0.08);
+}
+
+.page-banner-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.55rem 0.85rem 0;
+  background: linear-gradient(135deg, #2F4A35 0%, #5A7D60 100%);
+}
+
+.page-banner-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.32rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.88);
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.page-banner-tab:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.page-banner-tab.is-active {
+  background: #fff;
+  border-color: #fff;
+  color: #2F4A35;
+}
+
 .page-banner-head {
   background: linear-gradient(135deg, #2F4A35 0%, #6B8F71 48%, #8FB396 100%);
+  padding: 0.85rem 1rem;
 }
+
+.page-banner.compact .page-banner-head {
+  padding: 0.55rem 0.9rem;
+}
+
+.page-banner-head-inner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
 .page-banner-title {
   font-family: var(--font-display);
-  font-size: 1.5rem;
+  font-size: 1.35rem;
   font-weight: 700;
   color: #fff;
-  line-height: 1.2;
+  line-height: 1.15;
   letter-spacing: -0.01em;
 }
+
+.page-banner.compact .page-banner-title {
+  font-size: 1.1rem;
+}
+
 .page-banner-subtitle {
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.82);
-  line-height: 1.4;
+  line-height: 1.35;
+}
+
+.page-banner.compact .page-banner-subtitle {
+  font-size: 0.7rem;
+}
+
+.page-banner-body {
+  padding: 0.6rem 0.85rem;
+  background: #fff;
+}
+
+.page-banner.compact .page-banner-body {
+  padding: 0.45rem 0.75rem;
+}
+
+.page-banner-stats {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.page-banner-stat {
+  border-radius: 10px;
+  padding: 0.4rem 0.55rem;
+  background: #F7F3EB;
+  border: 1px solid #E2DDD4;
+}
+
+.page-banner.compact .page-banner-stat {
+  padding: 0.3rem 0.5rem;
+}
+
+.page-banner-stat-label {
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #8B9E7A;
+}
+
+.page-banner-stat-value {
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.1;
+  margin-top: 0.1rem;
+}
+
+.page-banner.compact .page-banner-stat-value {
+  font-size: 0.85rem;
+}
+
+.page-banner-toolbar,
+.page-banner-children {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #E2DDD4;
+}
+
+.page-banner.compact .page-banner-toolbar,
+.page-banner.compact .page-banner-children {
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
 }
 
 .ui-label { font-size: 0.6875rem; font-weight: 700; color: var(--text-secondary); }

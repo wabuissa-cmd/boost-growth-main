@@ -202,14 +202,23 @@ export default function Home() {
   ];
 
   const HeroBanner = ({ compact, greetingParts, showNav }) => (
-    <header className={`portal-hero${heroStyle === "plain" ? " portal-hero-plain" : ""}${heroStyle === "olive" ? " portal-hero-olive" : ""}`}>
+    <header className={`portal-hero portal-hero--open${compact ? " portal-hero--compact" : ""}${heroStyle === "plain" ? " portal-hero-plain" : ""}${heroStyle === "olive" ? " portal-hero-olive" : ""}`}>
       {heroImage && (
         <>
           <div className="portal-hero-bg" style={{ backgroundImage: `url(${heroImage})` }} aria-hidden />
           <div className="portal-hero-overlay" aria-hidden />
         </>
       )}
-      {showNav && (
+      {compact ? (
+        <nav className="portal-hero-actions-top" aria-label="Quick actions">
+          <Link to="/attendance" className="portal-hero-btn primary">
+            <ClipboardText size={14} weight="duotone" /> Log a session
+          </Link>
+          <Link to="/schedule" className="portal-hero-btn outline">
+            <CalendarBlank size={14} weight="duotone" /> View Schedule
+          </Link>
+        </nav>
+      ) : showNav ? (
         <nav className="portal-hero-nav" aria-label="Quick navigation">
           {adminHeroNav.map(item => {
             const active = loc.pathname === item.to || (item.to !== "/home" && loc.pathname.startsWith(item.to));
@@ -220,7 +229,7 @@ export default function Home() {
             );
           })}
         </nav>
-      )}
+      ) : null}
       <div className="portal-hero-picker" role="group" aria-label="Choose hero background">
         {HERO_OPTIONS.map(o => (
           <button
@@ -272,14 +281,16 @@ export default function Home() {
               : "Each growth begins with seeds — nurture every child's journey with care, preparation, and intention."}
           </p>
           <p className="portal-hero-date">{dateStr}</p>
-          <div className="portal-hero-actions">
-            <Link to="/attendance" className="portal-hero-btn primary">
-              <ClipboardText size={18} weight="duotone" /> {compact ? "Log a session" : "Open Preparation"}
-            </Link>
-            <Link to="/schedule" className="portal-hero-btn outline">
-              <CalendarBlank size={18} weight="duotone" /> View Schedule
-            </Link>
-          </div>
+          {!compact && (
+            <div className="portal-hero-actions">
+              <Link to="/attendance" className="portal-hero-btn primary">
+                <ClipboardText size={18} weight="duotone" /> Open Preparation
+              </Link>
+              <Link to="/schedule" className="portal-hero-btn outline">
+                <CalendarBlank size={18} weight="duotone" /> View Schedule
+              </Link>
+            </div>
+          )}
         </div>
         <div className="portal-hero-logo" aria-hidden>
           <img src="/bg-logo.png" alt="" />

@@ -115,6 +115,7 @@ export default function Clients() {
       <PageBanner
         title="Client Info"
         subtitle="Active portfolios, locations, records, and clinical summaries"
+        compact
         tabs={[
           { id: "active", label: "Active", count: activeCount },
           { id: "inactive", label: "Inactive", count: items.length - activeCount },
