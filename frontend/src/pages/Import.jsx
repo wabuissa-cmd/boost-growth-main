@@ -196,6 +196,22 @@ export default function ImportPage() {
     }
   };
 
+  const importParentPhones = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const { data } = await api.post("/admin/import-parent-phones", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      alert(data.message || `Updated ${data.updated} phone(s)`);
+    } catch (err) {
+      alert(err.response?.data?.detail || err.message || "Import failed");
+    }
+  };
+
   return (
     <div>
       <PageBanner
@@ -221,6 +237,10 @@ export default function ImportPage() {
           <button type="button" onClick={exportParentPhones} className="btn btn-outline text-sm">
             <Download size={16} /> Export Parent Phones (CSV)
           </button>
+          <label className="btn btn-outline text-sm cursor-pointer">
+            <UploadSimple size={16} /> Import Parent Phones (CSV)
+            <input type="file" accept=".csv,text/csv" className="hidden" onChange={importParentPhones} />
+          </label>
         </div>
         {waitingSyncResult && (
           <div className="text-xs p-3 rounded-xl mt-3" style={{ background: waitingSyncResult.ok === false ? "#F8EBE7" : "#E5EBE1", color: "#3D4F35" }}>

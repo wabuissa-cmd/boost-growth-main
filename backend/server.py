@@ -4523,6 +4523,52 @@ async def mark_all_read(user=Depends(get_current_user)):
     await db.notifications.update_many({"user_id": {"$in": uids}}, {"$set": {"read": True}})
     return {"ok": True}
 
+PARENT_PHONES_JSON = ROOT_DIR / "data" / "parent_phones.json"
+
+
+async def _apply_parent_phones(rows: List[dict], *, source: str = "import") -> dict:
+    """Update parent_phone on clients matched by file_no."""
+    updated: List[dict] = []
+    skipped: List[dict] = []
+    missing: List[dict] = []
+    for row in rows:
+        file_no = str(row.get("file_no") or "").strip()
+        phone = str(row.get("parent_phone") or "").strip()
+        if not file_no:
+            continue
+        if not phone:
+            skipped.append({"file_no": file_no, "reason": "empty phone"})
+            continue
+        client = await _find_client_by_file_no(file_no)
+        if not client:
+            missing.append({"file_no": file_no, "name": row.get("client_name")})
+            continue
+        await db.clients.update_one(
+            {"id": client["id"]},
+            {"$set": {"parent_phone": phone, "parent_phone_source": source, "parent_phone_updated_at": now_iso()}},
+        )
+        updated.append({"file_no": client.get("file_no"), "name": client.get("name"), "parent_phone": phone})
+    return {
+        "ok": True,
+        "updated": len(updated),
+        "skipped": len(skipped),
+        "missing": len(missing),
+        "rows": updated,
+        "missing_clients": missing,
+        "message": f"Updated {len(updated)} parent phone(s)" + (f" · {len(missing)} file_no not found" if missing else ""),
+    }
+
+
+async def _apply_parent_phones_from_json_file() -> Optional[dict]:
+    if not PARENT_PHONES_JSON.is_file():
+        return None
+    import json
+    rows = json.loads(PARENT_PHONES_JSON.read_text(encoding="utf-8"))
+    if not rows:
+        return None
+    return await _apply_parent_phones(rows, source="parent_phones.json")
+
+
 @api.get("/admin/export-parent-phones")
 async def export_parent_phones(_=Depends(client_lead_or_admin)):
     """CSV of all active clients' parent phone numbers for bulk editing."""
@@ -4548,6 +4594,39 @@ async def export_parent_phones(_=Depends(client_lead_or_admin)):
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="parent_phones.csv"'},
     )
+
+
+@api.post("/admin/import-parent-phones")
+async def import_parent_phones(
+    file: UploadFile = File(...),
+    _=Depends(client_lead_or_admin),
+):
+    """Upload CSV (file_no, client_name, parent_phone) to bulk-update parent phones."""
+    import csv
+    import io
+
+    raw = await file.read()
+    text = raw.decode("utf-8-sig", errors="replace")
+    reader = csv.DictReader(io.StringIO(text))
+    rows = []
+    for row in reader:
+        rows.append({
+            "file_no": row.get("file_no") or row.get("File No") or "",
+            "client_name": row.get("client_name") or row.get("Client Name") or "",
+            "parent_phone": row.get("parent_phone") or row.get("Parent Phone") or "",
+        })
+    if not rows:
+        raise HTTPException(status_code=400, detail="CSV is empty or missing headers")
+    return await _apply_parent_phones(rows, source="csv-upload")
+
+
+@api.post("/admin/apply-parent-phones-seed")
+async def apply_parent_phones_seed(_=Depends(client_lead_or_admin)):
+    """Apply backend/data/parent_phones.json without redeploy."""
+    result = await _apply_parent_phones_from_json_file()
+    if not result:
+        raise HTTPException(status_code=404, detail="parent_phones.json not found or empty")
+    return result
 
 # ------------------- Directory -------------------
 @api.get("/directory")
@@ -7678,6 +7757,13 @@ async def _run_startup():
                 )
         except Exception as e:
             logger.warning(f"Payment bulk complete migration skipped: {e}")
+
+        try:
+            phones = await _apply_parent_phones_from_json_file()
+            if phones and phones.get("updated"):
+                logger.info(f"Parent phones seed: {phones.get('message')}")
+        except Exception as e:
+            logger.warning(f"Parent phones seed skipped: {e}")
 
         # Load persisted email settings from db.settings into env
         settings_doc = await db.settings.find_one({"key": "email"}, {"_id": 0})
