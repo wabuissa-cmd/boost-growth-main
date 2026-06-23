@@ -647,6 +647,17 @@ async def reset_therapist_password(tid: str, _=Depends(admin_only)):
 
 @api.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
+    tid = await _resolve_user_therapist_id(user)
+    if tid:
+        therapist = await db.therapists.find_one(
+            {"id": tid}, {"_id": 0, "pin_hash": 0, "password_hash": 0}
+        )
+        if therapist:
+            user["therapist_id"] = tid
+            if therapist.get("key"):
+                user["key"] = therapist["key"]
+            if therapist.get("name"):
+                user["name"] = therapist["name"]
     user["ops_access"] = _is_portal_admin(user) or _is_hr_ops(user) or bool(_is_client_lead(user))
     user["client_lead"] = _is_client_lead(user)
     user["hr_ops"] = _is_hr_ops(user)
@@ -4285,12 +4296,12 @@ async def purchase_categories(_=Depends(get_current_user)):
 
 
 @api.get("/purchases/reminder-settings")
-async def get_purchase_reminder_settings(_=Depends(admin_only)):
+async def get_purchase_reminder_settings(_=Depends(ops_or_admin)):
     return await _get_purchase_reminder_settings()
 
 
 @api.put("/purchases/reminder-settings")
-async def update_purchase_reminder_settings(body: PurchaseReminderSettingsIn, _=Depends(admin_only)):
+async def update_purchase_reminder_settings(body: PurchaseReminderSettingsIn, _=Depends(ops_or_admin)):
     day = max(1, min(28, int(body.day_of_month or 25)))
     doc = {
         "id": "default",
@@ -4307,7 +4318,7 @@ async def update_purchase_reminder_settings(body: PurchaseReminderSettingsIn, _=
 
 
 @api.post("/purchases/send-reminders")
-async def send_purchase_reminders(_=Depends(admin_only)):
+async def send_purchase_reminders(_=Depends(ops_or_admin)):
     return await _send_purchase_reminders(force=True)
 
 

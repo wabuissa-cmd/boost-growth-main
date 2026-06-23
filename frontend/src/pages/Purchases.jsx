@@ -4,6 +4,7 @@ import {
   ShoppingBag, Bell, CheckCircle, Hourglass, Clock, FloppyDisk, PaperPlaneTilt,
 } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
+import { getTherapistScheduleName } from "../scheduleConstants";
 import "../clientInfoLayout.css";
 
 const STATUS_META = {
@@ -173,7 +174,7 @@ export default function Purchases() {
                   checked={(settings.therapist_ids || []).includes(t.id)}
                   onChange={() => toggleTherapist(t.id)}
                 />
-                {t.name?.replace(/^Ms\.?\s*/i, "")}
+                {getTherapistScheduleName(t)}
               </label>
             ))}
           </div>
@@ -192,7 +193,7 @@ export default function Purchases() {
         <ShoppingBag size={18} style={{ color: "#7A8A6A" }}/>
         <select className="input text-sm w-auto" value={filterTherapist} onChange={e => setFilterTherapist(e.target.value)}>
           <option value="">All therapists</option>
-          {therapists.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          {therapists.map(t => <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>)}
         </select>
         <select className="input text-sm w-auto" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
           <option value="">All statuses</option>

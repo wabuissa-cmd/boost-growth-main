@@ -16,6 +16,7 @@ import PlatformUpdates from "../components/PlatformUpdates";
 import AdminRemindersPanel, { buildAdminReminders } from "../components/AdminRemindersPanel";
 import HrInboxPanel from "../components/HrInboxPanel";
 import { saudiGreetingParts, saudiDateString } from "../saudiGreeting";
+import { getTherapistScheduleName } from "../scheduleConstants";
 import "../dashboardLayout.css";
 
 const HERO_OPTIONS = [
@@ -186,7 +187,9 @@ export default function Home() {
 
   useEffect(() => { if (!showOpsHome) loadPersonal(); }, [weekISO, weekEndISO, showOpsHome]);
 
-  const displayName = user?.name?.replace(/^Ms\.?\s*/i, "") || "Friend";
+  const displayName = getTherapistScheduleName({ name: user?.name, key: user?.key })
+    || user?.name?.replace(/^Ms\.?\s*/i, "")
+    || "Friend";
   const dateStr = showOpsHome
     ? saudiDateString()
     : new Date().toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });

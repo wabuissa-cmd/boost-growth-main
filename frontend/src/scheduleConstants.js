@@ -23,6 +23,7 @@ export const THERAPIST_FAMILY_NAMES = {
   msShrooq: "Alamri",
   msAbeer: "Alshareef",
   msJenan: "Almuhaisin",
+  msWalaa: "Althunayan",
 };
 
 /** Supervisors who only see their own block in Per Therapist view. */
