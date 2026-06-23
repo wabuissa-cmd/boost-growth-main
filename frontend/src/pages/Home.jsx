@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import api, { startOfWeek, toISODate, addDays } from "../api";
 import { cachedGet } from "../dataCache";
 import { useAuth, showAdminNav, hasOpsAccess } from "../auth";
@@ -192,13 +192,34 @@ export default function Home() {
     { to: "/clients", icon: UsersThree, title: "Client Portfolios", desc: "Profiles, locations, packages, and progress reports.", ...beigeCard },
   ];
 
-  const HeroBanner = ({ compact, greetingParts }) => (
+  const loc = useLocation();
+  const adminHeroNav = [
+    { to: "/home", label: "Home" },
+    { to: "/schedule", label: "Schedule" },
+    { to: "/clients", label: "Clients" },
+    { to: "/waiting/intake", label: "Waiting" },
+    { to: "/billing", label: "Billing" },
+  ];
+
+  const HeroBanner = ({ compact, greetingParts, showNav }) => (
     <header className={`portal-hero${heroStyle === "plain" ? " portal-hero-plain" : ""}${heroStyle === "olive" ? " portal-hero-olive" : ""}`}>
       {heroImage && (
         <>
           <div className="portal-hero-bg" style={{ backgroundImage: `url(${heroImage})` }} aria-hidden />
           <div className="portal-hero-overlay" aria-hidden />
         </>
+      )}
+      {showNav && (
+        <nav className="portal-hero-nav" aria-label="Quick navigation">
+          {adminHeroNav.map(item => {
+            const active = loc.pathname === item.to || (item.to !== "/home" && loc.pathname.startsWith(item.to));
+            return (
+              <Link key={item.to} to={item.to} className={`portal-hero-nav-link${active ? " is-active" : ""}`}>
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
       )}
       <div className="portal-hero-picker" role="group" aria-label="Choose hero background">
         {HERO_OPTIONS.map(o => (
@@ -278,7 +299,7 @@ export default function Home() {
     <div className="page-enter">
       {isPortalAdminUser ? (
         <>
-          <HeroBanner greetingParts={saudiGreetingParts(displayName)} />
+          <HeroBanner greetingParts={saudiGreetingParts(displayName)} showNav />
 
           <CreativeSection title="Explore the portal" subtitle="Tools to run the center with clarity and care">
             <div className="home-feature-grid stagger">

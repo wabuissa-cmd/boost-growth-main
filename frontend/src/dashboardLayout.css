@@ -75,11 +75,12 @@ a.dash-stat-card:hover {
   margin-bottom: 0.85rem;
 }
 .dash-section-title {
-  font-family: var(--font-display);
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: var(--text-primary, #2F4A35);
+  font-family: var(--font-editorial);
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--text-primary, #2A3328);
   margin: 0;
+  letter-spacing: -0.01em;
 }
 .dash-section-sub {
   font-size: 0.8rem;
@@ -90,16 +91,16 @@ a.dash-stat-card:hover {
 /* WorkSpace-style portal hero with Boost Growth photography */
 .portal-hero {
   position: relative;
-  border-radius: 24px;
+  border-radius: 28px;
   overflow: hidden;
-  min-height: min(260px, 34vh);
-  max-width: min(1080px, 96%);
-  margin: 0 auto 1.5rem;
+  min-height: min(280px, 36vh);
+  max-width: 100%;
+  margin: 0 0 1.5rem;
   display: flex;
   align-items: stretch;
-  border: 1px solid rgba(47, 74, 53, 0.12);
-  box-shadow: 0 8px 28px rgba(47, 74, 53, 0.08);
-  background: linear-gradient(165deg, #FFFCF7 0%, #F3EFE8 55%, #EAE4DA 100%);
+  border: 1px solid rgba(74, 93, 66, 0.14);
+  box-shadow: 0 12px 40px rgba(42, 51, 40, 0.07);
+  background: linear-gradient(155deg, #F7F2EA 0%, #EDE6DA 48%, #E4DDD0 100%);
 }
 .portal-hero-plain {
   background: linear-gradient(165deg, #FFFCF7 0%, #F3EFE8 55%, #EAE4DA 100%);
@@ -130,7 +131,7 @@ a.dash-stat-card:hover {
   inset: 0;
   background-size: cover;
   background-position: 72% center;
-  opacity: 0.48;
+  opacity: 0.42;
 }
 .portal-hero-overlay {
   position: absolute;
@@ -138,12 +139,46 @@ a.dash-stat-card:hover {
   z-index: 0;
   background: linear-gradient(
     105deg,
-    rgba(255, 252, 247, 0.94) 0%,
-    rgba(247, 243, 235, 0.82) 32%,
-    rgba(237, 225, 201, 0.45) 52%,
-    rgba(107, 143, 113, 0.18) 72%,
+    rgba(247, 242, 234, 0.96) 0%,
+    rgba(237, 230, 218, 0.88) 30%,
+    rgba(228, 221, 208, 0.55) 55%,
+    rgba(92, 107, 82, 0.15) 78%,
     transparent 100%
   );
+}
+.portal-hero-nav {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 1rem 1.25rem 0;
+}
+.portal-hero-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.48rem 1rem;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid rgba(74, 93, 66, 0.2);
+  background: rgba(255, 252, 247, 0.78);
+  color: var(--text-secondary, #4A5D42);
+  backdrop-filter: blur(6px);
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+.portal-hero-nav-link:hover {
+  background: #fff;
+  border-color: rgba(74, 93, 66, 0.4);
+  color: var(--brand-olive-deep, #3D4A35);
+}
+.portal-hero-nav-link.is-active {
+  background: var(--brand-olive, #5C6B52);
+  border-color: var(--brand-olive-deep, #3D4A35);
+  color: #fff;
 }
 .portal-hero:has(.portal-hero-overlay) .portal-hero-greeting,
 .portal-hero:has(.portal-hero-overlay) .portal-hero-name {
@@ -207,45 +242,46 @@ a.dash-stat-card:hover {
   gap: 0.4rem;
 }
 .portal-hero-title {
-  font-family: var(--font-display);
-  font-size: clamp(1.5rem, 3.8vw, 2.35rem);
-  font-weight: 700;
-  line-height: 1.1;
+  font-family: var(--font-editorial);
+  font-size: clamp(1.75rem, 4vw, 2.75rem);
+  font-weight: 600;
+  line-height: 1.08;
   margin: 0;
+  letter-spacing: -0.02em;
 }
-.portal-hero-accent { color: var(--brand-sage, #8FB396); }
+.portal-hero-accent { color: var(--brand-sage, #8A9A7A); }
 .portal-hero-greeting {
-  color: #2C3625;
-  font-weight: 700;
-  text-shadow: 0 1px 8px rgba(255, 255, 255, 0.65);
-}
-.portal-hero-name {
-  color: #fff;
-  font-weight: 700;
-  text-shadow: 0 2px 12px rgba(47, 74, 53, 0.45);
-}
-.portal-hero-plain .portal-hero-name {
-  color: #2F4A35;
+  color: var(--text-primary, #2A3328);
+  font-weight: 500;
   text-shadow: none;
 }
+.portal-hero-name {
+  color: var(--brand-olive-deep, #3D4A35);
+  font-style: italic;
+  font-weight: 600;
+  text-shadow: none;
+}
+.portal-hero-plain .portal-hero-name {
+  color: var(--text-primary, #2A3328);
+}
 .portal-hero-lead {
-  font-size: clamp(0.82rem, 1.6vw, 0.92rem);
-  color: #4A6350;
-  margin: 0.65rem 0 0;
-  max-width: 480px;
-  line-height: 1.55;
-  text-shadow: 0 1px 6px rgba(255, 255, 255, 0.5);
+  font-size: clamp(0.85rem, 1.6vw, 0.95rem);
+  color: var(--text-secondary, #4A5D42);
+  margin: 0.75rem 0 0;
+  max-width: 520px;
+  line-height: 1.6;
+  text-shadow: none;
 }
 .portal-hero:not(.portal-hero-plain):not(.portal-hero-olive) .portal-hero-lead {
-  color: rgba(255, 255, 255, 0.92);
+  color: var(--text-secondary, #4A5D42);
 }
 .portal-hero-date {
   font-size: 0.72rem;
-  color: #6B8270;
+  color: var(--text-muted, #6B7A62);
   margin-top: 0.35rem;
 }
 .portal-hero:not(.portal-hero-plain):not(.portal-hero-olive) .portal-hero-date {
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--text-muted, #6B7A62);
 }
 .portal-hero-actions {
   display: flex;
@@ -267,22 +303,22 @@ a.dash-stat-card:hover {
   transition: all 180ms ease;
 }
 .portal-hero-btn.primary {
-  background: #fff;
-  color: var(--brand-dark, #2F4A35);
+  background: var(--brand-olive, #5C6B52);
+  color: #fff;
 }
 .portal-hero-btn.primary:hover {
-  background: var(--brand-hover, #5A7D60);
-  color: #fff;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  background: var(--brand-hover, #4A5842);
+  box-shadow: 0 8px 24px rgba(61, 74, 53, 0.25);
 }
 .portal-hero-btn.outline {
-  background: transparent;
-  color: #fff;
-  border: 1.5px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 252, 247, 0.85);
+  color: var(--text-primary, #2A3328);
+  border: 1px solid rgba(74, 93, 66, 0.25);
 }
 .portal-hero-btn.outline:hover {
-  border-color: #fff;
-  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--brand-olive, #5C6B52);
+  background: #fff;
+  color: var(--brand-olive-deep, #3D4A35);
 }
 .portal-hero-picker {
   position: absolute;
@@ -526,9 +562,9 @@ a.dash-stat-card:hover {
   justify-content: center;
 }
 .home-feature-title {
-  font-family: var(--font-display);
-  font-size: 1.05rem;
-  font-weight: 700;
+  font-family: var(--font-editorial);
+  font-size: 1.15rem;
+  font-weight: 600;
   color: var(--text-primary);
 }
 .home-feature-desc {
@@ -888,17 +924,17 @@ a.dash-stat-card:hover {
 .intake-tab {
   padding: 0.55rem 1.15rem;
   border-radius: 999px;
-  font-weight: 700;
-  font-size: 0.82rem;
-  border: 1px solid var(--border-default);
-  background: rgba(255,255,255,0.6);
+  font-weight: 600;
+  font-size: 0.78rem;
+  border: 1px solid rgba(74, 93, 66, 0.22);
+  background: rgba(255, 252, 247, 0.72);
   cursor: pointer;
   transition: all 150ms ease;
 }
 .intake-tab.active {
-  background: var(--brand);
+  background: var(--brand-olive, #5C6B52);
   color: #fff;
-  border-color: var(--brand);
+  border-color: var(--brand-olive-deep, #3D4A35);
 }
 
 .intake-card {

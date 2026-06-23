@@ -4,27 +4,32 @@
 
 @import "./thmanyah.css";
 
+@import "./editorialLayout.css";
+
 :root {
-    --bg-base: #F7F3EB;
-    --bg-surface: #FFFFFF;
-    --bg-panel: #EDE1C9;
-    --bg-warm: #F5F0E6;
-    --brand: #6B8F71;
-    --brand-hover: #5A7D60;
-    --brand-dark: #2F4A35;
-    --brand-light: rgba(107, 143, 113, 0.22);
-    --brand-sage: #8FB396;
-    --brand-sidebar: linear-gradient(180deg, #6B8F71 0%, #5A7D60 48%, #2F4A35 100%);
-    --secondary: #965132;
-    --secondary-hover: #7D4529;
-    --secondary-light: #F0E0D4;
-    --text-primary: #2F4A35;
-    --text-secondary: #4A6350;
-    --text-muted: #6B8270;
-    --border-default: #D4DEC8;
-    --border-light: #EDE1C9;
+    --bg-base: #EDE8DF;
+    --bg-surface: #FFFCF7;
+    --bg-panel: #E8E0D2;
+    --bg-warm: #F4EFE6;
+    --brand: #5C6B52;
+    --brand-hover: #4A5842;
+    --brand-dark: #2A3328;
+    --brand-light: rgba(92, 107, 82, 0.18);
+    --brand-sage: #8A9A7A;
+    --brand-olive: #5C6B52;
+    --brand-olive-deep: #3D4A35;
+    --brand-sidebar: linear-gradient(180deg, #6B7D62 0%, #5C6B52 48%, #3D4A35 100%);
+    --secondary: #8B6B4E;
+    --secondary-hover: #735839;
+    --secondary-light: #EDE4D8;
+    --text-primary: #2A3328;
+    --text-secondary: #4A5D42;
+    --text-muted: #6B7A62;
+    --border-default: #D4C8B8;
+    --border-light: #E8E0D2;
     --font-body: "Thmanyah Sans", system-ui, sans-serif;
     --font-display: "Thmanyah Sans", system-ui, sans-serif;
+    --font-editorial: "Cormorant Garamond", Georgia, "Times New Roman", serif;
     --radius-card: 1.25rem;
     --radius-pill: 999px;
     --pink-cancel: #FCE0E8;

@@ -157,7 +157,7 @@ export default function WaitingPage({ mode }) {
       <button
         type="button"
         onClick={() => setActionsOpen(o => !o)}
-        className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0 border-white/30"
+        className="editorial-pill text-[11px] px-2.5 py-1 min-h-0"
       >
         Actions <CaretDown size={12} className="inline ml-0.5" />
       </button>
@@ -203,40 +203,43 @@ export default function WaitingPage({ mode }) {
     </div>
   ) : null;
 
-  const tabToolbar = !isSchool ? (
-    <div className="intake-tabs">
-      <button data-testid="tab-pre" type="button" onClick={() => setTab("pre")} className={`intake-tab${tab === "pre" ? " active" : ""}`}>
-        Pre-Intake ({totalPre})
-      </button>
-      <button data-testid="tab-post" type="button" onClick={() => setTab("post")} className={`intake-tab${tab === "post" ? " active" : ""}`}>
-        Post-Intake ({totalPost})
-      </button>
-      <button
-        type="button"
-        title={priorityOnly ? "Show all" : "Priority first"}
-        onClick={() => setPriorityOnly(v => !v)}
-        className={`intake-tab${priorityOnly ? " active" : ""}`}
-        style={priorityOnly ? {} : { background: "transparent" }}
-      >
-        <Star size={14} weight={priorityOnly ? "fill" : "regular"} className="inline mr-1" /> Priority
-      </button>
-    </div>
-  ) : (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="pill text-[11px]" style={{ background: "rgba(107,143,113,0.12)", color: "#3D4F35" }}>
-        <GraduationCap size={14} className="inline mr-1" weight="duotone" /> {totalSchool} in queue
+  const tabToolbar = isSchool ? (
+    <div className="editorial-pill-row">
+      <span className="editorial-pill is-active" style={{ cursor: "default" }}>
+        <GraduationCap size={14} weight="duotone" /> {totalSchool} in queue
       </span>
       <button
         type="button"
         title={priorityOnly ? "Show all" : "Priority first"}
         onClick={() => setPriorityOnly(v => !v)}
-        className={`intake-tab${priorityOnly ? " active" : ""}`}
-        style={priorityOnly ? {} : { background: "transparent" }}
+        className={`editorial-pill${priorityOnly ? " is-active" : ""}`}
       >
-        <Star size={14} weight={priorityOnly ? "fill" : "regular"} className="inline mr-1" /> Priority
+        <Star size={14} weight={priorityOnly ? "fill" : "regular"} /> Priority
       </button>
     </div>
-  );
+  ) : null;
+
+  const bannerTabs = !isSchool ? [
+    { id: "pre", label: "Pre-Intake", count: totalPre, testId: "tab-pre" },
+    { id: "post", label: "Post-Intake", count: totalPost, testId: "tab-post" },
+    {
+      id: "priority",
+      label: "Priority",
+      icon: <Star size={13} weight={priorityOnly ? "fill" : "regular"} />,
+      testId: "tab-priority",
+    },
+  ] : undefined;
+
+  const handleBannerTab = (id) => {
+    if (id === "priority") {
+      setPriorityOnly(v => !v);
+      return;
+    }
+    setPriorityOnly(false);
+    setTab(id);
+  };
+
+  const bannerActiveTab = priorityOnly ? "priority" : tab;
 
   const queueLabel = isSchool
     ? "School placement waiting list"
@@ -250,11 +253,14 @@ export default function WaitingPage({ mode }) {
         title={title}
         subtitle={subtitle}
         badge={adminBadge}
+        tabs={bannerTabs}
+        activeTab={bannerActiveTab}
+        onTabChange={handleBannerTab}
         stats={[
-          { label: "Total", n: filtered.length, color: "#2C3625" },
-          { label: "HS", n: hsCount, color: "#375568" },
-          { label: "SS", n: ssCount, color: "#606E52" },
-          { label: "Priority", n: priCount, color: "#6B5218" },
+          { label: "Total", n: filtered.length, color: "#2A3328" },
+          { label: "HS", n: hsCount, color: "#4A5D42" },
+          { label: "SS", n: ssCount, color: "#5C6B52" },
+          { label: "Priority", n: priCount, color: "#8B6B4E" },
         ]}
         toolbar={tabToolbar}
       />

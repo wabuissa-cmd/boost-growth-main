@@ -114,24 +114,17 @@ export default function Clients() {
     <div>
       <PageBanner
         title="Client Info"
+        subtitle="Active portfolios, locations, records, and clinical summaries"
+        tabs={[
+          { id: "active", label: "Active", count: activeCount },
+          { id: "inactive", label: "Inactive", count: items.length - activeCount },
+        ]}
+        activeTab={statusTab}
+        onTabChange={setStatusTab}
         toolbar={(
           <div className="flex items-center gap-1.5 flex-wrap">
-            <div className="inline-flex rounded-lg border border-[#E2DDD4] p-0.5 bg-[#FAFAF7]">
-              {["active", "inactive"].map(id => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setStatusTab(id)}
-                  className={`pill px-2.5 py-1 text-[11px] font-semibold border-0 min-h-0 capitalize ${
-                    statusTab === id ? "bg-[#7A8A6A] text-white" : "bg-transparent text-[#5C6853]"
-                  }`}
-                >
-                  {id}
-                </button>
-              ))}
-            </div>
             {isAdmin && (
-              <select className="select text-[11px] min-h-0 h-7 py-0 max-w-[140px]" value={therapistFilter} onChange={e => setTherapistFilter(e.target.value)}>
+              <select className="select text-[11px] min-h-0 h-8 py-0 max-w-[140px]" value={therapistFilter} onChange={e => setTherapistFilter(e.target.value)}>
                 <option value="">All therapists</option>
                 {therapists.map(t => <option key={t.id} value={t.id}>{t.name?.replace("Ms. ", "")}</option>)}
               </select>
