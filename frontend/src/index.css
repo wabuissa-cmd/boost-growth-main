@@ -13,12 +13,12 @@
     --bg-warm: #F4EFE6;
     --brand: #5C6B52;
     --brand-hover: #4A5842;
-    --brand-dark: #2A3328;
+    --brand-dark: #2F4A35;
     --brand-light: rgba(92, 107, 82, 0.18);
-    --brand-sage: #8A9A7A;
+    --brand-sage: #7A8A6A;
     --brand-olive: #5C6B52;
     --brand-olive-deep: #3D4A35;
-    --brand-sidebar: linear-gradient(180deg, #6B7D62 0%, #5C6B52 48%, #3D4A35 100%);
+    --brand-sidebar: linear-gradient(180deg, #5C6B52 0%, #4A5842 48%, #2F4A35 100%);
     --secondary: #8B6B4E;
     --secondary-hover: #735839;
     --secondary-light: #EDE4D8;
@@ -802,7 +802,7 @@ main, .page-enter { min-width: 0; }
 
 /* Page banner — forest-to-sage green gradient */
 .page-banner-head {
-  background: linear-gradient(135deg, #2F4A35 0%, #6B8F71 48%, #8FB396 100%);
+  background: linear-gradient(135deg, #2F4A35 0%, #5C6B52 52%, #7A8A6A 100%);
 }
 .page-banner-title {
   font-family: var(--font-display);

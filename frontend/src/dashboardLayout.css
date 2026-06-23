@@ -93,7 +93,7 @@ a.dash-stat-card:hover {
   position: relative;
   border-radius: 28px;
   overflow: hidden;
-  min-height: min(280px, 36vh);
+  min-height: min(240px, 32vh);
   max-width: 100%;
   margin: 0 0 1.5rem;
   display: flex;
@@ -137,13 +137,14 @@ a.dash-stat-card:hover {
   position: absolute;
   inset: 0;
   z-index: 0;
+  /* Muted site olive (#5C6B52 → #3D4A35) — not bright sage #6B8F71 */
   background: linear-gradient(
     105deg,
-    rgba(107, 143, 113, 0.78) 0%,
-    rgba(90, 125, 96, 0.62) 28%,
-    rgba(74, 93, 66, 0.45) 52%,
-    rgba(61, 74, 53, 0.28) 72%,
-    rgba(47, 74, 53, 0.14) 100%
+    rgba(92, 107, 82, 0.7) 0%,
+    rgba(74, 88, 66, 0.55) 30%,
+    rgba(61, 74, 53, 0.38) 55%,
+    rgba(47, 74, 53, 0.22) 75%,
+    rgba(42, 51, 40, 0.1) 100%
   );
 }
 .portal-hero:has(.portal-hero-overlay) .portal-hero-greeting,
