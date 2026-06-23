@@ -62,6 +62,7 @@ const CLIENT_LEAD_EMAILS = new Set([
   "falghadeeb@boostgrowthsa.com",
   "jsalmuhaisin@boostgrowthsa.com",
 ]);
+const HR_OPS_EMAILS = new Set(["hr@boostgrowthsa.com"]);
 
 function _matchesClientLead(user) {
   const email = (user.email || "").toLowerCase().trim();
@@ -79,26 +80,34 @@ export function isClientLead(user) {
   return _matchesClientLead(user);
 }
 
-/** Portal admin only — billing, schedule edit, attendance ops UI */
-export function hasOpsAccess(user) {
-  return isPortalAdmin(user);
+/** HR operations account — billing, clients, import, staff requests (not technical admin) */
+export function isHrOps(user) {
+  if (!user) return false;
+  if (user.hr_ops) return true;
+  return HR_OPS_EMAILS.has((user.email || "").toLowerCase().trim());
 }
 
-/** All active clients in Client Info (portal admin + client-lead team) */
+/** Portal admin + HR — billing, schedule edit, attendance ops UI */
+export function hasOpsAccess(user) {
+  return isPortalAdmin(user) || isHrOps(user);
+}
+
+/** All active clients in Client Info (portal admin + HR + client-lead team) */
 export function hasFullClientAccess(user) {
   if (!user) return false;
   if (isPortalAdmin(user)) return true;
+  if (isHrOps(user)) return true;
   return isClientLead(user);
 }
 
-/** Email admin login — intake, reports, import, staff requests, leave management */
+/** Email admin login — technical portal admin only (excludes HR ops) */
 export function isPortalAdmin(user) {
   if (!user) return false;
   if (user.portal_admin) return true;
-  return user?.role === "admin" && !isClientLead(user);
+  return user?.role === "admin" && !isClientLead(user) && !isHrOps(user);
 }
 
-/** Admin nav + dashboard (excludes client-lead team even if role is admin) */
+/** Admin nav + dashboard (excludes client-lead team and HR ops) */
 export function showAdminNav(user) {
   return isPortalAdmin(user);
 }
@@ -134,16 +143,22 @@ export function canManageLeaves(user) {
   return isPortalAdmin(user) || isJenan(user);
 }
 
+export function canHrReviewLeaves(user) {
+  if (!user) return false;
+  if (user.can_hr_review_leaves) return true;
+  return isPortalAdmin(user) || isHrOps(user);
+}
+
 export function canEditStaffRequests(user) {
   if (!user) return false;
   if (user.can_edit_staff_requests) return true;
-  return isPortalAdmin(user) || isClientLead(user);
+  return isPortalAdmin(user) || isClientLead(user) || isHrOps(user);
 }
 
 export function canEditIntake(user) {
   if (!user) return false;
   if (user.can_edit_intake) return true;
-  return isPortalAdmin(user) || isClientLead(user);
+  return isPortalAdmin(user) || isClientLead(user) || isHrOps(user);
 }
 
 export function canEditOwnSchedule(user) {

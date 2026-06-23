@@ -223,22 +223,20 @@ export default function TherapistRequests() {
               <div className="req-leave-stat-grid">
                 <div className="req-leave-stat-box">
                   <div className="req-leave-stat-val">{balance.remaining}</div>
-                  <div className="req-leave-stat-lbl">Days left</div>
-                </div>
-                <div className="req-leave-stat-box">
-                  <div className="req-leave-stat-val">{balance.allocated}</div>
-                  <div className="req-leave-stat-lbl">Entitled</div>
+                  <div className="req-leave-stat-lbl">Remaining paid</div>
                 </div>
                 <div className="req-leave-stat-box">
                   <div className="req-leave-stat-val">{(balance.used_annual || 0) + (balance.used_permission || 0)}</div>
                   <div className="req-leave-stat-lbl">Used</div>
                 </div>
-                {balance.used_permission > 0 && (
-                  <div className="req-leave-stat-box">
-                    <div className="req-leave-stat-val">{balance.used_permission}</div>
-                    <div className="req-leave-stat-lbl">Permission</div>
-                  </div>
-                )}
+                <div className="req-leave-stat-box">
+                  <div className="req-leave-stat-val">{balance.used_unpaid || 0}</div>
+                  <div className="req-leave-stat-lbl">Unpaid leave days</div>
+                </div>
+                <div className="req-leave-stat-box">
+                  <div className="req-leave-stat-val">{leaves.filter(l => l.status === "pending" || l.status === "pending_manager" || l.status === "pending_hr").length}</div>
+                  <div className="req-leave-stat-lbl">Pending requests</div>
+                </div>
               </div>
             ) : (
               <div className="text-sm opacity-90">Loading…</div>

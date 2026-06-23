@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import api, { startOfWeek, toISODate, addDays } from "../api";
 import { cachedGet } from "../dataCache";
-import { useAuth, showAdminNav, hasOpsAccess } from "../auth";
+import { useAuth, showAdminNav, hasOpsAccess, isHrOps, isJenan } from "../auth";
 import {
   CalendarBlank, ClipboardText, UsersThree, ListChecks, Plant, ArrowRight,
   CheckCircle, Clock, XCircle, CalendarCheck, Heart,
@@ -14,6 +14,7 @@ import CreativeSection from "../components/CreativeSection";
 import TherapistWeekCalendar from "../components/TherapistWeekCalendar";
 import PlatformUpdates from "../components/PlatformUpdates";
 import AdminRemindersPanel, { buildAdminReminders } from "../components/AdminRemindersPanel";
+import HrInboxPanel from "../components/HrInboxPanel";
 import { saudiGreetingParts, saudiDateString } from "../saudiGreeting";
 import "../dashboardLayout.css";
 
@@ -52,6 +53,10 @@ function loadHeroPreference(user) {
 export default function Home() {
   const { user } = useAuth();
   const isPortalAdminUser = showAdminNav(user);
+  const hrOps = isHrOps(user);
+  const jenan = isJenan(user);
+  const showOpsHome = isPortalAdminUser || hrOps;
+  const showInbox = isPortalAdminUser || hrOps || jenan;
   const opsAccess = hasOpsAccess(user);
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [stats, setStats] = useState({
@@ -109,10 +114,10 @@ export default function Home() {
           cachedGet("/clients/package-status").catch(() => []),
           api.get("/schedule/closures", { params: { from_date: weekISO, to_date: weekEndISO } }).catch(() => ({ data: [] })),
           api.get("/center-updates").catch(() => ({ data: [] })),
-          isPortalAdminUser ? api.get("/notifications").catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
-          isPortalAdminUser && opsAccess ? api.get("/billing/dashboard").catch(() => ({ data: null })) : Promise.resolve({ data: null }),
-          isPortalAdminUser ? api.get("/leaves").catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
-          isPortalAdminUser ? api.get("/intake").catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+          isPortalAdminUser || hrOps ? api.get("/notifications").catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+          (isPortalAdminUser || hrOps) && opsAccess ? api.get("/billing/dashboard").catch(() => ({ data: null })) : Promise.resolve({ data: null }),
+          (isPortalAdminUser || hrOps) ? api.get("/leaves").catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+          (isPortalAdminUser || hrOps) ? api.get("/intake").catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
         ]);
 
         const clientsList = asList({ data: c });
@@ -129,7 +134,7 @@ export default function Home() {
         setUpdates(asList(ups));
         setNotifications(asList(notifs));
         setBillingSummary(billing?.data || null);
-        setPendingLeaves(leavesList.filter(l => l.status === "pending").length);
+        setPendingLeaves(leavesList.filter(l => l.status === "pending" || l.status === "pending_manager" || l.status === "pending_hr").length);
         setNewIntake(intakeList.filter(i => (i.status || "new") === "new").length);
 
         setPkgAlerts({
@@ -137,7 +142,7 @@ export default function Home() {
           low: pkgRows.filter(x => x.status === "low").length,
         });
 
-        const myCells = isPortalAdminUser
+        const myCells = showOpsHome
           ? schedule
           : schedule.filter(x => x.therapist_id === user?.id);
         const real = myCells.filter(x => !["LEAVE", "BREAK", "AVC"].includes(x.service_code));
@@ -146,7 +151,7 @@ export default function Home() {
         const todayUpcoming = todayDayIdx >= 0 ? real.filter(x => x.day === todayDayIdx).length : 0;
 
         const weekEndDate = toISODate(addDays(new Date(weekISO), 7));
-        const mySessions = isPortalAdminUser
+        const mySessions = showOpsHome
           ? sessions
           : sessions.filter(x => (x.therapist_ids || []).includes(user?.id));
         const sessionsThisWeek = mySessions.filter(x =>
@@ -165,7 +170,7 @@ export default function Home() {
         });
       } catch (_e) { /* ignore */ }
     })();
-  }, [user?.id, isPortalAdminUser, user, weekISO, weekEndISO, opsAccess]);
+  }, [user?.id, showOpsHome, user, weekISO, weekEndISO, opsAccess, hrOps]);
 
   const adminReminders = useMemo(
     () => buildAdminReminders({
@@ -179,10 +184,10 @@ export default function Home() {
     [notifications, pkgAlerts, stats.requests, billingSummary, pendingLeaves, newIntake]
   );
 
-  useEffect(() => { if (!isPortalAdminUser) loadPersonal(); }, [weekISO, weekEndISO, isPortalAdminUser]);
+  useEffect(() => { if (!showOpsHome) loadPersonal(); }, [weekISO, weekEndISO, showOpsHome]);
 
   const displayName = user?.name?.replace(/^Ms\.?\s*/i, "") || "Friend";
-  const dateStr = isPortalAdminUser
+  const dateStr = showOpsHome
     ? saudiDateString()
     : new Date().toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
@@ -298,7 +303,7 @@ export default function Home() {
 
   return (
     <div className="page-enter">
-      {isPortalAdminUser ? (
+      {showOpsHome ? (
         <>
           <HeroBanner greetingParts={saudiGreetingParts(displayName)} showNav />
 
@@ -318,8 +323,9 @@ export default function Home() {
           </CreativeSection>
 
           <div className="home-admin-panels">
-            <PlatformUpdates items={updates} canPost onPosted={loadUpdates} />
-            <AdminRemindersPanel items={adminReminders} />
+            <PlatformUpdates items={updates} canPost={isPortalAdminUser} onPosted={loadUpdates} />
+            {showInbox ? <HrInboxPanel user={user} /> : <AdminRemindersPanel items={adminReminders} />}
+            {showInbox && isPortalAdminUser && <AdminRemindersPanel items={adminReminders} />}
           </div>
 
           <CreativeSection title="This week at a glance">
@@ -334,6 +340,12 @@ export default function Home() {
       ) : (
         <>
           <HeroBanner compact />
+
+          {showInbox && (
+            <div className="mb-4">
+              <HrInboxPanel user={user} />
+            </div>
+          )}
 
           <div className="dash-stat-row stagger mb-4">
             <DashboardStatCard value={stats.completedThisWeek} label="Completed this week" desc="Sessions logged" icon={<CheckCircle size={22} weight="duotone" style={{ color: "#6B8F71", background: "rgba(237,225,201,0.5)", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-0" />
@@ -363,7 +375,7 @@ export default function Home() {
         </>
       )}
 
-      {!isPortalAdminUser && (
+      {!showOpsHome && (
         <div className="grid md:grid-cols-2 gap-4">
           <div className="card p-5 rounded-[22px]">
             <div className="dash-section-title mb-3">Quick Links</div>

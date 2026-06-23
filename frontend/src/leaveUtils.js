@@ -2,6 +2,8 @@
 
 export const LEAVE_STATUS = {
   pending: { label: "Pending", therapistLabel: "Under Review", color: "#D4A64A", bg: "#FAF0D1", icon: "🟡" },
+  pending_manager: { label: "Pending Manager", therapistLabel: "Manager Review", color: "#D4A64A", bg: "#FAF0D1", icon: "🟡" },
+  pending_hr: { label: "Pending HR", therapistLabel: "HR Review", color: "#C28E6A", bg: "#F5EBE3", icon: "🟠" },
   approved: { label: "Approved", color: "#3D4F35", bg: "#E5EBE1", icon: "🟢" },
   done: { label: "Done", color: "#5C6853", bg: "#EFEAE0", icon: "✓" },
   rejected: { label: "Rejected", color: "#8B3A55", bg: "#FCE0E8", icon: "✗" },
@@ -87,9 +89,13 @@ export function fmtDateRange(start, end) {
   return `${fmt(start)} → ${fmt(end)}`;
 }
 
+export function isPendingLeaveStatus(status) {
+  return status === "pending" || status === "pending_manager" || status === "pending_hr";
+}
+
 export function isActiveLeave(l) {
   const st = l.status;
-  if (st === "pending") return true;
+  if (isPendingLeaveStatus(st)) return true;
   if (st === "approved" || st === "rejected") {
     const decided = l.decided_at || l.created_at || l.end_date;
     if (!decided) return true;
@@ -101,7 +107,7 @@ export function isActiveLeave(l) {
 }
 
 export function isHistoryLeave(l) {
-  if (l.status === "pending") return false;
+  if (isPendingLeaveStatus(l.status)) return false;
   if (["approved", "done", "absent"].includes(l.status)) return true;
   if (l.status === "rejected") return !isActiveLeave(l);
   return ["done", "cancelled", "absent"].includes(l.status);

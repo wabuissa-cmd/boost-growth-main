@@ -178,6 +178,8 @@ async def admin_only(user: dict = Depends(get_current_user)) -> dict:
         raise HTTPException(status_code=403, detail="Admin access required")
     if _is_client_lead(user):
         raise HTTPException(status_code=403, detail="Admin access required")
+    if _is_hr_ops(user):
+        raise HTTPException(status_code=403, detail="Admin access required")
     return user
 
 FULL_CLIENT_ACCESS_KEYS = frozenset({"mswalaa", "msmaha", "msjenan", "msfahda"})
@@ -188,6 +190,9 @@ CLIENT_LEAD_EMAILS = frozenset({
     "falghadeeb@boostgrowthsa.com",
     "jsalmuhaisin@boostgrowthsa.com",
 })
+HR_OPS_EMAIL = "hr@boostgrowthsa.com"
+HR_OPS_PASSWORD = "BoostHR@2026"
+PENDING_MANAGER_STATUSES = frozenset({"pending", "pending_manager"})
 
 
 def _is_client_lead(user: dict) -> bool:
@@ -217,8 +222,15 @@ def _session_editable_by_user(user: dict, session: dict) -> bool:
     return sd == today
 
 
+def _is_hr_ops(user: dict) -> bool:
+    if user.get("is_hr_ops"):
+        return True
+    email = (user.get("email") or "").lower().strip()
+    return email == HR_OPS_EMAIL
+
+
 def _is_portal_admin(user: dict) -> bool:
-    return user.get("role") == "admin" and not _is_client_lead(user)
+    return user.get("role") == "admin" and not _is_client_lead(user) and not _is_hr_ops(user)
 
 
 def _is_staff_admin(user: dict) -> bool:
@@ -244,20 +256,20 @@ async def leave_manager(user: dict = Depends(get_current_user)) -> dict:
 
 
 async def client_lead_or_admin(user: dict = Depends(get_current_user)) -> dict:
-    if _is_portal_admin(user) or _is_client_lead(user):
+    if _is_portal_admin(user) or _is_client_lead(user) or _is_hr_ops(user):
         return user
     raise HTTPException(status_code=403, detail="Admin access required")
 
 
 async def schedule_edit_or_admin(user: dict = Depends(get_current_user)) -> dict:
     """Portal admin or ops leads (Walaa, Maha, Fahda, Jenan) may edit schedule cells."""
-    if _is_portal_admin(user) or _is_client_lead(user):
+    if _is_portal_admin(user) or _is_client_lead(user) or _is_hr_ops(user):
         return user
     raise HTTPException(status_code=403, detail="Admin access required")
 
 
 async def ops_or_admin(user: dict = Depends(get_current_user)) -> dict:
-    if _is_portal_admin(user):
+    if _is_portal_admin(user) or _is_hr_ops(user):
         return user
     raise HTTPException(status_code=403, detail="Admin access required")
 
@@ -635,14 +647,16 @@ async def reset_therapist_password(tid: str, _=Depends(admin_only)):
 
 @api.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
-    user["ops_access"] = bool(_is_client_lead(user))
+    user["ops_access"] = _is_portal_admin(user) or _is_hr_ops(user) or bool(_is_client_lead(user))
     user["client_lead"] = _is_client_lead(user)
-    user["portal_admin"] = user.get("role") == "admin" and not _is_client_lead(user)
+    user["hr_ops"] = _is_hr_ops(user)
+    user["portal_admin"] = _is_portal_admin(user)
     user["staff_admin"] = user["portal_admin"]
     user["jenan_hr"] = _is_jenan(user)
     user["can_manage_leaves"] = _is_portal_admin(user) or _is_jenan(user)
-    user["can_edit_staff_requests"] = _is_portal_admin(user) or _is_client_lead(user)
-    user["can_edit_intake"] = _is_portal_admin(user) or _is_client_lead(user)
+    user["can_hr_review_leaves"] = _is_portal_admin(user) or _is_hr_ops(user)
+    user["can_edit_staff_requests"] = _is_portal_admin(user) or _is_client_lead(user) or _is_hr_ops(user)
+    user["can_edit_intake"] = _is_portal_admin(user) or _is_client_lead(user) or _is_hr_ops(user)
     user["schedule_lead"] = _is_client_lead(user) and not _is_portal_admin(user)
     return user
 
@@ -1119,10 +1133,36 @@ async def _notify(user_id: str, ntype: str, title: str, message: str, **extra):
     return doc
 
 async def _notify_admins(ntype: str, title: str, message: str):
-    """Send notification to all admin users."""
-    admins = await db.users.find({"role": "admin"}, {"_id": 0, "id": 1}).to_list(50)
+    """Send notification to portal admins and HR ops users."""
+    admins = await db.users.find({"role": "admin"}, {"_id": 0, "id": 1, "email": 1, "is_hr_ops": 1}).to_list(50)
     for a in admins:
-        await _notify(a["id"], ntype, title, message)
+        stub = {"role": "admin", "email": a.get("email"), "is_hr_ops": a.get("is_hr_ops")}
+        if _is_portal_admin(stub) or _is_hr_ops(stub):
+            await _notify(a["id"], ntype, title, message)
+
+
+async def _notify_hr_ops(ntype: str, title: str, message: str):
+    admins = await db.users.find({"role": "admin"}, {"_id": 0, "id": 1, "email": 1, "is_hr_ops": 1}).to_list(50)
+    for a in admins:
+        stub = {"role": "admin", "email": a.get("email"), "is_hr_ops": a.get("is_hr_ops")}
+        if _is_hr_ops(stub):
+            await _notify(a["id"], ntype, title, message)
+
+
+async def _jenan_therapist_id() -> Optional[str]:
+    t = await db.therapists.find_one(
+        {"email": {"$regex": r"^jsalmuhaisin@boostgrowthsa\.com$", "$options": "i"}},
+        {"_id": 0, "id": 1},
+    )
+    if t:
+        return t["id"]
+    for t in await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1}).to_list(200):
+        if (t.get("key") or "").lower() == "msjenan":
+            return t["id"]
+        name = (t.get("name") or "").lower().replace("ms.", "").replace("ms ", "").strip()
+        if name.startswith("jenan"):
+            return t["id"]
+    return None
 
 
 async def _find_client_by_schedule_child_name(child_name: str) -> Optional[dict]:
@@ -4279,7 +4319,7 @@ async def list_purchases(
     user=Depends(get_current_user),
 ):
     q: dict = {}
-    if _is_portal_admin(user):
+    if _is_portal_admin(user) or _is_hr_ops(user):
         if therapist_id:
             q["therapist_id"] = therapist_id
     else:
@@ -4338,7 +4378,7 @@ async def update_purchase(pid: str, payload: PurchaseUpdate, user=Depends(get_cu
     existing = await db.staff_purchases.find_one({"id": pid}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Purchase not found")
-    is_admin = _is_portal_admin(user)
+    is_admin = _is_portal_admin(user) or _is_hr_ops(user)
     tid = await _resolve_user_therapist_id(user) or user.get("id")
     if not is_admin and existing.get("therapist_id") != tid:
         raise HTTPException(status_code=403, detail="Forbidden")
@@ -4366,7 +4406,7 @@ async def update_purchase(pid: str, payload: PurchaseUpdate, user=Depends(get_cu
 
 
 @api.delete("/purchases/{pid}")
-async def delete_purchase(pid: str, _=Depends(admin_only)):
+async def delete_purchase(pid: str, _=Depends(ops_or_admin)):
     r = await db.staff_purchases.delete_one({"id": pid})
     if not r.deleted_count:
         raise HTTPException(status_code=404, detail="Purchase not found")
@@ -4384,7 +4424,10 @@ def _enrich_request_attachment(req: dict) -> dict:
 
 @api.get("/requests")
 async def list_requests(user=Depends(get_current_user)):
-    q = {} if _is_portal_admin(user) else {"therapist_id": user["id"]}
+    if _is_portal_admin(user) or _is_hr_ops(user) or _is_client_lead(user):
+        q = {}
+    else:
+        q = {"therapist_id": user["id"]}
     items = await db.requests.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     return [_enrich_request_attachment(it) for it in items]
 
@@ -4453,6 +4496,29 @@ async def upload_request_attachment(
         f"{user.get('name')}: {doc['title']} (report date: {report_date})",
     )
     return _enrich_request_attachment(doc)
+
+
+@api.get("/tracking/inbox")
+async def tracking_inbox(user=Depends(get_current_user)):
+    if not (_is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user)):
+        raise HTTPException(status_code=403, detail="Inbox access required")
+    leaves_pending_manager = await db.leaves.count_documents({"status": {"$in": list(PENDING_MANAGER_STATUSES)}})
+    leaves_pending_hr = await db.leaves.count_documents({"status": "pending_hr"})
+    requests_pending = await db.requests.count_documents({"status": "pending"})
+    purchases_pending = await db.staff_purchases.count_documents({"status": "pending"})
+    billing_reminders_soon = 0
+    try:
+        dash = await billing_dashboard(user)
+        billing_reminders_soon = int((dash.get("summary") or {}).get("reminders_soon") or 0)
+    except Exception:
+        pass
+    return {
+        "leaves_pending_manager": leaves_pending_manager,
+        "leaves_pending_hr": leaves_pending_hr,
+        "requests_pending": requests_pending,
+        "purchases_pending": purchases_pending,
+        "billing_reminders_soon": billing_reminders_soon,
+    }
 
 
 @api.get("/requests/{rid}/attachment")
@@ -5269,7 +5335,19 @@ def _leave_default_fields() -> dict:
         "document_type": None,
         "document_verified": False,
         "schedule_impact": [],
+        "timeline": [],
     }
+
+
+def _normalize_leave_status(status: Optional[str]) -> str:
+    s = (status or "pending").strip()
+    return "pending_manager" if s == "pending" else s
+
+
+def _append_leave_timeline(leave: dict, event: str, actor: str) -> list:
+    timeline = list(leave.get("timeline") or [])
+    timeline.append({"event": event, "at": now_iso(), "by": actor})
+    return timeline
 
 
 def _schedule_day_index(dt: datetime) -> int:
@@ -5338,7 +5416,8 @@ def _enrich_leave_document_url(leave: dict) -> dict:
 @api.get("/leaves")
 async def list_leaves(year: Optional[int] = None, user=Depends(get_current_user)):
     q: dict = {}
-    if not _is_portal_admin(user):
+    can_view_all = _is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user)
+    if not can_view_all:
         therapist = await db.therapists.find_one({"id": user["id"]}, {"_id": 0})
         if therapist:
             therapist = await _ensure_contract_balance(therapist)
@@ -5351,7 +5430,7 @@ async def list_leaves(year: Optional[int] = None, user=Depends(get_current_user)
     else:
         yr = datetime.now(timezone.utc).year
         q["start_date"] = {"$gte": f"{yr}-01-01", "$lte": f"{yr}-12-31"}
-    if not _is_portal_admin(user):
+    if not can_view_all:
         q["therapist_id"] = user["id"]
     items = await db.leaves.find(q, {"_id": 0}).sort("start_date", -1).to_list(2000)
     therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1, "color": 1}).to_list(100)
@@ -5361,7 +5440,7 @@ async def list_leaves(year: Optional[int] = None, user=Depends(get_current_user)
         if t:
             it["therapist_name"] = t.get("name")
             it["therapist_color"] = t.get("color")
-            if _is_portal_admin(user):
+            if can_view_all:
                 it["therapist_email"] = t.get("email")
     return [_enrich_leave_document_url(it) for it in items]
 
@@ -5383,7 +5462,11 @@ async def leaves_balance(year: Optional[int] = None, user=Depends(get_current_us
         used_unpaid = sum(float(l.get("days") or 0) for l in own if l.get("leave_type") == "Unpaid" and l.get("status") in ("approved", "done"))
         used_sick = sum(float(l.get("days") or 0) for l in own if l.get("leave_type") == "Sickleave" and l.get("status") in ("approved", "done"))
         used_permission = sum(float(l.get("days") or 0) for l in own if l.get("leave_type") == "Permission" and l.get("status") in ("approved", "done") and l.get("is_paid", True))
-        pending = sum(float(l.get("days") or 0) for l in own if l.get("status") == "pending")
+        pending = sum(
+            float(l.get("days") or 0)
+            for l in own
+            if _normalize_leave_status(l.get("status")) in ("pending_manager", "pending_hr")
+        )
         allocated = float(t.get("leave_balance") if t.get("leave_balance") is not None else (t.get("annual_balance") or DEFAULT_ANNUAL_BALANCE))
         remaining = max(0.0, allocated - used_annual - used_permission)
         out.append({
@@ -5405,18 +5488,22 @@ async def leaves_balance(year: Optional[int] = None, user=Depends(get_current_us
 
 @api.post("/leaves")
 async def create_leave(payload: LeaveIn, user=Depends(get_current_user)):
-    if not _is_portal_admin(user) and payload.therapist_id != user["id"]:
+    if not _is_portal_admin(user) and not _is_hr_ops(user) and payload.therapist_id != user["id"]:
         raise HTTPException(status_code=403, detail="Therapist can only create own leaves")
     lid = str(uuid.uuid4())
     doc = {"id": lid, **payload.model_dump(), **_leave_default_fields(), "created_by": user["id"], "created_at": now_iso()}
     if user.get("role") != "admin":
-        doc["status"] = "pending"  # therapist requests start as pending
+        doc["status"] = "pending_manager"
+        doc["timeline"] = [{"event": "submitted", "at": now_iso(), "by": _actor_display(user)}]
     await db.leaves.insert_one(doc)
     doc.pop("_id", None)
-    # Notify admins if therapist submitted
     if user.get("role") != "admin":
-        await _notify_admins("leave_request", "New leave request",
-                             f"{user.get('name')}: {payload.leave_type} {payload.days}d ({payload.start_date} → {payload.end_date})")
+        msg = f"{user.get('name')}: {payload.leave_type} {payload.days}d ({payload.start_date} → {payload.end_date})"
+        jenan_id = await _jenan_therapist_id()
+        if jenan_id:
+            await _notify(jenan_id, "leave_request", "New leave request", msg)
+        else:
+            await _notify_admins("leave_request", "New leave request", msg)
     return doc
 
 @api.put("/leaves/{lid}")
@@ -5431,23 +5518,59 @@ async def update_leave(lid: str, payload: LeaveIn, user=Depends(get_current_user
     return await db.leaves.find_one({"id": lid}, {"_id": 0})
 
 @api.put("/leaves/{lid}/status")
-async def update_leave_status(lid: str, payload: LeaveStatusUpdate, admin=Depends(leave_manager)):
+async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends(get_current_user)):
     leave = await db.leaves.find_one({"id": lid})
     if not leave:
         raise HTTPException(status_code=404, detail="Not found")
     prev_status = leave.get("status")
+    effective_prev = _normalize_leave_status(prev_status)
+    new_status = payload.status
+    is_pa = _is_portal_admin(user)
+    is_hr = _is_hr_ops(user)
+    is_jenan_mgr = _is_jenan(user) and not is_pa
+
+    if is_pa:
+        pass
+    elif is_jenan_mgr:
+        if effective_prev not in PENDING_MANAGER_STATUSES:
+            raise HTTPException(status_code=403, detail="Manager can only act on pending manager requests")
+        if new_status not in ("pending_hr", "rejected"):
+            raise HTTPException(status_code=400, detail="Manager must forward to HR or reject")
+    elif is_hr:
+        if effective_prev != "pending_hr":
+            raise HTTPException(status_code=403, detail="HR can only act on HR-pending requests")
+        if new_status not in ("approved", "rejected"):
+            raise HTTPException(status_code=400, detail="HR must approve or reject")
+    else:
+        raise HTTPException(status_code=403, detail="Leave management access required")
+
     is_paid = payload.is_paid if payload.is_paid is not None else leave.get("is_paid", True)
     deduct = payload.deduct_balance if payload.deduct_balance is not None else True
-    if payload.status == "approved" and leave.get("leave_type") == "Permission" and payload.is_paid is False:
+    if new_status == "approved" and leave.get("leave_type") == "Permission" and payload.is_paid is False:
         is_paid = False
         deduct = False
+    if is_hr and not is_pa and new_status == "approved":
+        lt = (leave.get("leave_type") or "").lower()
+        if lt in ("unpaid", "absence") or not is_paid:
+            deduct = False
+    actor = _actor_display(user)
+    timeline = _append_leave_timeline(leave, new_status, actor)
     await db.leaves.update_one({"id": lid}, {"$set": {
-        "status": payload.status, "admin_note": payload.admin_note,
-        "decided_by": admin.get("name") or "Admin", "decided_at": now_iso(),
+        "status": new_status, "admin_note": payload.admin_note,
+        "decided_by": user.get("name") or actor, "decided_at": now_iso(),
         "is_paid": is_paid,
+        "timeline": timeline,
     }})
+    if new_status == "pending_hr" and effective_prev in PENDING_MANAGER_STATUSES:
+        tname = leave.get("leave_type") or "Leave"
+        await _notify_hr_ops(
+            "leave_request",
+            "Leave awaiting HR approval",
+            f"{leave.get('therapist_name') or 'Therapist'}: {tname} {leave.get('days')}d "
+            f"({leave.get('start_date')} → {leave.get('end_date')})",
+        )
     # Deduct balance when newly approved (skip unpaid / absence)
-    if payload.status == "approved" and prev_status != "approved" and leave.get("therapist_id"):
+    if new_status == "approved" and prev_status != "approved" and leave.get("therapist_id"):
         lt = (leave.get("leave_type") or "").lower()
         if deduct and is_paid and lt not in ("unpaid", "absence"):
             t = await db.therapists.find_one({"id": leave["therapist_id"]}, {"_id": 0, "leave_balance": 1})
@@ -5460,14 +5583,18 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, admin=Depend
                 )
     # Notify therapist (in-app + email)
     if leave.get("therapist_id"):
-        msg_map = {"approved": "Approved", "rejected": "Rejected", "done": "Completed", "cancelled": "Cancelled", "pending": "Pending"}
-        label = msg_map.get(payload.status, payload.status)
+        msg_map = {
+            "approved": "Approved", "rejected": "Rejected", "done": "Completed",
+            "cancelled": "Cancelled", "pending": "Pending", "pending_manager": "Pending manager review",
+            "pending_hr": "Pending HR review",
+        }
+        label = msg_map.get(new_status, new_status)
         msg = (
             f"Your {leave.get('leave_type')} leave from {leave.get('start_date')} to "
             f"{leave.get('end_date')} ({leave.get('days')}d) is now {label}."
         )
         await _notify(leave["therapist_id"], "leave", f"Leave {label}", msg)
-        if payload.status in ("approved", "rejected"):
+        if new_status in ("approved", "rejected"):
             tname = leave.get("leave_type") or "Leave"
             await _push_center_update(
                 f"Leave {label.lower()}: {tname}",
@@ -6562,7 +6689,7 @@ def _extract_intake_child_name(r: dict) -> str:
     return ""
 
 @api.post("/import/clients")
-async def import_clients(file: UploadFile = File(...), _=Depends(admin_only)):
+async def import_clients(file: UploadFile = File(...), _=Depends(ops_or_admin)):
     rows = _read_table(file)
     created, updated, skipped = 0, 0, 0
     therapists = await db.therapists.find({}, {"_id": 0}).to_list(100)
@@ -6683,7 +6810,7 @@ async def _upsert_intake_rows(rows: List[dict], detected_columns: List[str], par
 
 
 @api.post("/import/intake")
-async def import_intake(file: UploadFile = File(...), _=Depends(admin_only)):
+async def import_intake(file: UploadFile = File(...), _=Depends(ops_or_admin)):
     try:
         content = file.file.read()
         rows, detected_columns, parse_meta = _read_intake_rows(content, file.filename or "")
@@ -6732,12 +6859,12 @@ def _load_historical():
     return HISTORICAL_SCHEDULES
 
 @api.get("/import/historical-weeks")
-async def list_historical_weeks(_=Depends(admin_only)):
+async def list_historical_weeks(_=Depends(ops_or_admin)):
     data = _load_historical()
     return {"weeks": list(data.keys())}
 
 @api.post("/import/historical-load")
-async def import_historical(body: dict, _=Depends(admin_only)):
+async def import_historical(body: dict, _=Depends(ops_or_admin)):
     """Import all historical weeks into schedule_cells. body: {clear_existing?: bool}"""
     data = _load_historical()
     if not data:
@@ -6829,7 +6956,7 @@ async def duplicate_week(body: dict, _=Depends(ops_or_admin)):
     return {"copied": inserted}
 
 @api.post("/import/list-sheets")
-async def list_excel_sheets(file: UploadFile = File(...), _=Depends(admin_only)):
+async def list_excel_sheets(file: UploadFile = File(...), _=Depends(ops_or_admin)):
     """Return the list of sheet names in an uploaded .xlsx file (helps user pick the right one)."""
     import openpyxl, io
     content = await file.read()
@@ -7354,7 +7481,7 @@ async def import_schedule_excel(file: UploadFile = File(...),
                                  week_start: str = Form(...),
                                  clear_existing: Optional[str] = Form(None),
                                  sheet_name: Optional[str] = Form(None),
-                                 _=Depends(admin_only)):
+                                 _=Depends(ops_or_admin)):
     """Parse Therapists' Schedule .xlsx or .csv and create cells for week_start."""
     import io
     content = await file.read()
@@ -7400,7 +7527,7 @@ async def import_schedule_excel(file: UploadFile = File(...),
 
 
 @api.post("/import/schedule-google")
-async def import_schedule_google(body: dict, _=Depends(admin_only)):
+async def import_schedule_google(body: dict, _=Depends(ops_or_admin)):
     """Import a week directly from a public Google Sheets link (preserves merged cells)."""
     import httpx
     sheet_url = (body.get("url") or body.get("sheet_url") or "").strip()
@@ -7697,6 +7824,21 @@ async def _run_startup():
             logger.info(f"Admin seeded: {admin_email}")
         elif not verify_password(admin_password, existing["password_hash"]):
             await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
+
+        hr_email = HR_OPS_EMAIL
+        hr_existing = await db.users.find_one({"email": hr_email})
+        if not hr_existing:
+            await db.users.insert_one({
+                "id": str(uuid.uuid4()), "email": hr_email,
+                "password_hash": hash_password(HR_OPS_PASSWORD),
+                "name": "HR", "role": "admin", "is_hr_ops": True, "created_at": now_iso(),
+            })
+            logger.info(f"HR ops user seeded: {hr_email}")
+        else:
+            patch = {"is_hr_ops": True}
+            if not verify_password(HR_OPS_PASSWORD, hr_existing["password_hash"]):
+                patch["password_hash"] = hash_password(HR_OPS_PASSWORD)
+            await db.users.update_one({"email": hr_email}, {"$set": patch})
 
         # Seed therapists ONLY on first-time setup (count==0). NEVER overwrite existing data.
         th_count = await db.therapists.count_documents({})

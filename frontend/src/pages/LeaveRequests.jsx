@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import api, { API } from "../api";
-import { useAuth, showAdminNav } from "../auth";
+import { useAuth, showAdminNav, canManageLeaves, canHrReviewLeaves, isJenan } from "../auth";
 import {
   Plus, X, CheckCircle, XCircle, FilePdf, UploadSimple, Eye, Trash,
   UserMinus, MagnifyingGlass, Export, CaretDown, CaretRight, FileText, PencilSimple
@@ -15,6 +15,7 @@ import {
   LEAVE_STATUS, LEAVE_TYPES, DOC_TYPES, documentBadge, leaveRequiresDocument,
   diffDays, fmtDateRange, isActiveLeave, isHistoryLeave, exportLeavesCsv,
   scheduleImpactLabel, leavePayCategory, leaveStatusLabel, permissionPayLabel,
+  isPendingLeaveStatus,
 } from "../leaveUtils";
 
 function emptyLeave(therapistId = "") {
@@ -133,21 +134,28 @@ function DocumentSection({ leave, isAdmin, onRefresh, canUpload }) {
   );
 }
 
-function LeaveRequestCard({ leave, isAdmin, user, onRefresh, onEdit, therapists, personal = false }) {
+function LeaveRequestCard({
+  leave, user, onRefresh, onEdit, therapists, personal = false,
+  leaveManager = false, hrReview = false, portalAdmin = false, isManager = false,
+}) {
   const st = LEAVE_STATUS[leave.status] || LEAVE_STATUS.pending;
   const statusText = leaveStatusLabel(leave.status, personal);
   const tp = LEAVE_TYPES[leave.leave_type] || { label: leave.leave_type, color: "#7A8A6A" };
-  const canUpload = isAdmin || leave.therapist_id === user?.id;
-  const canEditOwn = personal && leave.therapist_id === user?.id && leave.status === "pending";
+  const canUpload = leaveManager || portalAdmin || leave.therapist_id === user?.id;
+  const canEditOwn = personal && leave.therapist_id === user?.id && isPendingLeaveStatus(leave.status);
   const [marking, setMarking] = useState(false);
   const [impactOpen, setImpactOpen] = useState(false);
   const attachRef = useRef(null);
+  const pendingManager = leave.status === "pending" || leave.status === "pending_manager";
+  const pendingHr = leave.status === "pending_hr";
+  const showAdminActions = leaveManager || hrReview || portalAdmin || isManager;
 
   const setStatus = async (status, opts = {}) => {
     await api.put(`/leaves/${leave.id}/status`, {
       status,
       is_paid: opts.is_paid,
       deduct_balance: opts.deduct_balance,
+      admin_note: opts.admin_note,
     });
     onRefresh();
   };
@@ -195,7 +203,7 @@ function LeaveRequestCard({ leave, isAdmin, user, onRefresh, onEdit, therapists,
         </div>
       </div>
 
-      <DocumentSection leave={leave} isAdmin={isAdmin} onRefresh={onRefresh} canUpload={canUpload} />
+      <DocumentSection leave={leave} isAdmin={leaveManager || portalAdmin} onRefresh={onRefresh} canUpload={canUpload} />
 
       {leave.notes && (
         <div className="mt-3 text-sm" style={{ color: "#5C6853" }}>
@@ -219,9 +227,9 @@ function LeaveRequestCard({ leave, isAdmin, user, onRefresh, onEdit, therapists,
         </div>
       )}
 
-      {isAdmin && (
+      {showAdminActions && (
         <div className="flex gap-2 flex-wrap mt-4 pt-3 border-t border-[#E2DDD4]">
-          {leave.status === "pending" && leave.leave_type === "Permission" && (
+          {portalAdmin && pendingManager && leave.leave_type === "Permission" && (
             <>
               <button onClick={() => setStatus("approved", { is_paid: true, deduct_balance: true })} className="btn btn-primary text-xs" data-testid={`approve-${leave.id}`}>
                 <CheckCircle size={14} /> Approve (Paid)
@@ -234,7 +242,7 @@ function LeaveRequestCard({ leave, isAdmin, user, onRefresh, onEdit, therapists,
               </button>
             </>
           )}
-          {leave.status === "pending" && leave.leave_type !== "Permission" && (
+          {portalAdmin && pendingManager && leave.leave_type !== "Permission" && (
             <>
               <button onClick={() => setStatus("approved")} className="btn btn-primary text-xs" data-testid={`approve-${leave.id}`}>
                 <CheckCircle size={14} /> Approve
@@ -244,12 +252,57 @@ function LeaveRequestCard({ leave, isAdmin, user, onRefresh, onEdit, therapists,
               </button>
             </>
           )}
-          {(leave.status === "approved" || leave.status === "pending") && leave.status !== "absent" && (
+          {isManager && pendingManager && !portalAdmin && (
+            <>
+              <button onClick={() => setStatus("pending_hr")} className="btn btn-primary text-xs" data-testid={`forward-hr-${leave.id}`}>
+                <CheckCircle size={14} /> Forward to HR
+              </button>
+              <button onClick={() => setStatus("rejected")} className="btn btn-outline text-xs" data-testid={`reject-${leave.id}`}>
+                <XCircle size={14} /> Reject
+              </button>
+            </>
+          )}
+          {hrReview && pendingHr && !portalAdmin && leave.leave_type === "Permission" && (
+            <>
+              <button onClick={() => setStatus("approved", { is_paid: true, deduct_balance: true })} className="btn btn-primary text-xs" data-testid={`approve-${leave.id}`}>
+                <CheckCircle size={14} /> Approve (Paid)
+              </button>
+              <button onClick={() => setStatus("approved", { is_paid: false, deduct_balance: false })} className="btn btn-secondary text-xs">
+                <CheckCircle size={14} /> Approve (Unpaid)
+              </button>
+              <button onClick={() => setStatus("rejected")} className="btn btn-outline text-xs" data-testid={`reject-${leave.id}`}>
+                <XCircle size={14} /> Reject
+              </button>
+            </>
+          )}
+          {hrReview && pendingHr && !portalAdmin && leave.leave_type !== "Permission" && (
+            <>
+              <button onClick={() => setStatus("approved")} className="btn btn-primary text-xs" data-testid={`approve-${leave.id}`}>
+                <CheckCircle size={14} /> Approve
+              </button>
+              <button onClick={() => setStatus("rejected")} className="btn btn-outline text-xs" data-testid={`reject-${leave.id}`}>
+                <XCircle size={14} /> Reject
+              </button>
+            </>
+          )}
+          {portalAdmin && pendingHr && (
+            <>
+              <button onClick={() => setStatus("approved")} className="btn btn-primary text-xs" data-testid={`approve-hr-${leave.id}`}>
+                <CheckCircle size={14} /> Approve
+              </button>
+              <button onClick={() => setStatus("rejected")} className="btn btn-outline text-xs" data-testid={`reject-hr-${leave.id}`}>
+                <XCircle size={14} /> Reject
+              </button>
+            </>
+          )}
+          {leaveManager && (leave.status === "approved" || pendingManager || pendingHr) && leave.status !== "absent" && (
             <button onClick={markAbsent} disabled={marking} className="btn btn-secondary text-xs">
               <UserMinus size={14} /> {marking ? "Processing…" : "Mark as Absent"}
             </button>
           )}
-          <button onClick={() => onEdit(leave)} className="btn btn-ghost text-xs">Edit</button>
+          {(leaveManager || portalAdmin) && (
+            <button onClick={() => onEdit(leave)} className="btn btn-ghost text-xs">Edit</button>
+          )}
         </div>
       )}
 
@@ -499,7 +552,7 @@ function MyLeavesTable({ leaves, user, onEdit, onRefresh, adminView = false }) {
               const tp = LEAVE_TYPES[l.leave_type] || { label: l.leave_type, color: "#7A8A6A" };
               const st = LEAVE_STATUS[l.status] || LEAVE_STATUS.pending;
               const badge = documentBadge(l);
-              const canEdit = adminView || (l.therapist_id === user?.id && l.status === "pending");
+              const canEdit = adminView || (l.therapist_id === user?.id && isPendingLeaveStatus(l.status));
               return (
                 <tr key={l.id} className="border-b border-[#E2DDD4] hover:bg-[#FAFAF7]">
                   <td className="p-3">
@@ -568,7 +621,11 @@ export default function LeaveRequests({ personal = false, embedded = false }) {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const therapistFilter = personal ? user?.id : (searchParams.get("therapist") || null);
-  const isAdmin = !personal && showAdminNav(user);
+  const portalAdmin = !personal && showAdminNav(user);
+  const leaveManager = !personal && canManageLeaves(user);
+  const hrReview = !personal && canHrReviewLeaves(user);
+  const isManager = !personal && isJenan(user) && !portalAdmin;
+  const reviewerView = leaveManager || hrReview || isManager || portalAdmin;
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
   const [tab, setTab] = useState("active");
@@ -596,7 +653,7 @@ export default function LeaveRequests({ personal = false, embedded = false }) {
       setMyBalance(null);
     }
   };
-  useEffect(() => { load(); }, [year, isAdmin, user?.id, searchParams]);
+  useEffect(() => { load(); }, [year, reviewerView, user?.id, searchParams]);
 
   useEffect(() => {
     if (edit?.start_date && edit?.end_date) {
@@ -607,8 +664,10 @@ export default function LeaveRequests({ personal = false, embedded = false }) {
 
   const activeLeaves = useMemo(() =>
     leaves.filter(isActiveLeave).sort((a, b) => {
-      if (a.status === "pending" && b.status !== "pending") return -1;
-      if (b.status === "pending" && a.status !== "pending") return 1;
+      const ap = isPendingLeaveStatus(a.status);
+      const bp = isPendingLeaveStatus(b.status);
+      if (ap && !bp) return -1;
+      if (bp && !ap) return 1;
       return String(b.start_date).localeCompare(String(a.start_date));
     }),
     [leaves]
@@ -635,24 +694,29 @@ export default function LeaveRequests({ personal = false, embedded = false }) {
   };
 
   const displayLeaves = useMemo(() => {
-    let list = (isAdmin && !therapistFilter) ? activeLeaves : [...leaves];
+    let list = (reviewerView && !therapistFilter) ? activeLeaves : [...leaves];
     if (therapistFilter) {
       list = list.filter(l => l.therapist_id === therapistFilter);
     }
+    if (isManager && !portalAdmin && !therapistFilter) {
+      list = list.filter(l => l.status === "pending" || l.status === "pending_manager");
+    } else if (hrReview && !portalAdmin && !leaveManager && !therapistFilter) {
+      list = list.filter(l => l.status === "pending_hr");
+    }
     return list.sort((a, b) => String(b.start_date).localeCompare(String(a.start_date)));
-  }, [isAdmin, activeLeaves, leaves, therapistFilter]);
+  }, [reviewerView, activeLeaves, leaves, therapistFilter, isManager, hrReview, portalAdmin, leaveManager]);
 
   const filteredTherapist = therapistFilter ? therapists.find(t => t.id === therapistFilter) : null;
-  const therapistProfileView = Boolean(therapistFilter && isAdmin);
+  const therapistProfileView = Boolean(therapistFilter && reviewerView);
 
   return (
     <div>
       {!embedded && (
       <PageBanner
-        title={therapistProfileView ? filteredTherapist?.name || "Therapist Leaves" : (isAdmin ? "Leave Requests" : "My Leaves")}
+        title={therapistProfileView ? filteredTherapist?.name || "Therapist Leaves" : (reviewerView ? "Leave Requests" : "My Leaves")}
         subtitle={therapistProfileView
           ? "Annual balance and full leave history"
-          : isAdmin
+          : reviewerView
             ? (filteredTherapist ? `Leave records for ${filteredTherapist.name}` : "Approve requests · track documents · mark absences")
             : "Annual balance · leave history · upload medical documents"}
         badge={(
@@ -660,13 +724,13 @@ export default function LeaveRequests({ personal = false, embedded = false }) {
             <select className="select text-[11px] max-w-[80px] min-h-0 h-7 py-0" value={year} onChange={e => setYear(parseInt(e.target.value, 10))}>
               {[currentYear, currentYear - 1, currentYear - 2].map(y => <option key={y} value={y}>{y}</option>)}
             </select>
-            {isAdmin && (
+            {leaveManager && (
               <button type="button" onClick={() => setShowMarkAbsence(true)} className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0">
                 <UserMinus size={13} /> Mark Absence
               </button>
             )}
-            <button data-testid="add-leave-btn" onClick={() => setEdit(emptyLeave(isAdmin ? "" : user?.id))} className="btn btn-primary text-[11px] px-2.5 py-1 min-h-0">
-              <Plus size={13} /> {isAdmin ? "New Request" : "Request Leave"}
+            <button data-testid="add-leave-btn" onClick={() => setEdit(emptyLeave(leaveManager || portalAdmin ? "" : user?.id))} className="btn btn-primary text-[11px] px-2.5 py-1 min-h-0">
+              <Plus size={13} /> {reviewerView && (leaveManager || portalAdmin) ? "New Request" : "Request Leave"}
             </button>
           </>
         )}
@@ -732,7 +796,7 @@ export default function LeaveRequests({ personal = false, embedded = false }) {
         </div>
       )}
 
-      {isAdmin && !therapistProfileView && (
+      {reviewerView && !therapistProfileView && (
         <div className="flex gap-2 mb-5">
           {[
             { id: "active", label: "Active Requests" },
@@ -746,20 +810,31 @@ export default function LeaveRequests({ personal = false, embedded = false }) {
         </div>
       )}
 
-      {(!isAdmin || tab === "active") && isAdmin && !therapistProfileView && (
+      {(!reviewerView || tab === "active") && reviewerView && !therapistProfileView && (
         <div className="space-y-4">
           {displayLeaves.length === 0 && (
             <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>No active leave requests</div>
           )}
           {displayLeaves.map(l => (
-            <LeaveRequestCard key={l.id} leave={l} isAdmin={isAdmin} user={user} onRefresh={load}
-              onEdit={setEdit} therapists={therapists} personal={personal} />
+            <LeaveRequestCard
+              key={l.id}
+              leave={l}
+              user={user}
+              onRefresh={load}
+              onEdit={setEdit}
+              therapists={therapists}
+              personal={personal}
+              leaveManager={leaveManager}
+              hrReview={hrReview}
+              portalAdmin={portalAdmin}
+              isManager={isManager}
+            />
           ))}
         </div>
       )}
 
-      {isAdmin && tab === "history" && !therapistProfileView && (
-        <HistoryTab leaves={leaves} therapists={therapists} isAdmin={isAdmin} onRefresh={load} />
+      {reviewerView && tab === "history" && !therapistProfileView && (
+        <HistoryTab leaves={leaves} therapists={therapists} isAdmin={leaveManager || portalAdmin} onRefresh={load} />
       )}
 
       {edit && (
@@ -769,7 +844,7 @@ export default function LeaveRequests({ personal = false, embedded = false }) {
             <ModalBtnPrimary data-testid="leave-save-btn" onClick={save}>Submit</ModalBtnPrimary>
           </>}>
           <FormSection title="Leave Details">
-            {isAdmin && (
+            {leaveManager && (
               <FormField label="Therapist">
                 <select data-testid="leave-therapist-select" className="modal-input" value={edit.therapist_id}
                   onChange={e => setEdit({ ...edit, therapist_id: e.target.value })}>
@@ -796,7 +871,7 @@ export default function LeaveRequests({ personal = false, embedded = false }) {
                   onChange={e => setEdit({ ...edit, end_date: e.target.value })} />
               </FormField>
             </div>
-            {isAdmin && (
+            {leaveManager && (
               <FormField label="Status">
                 <select className="modal-input" value={edit.status} onChange={e => setEdit({ ...edit, status: e.target.value })}>
                   {Object.entries(LEAVE_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}

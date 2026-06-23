@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, Suspense } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canEditStaffRequests, canEditIntake, canManageLeaves } from "../auth";
+import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch } from "../dataCache";
 import {
@@ -60,13 +60,15 @@ export default function Shell() {
   });
   const loc = useLocation();
   const portalAdmin = showAdminNav(user);
+  const hrOps = isHrOps(user);
   const clientLead = isClientLead(user);
   const staffRequestsAccess = canEditStaffRequests(user);
   const leaveManager = canManageLeaves(user);
+  const hrLeaveReview = canHrReviewLeaves(user);
   const intakeAccess = canEditIntake(user);
-  const showPersonal = !portalAdmin;
+  const showPersonal = !portalAdmin && !hrOps;
   const showBilling = hasOpsAccess(user);
-  const therapistOnly = Boolean(user && !portalAdmin);
+  const therapistOnly = Boolean(user && !portalAdmin && !hrOps);
 
   const loadNotifs = async () => {
     try { const { data } = await api.get("/notifications"); setNotifs(data); } catch(_e) { /* ignore */ }
@@ -109,21 +111,21 @@ export default function Shell() {
 
   // HR — staff requests & leave tools (single page with tabs)
   const requestsItems = [];
-  if (staffRequestsAccess || leaveManager) {
+  if (staffRequestsAccess || leaveManager || hrLeaveReview) {
     requestsItems.push({ to: "/staff-leave", label: "Staff & Leave", testid: "nav-staff-leave" });
   }
 
   const financeItems = [];
-  if (portalAdmin) {
+  if (portalAdmin || hrOps) {
     financeItems.push({ to: "/purchases", label: "Purchases", testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> });
   }
 
-  // Admin tools — Import for client-lead team; full admin suite for portal admin
+  // Admin tools — Import for client-lead team + HR; full admin suite for portal admin only
   const adminTools = [
-    ...(clientLead || portalAdmin
+    ...(clientLead || portalAdmin || hrOps
       ? [{ to: "/import", label: "Import", testid: "nav-import", icon: <UploadSimple size={17} weight="duotone"/> }]
       : []),
-    ...(portalAdmin
+    ...(showSystemAdmin(user)
       ? [
           { to: "/reports", label: "Reports", testid: "nav-reports", icon: <ChartBar size={17} weight="duotone"/> },
           { to: "/admin", label: "Admin", testid: "nav-admin", icon: <Gear size={17} weight="duotone"/> },
@@ -196,7 +198,7 @@ export default function Shell() {
                 {user?.name?.replace("Ms. ", "").charAt(0) || "U"}
               </div>
               <div className="sidebar-profile-name">{user?.name?.replace("Ms. ", "") || user?.email}</div>
-              <div className="sidebar-profile-role">{portalAdmin ? "Admin" : "Therapist"}</div>
+              <div className="sidebar-profile-role">{hrOps ? "HR" : portalAdmin ? "Admin" : "Therapist"}</div>
             </div>
           )}
           <div className="flex-1 overflow-y-auto px-1">
@@ -366,7 +368,7 @@ export default function Shell() {
               </div>
               <div className="text-xs leading-tight">
                 <div className="font-bold truncate max-w-[120px]" style={{color: "#2C3625"}}>{user?.name?.replace("Ms. ", "") || user?.email}</div>
-                <div style={{color: "#8B9E7A"}}>{portalAdmin ? "Admin" : "Therapist"}</div>
+                <div style={{color: "#8B9E7A"}}>{hrOps ? "HR" : portalAdmin ? "Admin" : "Therapist"}</div>
               </div>
               </>
               )}
