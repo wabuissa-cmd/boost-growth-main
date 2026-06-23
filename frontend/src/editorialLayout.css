@@ -203,5 +203,9 @@
 
 /* Classic green gradient (legacy) */
 .page-banner.classic {
-  overflow: hidden;
+  border-radius: 1.25rem;
+  margin-bottom: 1rem;
+  border: 1px solid rgba(47, 74, 53, 0.2);
+  box-shadow: 0 4px 16px rgba(47, 74, 53, 0.06);
+  overflow: visible;
 }

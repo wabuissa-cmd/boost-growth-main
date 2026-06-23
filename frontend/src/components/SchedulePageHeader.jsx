@@ -1,9 +1,9 @@
 import PageBanner from "./PageBanner";
 import { SCHEDULE_LEGEND_ITEMS } from "../scheduleConstants";
 
-export function ScheduleLegendStrip() {
+export default function SchedulePageHeader({ subtitle, badge, stats = [], toolbar, className = "" }) {
   return (
-    <div className="schedule-legend-strip no-print">
+    <PageBanner title="Weekly Schedule" subtitle={subtitle} badge={badge} stats={stats} toolbar={toolbar} className={className}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <span className="ui-caption font-bold uppercase tracking-wide shrink-0" style={{ color: "#8B9E7A" }}>Legend</span>
         {SCHEDULE_LEGEND_ITEMS.map(it => (
@@ -13,24 +13,7 @@ export function ScheduleLegendStrip() {
           </span>
         ))}
       </div>
-      <p className="ui-caption mt-1.5 mb-0">Each child has a unique color · Tap a session cell to log attendance · Long-press for menu</p>
-    </div>
-  );
-}
-
-export default function SchedulePageHeader({ subtitle, badge, stats = [], toolbar, className = "" }) {
-  return (
-    <>
-      <PageBanner
-        title="Weekly Schedule"
-        subtitle={subtitle}
-        badge={badge}
-        stats={stats}
-        toolbar={toolbar}
-        compact
-        className={className}
-      />
-      <ScheduleLegendStrip />
-    </>
+      <p className="ui-caption mt-2 mb-0">Each child has a unique color · Tap a session cell to log attendance · Long-press for menu</p>
+    </PageBanner>
   );
 }

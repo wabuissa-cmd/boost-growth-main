@@ -18,16 +18,17 @@ import { saudiGreetingParts, saudiDateString } from "../saudiGreeting";
 import "../dashboardLayout.css";
 
 const HERO_OPTIONS = [
-  { id: "none", src: null, label: "Plain", style: "plain" },
   { id: "olive", src: null, label: "Green", style: "olive" },
   { id: "blocks", src: "/service-outdoor.jpg", label: "Building blocks", style: "image" },
   { id: "reading", src: "/service-home.jpg", label: "Reading story", style: "image" },
 ];
 
 const LEGACY_HERO_MAP = {
-  default: "none",
+  default: "olive",
+  none: "olive",
+  plain: "olive",
   home: "reading",
-  school: "none",
+  school: "olive",
   outdoor: "blocks",
 };
 
@@ -38,13 +39,13 @@ function heroStorageKey(user) {
 
 function loadHeroPreference(user) {
   const key = heroStorageKey(user);
-  if (!key) return "none";
+  if (!key) return "reading";
   try {
     const saved = localStorage.getItem(key);
     const mapped = LEGACY_HERO_MAP[saved] || saved;
-    return HERO_OPTIONS.some(o => o.id === mapped) ? mapped : "none";
+    return HERO_OPTIONS.some(o => o.id === mapped) ? mapped : "reading";
   } catch {
-    return "none";
+    return "reading";
   }
 }
 
@@ -202,23 +203,14 @@ export default function Home() {
   ];
 
   const HeroBanner = ({ compact, greetingParts, showNav }) => (
-    <header className={`portal-hero portal-hero--open${compact ? " portal-hero--compact" : ""}${heroStyle === "plain" ? " portal-hero-plain" : ""}${heroStyle === "olive" ? " portal-hero-olive" : ""}`}>
+    <header className={`portal-hero${heroStyle === "plain" ? " portal-hero-plain" : ""}${heroStyle === "olive" ? " portal-hero-olive" : ""}`}>
       {heroImage && (
         <>
           <div className="portal-hero-bg" style={{ backgroundImage: `url(${heroImage})` }} aria-hidden />
           <div className="portal-hero-overlay" aria-hidden />
         </>
       )}
-      {compact ? (
-        <nav className="portal-hero-actions-top" aria-label="Quick actions">
-          <Link to="/attendance" className="portal-hero-btn primary">
-            <ClipboardText size={14} weight="duotone" /> Log a session
-          </Link>
-          <Link to="/schedule" className="portal-hero-btn outline">
-            <CalendarBlank size={14} weight="duotone" /> View Schedule
-          </Link>
-        </nav>
-      ) : showNav ? (
+      {showNav && (
         <nav className="portal-hero-nav" aria-label="Quick navigation">
           {adminHeroNav.map(item => {
             const active = loc.pathname === item.to || (item.to !== "/home" && loc.pathname.startsWith(item.to));
@@ -229,7 +221,7 @@ export default function Home() {
             );
           })}
         </nav>
-      ) : null}
+      )}
       <div className="portal-hero-picker" role="group" aria-label="Choose hero background">
         {HERO_OPTIONS.map(o => (
           <button
@@ -281,16 +273,14 @@ export default function Home() {
               : "Each growth begins with seeds — nurture every child's journey with care, preparation, and intention."}
           </p>
           <p className="portal-hero-date">{dateStr}</p>
-          {!compact && (
-            <div className="portal-hero-actions">
-              <Link to="/attendance" className="portal-hero-btn primary">
-                <ClipboardText size={18} weight="duotone" /> Open Preparation
-              </Link>
-              <Link to="/schedule" className="portal-hero-btn outline">
-                <CalendarBlank size={18} weight="duotone" /> View Schedule
-              </Link>
-            </div>
-          )}
+          <div className="portal-hero-actions">
+            <Link to="/attendance" className="portal-hero-btn primary">
+              <ClipboardText size={18} weight="duotone" /> {compact ? "Log a session" : "Open Preparation"}
+            </Link>
+            <Link to="/schedule" className="portal-hero-btn outline">
+              <CalendarBlank size={18} weight="duotone" /> View Schedule
+            </Link>
+          </div>
         </div>
         <div className="portal-hero-logo" aria-hidden>
           <img src="/bg-logo.png" alt="" />

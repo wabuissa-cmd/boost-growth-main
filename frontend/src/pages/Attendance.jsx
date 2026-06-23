@@ -267,7 +267,6 @@ export default function Attendance() {
       <PageBanner
         title="Session Preparation"
         subtitle="Log sessions and track package progress"
-        compact
         stats={showPrepStats ? [
           { label: "Total", n: counts.all, color: "#2C3625" },
           { label: "Urgent", n: counts.urgent, color: "#8A3F27" },

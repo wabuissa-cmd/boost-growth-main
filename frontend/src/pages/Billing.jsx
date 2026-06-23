@@ -270,7 +270,6 @@ export default function Billing() {
       <PageBanner
         title="Billing & Payments"
         subtitle="Invoices, payment tracking, and installment reminders"
-        compact
         badge={(
           <button
             type="button"
