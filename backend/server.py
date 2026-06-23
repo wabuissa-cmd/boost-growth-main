@@ -1099,6 +1099,15 @@ async def list_schedule(week_start: Optional[str] = None, user=Depends(get_curre
     cells = await db.schedule_cells.find(q, {"_id": 0}).to_list(5000)
     return cells
 
+async def _notification_user_ids(user: dict) -> List[str]:
+    """IDs that may own in-app notifications for this login (admin user + linked therapist)."""
+    ids = [user["id"]]
+    tid = await _resolve_user_therapist_id(user)
+    if tid and tid not in ids:
+        ids.append(tid)
+    return ids
+
+
 async def _notify(user_id: str, ntype: str, title: str, message: str, **extra):
     doc = {
         "id": str(uuid.uuid4()), "user_id": user_id, "type": ntype,
@@ -2855,8 +2864,13 @@ def _merge_drive_client_meta(link_meta: dict, client: dict) -> dict:
         patch["intake_file_url"] = link_meta["intake_file_url"]
     cs_url = link_meta.get("case_summary_url") or client.get("case_summary_url")
     if cs_url:
+        patch["case_summary_url"] = cs_url
         try:
-            patch["case_summary_sections"] = fetch_case_summary_content(cs_url)
+            fetched = fetch_case_summary_content(cs_url)
+            if fetched.get("sections"):
+                patch["case_summary_sections"] = fetched
+            elif link_meta.get("case_summary_url"):
+                patch["case_summary_sections"] = fetched
         except Exception as exc:
             logger.warning(f"Case summary fetch failed: {exc}")
     intake_url = link_meta.get("intake_file_url") or client.get("intake_file_url")
@@ -4485,25 +4499,55 @@ async def delete_request(rid: str, user=Depends(get_current_user)):
 # ------------------- Notifications -------------------
 @api.get("/notifications")
 async def list_notifications(user=Depends(get_current_user)):
-    return await db.notifications.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
+    uids = await _notification_user_ids(user)
+    return await db.notifications.find({"user_id": {"$in": uids}}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
 
 @api.post("/notifications/{nid}/read")
 async def mark_read(nid: str, user=Depends(get_current_user)):
-    await db.notifications.update_one({"id": nid, "user_id": user["id"]}, {"$set": {"read": True}})
+    uids = await _notification_user_ids(user)
+    await db.notifications.update_one({"id": nid, "user_id": {"$in": uids}}, {"$set": {"read": True}})
     return {"ok": True}
 
 @api.post("/notifications/{nid}/acknowledge")
 async def acknowledge_notification(nid: str, user=Depends(get_current_user)):
+    uids = await _notification_user_ids(user)
     await db.notifications.update_one(
-        {"id": nid, "user_id": user["id"]},
+        {"id": nid, "user_id": {"$in": uids}},
         {"$set": {"read": True, "acknowledged": True, "acknowledged_at": now_iso()}},
     )
     return {"ok": True}
 
 @api.post("/notifications/read-all")
 async def mark_all_read(user=Depends(get_current_user)):
-    await db.notifications.update_many({"user_id": user["id"]}, {"$set": {"read": True}})
+    uids = await _notification_user_ids(user)
+    await db.notifications.update_many({"user_id": {"$in": uids}}, {"$set": {"read": True}})
     return {"ok": True}
+
+@api.get("/admin/export-parent-phones")
+async def export_parent_phones(_=Depends(client_lead_or_admin)):
+    """CSV of all active clients' parent phone numbers for bulk editing."""
+    import csv
+    import io
+    from fastapi.responses import Response
+
+    clients = await db.clients.find(
+        _active_client_filter(),
+        {"_id": 0, "file_no": 1, "name": 1, "parent_phone": 1},
+    ).sort("file_no", 1).to_list(500)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["file_no", "client_name", "parent_phone"])
+    for c in clients:
+        writer.writerow([
+            c.get("file_no") or "",
+            c.get("name") or "",
+            c.get("parent_phone") or "",
+        ])
+    return Response(
+        content="\ufeff" + buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="parent_phones.csv"'},
+    )
 
 # ------------------- Directory -------------------
 @api.get("/directory")
@@ -5784,11 +5828,14 @@ async def create_intake(payload: IntakeIn, _=Depends(client_lead_or_admin)):
     data = payload.model_dump()
     name = (data.get("child_name") or "").strip()
     itype = data.get("intake_type") or "pre"
+    cat = data.get("list_category") or ("school" if itype == "school" else "intake")
     doc = {
         "id": iid,
         **data,
         "child_name": name,
-        "name_key": _intake_name_key(name, itype),
+        "list_category": cat,
+        "name_key": _intake_name_key(name, itype, cat),
+        "sync_source": "manual",
         "created_at": now_iso(),
     }
     await db.intake.insert_one(doc)
@@ -5800,8 +5847,12 @@ async def update_intake(iid: str, payload: IntakeIn, _=Depends(client_lead_or_ad
     data = payload.model_dump()
     name = (data.get("child_name") or "").strip()
     itype = data.get("intake_type") or "pre"
+    cat = data.get("list_category") or ("school" if itype == "school" else "intake")
     data["child_name"] = name
-    data["name_key"] = _intake_name_key(name, itype)
+    data["list_category"] = cat
+    data["name_key"] = _intake_name_key(name, itype, cat)
+    if not data.get("sync_source"):
+        data["sync_source"] = "manual"
     await db.intake.update_one({"id": iid}, {"$set": data})
     return await db.intake.find_one({"id": iid}, {"_id": 0})
 
@@ -6524,7 +6575,7 @@ async def _upsert_intake_rows(rows: List[dict], detected_columns: List[str], par
                 skipped += 1
     if replace_google_stale and synced_keys:
         stale = await db.intake.delete_many({
-            "sync_source": "google_sheet",
+            "sync_source": {"$ne": "manual"},
             "name_key": {"$nin": list(synced_keys)},
         })
     else:

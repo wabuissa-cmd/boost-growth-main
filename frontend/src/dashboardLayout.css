@@ -501,7 +501,7 @@ a.dash-stat-card:hover {
   margin-bottom: 1.75rem;
 }
 .home-feature-card {
-  background: var(--bg-surface, #fff);
+  background: linear-gradient(145deg, #FFFCF7 0%, #F7F3EB 55%, #EDE1C9 100%);
   border: 1px solid var(--border-default, #D4DEC8);
   border-radius: 22px;
   padding: 1.35rem;
@@ -511,18 +511,6 @@ a.dash-stat-card:hover {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
-}
-.home-feature-card.featured {
-  background: linear-gradient(145deg, #6B8F71 0%, #2F4A35 100%);
-  border-color: #2F4A35;
-  color: #fff;
-}
-.home-feature-card.featured .home-feature-title,
-.home-feature-card.featured .home-feature-desc { color: rgba(255,255,255,0.92); }
-.home-feature-card.featured .home-feature-link { color: var(--brand-sage, #8FB396); }
-.home-feature-card.featured:hover {
-  border-color: #8FB396;
-  box-shadow: 0 16px 40px rgba(37, 53, 40, 0.25);
 }
 .home-feature-card:hover {
   border-color: var(--brand);

@@ -197,9 +197,24 @@ def fetch_case_summary_content(drive_url: str) -> Dict[str, Any]:
     url = (drive_url or "").strip()
     if not url:
         return {"sections": [], "raw_preview": ""}
-    if "document" in url:
-        text = fetch_doc_text(url)
-        return parse_case_summary_text(text)
+    if "document" in url or "/file/d/" in url:
+        try:
+            text = fetch_doc_text(url)
+            if text.strip():
+                return parse_case_summary_text(text)
+        except Exception:
+            pass
+        doc_id = extract_doc_id(url)
+        if not doc_id:
+            m = re.search(r"/file/d/([a-zA-Z0-9-_]+)", url)
+            doc_id = m.group(1) if m else None
+        if doc_id:
+            try:
+                text = _fetch_doc_text_by_id(doc_id)
+                if text.strip():
+                    return parse_case_summary_text(text)
+            except Exception:
+                pass
     if "spreadsheets" in url:
         wb = fetch_workbook_from_url(url)
         rows: List[List[str]] = []

@@ -204,15 +204,15 @@ export function invoiceNumberSortKey(inv) {
   return m ? parseInt(m[1], 10) : 0;
 }
 
-/** Chronological invoice order — lowest INV number first (history top → bottom). */
+/** Chronological invoice order — highest INV number first (latest at top). */
 export function sortInvoicesByRecent(invoiceList) {
   return [...(invoiceList || [])].sort((a, b) => {
     const na = invoiceNumberSortKey(a);
     const nb = invoiceNumberSortKey(b);
-    if (na !== nb) return na - nb;
+    if (na !== nb) return nb - na;
     const da = a.start_date || a.created_at || "";
     const db = b.start_date || b.created_at || "";
-    return String(da).localeCompare(String(db));
+    return String(db).localeCompare(String(da));
   });
 }
 
@@ -625,7 +625,27 @@ export function inferDefaultServiceType(allInvoices, client, user, sessions) {
 export function pickLatestOpenInvoice(invoiceList) {
   const sorted = sortInvoicesByRecent(invoiceList);
   const open = sorted.filter(i => !i.is_closed);
-  return open[open.length - 1] || sorted[sorted.length - 1] || null;
+  return open[0] || sorted[0] || null;
+}
+
+/** Group HS sessions by calendar month (YYYY-MM), oldest → newest. */
+export function groupSessionsByMonth(sessions) {
+  const buckets = new Map();
+  for (const s of sortSessionsByDateAsc(sessions)) {
+    const key = normalizeSessionDateKey(s.session_date);
+    if (!key || key.length < 7) continue;
+    const monthKey = key.slice(0, 7);
+    if (!buckets.has(monthKey)) buckets.set(monthKey, []);
+    buckets.get(monthKey).push(s);
+  }
+  return Array.from(buckets.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+export function formatMonthLabel(monthKey) {
+  if (!monthKey) return "";
+  const [y, m] = monthKey.split("-").map(Number);
+  if (!y || !m) return monthKey;
+  return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "short", year: "numeric" });
 }
 
 export function hasOpenInvoice(invoiceList) {

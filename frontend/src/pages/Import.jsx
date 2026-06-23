@@ -176,6 +176,26 @@ export default function ImportPage() {
     setWaitingSyncing(false);
   };
 
+  const exportParentPhones = async () => {
+    try {
+      const token = localStorage.getItem("bg_token");
+      const r = await fetch(`${api.defaults.baseURL}/admin/export-parent-phones`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
+      });
+      if (!r.ok) throw new Error("Export failed");
+      const blob = await r.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "parent_phones.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (e) {
+      alert(e.message || "Could not export parent phones");
+    }
+  };
+
   return (
     <div>
       <PageBanner
@@ -197,6 +217,9 @@ export default function ImportPage() {
           </button>
           <button type="button" onClick={() => syncActiveClientsFromDrive(true)} disabled={driveSyncing} className="btn btn-outline text-sm disabled:opacity-50">
             Preview Drive Sync
+          </button>
+          <button type="button" onClick={exportParentPhones} className="btn btn-outline text-sm">
+            <Download size={16} /> Export Parent Phones (CSV)
           </button>
         </div>
         {waitingSyncResult && (

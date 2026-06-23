@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "../../api";
 import { useAuth, canEditIntake } from "../../auth";
-import { Plus, Trash, PencilSimple, Star, Phone, MapPin, Info, ArrowsClockwise, GraduationCap, ClipboardText } from "@phosphor-icons/react";
+import { Plus, Trash, PencilSimple, Star, Phone, MapPin, ArrowsClockwise, GraduationCap, ClipboardText, CaretDown } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -44,6 +44,7 @@ export default function WaitingPage({ mode }) {
   const [priorityOnly, setPriorityOnly] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
+  const [actionsOpen, setActionsOpen] = useState(false);
 
   const load = async () => {
     try {
@@ -152,26 +153,52 @@ export default function WaitingPage({ mode }) {
     : "Pre- and post-intake queues for home-based services";
 
   const adminBadge = canManage ? (
-    <div className="flex gap-2 flex-wrap justify-end">
-      <button type="button" onClick={syncFromGoogle} disabled={syncing} className="btn btn-outline text-[11px] px-2.5 py-1 min-h-0 border-white/40 text-white hover:bg-white/10">
-        {syncing ? <span className="spinner" /> : <><ArrowsClockwise size={13} /> Sync Sheet</>}
+    <div className="relative flex justify-end">
+      <button
+        type="button"
+        onClick={() => setActionsOpen(o => !o)}
+        className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0 border-white/30"
+      >
+        Actions <CaretDown size={12} className="inline ml-0.5" />
       </button>
-      <a href={WAITING_LIST_SHEET_URL} target="_blank" rel="noreferrer" className="btn btn-outline text-[11px] px-2.5 py-1 min-h-0 border-white/40 text-white hover:bg-white/10 no-underline">
-        Open Sheet
-      </a>
-      {isSchool ? (
-        <button data-testid="add-school-waiting" onClick={() => setEdit(emptyItem("school", "school"))} className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0">
-          <Plus size={13} /> Add Case
-        </button>
-      ) : (
-        <>
-          <button data-testid="add-pre-intake" onClick={() => setEdit(emptyItem("pre", "intake"))} className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0">
-            <Plus size={13} /> Pre-Intake
+      {actionsOpen && (
+        <div
+          className="absolute right-0 top-full mt-1 z-50 min-w-[180px] shadow-lg rounded-lg border overflow-hidden"
+          style={{ background: "#FFFFFF", borderColor: "#EDE9E3" }}
+        >
+          <button type="button" onClick={() => { syncFromGoogle(); setActionsOpen(false); }} disabled={syncing}
+            className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-[#FAFAF7] flex items-center gap-1.5">
+            {syncing ? <span className="spinner" /> : <ArrowsClockwise size={13} />} Sync Sheet
           </button>
-          <button data-testid="add-post-intake" onClick={() => setEdit(emptyItem("post", "intake"))} className="btn btn-outline text-[11px] px-2.5 py-1 min-h-0 border-white/40 text-white hover:bg-white/10">
-            <Plus size={13} /> Post-Intake
-          </button>
-        </>
+          <a href={WAITING_LIST_SHEET_URL} target="_blank" rel="noreferrer"
+            className="block w-full text-left px-3 py-2 text-xs font-medium hover:bg-[#FAFAF7] border-t no-underline"
+            style={{ color: "#374151", borderColor: "#EDE9E3" }}>
+            Open Google Sheet
+          </a>
+          {isSchool ? (
+            <button data-testid="add-school-waiting" type="button"
+              onClick={() => { setEdit(emptyItem("school", "school")); setActionsOpen(false); }}
+              className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-[#FAFAF7] border-t flex items-center gap-1.5"
+              style={{ borderColor: "#EDE9E3" }}>
+              <Plus size={13} /> Add Case
+            </button>
+          ) : (
+            <>
+              <button data-testid="add-pre-intake" type="button"
+                onClick={() => { setEdit(emptyItem("pre", "intake")); setActionsOpen(false); }}
+                className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-[#FAFAF7] border-t flex items-center gap-1.5"
+                style={{ borderColor: "#EDE9E3" }}>
+                <Plus size={13} /> Pre-Intake
+              </button>
+              <button data-testid="add-post-intake" type="button"
+                onClick={() => { setEdit(emptyItem("post", "intake")); setActionsOpen(false); }}
+                className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-[#FAFAF7] border-t flex items-center gap-1.5"
+                style={{ borderColor: "#EDE9E3" }}>
+                <Plus size={13} /> Post-Intake
+              </button>
+            </>
+          )}
+        </div>
       )}
     </div>
   ) : null;
@@ -364,26 +391,6 @@ export default function WaitingPage({ mode }) {
                 </div>
               </div>
             ))}
-          </div>
-
-          <div className="req-panel-head border-t border-[#E2DDD4]">
-            <h2 className="font-bold text-sm m-0 flex items-center gap-1" style={{ color: "#2C3625" }}>
-              <Info size={14} weight="duotone" style={{ color: "#7A8A6A" }} /> Workflow
-            </h2>
-          </div>
-          <div className="p-3 text-xs space-y-2" style={{ color: "#5C6853", lineHeight: 1.5 }}>
-            {isSchool ? (
-              <>
-                <p className="m-0"><strong style={{ color: "#606E52" }}>School Waiting</strong> — Clients awaiting school support placement or start date.</p>
-                <p className="m-0"><strong style={{ color: "#606E52" }}>Sync Sheet</strong> — Pulls from the SS Waiting List tab in the official Google Sheet.</p>
-              </>
-            ) : (
-              <>
-                <p className="m-0"><strong style={{ color: "#606E52" }}>Pre-Intake</strong> — Initial inquiry before the formal intake meeting.</p>
-                <p className="m-0"><strong style={{ color: "#606E52" }}>Post-Intake</strong> — After intake; awaiting therapist assignment or start date.</p>
-                <p className="m-0"><strong style={{ color: "#606E52" }}>→ Post</strong> — Moves a pre-intake case to the post-intake queue.</p>
-              </>
-            )}
           </div>
         </aside>
       </div>

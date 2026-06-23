@@ -36,8 +36,14 @@ export default function Clients() {
       cachedGet("/clients"),
       cachedGet("/therapists").catch(() => []),
     ]);
-    setItems(Array.isArray(c) ? c : []);
+    const clients = Array.isArray(c) ? c : [];
+    setItems(clients);
     setTherapists(Array.isArray(t) ? t : []);
+    setPanelClient((pc) => {
+      if (!pc?.client?.id) return pc;
+      const fresh = clients.find((x) => x.id === pc.client.id);
+      return fresh ? { ...pc, client: fresh } : pc;
+    });
   };
   useEffect(() => { load(); }, []);
 
@@ -352,7 +358,7 @@ function AttachmentsPanelModal({ client, canSyncDrive, onClose, onSaved, onRefre
       setDriveLinks((data.links || []).filter(l => l.url && !/attendance/i.test(l.title || "")));
       if (data.case_summary_url) setAtt(s => ({ ...s, case_summary_url: data.case_summary_url }));
       if (data.intake_file_url) setAtt(s => ({ ...s, intake_file_url: data.intake_file_url }));
-      onRefresh && onRefresh();
+      await onRefresh?.();
       const note = data.message || (data.parent_phone ? `Parent phone: ${data.parent_phone}` : "Sync complete — no phone found in Drive files");
       alert(note);
     } catch (e) {
@@ -548,7 +554,7 @@ function CaseDetailsPanelModal({ client, therapists, isAdmin, onClose, onSaved }
       .catch(() => { if (!cancelled) setSummary({ sections: client.case_summary_sections?.sections || [], url: client.case_summary_url }); })
       .finally(() => { if (!cancelled) setSummaryLoading(false); });
     return () => { cancelled = true; };
-  }, [client.id, client.case_summary_url, client.case_summary_sections]);
+  }, [client.id, client.case_summary_url, JSON.stringify(client.case_summary_sections)]);
 
   const save = async () => {
     setSaving(true);

@@ -22,6 +22,7 @@ import {
   fmtDate, dayShort, dayNameFromDate, WEEK_ROW_BG,
   normalizeServiceTypeCode, inferDefaultServiceType,
   pickLatestOpenInvoice, computeSsTotals, ssSessionDayValue,
+  groupSessionsByMonth, formatMonthLabel,
   resolveServiceTabState, hasOpenInvoice, countSsWeeksDone, nextWeekOverride,
   sessionEditableByUser,
 } from "../attendanceUtils";
@@ -30,7 +31,7 @@ import PreparationPrepLayout from "../components/PreparationPrepLayout";
 import PageBanner from "../components/PageBanner";
 import LogSessionModal from "../components/LogSessionModal";
 import SsWeekStatusRow, { SsWeekLegend } from "../components/SsWeekStatusRow";
-import ExportColumnsModal, { buildInvoiceSheetColumns } from "../components/ExportColumnsModal";
+import ExportColumnsModal, { buildInvoiceSheetColumns, EXPORT_COLUMN_DEFS, EXPORT_EXTRA_COLUMN_DEFS } from "../components/ExportColumnsModal";
 import { cachedGet } from "../dataCache";
 
 const EXPORT_COLS_KEY = "bg_export_columns";
@@ -453,6 +454,20 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
     [isSchool, cycleSessions, cycleAnchor, cycleWeeks, selectedInvoice?.week_overrides]
   );
   const sorted = useMemo(() => sortSessionsByDateAsc(cycleSessions), [cycleSessions]);
+  const monthGroups = useMemo(() => groupSessionsByMonth(cycleSessions), [cycleSessions]);
+  const [selectedMonth, setSelectedMonth] = useState("");
+  useEffect(() => {
+    if (!monthGroups.length) {
+      setSelectedMonth("");
+      return;
+    }
+    setSelectedMonth((prev) => (monthGroups.some(([k]) => k === prev) ? prev : monthGroups[monthGroups.length - 1][0]));
+  }, [monthGroups]);
+  const monthSessions = useMemo(() => {
+    if (!selectedMonth) return sorted;
+    const hit = monthGroups.find(([k]) => k === selectedMonth);
+    return hit ? hit[1] : sorted;
+  }, [selectedMonth, monthGroups, sorted]);
 
   const ssWeekGroups = useMemo(
     () => (isSchool && cycleAnchor ? groupSessionsBySchoolWeeks(cycleSessions, cycleAnchor, cycleWeeks) : []),
@@ -676,16 +691,32 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
             </div>
           ) : (
             <div className="p-2">
+              {monthGroups.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2 px-1">
+                  {monthGroups.map(([key]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setSelectedMonth(key)}
+                      className={`pill text-[10px] px-2 py-1 font-semibold border min-h-0 ${
+                        selectedMonth === key ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E2DDD4] text-[#5C6853]"
+                      }`}
+                    >
+                      {formatMonthLabel(key)}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="border rounded-lg overflow-hidden bg-white" style={{ borderColor: "#C4D4B8" }}>
                 <div className="px-2.5 py-1 flex items-center justify-between" style={{ background: "#EDF4E8" }}>
                   <span className="font-bold text-xs" style={{ color: "#2C5035" }}>HOME SESSIONS</span>
-                  <span className="text-[10px]" style={{ color: "#5C6853" }}>{sorted.length} session{sorted.length !== 1 ? "s" : ""}</span>
+                  <span className="text-[10px]" style={{ color: "#5C6853" }}>{monthSessions.length} session{monthSessions.length !== 1 ? "s" : ""}</span>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs min-w-[520px] border-collapse">
                     <HistoryTableHead cols={historySheetCols} bordered />
                     <tbody>
-                      {sorted.map((s, i) => (
+                      {monthSessions.map((s, i) => (
                         <SessionTableRow
                           key={s.id}
                           s={s}
@@ -1098,6 +1129,20 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
     () => sortSessionsByDateAsc(cycleSessions),
     [cycleSessions]
   );
+  const monthGroups = useMemo(() => groupSessionsByMonth(cycleSessions), [cycleSessions]);
+  const [selectedMonth, setSelectedMonth] = useState("");
+  useEffect(() => {
+    if (!monthGroups.length) {
+      setSelectedMonth("");
+      return;
+    }
+    setSelectedMonth((prev) => (monthGroups.some(([k]) => k === prev) ? prev : monthGroups[monthGroups.length - 1][0]));
+  }, [monthGroups]);
+  const monthSessions = useMemo(() => {
+    if (!selectedMonth) return sortedInvoiceSessions;
+    const hit = monthGroups.find(([k]) => k === selectedMonth);
+    return hit ? hit[1] : sortedInvoiceSessions;
+  }, [selectedMonth, monthGroups, sortedInvoiceSessions]);
   const invoiceLocked = !!selectedInvoice?.is_closed;
 
   const toggleWeekOverride = async (weekNum, currentKey) => {
@@ -1493,16 +1538,32 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
             </div>
           ) : (
             <div className="p-2">
-              <div className="border rounded-lg overflow-hidden bg-white" style={{ borderColor: "#C4D4B8" }}>
-                <div className="px-2.5 py-1 flex items-center justify-between" style={{ background: "#EDF4E8" }}>
-                  <span className="font-bold text-xs" style={{ color: "#2C5035" }}>HOME SESSIONS</span>
-                  <span className="text-[10px]" style={{ color: "#5C6853" }}>{sortedInvoiceSessions.length} session{sortedInvoiceSessions.length !== 1 ? "s" : ""}</span>
+              {monthGroups.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2 px-1 no-print">
+                  <select
+                    data-testid="invoice-month-select"
+                    className="select text-xs min-h-[32px] py-1"
+                    value={selectedMonth}
+                    onChange={e => setSelectedMonth(e.target.value)}
+                  >
+                    {monthGroups.map(([key]) => (
+                      <option key={key} value={key}>{formatMonthLabel(key)}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="border rounded-xl overflow-hidden" style={{ borderColor: "#C4D4B8" }}>
+                <div className="px-3 py-1.5 flex items-center justify-between" style={{ background: "#EDF4E8" }}>
+                  <span className="font-bold text-sm" style={{ color: "#2C5035" }}>HOME SESSIONS</span>
+                  <span className="text-xs" style={{ color: "#5C6853" }}>
+                    {selectedMonth ? formatMonthLabel(selectedMonth) : "All"} · {monthSessions.length} session{monthSessions.length !== 1 ? "s" : ""}
+                  </span>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs min-w-[520px] border-collapse">
                     <HistoryTableHead cols={sheetCols} bordered />
                     <tbody>
-                      {sortedInvoiceSessions.map((s, i) => (
+                      {monthSessions.map((s, i) => (
                         <SessionTableRow
                           key={s.id}
                           s={s}

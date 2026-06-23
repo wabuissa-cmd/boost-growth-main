@@ -9,13 +9,19 @@ export const EXPORT_COLUMN_DEFS = [
   { id: "hours", label: "# of Hrs" },
   { id: "therapist", label: "Therapist" },
   { id: "note", label: "Note" },
+];
+
+/** Optional columns not in standard attendance Excel sheets */
+export const EXPORT_EXTRA_COLUMN_DEFS = [
   { id: "service", label: "Service type" },
   { id: "location", label: "Location" },
 ];
 
-const COL_LABELS = Object.fromEntries(EXPORT_COLUMN_DEFS.map(c => [c.id, c.label]));
+const COL_LABELS = Object.fromEntries(
+  [...EXPORT_COLUMN_DEFS, ...EXPORT_EXTRA_COLUMN_DEFS].map(c => [c.id, c.label])
+);
 
-/** Columns for invoice sheet tables (screen + print). */
+/** Columns for invoice sheet tables (screen + print) — matches Excel payment file order. */
 export function buildInvoiceSheetColumns(selectedIds, { isSchool = false, includeAction = false } = {}) {
   const fallback = EXPORT_COLUMN_DEFS.map(c => c.id).filter(id => !(isSchool && id === "hours"));
   const ids = (selectedIds?.length ? selectedIds : fallback).filter(id => !(isSchool && id === "hours"));
@@ -50,6 +56,20 @@ export default function ExportColumnsModal({ initial, onClose, onExport, confirm
           <label key={c.id} className="flex items-center gap-2 text-sm cursor-pointer px-2 py-1.5 rounded-lg hover:bg-[#FAFAF7]">
             <input type="checkbox" checked={c.on} onChange={() => toggle(c.id)} />
             {c.label}
+          </label>
+        ))}
+        {EXPORT_EXTRA_COLUMN_DEFS.map(c => (
+          <label key={c.id} className="flex items-center gap-2 text-sm cursor-pointer px-2 py-1.5 rounded-lg hover:bg-[#FAFAF7] opacity-80">
+            <input
+              type="checkbox"
+              checked={selected.find(x => x.id === c.id)?.on}
+              onChange={() => {
+                const inList = selected.some(x => x.id === c.id);
+                if (inList) setSelected(s => s.map(x => (x.id === c.id ? { ...x, on: !x.on } : x)));
+                else setSelected(s => [...s, { ...c, on: true }]);
+              }}
+            />
+            {c.label} <span className="text-[10px] text-[#8B9E7A]">(extra)</span>
           </label>
         ))}
       </div>

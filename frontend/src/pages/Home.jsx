@@ -185,10 +185,11 @@ export default function Home() {
     ? saudiDateString()
     : new Date().toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
+  const beigeCard = { color: "#F7F3EB", iconColor: "#2F4A35" };
   const adminFeatures = [
-    { to: "/schedule", icon: CalendarBlank, title: "Weekly Schedule", desc: "Plan sessions, manage closures, and publish the team calendar.", color: "rgba(237,225,201,0.65)", iconColor: "#2F4A35", featured: true },
-    { to: "/attendance", icon: ClipboardText, title: "Session Preparation", desc: "Daily prep sheets, progress tracking, and session logging.", color: "rgba(107,143,113,0.18)", iconColor: "#2F4A35" },
-    { to: "/clients", icon: UsersThree, title: "Client Portfolios", desc: "Profiles, locations, packages, and progress reports.", color: "#fff", iconColor: "#6B8F71" },
+    { to: "/schedule", icon: CalendarBlank, title: "Weekly Schedule", desc: "Plan sessions, manage closures, and publish the team calendar.", ...beigeCard },
+    { to: "/attendance", icon: ClipboardText, title: "Session Preparation", desc: "Daily prep sheets, progress tracking, and session logging.", ...beigeCard },
+    { to: "/clients", icon: UsersThree, title: "Client Portfolios", desc: "Profiles, locations, packages, and progress reports.", ...beigeCard },
   ];
 
   const HeroBanner = ({ compact, greetingParts }) => (
@@ -282,7 +283,7 @@ export default function Home() {
           <CreativeSection title="Explore the portal" subtitle="Tools to run the center with clarity and care">
             <div className="home-feature-grid stagger">
               {adminFeatures.map(f => (
-                <Link key={f.to} to={f.to} className={`home-feature-card${f.featured ? " featured" : ""}`} data-testid={`home-feature-${f.to.slice(1)}`}>
+                <Link key={f.to} to={f.to} className="home-feature-card" data-testid={`home-feature-${f.to.slice(1)}`}>
                   <div className="home-feature-icon" style={{ background: f.color, color: f.iconColor }}>
                     <f.icon size={24} weight="duotone" />
                   </div>
