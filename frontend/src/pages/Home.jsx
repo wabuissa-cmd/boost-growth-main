@@ -194,7 +194,10 @@ export default function Home() {
   const HeroBanner = ({ compact, greetingParts }) => (
     <header className={`portal-hero${heroStyle === "plain" ? " portal-hero-plain" : ""}${heroStyle === "olive" ? " portal-hero-olive" : ""}`}>
       {heroImage && (
-        <div className="portal-hero-bg" style={{ backgroundImage: `url(${heroImage})` }} aria-hidden />
+        <>
+          <div className="portal-hero-bg" style={{ backgroundImage: `url(${heroImage})` }} aria-hidden />
+          <div className="portal-hero-overlay" aria-hidden />
+        </>
       )}
       <div className="portal-hero-picker" role="group" aria-label="Choose hero background">
         {HERO_OPTIONS.map(o => (

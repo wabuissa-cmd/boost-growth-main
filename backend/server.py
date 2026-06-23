@@ -2842,7 +2842,7 @@ async def sync_invoices_from_drive(cid: str, payload: SyncFromDriveIn, user=Depe
 
 def _merge_drive_client_meta(link_meta: dict, client: dict) -> dict:
     """Build client patch from Drive folder crawl (case summary, intake phone, links)."""
-    from drive_sync import fetch_case_summary_content, fetch_intake_parent_phone, extract_parent_phone_from_text
+    from drive_sync import fetch_case_summary_content, fetch_intake_parent_phone, extract_parent_phone_from_text, resolve_parent_phone_from_links
 
     patch = {
         "drive_folder_id": link_meta.get("folder_id"),
@@ -2860,7 +2860,13 @@ def _merge_drive_client_meta(link_meta: dict, client: dict) -> dict:
         except Exception as exc:
             logger.warning(f"Case summary fetch failed: {exc}")
     intake_url = link_meta.get("intake_file_url") or client.get("intake_file_url")
-    if intake_url:
+    try:
+        ph = resolve_parent_phone_from_links(link_meta, client)
+        if ph:
+            patch["parent_phone"] = ph
+    except Exception as exc:
+        logger.warning(f"Parent phone resolve failed: {exc}")
+    if not patch.get("parent_phone") and intake_url:
         try:
             ph = fetch_intake_parent_phone(intake_url)
             if ph:
@@ -2918,7 +2924,20 @@ async def sync_client_drive_links(cid: str, user=Depends(client_lead_or_admin)):
     sections = patch.get("case_summary_sections")
 
     await db.clients.update_one({"id": cid}, {"$set": patch})
-    return {"ok": True, **meta, "case_summary_sections": sections, "parent_phone": patch.get("parent_phone")}
+    return {
+        "ok": True,
+        **meta,
+        "case_summary_sections": sections,
+        "parent_phone": patch.get("parent_phone"),
+        "intake_file_url": patch.get("intake_file_url") or meta.get("intake_file_url"),
+        "case_summary_url": patch.get("case_summary_url") or meta.get("case_summary_url"),
+        "links_count": len(meta.get("links") or []),
+        "message": (
+            f"Synced {len(meta.get('links') or [])} links"
+            + (f" · phone {patch['parent_phone']}" if patch.get("parent_phone") else " · no phone found in Drive files")
+            + ("" if meta.get("intake_file_url") else " · no intake file detected")
+        ),
+    }
 
 
 @api.get("/clients/{cid}/case-summary")

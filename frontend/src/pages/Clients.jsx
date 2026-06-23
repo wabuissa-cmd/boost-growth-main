@@ -353,9 +353,8 @@ function AttachmentsPanelModal({ client, canSyncDrive, onClose, onSaved, onRefre
       if (data.case_summary_url) setAtt(s => ({ ...s, case_summary_url: data.case_summary_url }));
       if (data.intake_file_url) setAtt(s => ({ ...s, intake_file_url: data.intake_file_url }));
       onRefresh && onRefresh();
-      if (data.parent_phone) {
-        alert(`Parent phone updated: ${data.parent_phone}`);
-      }
+      const note = data.message || (data.parent_phone ? `Parent phone: ${data.parent_phone}` : "Sync complete — no phone found in Drive files");
+      alert(note);
     } catch (e) {
       alert("Drive sync failed: " + (e.response?.data?.detail || e.message));
     } finally { setSyncing(false); }
@@ -404,9 +403,9 @@ function AttachmentsPanelModal({ client, canSyncDrive, onClose, onSaved, onRefre
       <div className="space-y-4">
         {driveLinks.length > 0 && (
           <div>
-            <div className="text-xs font-bold mb-2 tracking-wide" style={{ color: "#8B9E7A" }}>DRIVE FOLDER LINKS</div>
+            <div className="text-xs font-bold mb-2 tracking-wide" style={{ color: "#8B9E7A" }}>KEY DOCUMENTS</div>
             <div className="space-y-2">
-              {driveLinks.map((link, i) => (
+              {driveLinks.filter(l => l.group !== "photos").map((link, i) => (
                 <div key={i} className="p-3 rounded-xl border flex items-center justify-between gap-3" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
                   <div className="min-w-0">
                     <div className="text-sm font-bold truncate" style={{ color: "#1C2617" }}>{link.title}</div>
@@ -414,6 +413,25 @@ function AttachmentsPanelModal({ client, canSyncDrive, onClose, onSaved, onRefre
                   </div>
                   <a href={link.url} target="_blank" rel="noreferrer" className="text-[11px] underline shrink-0 flex items-center gap-1" style={{ color: "#5C8A47" }}>
                     Open ↗ <ArrowSquareOut size={12} />
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {driveLinks.some(l => l.group === "photos") && (
+          <div>
+            <div className="text-xs font-bold mb-2 tracking-wide" style={{ color: "#8B9E7A" }}>ATTACHED PHOTOS</div>
+            <div className="space-y-2">
+              {driveLinks.filter(l => l.group === "photos").map((link, i) => (
+                <div key={i} className="p-3 rounded-xl border flex items-center justify-between gap-3" style={{ borderColor: "#E5EBE1", background: "#F5FAF3" }}>
+                  <div className="min-w-0">
+                    <div className="text-sm font-bold truncate" style={{ color: "#1C2617" }}>{link.title}</div>
+                    <div className="text-[10px]" style={{ color: "#6B8270" }}>Open folder — individual photos are not listed here</div>
+                  </div>
+                  <a href={link.url} target="_blank" rel="noreferrer" className="text-[11px] underline shrink-0 flex items-center gap-1" style={{ color: "#5C8A47" }}>
+                    Open folder ↗ <ArrowSquareOut size={12} />
                   </a>
                 </div>
               ))}

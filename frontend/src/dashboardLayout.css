@@ -129,8 +129,38 @@ a.dash-stat-card:hover {
   position: absolute;
   inset: 0;
   background-size: cover;
-  background-position: center right;
-  opacity: 1;
+  background-position: 72% center;
+  opacity: 0.48;
+}
+.portal-hero-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(
+    105deg,
+    rgba(255, 252, 247, 0.94) 0%,
+    rgba(247, 243, 235, 0.82) 32%,
+    rgba(237, 225, 201, 0.45) 52%,
+    rgba(107, 143, 113, 0.18) 72%,
+    transparent 100%
+  );
+}
+.portal-hero:has(.portal-hero-overlay) .portal-hero-greeting,
+.portal-hero:has(.portal-hero-overlay) .portal-hero-name {
+  color: #2F4A35;
+  text-shadow: none;
+}
+.portal-hero:has(.portal-hero-overlay) .portal-hero-lead,
+.portal-hero:has(.portal-hero-overlay) .portal-hero-date {
+  color: #4A6350;
+  text-shadow: none;
+}
+.portal-hero:has(.portal-hero-overlay) .portal-hero-eyebrow {
+  color: #6B8270;
+}
+.portal-hero:has(.portal-hero-overlay) .portal-hero-btn.outline {
+  color: #2F4A35;
+  border-color: rgba(47, 74, 53, 0.35);
 }
 .portal-hero-inner {
   position: relative;

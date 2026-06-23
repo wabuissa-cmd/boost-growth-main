@@ -18,15 +18,10 @@ _DRIVE_LINK_RE = re.compile(
 
 
 def _fetch_bytes(url: str, timeout: int = 45) -> bytes:
-    import ssl
-    try:
-        import certifi
-        ctx = ssl.create_default_context(cafile=certifi.where())
-    except Exception:
-        ctx = ssl.create_default_context()
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-        return resp.read()
+    import httpx
+    resp = httpx.get(url, headers={"User-Agent": UA}, follow_redirects=True, timeout=timeout)
+    resp.raise_for_status()
+    return resp.content
 
 
 def _embedded_folder_html(folder_id: str) -> str:
@@ -289,6 +284,62 @@ def resolve_attendance_sheet_url(client_folder_id: str) -> Optional[str]:
     return picked.get("url") if picked else None
 
 
+_IMAGE_EXT = re.compile(r"\.(jpe?g|png|gif|webp|heic|bmp|tiff?|svg)$", re.I)
+_PHOTO_FOLDER_RE = re.compile(
+    r"photo|picture|image|pic|صور|مرفق|attachments?|gallery",
+    re.I,
+)
+
+
+def _is_image_file(title: str, kind: str) -> bool:
+    if kind != "file":
+        return False
+    t = (title or "").lower()
+    if _IMAGE_EXT.search(t):
+        return True
+    if any(k in t for k in ("img_", "dsc", "screenshot", "photo")):
+        return True
+    return False
+
+
+def _is_photos_folder(title: str) -> bool:
+    return bool(_PHOTO_FOLDER_RE.search(title or ""))
+
+
+def resolve_parent_phone_from_links(link_meta: dict, client: Optional[dict] = None) -> Optional[str]:
+    """Try intake, case summary, then other docs/sheets for a guardian phone."""
+    client = client or {}
+    tried: set = set()
+    candidates: List[str] = []
+    for key in ("intake_file_url", "case_summary_url"):
+        u = (link_meta.get(key) or client.get(key) or "").strip()
+        if u and u not in tried:
+            tried.add(u)
+            candidates.append(u)
+    for entry in link_meta.get("links") or []:
+        if entry.get("kind") not in ("doc", "sheet", "file", "document"):
+            continue
+        u = (entry.get("url") or "").strip()
+        if not u or u in tried:
+            continue
+        tried.add(u)
+        title = (entry.get("title") or "").lower()
+        if _case_summary_title_match(entry.get("title") or ""):
+            candidates.insert(min(2, len(candidates)), u)
+        elif _intake_title_match(entry.get("title") or ""):
+            candidates.insert(0, u)
+        else:
+            candidates.append(u)
+    for url in candidates[:12]:
+        try:
+            ph = fetch_intake_parent_phone(url)
+            if ph:
+                return ph
+        except Exception:
+            continue
+    return None
+
+
 def _intake_title_match(title: str) -> bool:
     tl = (title or "").lower()
     if "intake" in tl or "انتيك" in (title or "") or "الانتيك" in (title or "") or "انتاك" in (title or ""):
@@ -308,28 +359,36 @@ def _case_summary_title_match(title: str) -> bool:
 def list_client_folder_links(client_folder_id: str) -> Dict[str, Any]:
     """Crawl a client folder (and shallow subfolders) for Case Summary, Intake, etc."""
     folder_url = f"https://drive.google.com/drive/folders/{client_folder_id}"
-    links: List[Dict[str, str]] = []
+    links: List[Dict[str, Any]] = []
     case_summary_url: Optional[str] = None
     intake_file_url: Optional[str] = None
+    photos_folder_url: Optional[str] = None
     seen_urls: set = set()
+    root_image_count = 0
 
-    def add_item(item: Dict[str, Any]) -> None:
+    def add_item(item: Dict[str, Any], *, group: Optional[str] = None) -> None:
         nonlocal case_summary_url, intake_file_url
         title = item.get("title") or ""
         if _is_attendance_related(title):
+            return
+        if _is_image_file(title, item.get("kind") or ""):
             return
         url = item.get("url") or ""
         if not url or url in seen_urls:
             return
         seen_urls.add(url)
         kind = item.get("kind") or "unknown"
-        links.append({"title": title, "url": url, "kind": kind})
+        entry: Dict[str, Any] = {"title": title, "url": url, "kind": kind}
+        if group:
+            entry["group"] = group
+        links.append(entry)
         if not case_summary_url and _case_summary_title_match(title):
             case_summary_url = url
         if not intake_file_url and _intake_title_match(title) and kind in ("doc", "sheet", "file", "document"):
             intake_file_url = url
 
     def scan_folder(fid: str, depth: int = 0) -> None:
+        nonlocal photos_folder_url
         if depth > 2 or not fid:
             return
         try:
@@ -338,28 +397,69 @@ def list_client_folder_links(client_folder_id: str) -> Dict[str, Any]:
             return
         for item in items:
             kind = item.get("kind") or ""
+            title = item.get("title") or ""
             if kind == "folder":
-                if not _is_attendance_related(item.get("title") or ""):
-                    scan_folder(item.get("id") or "", depth + 1)
+                if _is_attendance_related(title):
+                    continue
+                if _is_photos_folder(title):
+                    url = item.get("url") or f"https://drive.google.com/drive/folders/{item.get('id')}"
+                    if url not in seen_urls:
+                        seen_urls.add(url)
+                        photos_folder_url = url
+                        links.append({
+                            "title": f"Attached Photos — {title}",
+                            "url": url,
+                            "kind": "folder",
+                            "group": "photos",
+                        })
+                    continue
+                scan_folder(item.get("id") or "", depth + 1)
             else:
+                if _is_image_file(title, kind):
+                    if depth == 0:
+                        root_image_count += 1
+                    continue
                 add_item(item)
 
     scan_folder(client_folder_id)
 
+    if not photos_folder_url and root_image_count > 0:
+        photos_folder_url = folder_url
+        if folder_url not in seen_urls:
+            seen_urls.add(folder_url)
+            links.append({
+                "title": f"Attached Photos ({root_image_count} files)",
+                "url": folder_url,
+                "kind": "folder",
+                "group": "photos",
+            })
+
     if not intake_file_url:
         for entry in links:
+            if entry.get("group") == "photos":
+                continue
             if entry["kind"] in ("doc", "sheet", "file") and not _case_summary_title_match(entry["title"]):
                 if _intake_title_match(entry["title"]):
                     intake_file_url = entry["url"]
                     break
+        if not intake_file_url:
+            for entry in links:
+                if entry.get("group") == "photos":
+                    continue
+                if entry["kind"] in ("doc", "sheet") and not _case_summary_title_match(entry["title"]):
+                    intake_file_url = entry["url"]
+                    break
 
-    links.sort(key=lambda x: (x.get("title") or "").lower())
+    doc_links = [l for l in links if l.get("group") != "photos"]
+    photo_links = [l for l in links if l.get("group") == "photos"]
+    ordered = sorted(doc_links, key=lambda x: (x.get("title") or "").lower()) + photo_links
     return {
         "folder_id": client_folder_id,
         "folder_url": folder_url,
-        "links": links,
+        "links": ordered,
         "case_summary_url": case_summary_url,
         "intake_file_url": intake_file_url,
+        "photos_folder_url": photos_folder_url,
     }
 
 
