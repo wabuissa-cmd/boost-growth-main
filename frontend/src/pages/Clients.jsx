@@ -165,7 +165,7 @@ export default function Clients() {
         <LocationPanelModal client={panelClient.client} onClose={closePanel} />
       )}
       {panelClient?.section === "attachments" && (
-        <AttachmentsPanelModal client={panelClient.client} isAdmin={isAdmin} onClose={closePanel} onSaved={() => { closePanel(); load(); }} />
+        <AttachmentsPanelModal client={panelClient.client} canSyncDrive={hasFullClientAccess(user)} onClose={closePanel} onSaved={() => { closePanel(); load(); }} />
       )}
       {panelClient?.section === "details" && (
         <CaseDetailsPanelModal client={panelClient.client} therapists={therapists} isAdmin={isAdmin}
@@ -333,7 +333,7 @@ function LocationPanelModal({ client, onClose }) {
   );
 }
 
-function AttachmentsPanelModal({ client, isAdmin, onClose, onSaved }) {
+function AttachmentsPanelModal({ client, canSyncDrive, onClose, onSaved }) {
   const [att, setAtt] = useState({
     intake_file_url: client.intake_file_url || "",
     attendance_sheet_url: client.attendance_sheet_url || client.drive_url || "",
@@ -353,6 +353,9 @@ function AttachmentsPanelModal({ client, isAdmin, onClose, onSaved }) {
       if (data.case_summary_url) setAtt(s => ({ ...s, case_summary_url: data.case_summary_url }));
       if (data.intake_file_url) setAtt(s => ({ ...s, intake_file_url: data.intake_file_url }));
       onSaved && onSaved();
+      if (data.parent_phone) {
+        alert(`Parent phone updated: ${data.parent_phone}`);
+      }
     } catch (e) {
       alert("Drive sync failed: " + (e.response?.data?.detail || e.message));
     } finally { setSyncing(false); }
@@ -386,12 +389,12 @@ function AttachmentsPanelModal({ client, isAdmin, onClose, onSaved }) {
       footer={
         <>
           <ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>
-          {isAdmin && (
+          {canSyncDrive && (
             <ModalBtnSecondary type="button" onClick={syncFromDrive} disabled={syncing}>
               {syncing ? "Syncing…" : "Sync from Drive"}
             </ModalBtnSecondary>
           )}
-          {isAdmin ? (
+          {canSyncDrive ? (
             <ModalBtnPrimary data-testid="save-attachments-btn" type="button" onClick={saveAttachments} disabled={saving}>
               {saving ? <span className="spinner" /> : "Save Links"}
             </ModalBtnPrimary>
@@ -420,11 +423,11 @@ function AttachmentsPanelModal({ client, isAdmin, onClose, onSaved }) {
 
         {driveLinks.length === 0 && (
           <div className="text-sm py-4 text-center rounded-xl border" style={{ color: "#8B9E7A", borderColor: "#EDE9E3", background: "#FAFAF7" }}>
-            No Drive links synced yet.{isAdmin ? " Use Sync from Drive to pull links from the child's folder." : ""}
+            No Drive links synced yet.{canSyncDrive ? " Use Sync from Drive to pull links from the child's folder." : ""}
           </div>
         )}
 
-        {isAdmin && manualFields.map(f => (
+        {canSyncDrive && manualFields.map(f => (
           <div key={f.key} className="p-3 rounded-xl border" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
             <div className="flex items-center justify-between mb-1">
               <div className="text-sm font-bold" style={{ color: "#1C2617" }}>{f.label}</div>

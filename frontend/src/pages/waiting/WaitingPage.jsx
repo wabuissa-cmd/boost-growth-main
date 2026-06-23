@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "../../api";
-import { useAuth } from "../../auth";
+import { useAuth, canEditIntake } from "../../auth";
 import { Plus, Trash, PencilSimple, Star, Phone, MapPin, Info, ArrowsClockwise, GraduationCap, ClipboardText } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
@@ -11,7 +11,7 @@ import PageBanner from "../../components/PageBanner";
 import "../../clientInfoLayout.css";
 import "../../dashboardLayout.css";
 
-export const WAITING_LIST_SHEET_URL = "https://docs.google.com/spreadsheets/d/14DLxQZOWSRnS_4kWeOsgKfpYMQiZ6hQiv2be_-J_hBg/edit";
+import { WAITING_LIST_SHEET_URL } from "../../constants/waiting";
 
 const STATUS = { new: "New", contacted: "Contacted", scheduled: "Scheduled", completed: "Completed" };
 const STATUS_COLORS = {
@@ -35,7 +35,8 @@ function itemCategory(i) {
 export default function WaitingPage({ mode }) {
   const isSchool = mode === "school";
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const canManage = canEditIntake(user);
+  const [loadError, setLoadError] = useState(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState([]);
   const [edit, setEdit] = useState(null);
@@ -48,7 +49,11 @@ export default function WaitingPage({ mode }) {
     try {
       const { data } = await api.get("/intake");
       setItems(data);
-    } catch (_e) { setItems([]); }
+      setLoadError(null);
+    } catch (e) {
+      setItems([]);
+      setLoadError(e.response?.data?.detail || e.message || "Could not load waiting list");
+    }
   };
   useEffect(() => { load(); }, []);
 
@@ -146,7 +151,7 @@ export default function WaitingPage({ mode }) {
     ? "School support placement queue — synced from the SS waiting sheet"
     : "Pre- and post-intake queues for home-based services";
 
-  const adminBadge = isAdmin ? (
+  const adminBadge = canManage ? (
     <div className="flex gap-2 flex-wrap justify-end">
       <button type="button" onClick={syncFromGoogle} disabled={syncing} className="btn btn-outline text-[11px] px-2.5 py-1 min-h-0 border-white/40 text-white hover:bg-white/10">
         {syncing ? <span className="spinner" /> : <><ArrowsClockwise size={13} /> Sync Sheet</>}
@@ -227,6 +232,12 @@ export default function WaitingPage({ mode }) {
         toolbar={tabToolbar}
       />
 
+      {loadError && (
+        <div className="mb-4 p-3 rounded-xl border text-sm font-semibold bg-[#F8EBE7] border-[#ECA6A6] text-[#8A3F27]">
+          {loadError}
+        </div>
+      )}
+
       {syncResult && (
         <div className={`mb-4 p-3 rounded-xl border text-sm font-semibold ${syncResult.ok ? "bg-[#E5EBE1] border-[#B4C2A9] text-[#3D4F35]" : "bg-[#F8EBE7] border-[#ECA6A6] text-[#8A3F27]"}`}>
           {syncResult.msg}
@@ -271,14 +282,14 @@ export default function WaitingPage({ mode }) {
                       ) : (
                         <th>Language</th>
                       )}
-                      {isAdmin && <th style={{ width: 140 }}>Actions</th>}
+                      {canManage && <th style={{ width: 140 }}>Actions</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {displayed.map(i => (
                       <tr key={i.id} className={i.priority ? "priority-row" : ""}>
                         <td>
-                          {isAdmin ? (
+                          {canManage ? (
                             <button type="button" onClick={() => api.put(`/intake/${i.id}`, { ...i, priority: !i.priority }).then(load)} className="btn btn-ghost p-1">
                               <Star size={16} weight={i.priority ? "fill" : "regular"} style={{ color: i.priority ? "#D4A64A" : "#C5C0B7" }} />
                             </button>
@@ -300,7 +311,7 @@ export default function WaitingPage({ mode }) {
                         ) : (
                           <td>{tab === "pre" ? (i.time_pref || "—") : (i.language || "—")}</td>
                         )}
-                        {isAdmin && (
+                        {canManage && (
                           <td>
                             <div className="flex gap-1 flex-wrap">
                               {!isSchool && tab === "pre" && (

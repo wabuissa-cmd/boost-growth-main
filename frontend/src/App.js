@@ -1,6 +1,6 @@
 import { Component, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth, isClientLead, hasOpsAccess, canEditStaffRequests, canEditIntake, canManageLeaves } from "./auth";
+import { AuthProvider, useAuth, isClientLead, hasOpsAccess, canEditStaffRequests, canEditIntake, canManageLeaves, hasFullClientAccess } from "./auth";
 import Login from "./pages/Login";
 import Shell from "./pages/Shell";
 import "./App.css";
@@ -87,6 +87,14 @@ function StaffLeaveAccess({ children }) {
   return children;
 }
 
+function ImportAccess({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <Loading/>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!hasFullClientAccess(user)) return <Navigate to="/home" replace />;
+  return children;
+}
+
 function AppRoutes() {
   const { user } = useAuth();
   return (
@@ -115,7 +123,7 @@ function AppRoutes() {
         <Route path="/directory" element={<Directory/>}/>
         <Route path="/resources" element={<Resources/>}/>
         <Route path="/reports" element={<AdminOnly><Reports/></AdminOnly>}/>
-        <Route path="/import" element={<AdminOnly><ImportPage/></AdminOnly>}/>
+        <Route path="/import" element={<ImportAccess><ImportPage/></ImportAccess>}/>
         <Route path="/admin" element={<AdminOnly><Admin/></AdminOnly>}/>
         <Route path="/leave-balance" element={<Navigate to="/staff-leave?tab=balance" replace/>}/>
         <Route path="/purchases" element={<AdminOnly><Purchases/></AdminOnly>}/>

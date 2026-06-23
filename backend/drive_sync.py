@@ -18,8 +18,14 @@ _DRIVE_LINK_RE = re.compile(
 
 
 def _fetch_bytes(url: str, timeout: int = 45) -> bytes:
+    import ssl
+    try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        ctx = ssl.create_default_context()
     req = urllib.request.Request(url, headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
         return resp.read()
 
 
@@ -160,25 +166,34 @@ def fetch_intake_parent_phone(drive_url: str) -> Optional[str]:
             doc_id = m.group(1) if m else None
         if doc_id:
             try:
-                return extract_parent_phone_from_text(_fetch_doc_text_by_id(doc_id))
+                text = _fetch_doc_text_by_id(doc_id)
+                ph = extract_parent_phone_from_text(text)
+                if ph:
+                    return ph
             except Exception:
                 pass
     if "spreadsheets" in url:
         import openpyxl
         wb = fetch_workbook_from_url(url)
         for ws in wb.worksheets:
-            for row in ws.iter_rows(min_row=1, max_row=80, values_only=True):
+            for row in ws.iter_rows(min_row=1, max_row=120, values_only=True):
                 cells = [str(c).strip() if c is not None else "" for c in row]
                 joined = " ".join(cells).lower()
-                if not any(k in joined for k in ("phone", "mobile", "جوال", "هاتف", "ولي", "parent", "guardian")):
-                    continue
-                for c in cells:
-                    ph = extract_parent_phone_from_text(c)
+                if any(k in joined for k in ("phone", "mobile", "جوال", "هاتف", "ولي", "parent", "guardian", "contact")):
+                    for c in cells:
+                        ph = extract_parent_phone_from_text(c)
+                        if ph:
+                            return ph
+                    ph = extract_parent_phone_from_text(" ".join(cells))
                     if ph:
                         return ph
-                ph = extract_parent_phone_from_text(" ".join(cells))
-                if ph:
-                    return ph
+            for row in ws.iter_rows(min_row=1, max_row=120, values_only=True):
+                for c in row:
+                    if c is None:
+                        continue
+                    ph = extract_parent_phone_from_text(str(c))
+                    if ph:
+                        return ph
     return None
 
 
@@ -274,39 +289,69 @@ def resolve_attendance_sheet_url(client_folder_id: str) -> Optional[str]:
     return picked.get("url") if picked else None
 
 
+def _intake_title_match(title: str) -> bool:
+    tl = (title or "").lower()
+    if "intake" in tl or "انتيك" in (title or "") or "الانتيك" in (title or "") or "انتاك" in (title or ""):
+        return True
+    if "client information" in tl or "client info" in tl or "initial assessment" in tl:
+        return True
+    if "تقييم" in (title or "") or "معلومات" in (title or ""):
+        return True
+    return False
+
+
+def _case_summary_title_match(title: str) -> bool:
+    tl = (title or "").lower()
+    return "case summary" in tl or "ملخص الحالة" in (title or "") or "ملخص حالة" in (title or "")
+
+
 def list_client_folder_links(client_folder_id: str) -> Dict[str, Any]:
-    """Crawl a client folder for non-attendance Drive links (Case Summary, Intake, etc.)."""
+    """Crawl a client folder (and shallow subfolders) for Case Summary, Intake, etc."""
     folder_url = f"https://drive.google.com/drive/folders/{client_folder_id}"
-    items = parse_embedded_folder(_embedded_folder_html(client_folder_id))
     links: List[Dict[str, str]] = []
     case_summary_url: Optional[str] = None
     intake_file_url: Optional[str] = None
+    seen_urls: set = set()
 
-    for item in items:
+    def add_item(item: Dict[str, Any]) -> None:
+        nonlocal case_summary_url, intake_file_url
         title = item.get("title") or ""
         if _is_attendance_related(title):
-            continue
-        kind = item.get("kind") or "unknown"
-        if kind == "folder" and _is_attendance_related(title):
-            continue
+            return
         url = item.get("url") or ""
-        if not url:
-            continue
-        entry = {"title": title, "url": url, "kind": kind}
-        links.append(entry)
-        tl = title.lower()
-        if not case_summary_url and (
-            "case summary" in tl or "ملخص الحالة" in title or "ملخص حالة" in title
-        ):
+        if not url or url in seen_urls:
+            return
+        seen_urls.add(url)
+        kind = item.get("kind") or "unknown"
+        links.append({"title": title, "url": url, "kind": kind})
+        if not case_summary_url and _case_summary_title_match(title):
             case_summary_url = url
-        if not intake_file_url and (
-            "intake" in tl
-            or "انتيك" in title
-            or "الانتيك" in title
-            or "انتاك" in title
-            or "ولي" in title and "امر" in title
-        ):
+        if not intake_file_url and _intake_title_match(title) and kind in ("doc", "sheet", "file", "document"):
             intake_file_url = url
+
+    def scan_folder(fid: str, depth: int = 0) -> None:
+        if depth > 2 or not fid:
+            return
+        try:
+            items = parse_embedded_folder(_embedded_folder_html(fid))
+        except Exception:
+            return
+        for item in items:
+            kind = item.get("kind") or ""
+            if kind == "folder":
+                if not _is_attendance_related(item.get("title") or ""):
+                    scan_folder(item.get("id") or "", depth + 1)
+            else:
+                add_item(item)
+
+    scan_folder(client_folder_id)
+
+    if not intake_file_url:
+        for entry in links:
+            if entry["kind"] in ("doc", "sheet", "file") and not _case_summary_title_match(entry["title"]):
+                if _intake_title_match(entry["title"]):
+                    intake_file_url = entry["url"]
+                    break
 
     links.sort(key=lambda x: (x.get("title") or "").lower())
     return {

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import api, { startOfWeek, toISODate } from "../api";
 import { UploadSimple, Download, CheckCircle, X, FileXls, CalendarBlank, UserList, ArrowsClockwise } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
-import { WAITING_LIST_SHEET_URL } from "./waiting/WaitingPage";
+import { WAITING_LIST_SHEET_URL } from "../constants/waiting";
 
 export default function ImportPage() {
   const [type, setType] = useState("clients"); // clients, intake, historical, schedule

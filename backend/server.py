@@ -2842,7 +2842,7 @@ async def sync_invoices_from_drive(cid: str, payload: SyncFromDriveIn, user=Depe
 
 def _merge_drive_client_meta(link_meta: dict, client: dict) -> dict:
     """Build client patch from Drive folder crawl (case summary, intake phone, links)."""
-    from drive_sync import fetch_case_summary_content, fetch_intake_parent_phone
+    from drive_sync import fetch_case_summary_content, fetch_intake_parent_phone, extract_parent_phone_from_text
 
     patch = {
         "drive_folder_id": link_meta.get("folder_id"),
@@ -2867,11 +2867,26 @@ def _merge_drive_client_meta(link_meta: dict, client: dict) -> dict:
                 patch["parent_phone"] = ph
         except Exception as exc:
             logger.warning(f"Intake phone fetch failed: {exc}")
+    if not patch.get("parent_phone") and cs_url:
+        try:
+            cs_content = fetch_case_summary_content(cs_url)
+            blob_parts: List[str] = []
+            for sec in cs_content.get("sections") or []:
+                blob_parts.extend(sec.get("paragraphs") or [])
+                for tbl in sec.get("tables") or []:
+                    for row in tbl:
+                        if isinstance(row, list):
+                            blob_parts.extend(str(c) for c in row)
+            ph = extract_parent_phone_from_text(" ".join(blob_parts))
+            if ph:
+                patch["parent_phone"] = ph
+        except Exception as exc:
+            logger.warning(f"Case summary phone fallback failed: {exc}")
     return patch
 
 
 @api.post("/clients/{cid}/sync-drive-links")
-async def sync_client_drive_links(cid: str, user=Depends(ops_or_admin)):
+async def sync_client_drive_links(cid: str, user=Depends(client_lead_or_admin)):
     """Crawl the client's Active Clients Drive folder for document links (excludes attendance sheets)."""
     from drive_sync import (
         extract_folder_id,
@@ -2948,7 +2963,7 @@ class SyncActiveClientsIn(BaseModel):
 
 
 @api.post("/admin/sync-active-clients-from-drive")
-async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends(ops_or_admin)):
+async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends(client_lead_or_admin)):
     """Bulk-sync attendance workbooks from the Active Clients Drive folder.
 
     Each subfolder is named like ``009 | Child Name``. Inside, we locate the

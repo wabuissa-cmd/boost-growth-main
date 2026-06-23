@@ -118,12 +118,18 @@ export default function Shell() {
     financeItems.push({ to: "/purchases", label: "Purchases", testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> });
   }
 
-  // Admin tools — Reports, Import, Admin page
-  const adminTools = portalAdmin ? [
-    { to: "/reports", label: "Reports", testid: "nav-reports", icon: <ChartBar size={17} weight="duotone"/> },
-    { to: "/import", label: "Import", testid: "nav-import", icon: <UploadSimple size={17} weight="duotone"/> },
-    { to: "/admin", label: "Admin", testid: "nav-admin", icon: <Gear size={17} weight="duotone"/> },
-  ] : [];
+  // Admin tools — Import for client-lead team; full admin suite for portal admin
+  const adminTools = [
+    ...(clientLead || portalAdmin
+      ? [{ to: "/import", label: "Import", testid: "nav-import", icon: <UploadSimple size={17} weight="duotone"/> }]
+      : []),
+    ...(portalAdmin
+      ? [
+          { to: "/reports", label: "Reports", testid: "nav-reports", icon: <ChartBar size={17} weight="duotone"/> },
+          { to: "/admin", label: "Admin", testid: "nav-admin", icon: <Gear size={17} weight="duotone"/> },
+        ]
+      : []),
+  ];
 
   const hrDropdownItems = [...requestsItems];
 
