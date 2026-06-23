@@ -19,7 +19,7 @@ import "../dashboardLayout.css";
 
 const HERO_OPTIONS = [
   { id: "none", src: null, label: "Plain", style: "plain" },
-  { id: "olive", src: null, label: "Olive", style: "olive" },
+  { id: "olive", src: null, label: "Green", style: "olive" },
   { id: "blocks", src: "/service-outdoor.jpg", label: "Building blocks", style: "image" },
   { id: "reading", src: "/service-home.jpg", label: "Reading story", style: "image" },
 ];

@@ -105,7 +105,7 @@ a.dash-stat-card:hover {
   background: linear-gradient(165deg, #FFFCF7 0%, #F3EFE8 55%, #EAE4DA 100%);
 }
 .portal-hero-olive {
-  background: linear-gradient(135deg, #8B9E7A 0%, #7A8A6A 42%, #606E52 100%);
+  background: var(--brand-sidebar, linear-gradient(180deg, #6B8F71 0%, #5A7D60 48%, #2F4A35 100%));
 }
 .portal-hero-olive .portal-hero-eyebrow {
   color: rgba(255, 255, 255, 0.82);
@@ -304,6 +304,16 @@ a.dash-stat-card:hover {
   height: 100%;
   border-radius: 50%;
   background: linear-gradient(135deg, #FFFCF7 0%, #D4DEC8 100%);
+}
+.portal-hero-picker-btn.olive {
+  background: var(--brand-sidebar, linear-gradient(180deg, #6B8F71 0%, #5A7D60 48%, #2F4A35 100%));
+}
+.portal-hero-picker-olive {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--brand-sidebar, linear-gradient(180deg, #6B8F71 0%, #5A7D60 48%, #2F4A35 100%));
 }
 
 /* Boost Growth services strip (from public site) */
