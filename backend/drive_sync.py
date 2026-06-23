@@ -127,7 +127,7 @@ def fetch_doc_text(drive_url: str) -> str:
 
 
 _PHONE_RE = re.compile(
-    r"(?:\+966[\s\-]?|966[\s\-]?|0)?(5\d{8})\b"
+    r"(?:\+966[\s\-]?|966[\s\-]?0?)(5\d{8})\b|0(5\d{8})\b"
 )
 
 
@@ -137,10 +137,15 @@ def extract_parent_phone_from_text(text: str) -> Optional[str]:
         return None
     compact = re.sub(r"[\s\-()]", "", text)
     for m in _PHONE_RE.finditer(compact):
-        digits = m.group(1)
-        if digits and len(digits) == 9:
+        digits = m.group(1) or m.group(2)
+        if digits and len(digits) == 9 and digits.startswith("5"):
             return f"0{digits}"
     return None
+
+
+def _fetch_doc_text_by_id(doc_id: str) -> str:
+    raw = _fetch_bytes(doc_export_url(doc_id, "txt"))
+    return raw.decode("utf-8", errors="replace").strip()
 
 
 def fetch_intake_parent_phone(drive_url: str) -> Optional[str]:
@@ -148,8 +153,16 @@ def fetch_intake_parent_phone(drive_url: str) -> Optional[str]:
     url = (drive_url or "").strip()
     if not url:
         return None
-    if "document" in url:
-        return extract_parent_phone_from_text(fetch_doc_text(url))
+    if "document" in url or "/file/d/" in url:
+        doc_id = extract_doc_id(url)
+        if not doc_id:
+            m = re.search(r"/file/d/([a-zA-Z0-9-_]+)", url)
+            doc_id = m.group(1) if m else None
+        if doc_id:
+            try:
+                return extract_parent_phone_from_text(_fetch_doc_text_by_id(doc_id))
+            except Exception:
+                pass
     if "spreadsheets" in url:
         import openpyxl
         wb = fetch_workbook_from_url(url)
@@ -287,7 +300,11 @@ def list_client_folder_links(client_folder_id: str) -> Dict[str, Any]:
         ):
             case_summary_url = url
         if not intake_file_url and (
-            "intake" in tl or "انتيك" in title or "الانتيك" in title
+            "intake" in tl
+            or "انتيك" in title
+            or "الانتيك" in title
+            or "انتاك" in title
+            or "ولي" in title and "امر" in title
         ):
             intake_file_url = url
 

@@ -7,6 +7,7 @@ import { Plus, MagnifyingGlass, MapPin, ArrowSquareOut, Trash, PencilSimple } fr
 import ClientInfoLayout from "../components/ClientInfoLayout";
 import PageBanner from "../components/PageBanner";
 import { enrichClientForCardView } from "../attendanceUtils";
+import { getMapsHref, isMapsLink } from "../mapsUtils";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -290,7 +291,7 @@ export default function Clients() {
                   <select className="modal-input w-24 flex-shrink-0" value={l.service} onChange={e => { const ll = [...edit.locations]; ll[i] = { ...ll[i], service: e.target.value }; setEdit({ ...edit, locations: ll }); }}>
                     <option value="HS">HS</option><option value="SS">SS</option><option value="OS">OS</option>
                   </select>
-                  <input className="modal-input flex-1" placeholder="Address" value={l.address} onChange={e => { const ll = [...edit.locations]; ll[i] = { ...ll[i], address: e.target.value }; setEdit({ ...edit, locations: ll }); }} />
+                  <input className="modal-input flex-1" placeholder="Address or Google Maps link" value={l.address} onChange={e => { const ll = [...edit.locations]; ll[i] = { ...ll[i], address: e.target.value }; setEdit({ ...edit, locations: ll }); }} />
                   <button type="button" onClick={() => setEdit({ ...edit, locations: edit.locations.filter((_, j) => j !== i) })} className="btn btn-ghost p-2 text-red-700"><Trash size={14} /></button>
                 </div>
               ))}
@@ -318,7 +319,7 @@ function LocationPanelModal({ client, onClose }) {
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium" style={{ color: "#2C3625" }}>{l.address || "—"}</div>
                 {l.address && (
-                  <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(l.address)}`}
+                  <a href={getMapsHref(l.address)}
                     target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs mt-2 underline" style={{ color: "#5C8A47" }}>
                     <MapPin size={12} /> Open in Maps ↗
                   </a>
@@ -577,8 +578,13 @@ function CaseDetailsPanelModal({ client, therapists, isAdmin, onClose, onSaved }
               {client.locations?.length ? (
                 <div className="flex flex-wrap gap-1.5">
                   {client.locations.map((loc, i) => (
-                    <span key={i} className="pill text-[10px] px-2 py-1" style={{ background: "#F0E9D8", color: "#2C3625" }}>
-                      <strong>{loc.service}</strong> · {loc.address}
+                    <span key={i} className="pill text-[10px] px-2 py-1 inline-flex items-center gap-1" style={{ background: "#F0E9D8", color: "#2C3625" }}>
+                      <strong>{loc.service}</strong>
+                      {isMapsLink(loc.address) ? (
+                        <a href={getMapsHref(loc.address)} target="_blank" rel="noreferrer" className="underline" style={{ color: "#5C8A47" }}>Maps ↗</a>
+                      ) : (
+                        <> · {loc.address}</>
+                      )}
                     </span>
                   ))}
                 </div>
@@ -641,7 +647,7 @@ function CaseDetailsPanelModal({ client, therapists, isAdmin, onClose, onSaved }
                   <select className="modal-input w-24 flex-shrink-0" value={l.service} onChange={e => { const ll = [...form.locations]; ll[i] = { ...ll[i], service: e.target.value }; setForm({ ...form, locations: ll }); }}>
                     <option value="HS">HS</option><option value="SS">SS</option><option value="OS">OS</option>
                   </select>
-                  <input className="modal-input flex-1" placeholder="Address" value={l.address} onChange={e => { const ll = [...form.locations]; ll[i] = { ...ll[i], address: e.target.value }; setForm({ ...form, locations: ll }); }} />
+                  <input className="modal-input flex-1" placeholder="Address or Google Maps link" value={l.address} onChange={e => { const ll = [...form.locations]; ll[i] = { ...ll[i], address: e.target.value }; setForm({ ...form, locations: ll }); }} />
                   <button type="button" onClick={() => setForm({ ...form, locations: form.locations.filter((_, j) => j !== i) })} className="btn btn-ghost p-2 text-red-700"><Trash size={14} /></button>
                 </div>
               ))}

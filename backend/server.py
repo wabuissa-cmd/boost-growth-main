@@ -2980,17 +2980,15 @@ async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends
             results.append({"file_no": file_no, "status": "skipped", "reason": "client not in portal"})
             continue
         try:
+            link_meta = list_client_folder_links(entry["folder_id"])
+            meta_patch = _merge_drive_client_meta({**link_meta, "folder_id": entry["folder_id"]}, client)
+            client_patch = {
+                **{k: v for k, v in meta_patch.items() if k != "drive_folder_id"},
+                "drive_url": entry.get("folder_url") or link_meta.get("folder_url"),
+                "drive_folder_id": entry["folder_id"],
+            }
             sheet_url = resolve_attendance_sheet_url(entry["folder_id"])
-            if not sheet_url:
-                results.append({
-                    "file_no": file_no,
-                    "client_name": client.get("name"),
-                    "status": "skipped",
-                    "reason": "no attendance spreadsheet found in Drive folder",
-                })
-                continue
             if body.dry_run:
-                link_meta = list_client_folder_links(entry["folder_id"])
                 results.append({
                     "file_no": file_no,
                     "client_name": client.get("name"),
@@ -2998,17 +2996,22 @@ async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends
                     "sheet_url": sheet_url,
                     "drive_links": len(link_meta.get("links") or []),
                     "case_summary_url": link_meta.get("case_summary_url"),
+                    "parent_phone": meta_patch.get("parent_phone"),
+                })
+                continue
+            if sheet_url:
+                client_patch["attendance_sheet_url"] = sheet_url
+            await db.clients.update_one({"id": client["id"]}, {"$set": client_patch})
+            if not sheet_url:
+                results.append({
+                    "file_no": file_no,
+                    "client_name": client.get("name"),
+                    "status": "meta_synced",
+                    "parent_phone": meta_patch.get("parent_phone"),
+                    "reason": "drive links/phone updated; no attendance spreadsheet in folder",
                 })
                 continue
             wb = fetch_workbook_from_url(sheet_url)
-            link_meta = list_client_folder_links(entry["folder_id"])
-            client_patch = {
-                "attendance_sheet_url": sheet_url,
-                **{k: v for k, v in _merge_drive_client_meta({**link_meta, "folder_id": entry["folder_id"]}, client).items() if k != "drive_folder_id"},
-                "drive_url": entry.get("folder_url") or link_meta.get("folder_url"),
-                "drive_folder_id": entry["folder_id"],
-            }
-            await db.clients.update_one({"id": client["id"]}, {"$set": client_patch})
             ingest = await _ingest_workbook_for_client(
                 client["id"], client, wb, user["id"], origin="drive-bulk-sync"
             )
@@ -3017,6 +3020,7 @@ async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends
                 "client_name": client.get("name"),
                 "status": "synced",
                 "sheet_url": sheet_url,
+                "parent_phone": meta_patch.get("parent_phone"),
                 "drive_links": len(link_meta.get("links") or []),
                 **ingest,
             })
@@ -3029,6 +3033,7 @@ async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends
             })
 
     synced = sum(1 for r in results if r.get("status") == "synced")
+    meta_synced = sum(1 for r in results if r.get("status") == "meta_synced")
     skipped = sum(1 for r in results if r.get("status") == "skipped")
     errors = sum(1 for r in results if r.get("status") == "error")
     return {
@@ -3036,8 +3041,10 @@ async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends
         "parent_folder_id": parent_id,
         "total_folders": len(folders),
         "synced": synced,
+        "meta_synced": meta_synced,
         "skipped": skipped,
         "errors": errors,
+        "message": f"{synced} attendance synced · {meta_synced} drive-only (phones/links) · {skipped} skipped · {errors} errors",
         "results": results,
     }
 
@@ -5984,7 +5991,9 @@ async def _dedupe_intake_records() -> int:
     rows = await db.intake.find({}, {"_id": 0, "id": 1, "child_name": 1, "intake_type": 1, "name_key": 1, "created_at": 1}).to_list(2000)
     groups: dict = {}
     for row in rows:
-        key = row.get("name_key") or _intake_name_key(row.get("child_name", ""), row.get("intake_type", "pre"))
+        key = row.get("name_key") or _intake_name_key(
+            row.get("child_name", ""), row.get("intake_type", "pre"), row.get("list_category", "intake")
+        )
         groups.setdefault(key, []).append(row)
     removed = 0
     for key, bucket in groups.items():

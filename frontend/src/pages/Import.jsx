@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import api, { startOfWeek, toISODate } from "../api";
-import { UploadSimple, Download, CheckCircle, X, FileXls, CalendarBlank, UserList } from "@phosphor-icons/react";
+import { UploadSimple, Download, CheckCircle, X, FileXls, CalendarBlank, UserList, ArrowsClockwise } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
+import { WAITING_LIST_SHEET_URL } from "./waiting/WaitingPage";
 
 export default function ImportPage() {
   const [type, setType] = useState("clients"); // clients, intake, historical, schedule
@@ -23,6 +24,8 @@ export default function ImportPage() {
   );
   const [driveSyncResult, setDriveSyncResult] = useState(null);
   const [driveSyncing, setDriveSyncing] = useState(false);
+  const [waitingSyncing, setWaitingSyncing] = useState(false);
+  const [waitingSyncResult, setWaitingSyncResult] = useState(null);
 
   const dedupeIntake = async () => {
     if (!window.confirm("Remove duplicate intake records (same child name + type)?")) return;
@@ -138,8 +141,9 @@ export default function ImportPage() {
 
   const syncActiveClientsFromDrive = async (dryRun = false) => {
     if (!dryRun && !window.confirm(
-      "Sync attendance workbooks for all active clients from Google Drive?\n\n"
-      + "This imports invoices + prep sessions from each child's Attendance Sheet (newest year)."
+      "Sync all active clients from Google Drive?\n\n"
+      + "Updates parent phones, case summaries, and Drive links from each folder. "
+      + "Also imports attendance/invoices when an Attendance Sheet is found."
     )) return;
     setDriveSyncing(true);
     setDriveSyncResult(null);
@@ -153,6 +157,23 @@ export default function ImportPage() {
       setDriveSyncResult({ ok: false, message: e.response?.data?.detail || e.message });
     }
     setDriveSyncing(false);
+  };
+
+  const syncWaitingFromGoogle = async () => {
+    if (!window.confirm(
+      "Sync the official Waiting List Google Sheet?\n\n"
+      + "This updates Intake + School waiting queues and removes stale rows from the last sync. "
+      + "Use this — not the Excel upload above — for the live waiting list."
+    )) return;
+    setWaitingSyncing(true);
+    setWaitingSyncResult(null);
+    try {
+      const { data } = await api.post("/import/intake-google", { sheet_url: WAITING_LIST_SHEET_URL });
+      setWaitingSyncResult({ ok: true, msg: data.message || "Waiting list synced" });
+    } catch (e) {
+      setWaitingSyncResult({ ok: false, msg: e.response?.data?.detail || e.message });
+    }
+    setWaitingSyncing(false);
   };
 
   return (
@@ -280,6 +301,22 @@ export default function ImportPage() {
       </div>
 
       {type === "intake" && (
+        <>
+        <div className="card p-6 mt-5 border-2" style={{ borderColor: "#7A8A6A" }}>
+          <div className="font-bold mb-1" style={{ color: "#2C3625" }}>Sync Waiting List from Google Sheet</div>
+          <div className="text-sm mb-4" style={{ color: "#5C6853" }}>
+            Pulls Pre-Intake, Post-Intake, and School Waiting tabs from the official sheet.
+            Stale names from previous syncs are removed. This is the correct way to update the waiting list — not the Excel upload above.
+          </div>
+          <button type="button" onClick={syncWaitingFromGoogle} disabled={waitingSyncing} className="btn btn-primary text-sm disabled:opacity-50">
+            {waitingSyncing ? <span className="spinner" /> : <><ArrowsClockwise size={16} /> Sync Waiting List</>}
+          </button>
+          {waitingSyncResult && (
+            <div className="text-xs p-3 rounded-xl mt-3" style={{ background: waitingSyncResult.ok === false ? "#F8EBE7" : "#E5EBE1", color: "#3D4F35" }}>
+              {waitingSyncResult.msg}
+            </div>
+          )}
+        </div>
         <div className="card p-6 mt-5 border-2" style={{ borderColor: "#C4D4B8" }}>
           <div className="font-bold mb-1" style={{ color: "#2C3625" }}>Clean Duplicate Intake Records</div>
           <div className="text-sm mb-4" style={{ color: "#5C6853" }}>
@@ -294,13 +331,14 @@ export default function ImportPage() {
             </div>
           )}
         </div>
+        </>
       )}
 
       <div className="card p-6 mt-5 border-2" style={{ borderColor: "#B4C2A9" }}>
-        <div className="font-bold mb-1" style={{ color: "#2C3625" }}>Sync Active Clients — Attendance & Invoices</div>
+        <div className="font-bold mb-1" style={{ color: "#2C3625" }}>Sync Active Clients — Drive (phones, summaries, attendance)</div>
         <div className="text-sm mb-4" style={{ color: "#5C6853" }}>
-          Reads each child folder in the Active Clients Drive folder, finds their Attendance Sheet (2026 preferred),
-          and imports invoices + prep sessions into Session Preparation. Package low/critical alerts update automatically.
+          Reads each child folder in Active Clients Drive: parent phone from Intake file, Case Summary links,
+          and Attendance Sheet import when available. Folders without an attendance sheet still get phone + links updated.
         </div>
         <label className="label">Active Clients folder URL</label>
         <input
@@ -325,7 +363,9 @@ export default function ImportPage() {
             {driveSyncResult.message && <div>{driveSyncResult.message}</div>}
             {driveSyncResult.synced != null && (
               <div>
-                <strong>{driveSyncResult.synced}</strong> synced · {driveSyncResult.skipped} skipped · {driveSyncResult.errors} errors
+                <strong>{driveSyncResult.synced}</strong> attendance synced
+                {driveSyncResult.meta_synced != null && <> · <strong>{driveSyncResult.meta_synced}</strong> phones/links only</>}
+                {" "}· {driveSyncResult.skipped} skipped · {driveSyncResult.errors} errors
                 {" "}({driveSyncResult.total_folders} folders)
               </div>
             )}
