@@ -4,9 +4,9 @@ import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canEditStaffRequests
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch } from "../dataCache";
 import {
-  House, CalendarBlank, ClipboardText, UsersThree, Receipt,
+  House, CalendarBlank,   ClipboardText, UsersThree, Receipt,
   Bell, SignOut,   ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, CaretDown, Folder, UserCircle,
-  SidebarSimple, Rows, ShoppingBag, FileText,
+  SidebarSimple, Rows, ShoppingBag, FileText, GraduationCap, Hourglass,
 } from "@phosphor-icons/react";
 
 import SidebarNav from "../components/SidebarNav";
@@ -39,6 +39,8 @@ const ROUTE_PREFETCH = {
     prefetch("/therapists");
     prefetch("/clients/package-status");
   },
+  "/waiting/intake": () => { prefetch("/intake"); },
+  "/waiting/school": () => { prefetch("/intake"); },
 };
 
 function warmRoute(path) {
@@ -92,8 +94,11 @@ export default function Shell() {
     { to: "/home", icon: <House size={18} weight="duotone"/>, label: "Home", testid: "nav-home" },
   ];
 
-  const     referralsItems = intakeAccess
-    ? [{ to: "/intake", label: "Waiting", testid: "nav-intake" }]
+  const waitingItems = intakeAccess
+    ? [
+        { to: "/waiting/intake", label: "Intake Waiting", testid: "nav-intake-waiting", icon: <Hourglass size={17} weight="duotone"/> },
+        { to: "/waiting/school", label: "School Waiting", testid: "nav-school-waiting", icon: <GraduationCap size={17} weight="duotone"/> },
+      ]
     : [];
 
   // Personal portal dropdown (therapists + ops team; hidden for admin login)
@@ -140,10 +145,7 @@ export default function Shell() {
       ? <FileText size={17} weight="duotone"/>
       : <ListChecks size={17} weight="duotone"/>,
   }));
-  const referralsNavItems = referralsItems.map(it => ({
-    ...it,
-    icon: <Folder size={17} weight="duotone"/>,
-  }));
+  const waitingNavItems = waitingItems;
 
   const toggleNavLayout = () => {
     const next = navLayout === "sidebar" ? "top" : "sidebar";
@@ -196,7 +198,7 @@ export default function Shell() {
               homeLink={{ ...homeLink, icon: <House size={17} weight="duotone"/> }}
               operationsItems={operationsItems}
               personalItems={personalNavItems}
-              referralsItems={referralsNavItems}
+              waitingItems={waitingNavItems}
               hrItems={hrNavItems}
               financeItems={financeItems}
               adminItems={adminTools}
@@ -290,9 +292,9 @@ export default function Shell() {
                 <NavDropdown testid="nav-my-portal" label="Personal" icon={<UserCircle size={18} weight="duotone"/>}
                              items={myPortalItems} loc={loc} onItemHover={warmRoute}/>
               )}
-              {referralsItems.length > 0 && (
-                <NavDropdown testid="nav-referrals" label="Referrals" icon={<Folder size={18} weight="duotone"/>}
-                             items={referralsItems} loc={loc} onItemHover={warmRoute}/>
+              {waitingItems.length > 0 && (
+                <NavDropdown testid="nav-waiting" label="Waiting" icon={<Hourglass size={18} weight="duotone"/>}
+                             items={waitingItems} loc={loc} onItemHover={warmRoute}/>
               )}
               {adminTools.length > 0 && (
                 <NavDropdown testid="nav-admin-tools" label="Administration" icon={<Gear size={18} weight="duotone"/>}
@@ -394,7 +396,7 @@ export default function Shell() {
                 homeLink={{ ...homeLink, icon: <House size={17} weight="duotone"/> }}
                 operationsItems={operationsItems}
                 personalItems={personalNavItems}
-                referralsItems={referralsNavItems}
+                waitingItems={waitingNavItems}
                 hrItems={hrNavItems}
                 adminItems={adminTools}
                 therapistOnly={therapistOnly}

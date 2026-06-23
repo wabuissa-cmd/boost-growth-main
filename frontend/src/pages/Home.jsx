@@ -298,10 +298,10 @@ export default function Home() {
 
           <CreativeSection title="This week at a glance">
             <div className="dash-stat-row stagger mb-4">
-              <DashboardStatCard to="/schedule" variant="sage" value={stats.weekSessions} label="Sessions scheduled" desc={`${stats.weekHours}h total`} icon={<CalendarBlank size={22} weight="fill" style={{ color: "#2F4A35", background: "rgba(237,225,201,0.65)", borderRadius: 14, padding: 8 }} />} testId="home-tile-schedule" />
-              <DashboardStatCard to="/clients" value={stats.clients} label="Active clients" icon={<UsersThree size={22} weight="fill" style={{ color: "#6B8F71", background: "#F7F3EB", borderRadius: 14, padding: 8 }} />} testId="home-tile-clients" />
-              <DashboardStatCard to="/staff-leave?tab=staff" variant="gold" value={stats.requests} label="Pending requests" icon={<ListChecks size={22} weight="fill" style={{ color: "#965132", background: "#F0E0D4", borderRadius: 14, padding: 8 }} />} testId="home-tile-requests" />
-              <DashboardStatCard to="/attendance" value={stats.therapists} label="Team therapists" icon={<Heart size={22} weight="fill" style={{ color: "#6B8F71", background: "rgba(237,225,201,0.5)", borderRadius: 14, padding: 8 }} />} testId="home-tile-attendance" />
+              <DashboardStatCard to="/schedule" variant="sage" value={stats.weekSessions} label="Sessions scheduled" desc={`${stats.weekHours}h total`} icon={<CalendarBlank size={22} weight="duotone" style={{ color: "#2F4A35", background: "rgba(237,225,201,0.65)", borderRadius: 14, padding: 8 }} />} testId="home-tile-schedule" />
+              <DashboardStatCard to="/clients" value={stats.clients} label="Active clients" icon={<UsersThree size={22} weight="duotone" style={{ color: "#6B8F71", background: "#F7F3EB", borderRadius: 14, padding: 8 }} />} testId="home-tile-clients" />
+              <DashboardStatCard to="/staff-leave?tab=staff" variant="gold" value={stats.requests} label="Pending requests" icon={<ListChecks size={22} weight="duotone" style={{ color: "#965132", background: "#F0E0D4", borderRadius: 14, padding: 8 }} />} testId="home-tile-requests" />
+              <DashboardStatCard to="/attendance" value={stats.therapists} label="Team therapists" icon={<Heart size={22} weight="duotone" style={{ color: "#6B8F71", background: "rgba(237,225,201,0.5)", borderRadius: 14, padding: 8 }} />} testId="home-tile-attendance" />
             </div>
           </CreativeSection>
         </>
@@ -310,10 +310,10 @@ export default function Home() {
           <HeroBanner compact />
 
           <div className="dash-stat-row stagger mb-4">
-            <DashboardStatCard value={stats.completedThisWeek} label="Completed this week" desc="Sessions logged" icon={<CheckCircle size={22} weight="fill" style={{ color: "#6B8F71", background: "rgba(237,225,201,0.5)", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-0" />
-            <DashboardStatCard variant="sage" value={`${stats.hoursThisWeek.toFixed(1)}h`} label="Hours delivered" icon={<Clock size={22} weight="fill" style={{ color: "#2F4A35", background: "rgba(107,143,113,0.15)", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-1" />
-            <DashboardStatCard value={stats.cancelledThisWeek} label="Cancelled / missed" icon={<XCircle size={22} weight="fill" style={{ color: "#8A3F27", background: "#F8EBE7", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-2" />
-            <DashboardStatCard value={stats.todayUpcoming} label="Today's sessions" icon={<CalendarCheck size={22} weight="fill" style={{ color: "#2F4A35", background: "#F7F3EB", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-3" />
+            <DashboardStatCard value={stats.completedThisWeek} label="Completed this week" desc="Sessions logged" icon={<CheckCircle size={22} weight="duotone" style={{ color: "#6B8F71", background: "rgba(237,225,201,0.5)", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-0" />
+            <DashboardStatCard variant="sage" value={`${stats.hoursThisWeek.toFixed(1)}h`} label="Hours delivered" icon={<Clock size={22} weight="duotone" style={{ color: "#2F4A35", background: "rgba(107,143,113,0.15)", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-1" />
+            <DashboardStatCard value={stats.cancelledThisWeek} label="Cancelled / missed" icon={<XCircle size={22} weight="duotone" style={{ color: "#8A3F27", background: "#F8EBE7", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-2" />
+            <DashboardStatCard value={stats.todayUpcoming} label="Today's sessions" icon={<CalendarCheck size={22} weight="duotone" style={{ color: "#2F4A35", background: "#F7F3EB", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-3" />
           </div>
 
           <div className="grid lg:grid-cols-[1fr_260px] gap-4 mb-4">

@@ -70,7 +70,7 @@ export default function SidebarNav({
   homeLink,
   operationsItems,
   personalItems,
-  referralsItems,
+  waitingItems,
   hrItems,
   financeItems = [],
   adminItems,
@@ -133,7 +133,7 @@ export default function SidebarNav({
         />
       )}
 
-      <SidebarSection title="Referrals" items={referralsItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
+      <SidebarSection title="Waiting" items={waitingItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
       <SidebarSection title="HR" items={hrItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
       <SidebarSection title="Finance" items={financeItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
       <SidebarSection title="Administration" items={adminItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />

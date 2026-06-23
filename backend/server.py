@@ -6017,8 +6017,12 @@ def _normalize_table_column(name) -> str:
         return "intake_type"
     if s in ("note", "comment", "comments"):
         return "notes"
-    if s in ("dis", "dis_", "location", "area", "region", "neighborhood"):
+    if s in ("dis", "dis_", "location", "area", "region", "neighborhood", "location_district"):
         return "district"
+    if s in ("school_start_date", "school_start", "start_date"):
+        return "school_start_date"
+    if s in ("school_name",):
+        return "school_name"
     if s in ("time", "timing"):
         return "time_pref"
     if s in ("diagnosis_age", "diagnosis_age", "diag_age"):
@@ -6072,8 +6076,8 @@ def _rows_from_dataframe(df) -> List[dict]:
 
 
 def _sheet_intake_type_hint(sheet_name: str) -> Optional[str]:
-    low = (sheet_name or "").lower()
-    if "school" in low:
+    low = (sheet_name or "").lower().strip()
+    if "school" in low or ("ss" in low and "waiting" in low):
         return "school"
     if "post" in low:
         return "post"
@@ -6083,8 +6087,8 @@ def _sheet_intake_type_hint(sheet_name: str) -> Optional[str]:
 
 
 def _sheet_list_category(sheet_name: str, intake_type: str) -> str:
-    low = (sheet_name or "").lower()
-    if "school" in low or intake_type == "school":
+    low = (sheet_name or "").lower().strip()
+    if "school" in low or intake_type == "school" or ("ss" in low and "waiting" in low):
         return "school"
     return "intake"
 
@@ -6194,7 +6198,8 @@ def _parse_intake_record(r: dict, sheet_name: str = "") -> Optional[dict]:
 
     raw_type = _clean_str(r.get("intake_type") or r.get("type") or r.get("_sheet_intake_type")) or _sheet_intake_type_hint(sheet_name) or "pre"
     intake_type = raw_type.lower()
-    if "school" in intake_type or "school" in (sheet_name or "").lower():
+    sheet_low = (sheet_name or "").lower()
+    if "school" in intake_type or "school" in sheet_low or ("ss" in sheet_low and "waiting" in sheet_low):
         intake_type = "school"
     elif "post" in intake_type:
         intake_type = "post"
@@ -6219,8 +6224,11 @@ def _parse_intake_record(r: dict, sheet_name: str = "") -> Optional[dict]:
         "intake_date": _clean_str(r.get("intake_date") or r.get("date")),
         "age": _clean_str(r.get("age") or r.get("dob_age") or r.get("dob")) or age_from_da,
         "service": _extract_service_from_row(r),
-        "district": _clean_str(r.get("district") or r.get("dis") or r.get("location") or r.get("area")),
+        "district": _clean_str(
+            r.get("district") or r.get("dis") or r.get("location") or r.get("area") or r.get("school_name")
+        ),
         "diagnosis": diagnosis or _clean_str(r.get("diagnosis")),
+        "school_start_date": _clean_str(r.get("school_start_date")),
         "time_pref": _clean_str(r.get("time_pref") or r.get("time") or r.get("time_preference")),
         "language": language,
         "priority": _extract_priority_flag(r),

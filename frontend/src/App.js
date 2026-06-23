@@ -13,6 +13,8 @@ const Requests = lazy(() => import("./pages/Requests"));
 const TherapistRequests = lazy(() => import("./pages/TherapistRequests"));
 const Directory = lazy(() => import("./pages/Directory"));
 const Intake = lazy(() => import("./pages/Intake"));
+const IntakeWaiting = lazy(() => import("./pages/IntakeWaiting"));
+const SchoolWaiting = lazy(() => import("./pages/SchoolWaiting"));
 const Resources = lazy(() => import("./pages/Resources"));
 const Admin = lazy(() => import("./pages/Admin"));
 const Reports = lazy(() => import("./pages/Reports"));
@@ -103,6 +105,8 @@ function AppRoutes() {
         <Route path="/billing" element={<OpsOnly><Billing/></OpsOnly>}/>
         <Route path="/clients" element={<Clients/>}/>
         <Route path="/intake" element={<IntakeAccess><Intake/></IntakeAccess>}/>
+        <Route path="/waiting/intake" element={<IntakeAccess><IntakeWaiting/></IntakeAccess>}/>
+        <Route path="/waiting/school" element={<IntakeAccess><SchoolWaiting/></IntakeAccess>}/>
         <Route path="/my-requests" element={<TherapistRequests/>}/>
         <Route path="/my-reports" element={<TherapistMyReports/>}/>
         <Route path="/my-leaves" element={<Navigate to="/my-requests" replace/>}/>

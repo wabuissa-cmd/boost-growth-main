@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkfrontend=self.webpackChunkfrontend||[]).push([[33],{6652(e,n,r){r.r(n),r.d(n,{default:()=>u});var s=r(6658),t=r(4414);function u(){return(0,t.jsx)(s.A,{mode:"school"})}}}]);

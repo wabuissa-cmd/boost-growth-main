@@ -165,7 +165,7 @@ export function buildAdminReminders({
       icon: Folder,
       title: `${newIntake} new intake referral${newIntake > 1 ? "s" : ""}`,
       detail: "Pre-intake waiting for review",
-      to: "/intake",
+      to: "/waiting/intake",
     });
   }
 
