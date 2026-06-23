@@ -183,6 +183,34 @@ export default function ImportPage() {
         subtitle="Bulk-import clients, intake records, or historical schedules"
       />
 
+      <div className="card p-5 mb-5 border-2" style={{ borderColor: "#7A8A6A" }}>
+        <div className="font-bold mb-1" style={{ color: "#2C3625" }}>Quick Sync (Google)</div>
+        <div className="text-sm mb-4" style={{ color: "#5C6853" }}>
+          Use these buttons to update the waiting list and pull parent phones + case summaries from Active Clients Drive.
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={syncWaitingFromGoogle} disabled={waitingSyncing} className="btn btn-primary text-sm disabled:opacity-50">
+            {waitingSyncing ? <span className="spinner" /> : <><ArrowsClockwise size={16} /> Sync Waiting List</>}
+          </button>
+          <button type="button" onClick={() => syncActiveClientsFromDrive(false)} disabled={driveSyncing} className="btn btn-secondary text-sm disabled:opacity-50">
+            {driveSyncing ? <span className="spinner" /> : <><Download size={16} /> Sync All from Drive</>}
+          </button>
+          <button type="button" onClick={() => syncActiveClientsFromDrive(true)} disabled={driveSyncing} className="btn btn-outline text-sm disabled:opacity-50">
+            Preview Drive Sync
+          </button>
+        </div>
+        {waitingSyncResult && (
+          <div className="text-xs p-3 rounded-xl mt-3" style={{ background: waitingSyncResult.ok === false ? "#F8EBE7" : "#E5EBE1", color: "#3D4F35" }}>
+            <strong>Waiting:</strong> {waitingSyncResult.msg}
+          </div>
+        )}
+        {driveSyncResult && (
+          <div className="text-xs p-3 rounded-xl mt-3" style={{ background: driveSyncResult.ok === false ? "#F8EBE7" : "#E5EBE1", color: "#3D4F35" }}>
+            <strong>Drive:</strong> {driveSyncResult.message || `${driveSyncResult.synced ?? 0} synced · ${driveSyncResult.meta_synced ?? 0} phones/links`}
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5 import-type-grid">
         {[
           { id: "clients", label: "Clients", desc: "Excel/CSV with name, file_no, package_hours, etc.", icon: <UserList size={26} weight="duotone"/>, color: "#7A8A6A", bg: "#E5EBE1" },

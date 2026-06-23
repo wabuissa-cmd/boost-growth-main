@@ -62,7 +62,7 @@ export default function ClientInfoLayout({
   const therapistName = selected ? findTherapist(selected.main_therapist_id)?.name?.replace("Ms. ", "") : "";
   const driveLinkCount = selected ? (selected.drive_links?.length || 0) : 0;
   const avatarBg = selected ? (getChildColor(selected.name) || selected.color || "#E5EBE1") : "#E5EBE1";
-  const canEditPhone = isAdmin || hasOps;
+  const canEditPhone = isAdmin || hasOps || Boolean(onPhoneSave);
   const [phoneDraft, setPhoneDraft] = useState("");
   const [phoneEditing, setPhoneEditing] = useState(false);
   const [phoneSaving, setPhoneSaving] = useState(false);

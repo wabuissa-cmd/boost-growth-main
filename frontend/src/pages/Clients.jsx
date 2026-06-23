@@ -165,7 +165,7 @@ export default function Clients() {
         <LocationPanelModal client={panelClient.client} onClose={closePanel} />
       )}
       {panelClient?.section === "attachments" && (
-        <AttachmentsPanelModal client={panelClient.client} canSyncDrive={hasFullClientAccess(user)} onClose={closePanel} onSaved={() => { closePanel(); load(); }} />
+        <AttachmentsPanelModal client={panelClient.client} canSyncDrive={hasFullClientAccess(user)} onClose={closePanel} onRefresh={load} onSaved={() => { closePanel(); load(); }} />
       )}
       {panelClient?.section === "details" && (
         <CaseDetailsPanelModal client={panelClient.client} therapists={therapists} isAdmin={isAdmin}
@@ -333,7 +333,7 @@ function LocationPanelModal({ client, onClose }) {
   );
 }
 
-function AttachmentsPanelModal({ client, canSyncDrive, onClose, onSaved }) {
+function AttachmentsPanelModal({ client, canSyncDrive, onClose, onSaved, onRefresh }) {
   const [att, setAtt] = useState({
     intake_file_url: client.intake_file_url || "",
     attendance_sheet_url: client.attendance_sheet_url || client.drive_url || "",
@@ -352,7 +352,7 @@ function AttachmentsPanelModal({ client, canSyncDrive, onClose, onSaved }) {
       setDriveLinks((data.links || []).filter(l => l.url && !/attendance/i.test(l.title || "")));
       if (data.case_summary_url) setAtt(s => ({ ...s, case_summary_url: data.case_summary_url }));
       if (data.intake_file_url) setAtt(s => ({ ...s, intake_file_url: data.intake_file_url }));
-      onSaved && onSaved();
+      onRefresh && onRefresh();
       if (data.parent_phone) {
         alert(`Parent phone updated: ${data.parent_phone}`);
       }
@@ -443,7 +443,7 @@ function AttachmentsPanelModal({ client, canSyncDrive, onClose, onSaved }) {
           </div>
         ))}
 
-        {!isAdmin && manualFields.map(f => att[f.key] && (
+        {!canSyncDrive && manualFields.map(f => att[f.key] && (
           <div key={f.key} className="p-3 rounded-xl border" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
             <div className="text-sm font-bold mb-1" style={{ color: "#1C2617" }}>{f.label}</div>
             <a href={att[f.key]} target="_blank" rel="noreferrer" className="text-xs underline" style={{ color: "#5C8A47" }}>{att[f.key]}</a>
