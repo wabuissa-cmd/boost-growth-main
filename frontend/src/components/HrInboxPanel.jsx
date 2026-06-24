@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../api";
-import { isHrOps, isJenan, showAdminNav } from "../auth";
+import { isHrOps, isJenan, showAdminNav, canParentCancellationOps } from "../auth";
 import {
-  Tray, CalendarBlank, ListChecks, ShoppingBag, Receipt, CheckCircle,
+  Tray, CalendarBlank, ListChecks, ShoppingBag, Receipt, CheckCircle, WhatsappLogo,
 } from "@phosphor-icons/react";
 
 function InboxRow({ to, icon: Icon, label, count, testId }) {
@@ -34,13 +34,14 @@ export default function HrInboxPanel({ user }) {
   const portalAdmin = showAdminNav(user);
   const hrOps = isHrOps(user);
   const jenan = isJenan(user);
+  const parentCancelOps = canParentCancellationOps(user);
 
   useEffect(() => {
-    if (!user || (!portalAdmin && !hrOps && !jenan)) return;
+    if (!user || (!portalAdmin && !hrOps && !jenan && !parentCancelOps)) return;
     api.get("/tracking/inbox")
       .then(r => setInbox(r.data || null))
       .catch(() => setInbox(null));
-  }, [user?.id, portalAdmin, hrOps, jenan]);
+  }, [user?.id, portalAdmin, hrOps, jenan, parentCancelOps]);
 
   if (!inbox) return null;
 
@@ -84,6 +85,15 @@ export default function HrInboxPanel({ user }) {
       label: "Billing reminders soon",
       count: inbox.billing_reminders_soon,
       testId: "inbox-billing",
+    });
+  }
+  if (parentCancelOps) {
+    rows.push({
+      to: "/schedule?parentCancel=1",
+      icon: WhatsappLogo,
+      label: "Parent cancellations (WhatsApp)",
+      count: inbox.parent_cancellations_pending,
+      testId: "inbox-parent-cancellations",
     });
   }
 

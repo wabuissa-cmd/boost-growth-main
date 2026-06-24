@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
-import { X, FloppyDisk, BellRinging } from "@phosphor-icons/react";
+import { X, FloppyDisk, BellRinging, WhatsappLogo } from "@phosphor-icons/react";
 import { DAYS_EN, TIME_SLOTS, SERVICE_CODES } from "../api";
 import { DURATION_OPTIONS } from "../scheduleConstants";
-import { SERVICE_CELL_COLORS, resolveClientScheduleColor } from "../scheduleUtils";
+import { SERVICE_CELL_COLORS, resolveClientScheduleColor, findClientForScheduleCell } from "../scheduleUtils";
 import { ModalBtnPrimary, ModalBtnSecondary } from "./Modal";
+import { buildTherapistCancellationMessage, buildWhatsAppUrl } from "../scheduleParentMessages";
 
 const STATES = [
   { id: "normal", label: "Normal", swatch: "#E5EBE1" },
@@ -44,9 +45,12 @@ export default function ScheduleCellPanel({
   therapists,
   clients,
   saving,
+  canParentCancellationOps = false,
+  weekStart,
 }) {
   const [clientOpen, setClientOpen] = useState(false);
   const [cancelNotify, setCancelNotify] = useState(null);
+  const [parentMsg, setParentMsg] = useState("");
 
   useEffect(() => {
     if (!form || !CANCEL_STATES.has(form.state)) {
@@ -56,9 +60,22 @@ export default function ScheduleCellPanel({
     setCancelNotify(buildCancelNotify(form));
   }, [form, form?.state, form?.child_name, form?.service_code, form?.time_slot, form?.day, form?.therapist_id]);
 
+  useEffect(() => {
+    if (!form || form.state !== "cancel_therapist" || !canParentCancellationOps) {
+      setParentMsg("");
+      return;
+    }
+    const client = findClientForScheduleCell(form.child_name, clients);
+    const therapist = therapists.find((t) => t.id === form.therapist_id);
+    setParentMsg(buildTherapistCancellationMessage(form, client, weekStart, therapist?.name));
+  }, [form, form?.state, form?.child_name, form?.day, form?.time_slot, form?.custom_time, form?.duration, clients, therapists, canParentCancellationOps, weekStart]);
+
   if (!form) return null;
 
   const therapist = therapists.find(t => t.id === form.therapist_id);
+  const parentClient = form.child_name ? findClientForScheduleCell(form.child_name, clients) : null;
+  const parentPhone = parentClient?.parent_phone || parentClient?.phone || null;
+  const parentWaUrl = buildWhatsAppUrl(parentPhone, parentMsg);
   const clientColor = form.child_name
     ? (form.color || resolveClientScheduleColor(form.child_name, clients))
     : null;
@@ -300,6 +317,46 @@ export default function ScheduleCellPanel({
                         />
                         In-app notify
                       </label>
+                    </div>
+                  </div>
+                )}
+
+                {form.state === "cancel_therapist" && canParentCancellationOps && (
+                  <div
+                    className="mt-3 rounded-xl border p-3 space-y-3"
+                    style={{ borderColor: "#E8C572", background: "#FFFBF0" }}
+                    data-testid="parent-cancel-notify-section"
+                  >
+                    <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: "#6B5218" }}>
+                      <WhatsappLogo size={18} weight="fill" style={{ color: "#25D366" }} />
+                      Notify parent (WhatsApp)
+                    </div>
+                    <p className="text-[11px] m-0 leading-relaxed" style={{ color: "#8B6918" }}>
+                      Saving marks this session as cancelled and queues a parent alert for Admin / HR / Walaa.
+                    </p>
+                    <textarea
+                      className="modal-input text-xs leading-relaxed"
+                      rows={7}
+                      dir="rtl"
+                      value={parentMsg}
+                      onChange={(e) => setParentMsg(e.target.value)}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      {parentWaUrl ? (
+                        <a
+                          href={parentWaUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-primary text-xs py-1.5 px-2.5 min-h-0 no-underline"
+                        >
+                          <WhatsappLogo size={14} weight="fill" />
+                          Open WhatsApp
+                        </a>
+                      ) : (
+                        <span className="text-[10px] px-2 py-1.5 rounded-lg" style={{ background: "#F0E0D4", color: "#965132" }}>
+                          {parentPhone ? "Message required" : "Add parent phone in Client Info"}
+                        </span>
+                      )}
                     </div>
                   </div>
                 )}

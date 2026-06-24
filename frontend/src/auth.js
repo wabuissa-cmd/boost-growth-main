@@ -168,3 +168,24 @@ export function canEditOwnSchedule(user) {
 export function showSystemAdmin(user) {
   return isPortalAdmin(user);
 }
+
+const WALAA_EMAILS = new Set(["walaa@boostgrowthsa.com"]);
+const WALAA_KEYS = new Set(["mswalaa"]);
+
+/** Walaa operations — parent cancellation WhatsApp workflow */
+export function isWalaaOps(user) {
+  if (!user) return false;
+  if (user.walaa_ops) return true;
+  const email = (user.email || "").toLowerCase().trim();
+  if (WALAA_EMAILS.has(email)) return true;
+  const key = (user.key || "").toLowerCase();
+  if (WALAA_KEYS.has(key)) return true;
+  const first = (user.name || "").replace(/^Ms\.?\s*/i, "").split(/\s+/)[0]?.toLowerCase();
+  return first === "walaa";
+}
+
+export function canParentCancellationOps(user) {
+  if (!user) return false;
+  if (user.can_parent_cancellation_ops) return true;
+  return isPortalAdmin(user) || isHrOps(user) || isWalaaOps(user);
+}

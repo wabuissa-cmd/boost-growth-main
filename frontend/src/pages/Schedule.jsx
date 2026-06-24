@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef, useLayoutEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import api, { DAYS_EN, DAYS_SHORT, TIME_SLOTS, SERVICE_CODES, startOfWeek, addDays, toISODate, formatDateRange } from "../api";
 import {
   getCellStyle, META_SERVICE_CODES, MERGE_QUICK,
@@ -7,7 +8,7 @@ import {
   resolveSelfTherapist, findClientForScheduleCell, isScheduleClientLogCell,
 } from "../scheduleUtils";
 import { MAX_SCHEDULE_MERGE_SLOTS } from "../scheduleConstants";
-import { useAuth, showAdminNav, isClientLead } from "../auth";
+import { useAuth, showAdminNav, isClientLead, canParentCancellationOps } from "../auth";
 import {
   CaretLeft, CaretRight, CaretDown, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
   CopySimple, Table, CalendarBlank, CheckCircle, PencilSimple, GridFour, Printer, WhatsappLogo,
@@ -20,6 +21,7 @@ import ScheduleCellPanel from "../components/ScheduleCellPanel";
 import SchedulePageHeader from "../components/SchedulePageHeader";
 import ScheduleHolidaysModal from "../components/ScheduleHolidaysModal";
 import ParentWhatsAppModal from "../components/ParentWhatsAppModal";
+import ParentCancellationModal from "../components/ParentCancellationModal";
 import LogSessionModal, { slotToTime24, addHoursToTime } from "../components/LogSessionModal";
 import { buildParentMessages } from "../scheduleParentMessages";
 import { sortTherapistsForSchedule, getTherapistScheduleName, scheduleOwnBlockOnly, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
@@ -125,9 +127,11 @@ function cellClassNameBlock(cell, isAdmin, leaveInfo, selected, copied, canQuick
 
 export default function Schedule() {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const scheduleAdmin = showAdminNav(user);
   const scheduleLead = isClientLead(user) && !scheduleAdmin;
   const isAdmin = scheduleAdmin;
+  const parentCancelOps = canParentCancellationOps(user);
   const canQuickLog = !scheduleAdmin && !scheduleLead;
   const [view, setView] = useState(() => {
     // Default to "Per Therapist" (blocks) view for all users per business request.
@@ -166,6 +170,9 @@ export default function Schedule() {
   const [quickLog, setQuickLog] = useState(null);
   const [parentMessagesOpen, setParentMessagesOpen] = useState(false);
   const [parentMessagesNote, setParentMessagesNote] = useState("");
+  const [parentCancelOpen, setParentCancelOpen] = useState(false);
+  const [parentCancelFocus, setParentCancelFocus] = useState(null);
+  const [pendingCancellations, setPendingCancellations] = useState([]);
 
   useEffect(() => {
     if (!adminEditsOpen) return;
@@ -277,6 +284,33 @@ export default function Schedule() {
 
   useEffect(() => { loadClosures(); }, [loadClosures]);
   useEffect(() => { load(); }, [load]);
+
+  const loadPendingCancellations = useCallback(async () => {
+    if (!parentCancelOps) {
+      setPendingCancellations([]);
+      return;
+    }
+    try {
+      const { data } = await api.get("/tracking/parent-cancellations");
+      setPendingCancellations(Array.isArray(data) ? data : []);
+    } catch {
+      setPendingCancellations([]);
+    }
+  }, [parentCancelOps]);
+
+  useEffect(() => { loadPendingCancellations(); }, [loadPendingCancellations]);
+
+  useEffect(() => {
+    if (searchParams.get("parentCancel") === "1" && parentCancelOps) {
+      setParentCancelFocus(null);
+      setParentCancelOpen(true);
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("parentCancel");
+        return next;
+      }, { replace: true });
+    }
+  }, [searchParams, parentCancelOps, setSearchParams]);
 
   const setDraft = async () => {
     await api.post("/schedule/set-draft", { week_start: weekStartISO });
@@ -715,6 +749,7 @@ export default function Schedule() {
   const save = async (opts = {}) => {
     if (!panelForm) return;
     setPanelSaving(true);
+    const wasCancelTherapist = panelForm.state === "cancel_therapist";
     try {
       const payload = { ...panelForm, week_start: weekStartISO };
       if (payload.service_code !== "LEAVE" && payload.duration) {
@@ -748,7 +783,12 @@ export default function Schedule() {
         });
       }
       await load();
+      await loadPendingCancellations();
       closePanel();
+      if (wasCancelTherapist && payload.state === "cancel_therapist" && parentCancelOps && cellId) {
+        setParentCancelFocus(cellId);
+        setParentCancelOpen(true);
+      }
     } finally {
       setPanelSaving(false);
     }
@@ -1051,6 +1091,24 @@ export default function Schedule() {
                 Parent WhatsApp
               </button>
             )}
+            {parentCancelOps && (
+              <button
+                type="button"
+                data-testid="parent-cancellations-btn"
+                onClick={() => {
+                  setParentCancelFocus(null);
+                  setParentCancelOpen(true);
+                }}
+                className={`btn text-[11px] flex items-center gap-1 px-2 py-1 min-h-0 shrink-0 ${
+                  pendingCancellations.length > 0 ? "btn-gold" : "btn-outline"
+                }`}
+                title="Pending parent WhatsApp for therapist cancellations"
+              >
+                <WhatsappLogo size={14} weight="fill" />
+                Parent cancellations
+                {pendingCancellations.length > 0 ? ` (${pendingCancellations.length})` : ""}
+              </button>
+            )}
             {isAdmin && (
               <div className="relative ml-auto shrink-0" ref={adminEditsRef}>
                 <button
@@ -1142,6 +1200,8 @@ export default function Schedule() {
           therapists={therapists}
           clients={clients}
           saving={panelSaving}
+          canParentCancellationOps={parentCancelOps}
+          weekStart={weekStartISO}
         />
       )}
 
@@ -1415,6 +1475,18 @@ export default function Schedule() {
         messages={parentMessages}
         weekLabel={formatDateRange(weekStart)}
         publishedNote={parentMessagesNote}
+      />
+
+      <ParentCancellationModal
+        open={parentCancelOpen}
+        onClose={() => {
+          setParentCancelOpen(false);
+          setParentCancelFocus(null);
+        }}
+        items={pendingCancellations}
+        clients={clients}
+        focusCellId={parentCancelFocus}
+        onMarkedSent={() => loadPendingCancellations()}
       />
     </div>
     </div>

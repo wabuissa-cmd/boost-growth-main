@@ -1,7 +1,7 @@
 import { TIME_SLOTS } from "./api";
 import { META_SERVICE_CODES, findClientForScheduleCell } from "./scheduleUtils";
 
-const DAYS_AR = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس"];
+export const DAYS_AR = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس"];
 const GREETINGS = ["مساءكم خير 🌿", "مساءكم نور ✨", "مساءكم بركة 🤍"];
 const SESSION_CODES = new Set(["SS", "HS", "OS"]);
 
@@ -116,6 +116,25 @@ function formatScheduleLines(sessions) {
     }
   }
   return lines;
+}
+
+/** Arabic WhatsApp message when a therapist cancels a session. */
+export function buildTherapistCancellationMessage(cell, client, weekStart, therapistName) {
+  const childName = (cell?.child_name || client?.name || "").trim();
+  const childFirstName = childName.split(/\s+/)[0] || childName;
+  const dayIdx = cell?.day ?? 0;
+  const dayAr = cell?.day_ar || DAYS_AR[dayIdx] || DAYS_AR[0];
+  const timeAr = sessionTimeLabel(cell);
+  return [
+    "السلام عليكم ورحمة الله",
+    "",
+    `نعتذر عن إلغاء جلسة ${childFirstName} اليوم بسبب ظرف طارئ للأخصائية.`,
+    `موعد الجلسة: ${dayAr} — ${timeAr}`,
+    "",
+    "نعتذر على الإزعاج ونتمنى لكم دوام الصحة والعافية.",
+    "",
+    "مع تحيات فريق تعزيز النمو",
+  ].join("\n");
 }
 
 /** Build one WhatsApp-ready message per child with sessions in the week. */

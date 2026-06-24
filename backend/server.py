@@ -229,6 +229,21 @@ def _is_hr_ops(user: dict) -> bool:
     return email == HR_OPS_EMAIL
 
 
+def _is_walaa_ops(user: dict) -> bool:
+    email = (user.get("email") or "").lower().strip()
+    if email == "walaa@boostgrowthsa.com":
+        return True
+    key = (user.get("key") or "").lower()
+    if key == "mswalaa":
+        return True
+    name = (user.get("name") or "").lower().replace("ms.", "").replace("ms ", "").strip()
+    return name.startswith("walaa")
+
+
+def _can_parent_cancellation_ops(user: dict) -> bool:
+    return _is_portal_admin(user) or _is_hr_ops(user) or _is_walaa_ops(user)
+
+
 def _is_portal_admin(user: dict) -> bool:
     return user.get("role") == "admin" and not _is_client_lead(user) and not _is_hr_ops(user)
 
@@ -563,6 +578,9 @@ class ScheduleNotifyIn(BaseModel):
     send_email: Optional[bool] = False
     send_in_app: Optional[bool] = True
 
+class ParentWhatsAppSentIn(BaseModel):
+    message: Optional[str] = None
+
 # ------------------- Auth -------------------
 @api.post("/auth/login")
 async def admin_login(payload: LoginIn, response: Response):
@@ -669,6 +687,8 @@ async def me(user: dict = Depends(get_current_user)):
     user["can_edit_staff_requests"] = _is_portal_admin(user) or _is_client_lead(user) or _is_hr_ops(user)
     user["can_edit_intake"] = _is_portal_admin(user) or _is_client_lead(user) or _is_hr_ops(user)
     user["schedule_lead"] = _is_client_lead(user) and not _is_portal_admin(user)
+    user["walaa_ops"] = _is_walaa_ops(user)
+    user["can_parent_cancellation_ops"] = _can_parent_cancellation_ops(user)
     return user
 
 @api.post("/auth/logout")
@@ -1152,12 +1172,64 @@ async def _notify_admins(ntype: str, title: str, message: str):
             await _notify(a["id"], ntype, title, message)
 
 
-async def _notify_hr_ops(ntype: str, title: str, message: str):
+async def _notify_hr_ops(ntype: str, title: str, message: str, **extra):
     admins = await db.users.find({"role": "admin"}, {"_id": 0, "id": 1, "email": 1, "is_hr_ops": 1}).to_list(50)
     for a in admins:
         stub = {"role": "admin", "email": a.get("email"), "is_hr_ops": a.get("is_hr_ops")}
         if _is_hr_ops(stub):
-            await _notify(a["id"], ntype, title, message)
+            await _notify(a["id"], ntype, title, message, **extra)
+
+
+async def _walaa_notify_user_ids() -> List[str]:
+    t = await db.therapists.find_one(
+        {"email": {"$regex": r"^walaa@boostgrowthsa\.com$", "$options": "i"}},
+        {"_id": 0, "id": 1},
+    )
+    if t:
+        return [t["id"]]
+    for t in await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1}).to_list(200):
+        if (t.get("key") or "").lower() == "mswalaa":
+            return [t["id"]]
+        name = (t.get("name") or "").lower().replace("ms.", "").replace("ms ", "").strip()
+        if name.startswith("walaa"):
+            return [t["id"]]
+    return []
+
+
+SCHEDULE_DAYS_AR = ("الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس")
+
+
+async def _mark_parent_cancel_pending(cell_id: str) -> None:
+    await db.schedule_cells.update_one(
+        {"id": cell_id},
+        {
+            "$set": {"parent_notify_pending": True, "parent_cancel_marked_at": now_iso()},
+            "$unset": {"parent_notify_sent_at": ""},
+        },
+    )
+
+
+async def _notify_parent_cancel_pending(cell: dict, actor: str = "") -> None:
+    child = (cell.get("child_name") or "—").strip()
+    slot = cell.get("time_slot") or ""
+    msg = f"Parent WhatsApp needed: {child} — therapist cancellation at {slot}"
+    if actor:
+        msg = f"{actor}: {msg}"
+    title = "Parent cancellation — WhatsApp pending"
+    extra = {"schedule_cell_id": cell.get("id")} if cell.get("id") else {}
+    notified: set = set()
+    admins = await db.users.find({"role": "admin"}, {"_id": 0, "id": 1, "email": 1, "is_hr_ops": 1}).to_list(50)
+    for a in admins:
+        stub = {"role": "admin", "email": a.get("email"), "is_hr_ops": a.get("is_hr_ops")}
+        if _is_portal_admin(stub) or _is_hr_ops(stub):
+            uid = a["id"]
+            if uid not in notified:
+                await _notify(uid, "parent_cancel_pending", title, msg, **extra)
+                notified.add(uid)
+    for wid in await _walaa_notify_user_ids():
+        if wid not in notified:
+            await _notify(wid, "parent_cancel_pending", title, msg, **extra)
+            notified.add(wid)
 
 
 async def _jenan_therapist_id() -> Optional[str]:
@@ -1236,6 +1308,9 @@ async def update_schedule_cell(cid: str, payload: ScheduleCellIn, user=Depends(s
     if cell and cell.get("child_name"):
         await _ensure_co_therapist_from_schedule(cell.get("therapist_id"), cell.get("child_name"))
     actor = _actor_display(user)
+    if cell and cell.get("state") == "cancel_therapist":
+        await _mark_parent_cancel_pending(cid)
+        await _notify_parent_cancel_pending(cell, actor)
     if cell and cell.get("therapist_id"):
         title = "Schedule update"
         detail = f"{cell.get('service_code')} | {cell.get('child_name') or ''} at {cell.get('time_slot')}"
@@ -1251,6 +1326,24 @@ async def update_schedule_cell(cid: str, payload: ScheduleCellIn, user=Depends(s
                       f"{actor} updated the schedule: {detail}",
                       actor_id=user.get("id"), actor_name=actor)
     return cell
+
+@api.post("/schedule/{cid}/parent-whatsapp-sent")
+async def mark_parent_whatsapp_sent(cid: str, payload: ParentWhatsAppSentIn, user=Depends(get_current_user)):
+    if not _can_parent_cancellation_ops(user):
+        raise HTTPException(status_code=403, detail="Parent cancellation ops access required")
+    cell = await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
+    if not cell:
+        raise HTTPException(status_code=404, detail="Schedule cell not found")
+    await db.schedule_cells.update_one(
+        {"id": cid},
+        {"$set": {
+            "parent_notify_pending": False,
+            "parent_notify_sent_at": now_iso(),
+            "parent_notify_sent_by": user.get("id"),
+            "parent_notify_message": payload.message or "",
+        }},
+    )
+    return await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
 
 @api.post("/schedule/{cid}/duplicate")
 async def duplicate_cell(cid: str, _=Depends(schedule_edit_or_admin)):
@@ -4511,7 +4604,7 @@ async def upload_request_attachment(
 
 @api.get("/tracking/inbox")
 async def tracking_inbox(user=Depends(get_current_user)):
-    if not (_is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user)):
+    if not (_is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user) or _is_walaa_ops(user)):
         raise HTTPException(status_code=403, detail="Inbox access required")
     leaves_pending_manager = await db.leaves.count_documents({"status": {"$in": list(PENDING_MANAGER_STATUSES)}})
     leaves_pending_hr = await db.leaves.count_documents({"status": "pending_hr"})
@@ -4523,13 +4616,67 @@ async def tracking_inbox(user=Depends(get_current_user)):
         billing_reminders_soon = int((dash.get("summary") or {}).get("reminders_soon") or 0)
     except Exception:
         pass
+    parent_cancellations_pending = 0
+    if _can_parent_cancellation_ops(user):
+        parent_cancellations_pending = await db.schedule_cells.count_documents({
+            "state": "cancel_therapist",
+            "parent_notify_pending": True,
+        })
     return {
         "leaves_pending_manager": leaves_pending_manager,
         "leaves_pending_hr": leaves_pending_hr,
         "requests_pending": requests_pending,
         "purchases_pending": purchases_pending,
         "billing_reminders_soon": billing_reminders_soon,
+        "parent_cancellations_pending": parent_cancellations_pending,
     }
+
+
+@api.get("/tracking/parent-cancellations")
+async def list_parent_cancellations(user=Depends(get_current_user)):
+    if not _can_parent_cancellation_ops(user):
+        raise HTTPException(status_code=403, detail="Parent cancellation ops access required")
+    cells = await db.schedule_cells.find(
+        {"state": "cancel_therapist", "parent_notify_pending": True},
+        {"_id": 0},
+    ).sort("parent_cancel_marked_at", -1).to_list(200)
+    therapist_ids = list({c.get("therapist_id") for c in cells if c.get("therapist_id")})
+    therapist_names: dict = {}
+    if therapist_ids:
+        for t in await db.therapists.find(
+            {"id": {"$in": therapist_ids}}, {"_id": 0, "id": 1, "name": 1}
+        ).to_list(200):
+            therapist_names[t["id"]] = t.get("name") or ""
+    results = []
+    for cell in cells:
+        client = await _find_client_by_schedule_child_name(cell.get("child_name") or "")
+        day_idx = cell.get("day")
+        week_start = cell.get("week_start") or ""
+        day_label = ""
+        day_ar = ""
+        if day_idx is not None:
+            try:
+                di = int(day_idx)
+                if 0 <= di < len(SCHEDULE_DAYS_AR):
+                    day_ar = SCHEDULE_DAYS_AR[di]
+            except (TypeError, ValueError):
+                pass
+        if week_start and day_idx is not None:
+            try:
+                d = datetime.fromisoformat(str(week_start)[:10]) + timedelta(days=int(day_idx))
+                day_label = d.strftime("%d %b %Y")
+            except Exception:
+                day_label = str(week_start)
+        results.append({
+            **cell,
+            "parent_phone": (client or {}).get("parent_phone"),
+            "parent_name": (client or {}).get("parent_name"),
+            "client_id": (client or {}).get("id"),
+            "therapist_name": therapist_names.get(cell.get("therapist_id"), ""),
+            "day_label": day_label,
+            "day_ar": day_ar,
+        })
+    return results
 
 
 @api.get("/requests/{rid}/attachment")
@@ -5975,9 +6122,14 @@ async def schedule_cancel_notify(payload: CancelNotifyIn, user=Depends(schedule_
     cell = await db.schedule_cells.find_one({"id": payload.cell_id}, {"_id": 0})
     if not cell:
         raise HTTPException(status_code=404, detail="Schedule cell not found")
+    actor = _actor_display(user)
     if payload.state:
         await db.schedule_cells.update_one({"id": payload.cell_id}, {"$set": {"state": payload.state}})
-    actor = _actor_display(user)
+        if payload.state == "cancel_therapist":
+            await _mark_parent_cancel_pending(payload.cell_id)
+            cell = await db.schedule_cells.find_one({"id": payload.cell_id}, {"_id": 0})
+            if cell:
+                await _notify_parent_cancel_pending(cell, actor)
     recipients = payload.recipient_ids or ([cell["therapist_id"]] if cell.get("therapist_id") else [])
     title = f"Notice from {actor}"
     if payload.state == "cancel_therapist":

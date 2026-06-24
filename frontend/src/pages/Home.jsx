@@ -2,11 +2,11 @@ import { useEffect, useState, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import api, { startOfWeek, toISODate, addDays } from "../api";
 import { cachedGet } from "../dataCache";
-import { useAuth, showAdminNav, hasOpsAccess, isHrOps, isJenan } from "../auth";
+import { useAuth, showAdminNav, hasOpsAccess, isHrOps, isJenan, canParentCancellationOps } from "../auth";
 import {
   CalendarBlank, ClipboardText, UsersThree, ListChecks, Plant, ArrowRight,
   CheckCircle, Clock, XCircle, CalendarCheck, Heart,
-  Leaf, FileText,
+  Leaf, FileText, WhatsappLogo,
 } from "@phosphor-icons/react";
 import { quoteOfTheDay } from "../data/quotes";
 import DashboardStatCard from "../components/DashboardStatCard";
@@ -56,8 +56,9 @@ export default function Home() {
   const isPortalAdminUser = showAdminNav(user);
   const hrOps = isHrOps(user);
   const jenan = isJenan(user);
+  const parentCancelOps = canParentCancellationOps(user);
   const showOpsHome = isPortalAdminUser || hrOps;
-  const showInbox = isPortalAdminUser || hrOps || jenan;
+  const showInbox = isPortalAdminUser || hrOps || jenan || parentCancelOps;
   const opsAccess = hasOpsAccess(user);
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [stats, setStats] = useState({
@@ -76,6 +77,7 @@ export default function Home() {
   const [billingSummary, setBillingSummary] = useState(null);
   const [pendingLeaves, setPendingLeaves] = useState(0);
   const [newIntake, setNewIntake] = useState(0);
+  const [parentCancellationsPending, setParentCancellationsPending] = useState(0);
 
   useEffect(() => {
     setHeroImageId(loadHeroPreference(user));
@@ -186,6 +188,16 @@ export default function Home() {
   );
 
   useEffect(() => { if (!showOpsHome) loadPersonal(); }, [weekISO, weekEndISO, showOpsHome]);
+
+  useEffect(() => {
+    if (!parentCancelOps) {
+      setParentCancellationsPending(0);
+      return;
+    }
+    api.get("/tracking/inbox")
+      .then((r) => setParentCancellationsPending(r.data?.parent_cancellations_pending || 0))
+      .catch(() => setParentCancellationsPending(0));
+  }, [parentCancelOps, user?.id]);
 
   const displayName = getTherapistScheduleName({ name: user?.name, key: user?.key })
     || user?.name?.replace(/^Ms\.?\s*/i, "")
@@ -310,6 +322,26 @@ export default function Home() {
         <>
           <HeroBanner greetingParts={saudiGreetingParts(displayName)} showNav />
 
+          {parentCancelOps && parentCancellationsPending > 0 && (
+            <Link
+              to="/schedule?parentCancel=1"
+              className="card p-4 mb-4 flex items-center gap-3 rounded-[18px] no-underline text-inherit"
+              style={{ background: "#FFFBF0", borderColor: "#E8C572" }}
+              data-testid="home-parent-cancellations-alert"
+            >
+              <WhatsappLogo size={28} weight="fill" style={{ color: "#25D366", flexShrink: 0 }} />
+              <div className="min-w-0 flex-1">
+                <div className="font-bold text-sm" style={{ color: "#6B5218" }}>
+                  {parentCancellationsPending} parent cancellation{parentCancellationsPending === 1 ? "" : "s"} need WhatsApp
+                </div>
+                <div className="text-xs mt-0.5" style={{ color: "#8B6918" }}>
+                  Send Arabic apology messages to parents after therapist session cancellations
+                </div>
+              </div>
+              <ArrowRight size={18} style={{ color: "#8B6918", flexShrink: 0 }} />
+            </Link>
+          )}
+
           <CreativeSection title="Explore the portal" subtitle="Tools to run the center with clarity and care">
             <div className="home-feature-grid stagger">
               {adminFeatures.map(f => (
@@ -343,6 +375,26 @@ export default function Home() {
       ) : (
         <>
           <HeroBanner compact />
+
+          {parentCancelOps && parentCancellationsPending > 0 && (
+            <Link
+              to="/schedule?parentCancel=1"
+              className="card p-4 mb-4 flex items-center gap-3 rounded-[18px] no-underline text-inherit"
+              style={{ background: "#FFFBF0", borderColor: "#E8C572" }}
+              data-testid="home-parent-cancellations-alert"
+            >
+              <WhatsappLogo size={28} weight="fill" style={{ color: "#25D366", flexShrink: 0 }} />
+              <div className="min-w-0 flex-1">
+                <div className="font-bold text-sm" style={{ color: "#6B5218" }}>
+                  {parentCancellationsPending} parent cancellation{parentCancellationsPending === 1 ? "" : "s"} need WhatsApp
+                </div>
+                <div className="text-xs mt-0.5" style={{ color: "#8B6918" }}>
+                  Tap to send parent apology messages
+                </div>
+              </div>
+              <ArrowRight size={18} style={{ color: "#8B6918", flexShrink: 0 }} />
+            </Link>
+          )}
 
           {showInbox && (
             <div className="mb-4">
