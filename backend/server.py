@@ -478,6 +478,7 @@ class PurchaseIn(BaseModel):
     total: Optional[float] = None
     purchase_date: Optional[str] = None
     notes: Optional[str] = None
+    therapist_id: Optional[str] = None
 
 class PurchaseUpdate(BaseModel):
     item: Optional[str] = None
@@ -1204,8 +1205,17 @@ async def _notify_hr_ops(ntype: str, title: str, message: str, **extra):
             await _notify(a["id"], ntype, title, message, **extra)
 
 
+def _can_view_all_purchases(user: dict) -> bool:
+    return (
+        _is_portal_admin(user)
+        or _is_hr_ops(user)
+        or _is_client_lead(user)
+        or _is_walaa_ops(user)
+    )
+
+
 async def _notify_ops_leads(ntype: str, title: str, message: str, **extra):
-    """Walaa, Maha, Fahda (+ Walaa ops account)."""
+    """Walaa, Maha, Fahda, Jenan (+ Walaa ops account)."""
     therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "email": 1, "key": 1, "name": 1}).to_list(300)
     notified: set = set()
     for t in therapists:
@@ -3905,7 +3915,7 @@ def _normalize_date(s: str) -> Optional[str]:
         return d.strftime("%Y-%m-%d")
     except Exception:
         pass
-    # Try D/M/YYYY or D-M-YYYY (Boost Growth format)
+    # Try D/M/YYYY or D-M-YYYY (Boost Growth display format — day first)
     for sep in ("/", "-"):
         if sep in s:
             parts = s.split(sep)
@@ -3918,6 +3928,59 @@ def _normalize_date(s: str) -> Optional[str]:
                 except Exception:
                     continue
     return None
+
+
+def _swap_month_day_iso(iso: str) -> Optional[str]:
+    """Swap Y-M-D month/day when both are <= 12 (MM/DD vs DD/MM mistake)."""
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", (iso or "")[:10])
+    if not m:
+        return None
+    y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if mo == d or mo > 12 or d > 12:
+        return None
+    try:
+        return datetime(y, d, mo).strftime("%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def _session_likely_swapped_month_day(session_iso: str, peer_isos: list) -> Optional[str]:
+    """Return corrected ISO when this session's month looks like a day/month swap."""
+    swapped = _swap_month_day_iso(session_iso)
+    if not swapped or swapped == session_iso:
+        return None
+    peers = [p[:10] for p in peer_isos if p and p[:10] != session_iso[:10]]
+    if len(peers) < 2:
+        return None
+
+    def month_key(iso):
+        return iso[:7]
+
+    from collections import Counter
+    peer_months = Counter(month_key(p) for p in peers)
+    cur_month = month_key(session_iso)
+    swap_month = month_key(swapped)
+    cur_peer_count = peer_months.get(cur_month, 0)
+    swap_peer_count = peer_months.get(swap_month, 0)
+
+    if swap_peer_count < 2:
+        return None
+    if cur_peer_count > 1:
+        return None
+    if swap_peer_count <= cur_peer_count:
+        return None
+
+    try:
+        swap_dt = datetime.fromisoformat(swapped)
+        peer_dts = sorted(datetime.fromisoformat(p) for p in peers)
+        span_start = peer_dts[0]
+        span_end = peer_dts[-1]
+        margin = timedelta(days=45)
+        if swap_dt < span_start - margin or swap_dt > span_end + margin:
+            return None
+    except Exception:
+        return None
+    return swapped
 
 
 def _parse_time_range(s: str) -> tuple:
@@ -4868,7 +4931,7 @@ async def list_purchases(
     user=Depends(get_current_user),
 ):
     q: dict = {}
-    if _is_portal_admin(user) or _is_hr_ops(user):
+    if _can_view_all_purchases(user):
         if therapist_id:
             q["therapist_id"] = therapist_id
     else:
@@ -4884,9 +4947,21 @@ async def list_purchases(
 
 @api.post("/purchases")
 async def create_purchase(payload: PurchaseIn, user=Depends(get_current_user)):
-    tid = await _resolve_user_therapist_id(user) or user.get("id")
-    if not tid:
-        raise HTTPException(status_code=403, detail="Therapist profile required")
+    own_tid = await _resolve_user_therapist_id(user) or user.get("id")
+    requested_tid = (payload.therapist_id or "").strip() or None
+    if requested_tid and _can_view_all_purchases(user):
+        th = await db.therapists.find_one({"id": requested_tid}, {"_id": 0, "id": 1, "name": 1})
+        if not th:
+            raise HTTPException(status_code=400, detail="Therapist not found")
+        tid = th["id"]
+        purchaser_name = th.get("name")
+        therapist_name = th.get("name")
+    else:
+        tid = own_tid
+        if not tid:
+            raise HTTPException(status_code=403, detail="Therapist profile required")
+        purchaser_name = user.get("name")
+        therapist_name = user.get("name")
     item = (payload.item or "").strip()
     category = (payload.category or "").strip()
     if not item or not category:
@@ -4895,8 +4970,8 @@ async def create_purchase(payload: PurchaseIn, user=Depends(get_current_user)):
     doc = {
         "id": str(uuid.uuid4()),
         "therapist_id": tid,
-        "therapist_name": user.get("name"),
-        "purchaser_name": user.get("name"),
+        "therapist_name": therapist_name,
+        "purchaser_name": purchaser_name,
         "item": item,
         "category": category,
         "description": (payload.description or "").strip(),
@@ -4914,10 +4989,10 @@ async def create_purchase(payload: PurchaseIn, user=Depends(get_current_user)):
     }
     await db.staff_purchases.insert_one(doc)
     doc.pop("_id", None)
-    await _notify_admins(
+    await _notify_ops_leads(
         "purchase_new",
         "New staff purchase logged",
-        f"{user.get('name')}: {item} ({category}) — pending review",
+        f"{purchaser_name}: {item} ({category}) — pending review",
     )
     return doc
 
@@ -6586,6 +6661,94 @@ async def admin_repair_session_invoices(_=Depends(admin_only)):
         "invoice_ids_linked": linked,
         "service_types_fixed": typed,
         "window_linked": window_linked,
+    }
+
+
+class FixSwappedSessionDatesIn(BaseModel):
+    dry_run: bool = True
+    client_id: Optional[str] = None
+    file_no: Optional[str] = None
+
+
+@api.post("/admin/fix-swapped-session-dates")
+async def admin_fix_swapped_session_dates(body: FixSwappedSessionDatesIn, _=Depends(client_lead_or_admin)):
+    """Fix sessions where month/day were swapped (e.g. 06/11 meant June 11, stored as Nov 6)."""
+    cq = _active_client_filter()
+    if body.client_id:
+        cq["id"] = body.client_id.strip()
+    if body.file_no:
+        cq["file_no"] = str(body.file_no).strip().zfill(3)
+    clients = await db.clients.find(cq, {"_id": 0, "id": 1, "name": 1, "file_no": 1}).to_list(500)
+
+    fixes: List[dict] = []
+    applied = 0
+    skipped = 0
+
+    for client in clients:
+        cid = client["id"]
+        sessions = await db.sessions.find({"client_id": cid}, {"_id": 0}).to_list(5000)
+        by_invoice: Dict[str, list] = {}
+        for s in sessions:
+            inv_key = s.get("invoice_id") or (s.get("source_invoice") or "").strip() or "__none__"
+            by_invoice.setdefault(inv_key, []).append(s)
+
+        for _inv_key, group in by_invoice.items():
+            if len(group) < 3:
+                continue
+            peer_dates = [s.get("session_date") for s in group if s.get("session_date")]
+            for s in group:
+                iso = _normalize_session_date_iso(s.get("session_date"))
+                if not iso:
+                    continue
+                corrected = _session_likely_swapped_month_day(iso, peer_dates)
+                if not corrected:
+                    continue
+                start_t = s.get("start_time") or ""
+                conflict = any(
+                    _normalize_session_date_iso(o.get("session_date")) == corrected
+                    and (o.get("start_time") or "") == start_t
+                    and o.get("id") != s.get("id")
+                    for o in group
+                )
+                if conflict:
+                    skipped += 1
+                    continue
+                fixes.append({
+                    "client_name": client.get("name"),
+                    "file_no": client.get("file_no"),
+                    "session_id": s.get("id"),
+                    "invoice": s.get("source_invoice"),
+                    "from_date": iso,
+                    "to_date": corrected,
+                    "status": s.get("status"),
+                    "therapist_ids": s.get("therapist_ids") or [],
+                })
+                if not body.dry_run:
+                    await db.sessions.update_one(
+                        {"id": s["id"]},
+                        {"$set": {
+                            "session_date": corrected,
+                            "day_name": _day_name_from_date(corrected),
+                            "updated_at": now_iso(),
+                        }},
+                    )
+                    applied += 1
+
+    msg = f"Found {len(fixes)} session(s) with likely month/day swap"
+    if body.dry_run:
+        msg += " (preview — run again with dry_run=false to apply)"
+    else:
+        msg += f"; applied {applied}"
+    if skipped:
+        msg += f"; skipped {skipped} conflict(s)"
+
+    return {
+        "dry_run": body.dry_run,
+        "candidates": len(fixes),
+        "applied": applied,
+        "skipped_conflicts": skipped,
+        "fixes": fixes[:300],
+        "message": msg,
     }
 
 

@@ -27,6 +27,9 @@ export default function ImportPage() {
   );
   const [driveSyncResult, setDriveSyncResult] = useState(null);
   const [driveSyncing, setDriveSyncing] = useState(false);
+  const [dateFixResult, setDateFixResult] = useState(null);
+  const [dateFixing, setDateFixing] = useState(false);
+  const [dateFixFileNo, setDateFixFileNo] = useState("");
   const [waitingSyncing, setWaitingSyncing] = useState(false);
   const [waitingSyncResult, setWaitingSyncResult] = useState(null);
 
@@ -176,6 +179,26 @@ export default function ImportPage() {
       setDriveSyncResult({ ok: false, message: e.response?.data?.detail || e.message });
     }
     setDriveSyncing(false);
+  };
+
+  const fixSwappedSessionDates = async (dryRun = true) => {
+    if (!dryRun && !window.confirm(
+      "Fix swapped session dates for all active clients?\n\n"
+      + "Example: 06/11 meant June 11 but was stored as November 6. "
+      + "Run Preview first to review the list."
+    )) return;
+    setDateFixing(true);
+    setDateFixResult(null);
+    try {
+      const { data } = await api.post("/admin/fix-swapped-session-dates", {
+        dry_run: dryRun,
+        file_no: dateFixFileNo.trim() || undefined,
+      });
+      setDateFixResult(data);
+    } catch (e) {
+      setDateFixResult({ ok: false, message: e.response?.data?.detail || e.message });
+    }
+    setDateFixing(false);
   };
 
   const syncWaitingFromGoogle = async () => {
@@ -491,6 +514,47 @@ export default function ImportPage() {
                   <div key={r.file_no} className="flex justify-between gap-2 border-b border-[#D4DEC8] py-1">
                     <span>{r.file_no} {r.client_name || ""}</span>
                     <span className="font-semibold">{r.status}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="card p-6 mt-5 border-2" style={{ borderColor: "#D4A64A" }}>
+        <div className="font-bold mb-1" style={{ color: "#2C3625" }}>Fix swapped session dates</div>
+        <div className="text-sm mb-4" style={{ color: "#5C6853" }}>
+          When therapists type <strong>06/11</strong> meaning <strong>June 11</strong>, the system may store it as <strong>November 6</strong>.
+          This scans invoices and moves lone out-of-month sessions to the correct month (e.g. Nov → Jun for Abdulaziz).
+          Optional file number limits the scan to one child.
+        </div>
+        <label className="label">File no. (optional, e.g. 024)</label>
+        <input
+          className="input mb-3 text-sm max-w-[120px]"
+          value={dateFixFileNo}
+          onChange={e => setDateFixFileNo(e.target.value)}
+          placeholder="024"
+        />
+        <div className="flex flex-wrap gap-2 mb-3">
+          <button type="button" onClick={() => fixSwappedSessionDates(true)} disabled={dateFixing}
+            className="btn btn-outline text-sm disabled:opacity-50">
+            {dateFixing ? <span className="spinner" /> : "Preview fixes"}
+          </button>
+          <button type="button" onClick={() => fixSwappedSessionDates(false)} disabled={dateFixing}
+            className="btn btn-primary text-sm disabled:opacity-50">
+            {dateFixing ? <span className="spinner" /> : "Apply fixes"}
+          </button>
+        </div>
+        {dateFixResult && (
+          <div className="text-xs p-3 rounded-xl space-y-2" style={{ background: dateFixResult.ok === false ? "#F8EBE7" : "#FAF0D1", color: "#3D4F35" }}>
+            {dateFixResult.message && <div className="font-semibold">{dateFixResult.message}</div>}
+            {Array.isArray(dateFixResult.fixes) && dateFixResult.fixes.length > 0 && (
+              <div className="max-h-48 overflow-y-auto space-y-1 mt-2">
+                {dateFixResult.fixes.map((f) => (
+                  <div key={f.session_id} className="flex justify-between gap-2 border-b border-[#E6C983] py-1">
+                    <span>{f.file_no} {f.client_name} · {f.invoice || "—"}</span>
+                    <span>{f.from_date} → {f.to_date}</span>
                   </div>
                 ))}
               </div>

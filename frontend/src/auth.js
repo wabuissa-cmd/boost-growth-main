@@ -147,6 +147,11 @@ export function canManagePurchaseStatus(user) {
   return isJenan(user);
 }
 
+/** Purchases page — Jenan, Walaa, Maha, Fahda + HR + portal admin */
+export function canAccessPurchases(user) {
+  return hasOpsAccess(user) || isClientLead(user);
+}
+
 export function canHrReviewLeaves(user) {
   if (!user) return false;
   if (user.can_hr_review_leaves) return true;

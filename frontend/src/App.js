@@ -1,6 +1,6 @@
 import { Component, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth, isClientLead, hasOpsAccess, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, hasFullClientAccess, showSystemAdmin, canImportData } from "./auth";
+import { AuthProvider, useAuth, isClientLead, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, hasFullClientAccess, showSystemAdmin, canImportData } from "./auth";
 import Login from "./pages/Login";
 import Shell from "./pages/Shell";
 import "./App.css";
@@ -95,7 +95,7 @@ function PurchasesAccess({ children }) {
   const { user } = useAuth();
   if (user === null) return <Loading/>;
   if (!user) return <Navigate to="/login" replace />;
-  if (!hasOpsAccess(user)) return <Navigate to="/home" replace />;
+  if (!canAccessPurchases(user)) return <Navigate to="/home" replace />;
   return children;
 }
 

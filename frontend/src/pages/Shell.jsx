@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, Suspense } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData, isWalaaOps, showMyPortalNav } from "../auth";
+import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData, isWalaaOps, showMyPortalNav } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch } from "../dataCache";
 import {
@@ -118,7 +118,7 @@ export default function Shell() {
   }
 
   const financeItems = [];
-  if (portalAdmin || hrOps) {
+  if (canAccessPurchases(user)) {
     financeItems.push({ to: "/purchases", label: "Purchases", testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> });
   }
 

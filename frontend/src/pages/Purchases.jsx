@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import api, { formatErr } from "../api";
 import {
-  ShoppingBag, Bell, CheckCircle, Hourglass, Clock, FloppyDisk, PaperPlaneTilt, ArrowsClockwise,
+  ShoppingBag, Bell, CheckCircle, Hourglass, Clock, FloppyDisk, PaperPlaneTilt, ArrowsClockwise, Plus,
 } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
+import {
+  ModalBase, FormSection, FormField,
+  ModalBtnPrimary, ModalBtnSecondary,
+} from "../components/Modal";
 import { getTherapistScheduleName } from "../scheduleConstants";
 import { yearMonthTabs } from "../monthTabs";
-import { isJenan, isWalaaOps, showAdminNav, useAuth } from "../auth";
+import { canAccessPurchases, canManagePurchaseStatus, isJenan, isWalaaOps, showAdminNav, useAuth } from "../auth";
 import "../clientInfoLayout.css";
 
 const PURCHASES_SHEET_URL = "https://docs.google.com/spreadsheets/d/10ZGq3ABQ1t-w32jrGZIu6Gxa2wevIJU2GLe9YWGdkIQ/edit";
@@ -29,13 +33,30 @@ function fmtMoney(p) {
   return "—";
 }
 
+function emptyPurchaseForm() {
+  return {
+    therapist_id: "",
+    item: "",
+    category: "",
+    description: "",
+    qty: "1",
+    unit_price: "",
+    total: "",
+    purchase_date: new Date().toISOString().slice(0, 10),
+    notes: "",
+  };
+}
+
 export default function Purchases() {
   const { user } = useAuth();
-  const canManageStatus = isJenan(user);
+  const canManageStatus = canManagePurchaseStatus(user);
   const canSyncSheet = isJenan(user) || isWalaaOps(user) || showAdminNav(user);
   const [items, setItems] = useState([]);
   const [therapists, setTherapists] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [form, setForm] = useState(emptyPurchaseForm);
+  const [submitting, setSubmitting] = useState(false);
   const [filterTherapist, setFilterTherapist] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterMonth, setFilterMonth] = useState(() => {
@@ -152,6 +173,39 @@ export default function Purchases() {
     }
   };
 
+  const submitPurchase = async () => {
+    if (!form.therapist_id) {
+      alert("Select who made the purchase");
+      return;
+    }
+    if (!form.item.trim() || !form.category) {
+      alert("Item and category are required");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const total = form.total ? parseFloat(String(form.total).replace(/[^\d.]/g, "")) : null;
+      await api.post("/purchases", {
+        therapist_id: form.therapist_id,
+        item: form.item,
+        category: form.category,
+        description: form.description,
+        qty: form.qty,
+        unit_price: form.unit_price,
+        total: Number.isFinite(total) ? total : null,
+        purchase_date: form.purchase_date,
+        notes: form.notes,
+      });
+      setAddOpen(false);
+      setForm(emptyPurchaseForm());
+      load();
+    } catch (e) {
+      alert(formatErr(e.response?.data?.detail) || e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const monthTabs = useMemo(() => yearMonthTabs(), []);
 
   return (
@@ -160,12 +214,21 @@ export default function Purchases() {
         title="Purchases"
         subtitle="Staff reimbursements · Jan – Jul"
         className="editorial-banner--compact-mobile"
-        toolbar={canSyncSheet ? (
-          <button type="button" className="btn btn-secondary text-xs min-h-[36px]" onClick={syncFromSheet} disabled={syncing}>
-            <ArrowsClockwise size={14} className={syncing ? "animate-spin" : ""} />
-            {syncing ? "Syncing…" : "Sync from Sheet"}
-          </button>
-        ) : null}
+        toolbar={(
+          <div className="flex flex-wrap gap-2">
+            {canAccessPurchases(user) && (
+              <button type="button" className="btn btn-primary text-xs min-h-[36px]" onClick={() => setAddOpen(true)}>
+                <Plus size={14}/> Log Purchase
+              </button>
+            )}
+            {canSyncSheet && (
+              <button type="button" className="btn btn-secondary text-xs min-h-[36px]" onClick={syncFromSheet} disabled={syncing}>
+                <ArrowsClockwise size={14} className={syncing ? "animate-spin" : ""} />
+                {syncing ? "Syncing…" : "Sync from Sheet"}
+              </button>
+            )}
+          </div>
+        )}
       />
 
       <div className="card overflow-hidden mb-4">
@@ -327,6 +390,63 @@ export default function Purchases() {
           </div>
         </div>
       </div>
+
+      {addOpen && (
+        <ModalBase
+          title="Log Purchase"
+          subtitle="Same as therapist submissions — notifies Jenan, Walaa, Maha & Fahda"
+          onClose={() => { setAddOpen(false); setForm(emptyPurchaseForm()); }}
+          size="md"
+          footer={(
+            <>
+              <ModalBtnSecondary type="button" onClick={() => { setAddOpen(false); setForm(emptyPurchaseForm()); }}>Cancel</ModalBtnSecondary>
+              <ModalBtnPrimary type="button" onClick={submitPurchase} disabled={submitting}>
+                {submitting ? "Saving…" : "Submit"}
+              </ModalBtnPrimary>
+            </>
+          )}
+        >
+          <FormSection title="Purchase details">
+            <FormField label="Purchaser" required>
+              <select className="modal-input" value={form.therapist_id} onChange={e => setForm({ ...form, therapist_id: e.target.value })}>
+                <option value="">Select therapist…</option>
+                {therapists.map(t => <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Item" required>
+              <input className="modal-input" value={form.item} onChange={e => setForm({ ...form, item: e.target.value })} placeholder="e.g. Frames, Flowers…" />
+            </FormField>
+            <FormField label="Category" required>
+              <select className="modal-input" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
+                <option value="">Select category…</option>
+                {categories.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Description">
+              <textarea className="modal-input" rows={2} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
+            </FormField>
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label="QTY">
+                <input className="modal-input" value={form.qty} onChange={e => setForm({ ...form, qty: e.target.value })} />
+              </FormField>
+              <FormField label="Unit price">
+                <input className="modal-input" value={form.unit_price} onChange={e => setForm({ ...form, unit_price: e.target.value })} placeholder="e.g. 64 SR" />
+              </FormField>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label="Total">
+                <input className="modal-input" value={form.total} onChange={e => setForm({ ...form, total: e.target.value })} placeholder="e.g. 380" />
+              </FormField>
+              <FormField label="Purchase date">
+                <input type="date" className="modal-input" value={form.purchase_date} onChange={e => setForm({ ...form, purchase_date: e.target.value })} />
+              </FormField>
+            </div>
+            <FormField label="Notes">
+              <textarea className="modal-input" rows={2} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
+            </FormField>
+          </FormSection>
+        </ModalBase>
+      )}
     </div>
   );
 }

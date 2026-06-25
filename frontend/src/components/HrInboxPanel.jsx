@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../api";
-import { isHrOps, isJenan, showAdminNav, canParentCancellationOps, isWalaaOps } from "../auth";
+import { isHrOps, isJenan, showAdminNav, canParentCancellationOps, isWalaaOps, canAccessPurchases, hasOpsAccess } from "../auth";
 import {
   Tray, CalendarBlank, ListChecks, ShoppingBag, Receipt, CheckCircle, WhatsappLogo,
 } from "@phosphor-icons/react";
@@ -85,7 +85,7 @@ export default function HrInboxPanel({ user, coordinationOnly = false }) {
       });
     }
   }
-  if (portalAdmin || hrOps || jenan || walaaOps) {
+  if (canAccessPurchases(user)) {
     rows.push({
       to: "/purchases",
       icon: ShoppingBag,
@@ -93,6 +93,8 @@ export default function HrInboxPanel({ user, coordinationOnly = false }) {
       count: inbox.purchases_pending,
       testId: "inbox-purchases",
     });
+  }
+  if (hasOpsAccess(user)) {
     rows.push({
       to: "/billing",
       icon: Receipt,

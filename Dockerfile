@@ -14,7 +14,7 @@ RUN npm run build
 FROM python:3.11-slim
 WORKDIR /app/backend
 
-ARG DEPLOY_REV=20260625-intake-ops-backlog
+ARG DEPLOY_REV=20260625-purchases-date-fix
 RUN echo "deploy ${DEPLOY_REV}" > /dev/null
 
 COPY backend/requirements.txt .
