@@ -705,11 +705,9 @@ async def me(user: dict = Depends(get_current_user)):
     user["portal_admin"] = _is_portal_admin(user)
     user["staff_admin"] = user["portal_admin"] or _is_walaa_ops(user)
     user["jenan_hr"] = _is_jenan(user)
-    user["can_manage_leaves"] = _is_portal_admin(user) or _is_jenan(user)
-    user["can_hr_review_leaves"] = _is_portal_admin(user) or _is_hr_ops(user)
-    user["can_edit_staff_requests"] = (
-        _is_portal_admin(user) or _is_jenan(user) or _is_hr_ops(user)
-    )
+    user["can_manage_leaves"] = _is_jenan(user)
+    user["can_hr_review_leaves"] = _is_hr_ops(user)
+    user["can_edit_staff_requests"] = _is_jenan(user) or _is_hr_ops(user)
     user["can_import"] = _is_portal_admin(user) or _is_walaa_ops(user)
     user["can_edit_intake"] = _is_portal_admin(user) or _is_client_lead(user) or _is_hr_ops(user)
     user["schedule_lead"] = _is_client_lead(user) and not _is_portal_admin(user)
@@ -6424,6 +6422,32 @@ async def schedule_cancel_notify(payload: CancelNotifyIn, user=Depends(schedule_
 async def list_intake(_=Depends(client_lead_or_admin)):
     return await db.intake.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
 
+
+@api.get("/intake/meta")
+async def get_intake_meta(_=Depends(client_lead_or_admin)):
+    doc = await db.meta.find_one({"key": "intake_list_meta"}, {"_id": 0})
+    return {
+        "last_updated": (doc or {}).get("last_updated"),
+        "updated_by": (doc or {}).get("updated_by"),
+    }
+
+
+@api.put("/intake/meta")
+async def update_intake_meta(body: dict, user=Depends(get_current_user)):
+    """Walaa, Maha, Fahda, Jenan may set the waiting-list last-updated date."""
+    if not (_is_client_lead(user) or _is_jenan(user)):
+        raise HTTPException(status_code=403, detail="Not allowed")
+    last_updated = (body.get("last_updated") or "").strip() or None
+    patch = {
+        "key": "intake_list_meta",
+        "last_updated": last_updated,
+        "updated_by": user.get("name") or user.get("email"),
+        "updated_at": now_iso(),
+    }
+    await db.meta.update_one({"key": "intake_list_meta"}, {"$set": patch}, upsert=True)
+    return patch
+
+
 @api.post("/intake")
 async def create_intake(payload: IntakeIn, _=Depends(client_lead_or_admin)):
     iid = str(uuid.uuid4())
@@ -7242,8 +7266,8 @@ async def _upsert_intake_rows(rows: List[dict], detected_columns: List[str], par
                 skipped += 1
     if replace_google_stale and synced_keys:
         stale = await db.intake.delete_many({
-            "sync_source": {"$ne": "manual"},
             "name_key": {"$nin": list(synced_keys)},
+            "sync_source": {"$ne": "manual"},
         })
     else:
         stale = type("R", (), {"deleted_count": 0})()

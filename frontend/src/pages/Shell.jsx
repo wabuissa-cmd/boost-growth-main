@@ -6,7 +6,7 @@ import { prefetch } from "../dataCache";
 import {
   House, CalendarBlank,   ClipboardText, UsersThree, Receipt,
   Bell, SignOut,   ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, CaretDown, Folder, UserCircle,
-  SidebarSimple, Rows, ShoppingBag, FileText, GraduationCap, Hourglass,
+  SidebarSimple, Rows, ShoppingBag, FileText, Buildings, Hourglass,
 } from "@phosphor-icons/react";
 
 import SidebarNav from "../components/SidebarNav";
@@ -101,7 +101,7 @@ export default function Shell() {
   const waitingItems = intakeAccess
     ? [
         { to: "/waiting/intake", label: "Intake Waiting", testid: "nav-intake-waiting", icon: <Hourglass size={17} weight="duotone"/> },
-        { to: "/waiting/school", label: "School Waiting", testid: "nav-school-waiting", icon: <GraduationCap size={17} weight="duotone"/> },
+        { to: "/waiting/school", label: "School Waiting", testid: "nav-school-waiting", icon: <Buildings size={17} weight="duotone"/> },
       ]
     : [];
 

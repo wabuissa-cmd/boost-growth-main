@@ -10,56 +10,52 @@ import "../clientInfoLayout.css";
 import { ModalBase, FormSection, FormField, ModalBtnPrimary, ModalBtnSecondary } from "../components/Modal";
 import { formatMoney, paymentStatusLabel, paymentStatusStyle } from "../billingUtils";
 import { formatServiceTypeDisplay } from "../attendanceUtils";
-import { yearMonthTabs, monthKeyFromDate } from "../monthTabs";
+import { formatPkgBadge, formatPkgUsedRemaining } from "../packageStatusUtils";
 import {
-  Receipt, CheckCircle, MagnifyingGlass, EnvelopeSimple, ClipboardText,
+  Receipt, CheckCircle, EnvelopeSimple, ClipboardText, Warning, CaretRight,
 } from "@phosphor-icons/react";
 
-function BillingRow({ row, onEdit, onOpenSheet }) {
+function invoiceToRow(inv, client, today) {
+  const start = (inv.start_date || inv.created_at || "").slice(0, 10);
+  const amount = parseFloat(inv.amount) || 0;
+  const paid = parseFloat(inv.amount_paid) || 0;
+  const status = inv.payment_status === "complete" || (amount > 0 && paid >= amount)
+    ? "complete"
+    : (inv.payment_status === "partial" || (paid > 0 && paid < amount) ? "partial" : "pending");
+  let daysUntilReminder = null;
+  if (inv.next_payment_reminder_at) {
+    daysUntilReminder = Math.floor((Date.parse(inv.next_payment_reminder_at) - Date.parse(today)) / 86400000);
+  }
+  return {
+    invoice_id: inv.id,
+    invoice_number: inv.invoice_number,
+    client_id: client.id,
+    client_name: client.name,
+    file_no: client.file_no,
+    service_type: inv.service_type,
+    payment_status: status,
+    amount: amount || null,
+    amount_paid: paid || null,
+    amount_remaining: amount > 0 ? Math.max(0, amount - paid) : null,
+    start_date: start || null,
+    days_unpaid: start && status !== "complete" ? Math.max(0, Math.floor((Date.parse(today) - Date.parse(start)) / 86400000)) : 0,
+    next_payment_reminder_at: inv.next_payment_reminder_at || null,
+    days_until_reminder: daysUntilReminder,
+    payment_notes: inv.payment_notes,
+  };
+}
+
+function CompactAttentionRow({ row, onEdit, onOpenSheet }) {
   const st = paymentStatusStyle(row.payment_status);
   return (
-    <div className="card p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3 border" style={{ borderColor: st.border }}>
+    <div className="flex items-center gap-2 py-2 px-3 border-b last:border-b-0 text-xs" style={{ borderColor: "#EDE9E3" }}>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-bold text-sm truncate" style={{ color: "#2C3625" }}>{row.client_name}</span>
-          <span className="text-[10px] pill px-1.5 py-0.5" style={{ background: "#F0EDE9", color: "#5C6853" }}>
-            #{row.file_no || "—"}
-          </span>
-          <span className="pill text-[10px] font-bold px-2 py-0.5" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>
-            {paymentStatusLabel(row.payment_status)}
-          </span>
-        </div>
-        <div className="text-xs mt-1 flex flex-wrap gap-x-3 gap-y-0.5" style={{ color: "#5C6853" }}>
-          <span>{row.invoice_number}</span>
-          <span>{formatServiceTypeDisplay(row.service_type) || row.service_type || "—"}</span>
-          {row.payment_status === "pending" && row.days_unpaid != null && (
-            <span className="font-bold" style={{ color: "#8A3F27" }}>
-              {row.days_unpaid} day{row.days_unpaid !== 1 ? "s" : ""} without payment
-            </span>
-          )}
-          {row.payment_status === "partial" && row.amount_remaining != null && (
-            <span>{formatMoney(row.amount_remaining)} remaining</span>
-          )}
-          {row.payment_status === "partial" && row.next_payment_reminder_at && (
-            <span>
-              Next reminder: {row.next_payment_reminder_at}
-              {row.days_until_reminder != null && row.days_until_reminder >= 0 && (
-                <span> ({row.days_until_reminder === 0 ? "today" : `in ${row.days_until_reminder}d`})</span>
-              )}
-            </span>
-          )}
-        </div>
-        {row.payment_notes && (
-          <div className="text-[11px] mt-1 italic truncate" style={{ color: "#8B9E7A" }}>{row.payment_notes}</div>
-        )}
+        <span className="font-semibold truncate block" style={{ color: "#2C3625" }}>{row.client_name}</span>
+        <span style={{ color: "#8B9E7A" }}>{row.invoice_number} · {paymentStatusLabel(row.payment_status)}</span>
       </div>
-      <div className="flex gap-2 shrink-0 flex-wrap">
-        <button type="button" onClick={() => onOpenSheet(row)} className="btn btn-primary text-xs min-h-[36px]">
-          <ClipboardText size={14} /> Invoice Sheet
-        </button>
-        <button type="button" onClick={() => onEdit(row)} className="btn btn-secondary text-xs min-h-[36px]">
-          Update Payment
-        </button>
+      <div className="flex gap-1 shrink-0">
+        <button type="button" className="btn btn-primary text-[10px] px-2 py-1 min-h-0" onClick={() => onOpenSheet(row)}>Sheet</button>
+        <button type="button" className="btn btn-secondary text-[10px] px-2 py-1 min-h-0" onClick={() => onEdit(row)}>Pay</button>
       </div>
     </div>
   );
@@ -176,7 +172,6 @@ export default function Billing() {
   const { user } = useAuth();
   const isAdmin = showAdminNav(user);
   const [params, setParams] = useSearchParams();
-  const tab = params.get("tab") || "all";
   const deepClientId = params.get("client");
   const deepService = params.get("service");
   const deepNewInvoice = params.get("newInvoice") === "1";
@@ -185,22 +180,17 @@ export default function Billing() {
   const [clients, setClients] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [therapists, setTherapists] = useState([]);
+  const [pkgRows, setPkgRows] = useState([]);
   const [sheetClient, setSheetClient] = useState(null);
-  const [search, setSearch] = useState("");
+  const [selectedClientId, setSelectedClientId] = useState(deepClientId || "");
   const [editRow, setEditRow] = useState(null);
   const [sending, setSending] = useState(false);
-  const monthTabs = useMemo(() => yearMonthTabs(), []);
-  const defaultMonth = useMemo(() => {
-    const now = new Date();
-    const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    return monthTabs.some((m) => m.value === key) ? key : monthTabs[0]?.value || "";
-  }, [monthTabs]);
-  const [filterMonth, setFilterMonth] = useState(defaultMonth);
 
   const loadSupport = useCallback(() => {
     cachedGet("/clients", { force: true }).then(c => setClients(Array.isArray(c) ? c : [])).catch(() => {});
     cachedGet("/therapists", { force: true }).then(t => setTherapists(Array.isArray(t) ? t : [])).catch(() => {});
     cachedGet("/sessions", { force: true }).then(s => setSessions(Array.isArray(s) ? s : [])).catch(() => {});
+    cachedGet("/clients/package-status", { force: true }).then(r => setPkgRows(Array.isArray(r) ? r : [])).catch(() => setPkgRows([]));
     api.get("/invoices").then(r => setInvoices(Array.isArray(r.data) ? r.data : [])).catch(() => setInvoices([]));
   }, []);
 
@@ -212,10 +202,19 @@ export default function Billing() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
+    if (deepClientId) setSelectedClientId(deepClientId);
+  }, [deepClientId]);
+
+  useEffect(() => {
     if (!deepClientId || !clients.length) return;
     const c = clients.find(x => x.id === deepClientId);
     if (c) setSheetClient(c);
   }, [deepClientId, clients]);
+
+  const sortedClients = useMemo(
+    () => [...clients].sort((a, b) => (a.name || "").localeCompare(b.name || "")),
+    [clients]
+  );
 
   const clientMap = useMemo(() => {
     const m = {};
@@ -223,63 +222,37 @@ export default function Billing() {
     return m;
   }, [clients]);
 
-  const monthlyRows = useMemo(() => {
+  const allRows = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     return invoices
       .map((inv) => {
         const client = clientMap[inv.client_id];
         if (!client) return null;
-        const start = (inv.start_date || inv.created_at || "").slice(0, 10);
-        const month = monthKeyFromDate(start);
-        const amount = parseFloat(inv.amount) || 0;
-        const paid = parseFloat(inv.amount_paid) || 0;
-        const status = inv.payment_status === "complete" || (amount > 0 && paid >= amount)
-          ? "complete"
-          : (inv.payment_status === "partial" || (paid > 0 && paid < amount) ? "partial" : "pending");
-        return {
-          invoice_id: inv.id,
-          invoice_number: inv.invoice_number,
-          client_id: client.id,
-          client_name: client.name,
-          file_no: client.file_no,
-          service_type: inv.service_type,
-          payment_status: status,
-          amount: amount || null,
-          amount_paid: paid || null,
-          amount_remaining: amount > 0 ? Math.max(0, amount - paid) : null,
-          start_date: start || null,
-          month,
-          days_unpaid: start && status !== "complete" ? Math.max(0, Math.floor((Date.parse(today) - Date.parse(start)) / 86400000)) : 0,
-          next_payment_reminder_at: inv.next_payment_reminder_at || null,
-          payment_notes: inv.payment_notes,
-        };
+        return invoiceToRow(inv, client, today);
       })
       .filter(Boolean)
       .sort((a, b) => (b.start_date || "").localeCompare(a.start_date || "") || (a.client_name || "").localeCompare(b.client_name || ""));
   }, [invoices, clientMap]);
 
-  const monthFilteredRows = useMemo(() => {
-    if (!filterMonth) return monthlyRows;
-    return monthlyRows.filter((r) => r.month === filterMonth);
-  }, [monthlyRows, filterMonth]);
+  const selectedClient = useMemo(
+    () => clients.find(c => c.id === selectedClientId) || null,
+    [clients, selectedClientId]
+  );
 
-  const list = useMemo(() => {
-    const base = filterMonth ? monthFilteredRows : (data ? (tab === "unpaid" ? data.unpaid || [] : tab === "partial" ? data.partial || [] : data.items || []) : []);
-    if (!filterMonth) return base;
-    if (tab === "unpaid") return base.filter((r) => r.payment_status === "pending");
-    if (tab === "partial") return base.filter((r) => r.payment_status === "partial");
-    return base;
-  }, [data, tab, filterMonth, monthFilteredRows]);
+  const clientInvoices = useMemo(
+    () => allRows.filter(r => r.client_id === selectedClientId),
+    [allRows, selectedClientId]
+  );
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter(r =>
-      (r.client_name || "").toLowerCase().includes(q)
-      || (r.invoice_number || "").toLowerCase().includes(q)
-      || String(r.file_no || "").includes(q)
-    );
-  }, [list, search]);
+  const clientPkg = useMemo(
+    () => pkgRows.filter(r => r.client_id === selectedClientId),
+    [pkgRows, selectedClientId]
+  );
+
+  const attentionItems = useMemo(() => {
+    const items = data?.items || [];
+    return items.filter(r => r.payment_status === "pending" || r.payment_status === "partial");
+  }, [data]);
 
   const summary = data?.summary || { unpaid: 0, partial: 0, reminders_soon: 0 };
 
@@ -288,19 +261,14 @@ export default function Billing() {
     setSending(true);
     try {
       const r = await api.post("/billing/send-reminders");
-      const data = r.data || {};
-      const to = (data.recipients || []).join(", ") || "configured recipients";
+      const res = r.data || {};
+      const to = (res.recipients || []).join(", ") || "configured recipients";
       const lines = [
-        `Invoice reminders processed: ${data.sent ?? 0}`,
+        `Invoice reminders processed: ${res.sent ?? 0}`,
         `Recipients: ${to}`,
       ];
-      if (data.skipped) lines.push("Note: automatic run already completed today (manual send still applies matching rules).");
-      if (data.provider_configured === false) {
-        lines.push("⚠ No email provider configured — messages were queued but not delivered. Configure Mailgun/Brevo in Admin.");
-      }
-      if (data.email_results?.length) {
-        const statuses = data.email_results.map((e) => `${e.to}: ${e.status}${e.error ? ` (${e.error})` : ""}`);
-        lines.push("", "Email delivery:", ...statuses);
+      if (res.provider_configured === false) {
+        lines.push("⚠ No email provider configured — messages were queued but not delivered.");
       }
       alert(lines.join("\n"));
       load();
@@ -322,45 +290,60 @@ export default function Billing() {
     }
   };
 
+  const openSheetForClient = (client) => {
+    if (client) setSheetClient(client);
+  };
+
   const openSheet = (row) => {
     const c = clients.find(x => x.id === row.client_id);
     if (c) setSheetClient(c);
+  };
+
+  const onClientChange = (id) => {
+    setSelectedClientId(id);
+    const next = new URLSearchParams(params);
+    if (id) next.set("client", id);
+    else next.delete("client");
+    setParams(next, { replace: true });
   };
 
   if (!data) {
     return <div className="card p-12 text-center"><div className="spinner mx-auto" /></div>;
   }
 
-  const tabs = [
-    { id: "all", label: "All attention", n: (data.items || []).length },
-    { id: "unpaid", label: "Unpaid", n: summary.unpaid, accent: "#F4A89A" },
-    { id: "partial", label: "Partial", n: summary.partial, accent: "#F5D78E" },
-  ];
+  const clientToolbar = (
+    <select
+      className="input text-sm min-w-[200px] max-w-full"
+      value={selectedClientId}
+      onChange={e => onClientChange(e.target.value)}
+      data-testid="billing-client-select"
+    >
+      <option value="">Select a client…</option>
+      {sortedClients.map(c => (
+        <option key={c.id} value={c.id}>
+          {c.name}{c.file_no ? ` (#${c.file_no})` : ""}
+        </option>
+      ))}
+    </select>
+  );
 
   return (
     <div>
       <PageBanner
         title="Billing & Payments"
-        subtitle="Invoice payments by month (Jan – Jul)"
+        subtitle="Select a client to view invoices, package balance & payment status"
         className="editorial-banner--compact-mobile"
-        tabs={monthTabs.map((m) => ({
-          id: m.value,
-          label: m.short,
-          count: monthlyRows.filter((r) => r.month === m.value).length,
-        }))}
-        activeTab={filterMonth}
-        onTabChange={setFilterMonth}
         stats={[
           { label: "Unpaid", n: summary.unpaid, color: "#8A3F27" },
           { label: "Partial", n: summary.partial, color: "#6B5218" },
-          { label: "This month", n: monthFilteredRows.length, color: "#3D4F35" },
           { label: "Reminders", n: summary.reminders_soon, color: "#5C6853" },
         ]}
+        toolbar={clientToolbar}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4 p-3 rounded-xl border" style={{ background: "#FAFAF7", borderColor: "#E2DDD4" }}>
         <p className="ui-caption m-0 flex-1 min-w-[200px]">
-          Open <strong>Invoice Sheet</strong> for full billing details. Reminder emails go to admin and Walaa <strong>1–2 days before</strong> the next payment date on partial invoices.
+          Open <strong>Invoice Sheet</strong> for full billing details. Reminder emails go to admin and Walaa <strong>1–2 days before</strong> the next payment date.
         </p>
         <button
           type="button"
@@ -376,109 +359,124 @@ export default function Billing() {
         <BillingProgressStrip summary={summary} items={data.items || []} />
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 mb-4">
-        <div className="flex gap-1.5 flex-wrap">
-          {tabs.map(t => (
+      {selectedClient ? (
+        <div className="card p-4 mb-4">
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+            <div>
+              <h2 className="font-display text-lg font-semibold m-0" style={{ color: "#2C3625" }}>{selectedClient.name}</h2>
+              <p className="text-xs m-0 mt-1" style={{ color: "#8B9E7A" }}>File #{selectedClient.file_no || "—"}</p>
+            </div>
             <button
-              key={t.id}
               type="button"
-              onClick={() => setParams({ tab: t.id })}
-              className={`pill px-3 py-2 text-sm font-semibold border min-h-[40px] transition ${
-                tab === t.id ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E2DDD4] text-[#5C6853]"
-              }`}
+              onClick={() => openSheetForClient(selectedClient)}
+              className="btn btn-primary text-xs min-h-[40px]"
             >
-              {t.label}
-              {t.n > 0 && (
-                <span className="ml-1 opacity-80">({t.n})</span>
-              )}
+              <ClipboardText size={14} /> Open Invoice Sheet
             </button>
-          ))}
-        </div>
-        <div className="relative flex-1 min-w-[180px] max-w-xs ml-auto">
-          <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#8B9E7A" }} />
-          <input
-            className="input w-full pl-9 text-sm min-h-[40px]"
-            placeholder="Search child or invoice…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-        <button
-          type="button"
-          onClick={sendReminders}
-          disabled={sending}
-          className="sm:hidden btn btn-secondary text-xs min-h-[40px]"
-        >
-          <EnvelopeSimple size={14} /> {sending ? "…" : "Reminders"}
-        </button>
-      </div>
+          </div>
 
-      {filtered.length === 0 ? (
-        <div className="card p-10 text-center">
-          <CheckCircle size={40} weight="duotone" className="mx-auto mb-3" style={{ color: "#7A8A6A" }} />
-          <div className="font-bold" style={{ color: "#2C3625" }}>
-            {filterMonth ? "No invoices this month" : "No items in this list"}
-          </div>
-          <div className="text-sm mt-1" style={{ color: "#8B9E7A" }}>
-            {filterMonth
-              ? `No payment records for ${monthTabs.find((m) => m.value === filterMonth)?.label || filterMonth}.`
-              : (tab === "unpaid" ? "All open invoices are paid or partially paid." : "Nothing to show here.")}
-          </div>
-        </div>
-      ) : filterMonth ? (
-        <div className="intake-table-wrap">
-          <table className="intake-table">
-            <thead>
-              <tr>
-                <th>Client</th>
-                <th>Invoice</th>
-                <th>Service</th>
-                <th>Status</th>
-                <th>Amount</th>
-                <th>Paid</th>
-                <th>Date</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((row) => {
-                const st = paymentStatusStyle(row.payment_status);
+          {clientPkg.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+              {clientPkg.map(row => {
+                const ur = formatPkgUsedRemaining(row);
+                const needsInvoice = ["critical", "expired", "low"].includes(row.status);
                 return (
-                  <tr key={row.invoice_id}>
-                    <td>
-                      <div className="font-semibold">{row.client_name}</div>
-                      <div className="text-[10px]" style={{ color: "#8B9E7A" }}>#{row.file_no || "—"}</div>
-                    </td>
-                    <td>{row.invoice_number || "—"}</td>
-                    <td>{formatServiceTypeDisplay(row.service_type) || row.service_type || "—"}</td>
-                    <td>
-                      <span className="pill text-[10px] font-bold px-2 py-0.5" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>
-                        {paymentStatusLabel(row.payment_status)}
-                      </span>
-                    </td>
-                    <td>{row.amount != null ? formatMoney(row.amount) : "—"}</td>
-                    <td>{row.amount_paid != null ? formatMoney(row.amount_paid) : "—"}</td>
-                    <td>{row.start_date || "—"}</td>
-                    <td>
-                      <button type="button" className="text-[10px] underline mr-2" onClick={() => openSheet(row)}>Sheet</button>
-                      <button type="button" className="text-[10px] underline" onClick={() => setEditRow(row)}>Update</button>
-                    </td>
-                  </tr>
+                  <div
+                    key={`${row.client_id}-${row.service_type}`}
+                    className="p-3 rounded-xl border"
+                    style={{ borderColor: needsInvoice ? "#E8C4A8" : "#E2DDD4", background: needsInvoice ? "#FDF8F3" : "#FAFAF7" }}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-bold text-sm" style={{ color: "#2C3625" }}>{row.service_type}</span>
+                      {needsInvoice && <Warning size={16} weight="fill" style={{ color: "#C4783A" }} />}
+                    </div>
+                    <p className="text-xs m-0" style={{ color: "#5C6853" }}>{formatPkgBadge(row)}</p>
+                    <p className="text-[11px] m-0 mt-1" style={{ color: "#8B9E7A" }}>
+                      {ur.used} used · {ur.remaining} remaining
+                    </p>
+                    {needsInvoice && (
+                      <p className="text-[11px] font-bold m-0 mt-2" style={{ color: "#8A3F27" }}>
+                        Upload / issue invoice soon
+                      </p>
+                    )}
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
+            </div>
+          )}
+
+          {clientInvoices.length === 0 ? (
+            <div className="text-center py-6 text-sm" style={{ color: "#8B9E7A" }}>No invoices on file for this client.</div>
+          ) : (
+            <div className="space-y-2">
+              {clientInvoices.map(row => {
+                const st = paymentStatusStyle(row.payment_status);
+                return (
+                  <button
+                    key={row.invoice_id}
+                    type="button"
+                    onClick={() => openSheet(row)}
+                    className="w-full text-left p-3 rounded-xl border flex items-center gap-3 hover:bg-[#FAFAF7] transition"
+                    style={{ borderColor: st.border }}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-sm">{row.invoice_number || "Invoice"}</span>
+                        <span className="pill text-[10px] font-bold px-2 py-0.5" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>
+                          {paymentStatusLabel(row.payment_status)}
+                        </span>
+                        <span className="text-xs" style={{ color: "#8B9E7A" }}>
+                          {formatServiceTypeDisplay(row.service_type) || row.service_type}
+                        </span>
+                      </div>
+                      <div className="text-xs mt-1 flex flex-wrap gap-x-3" style={{ color: "#5C6853" }}>
+                        {row.amount != null && <span>{formatMoney(row.amount)}</span>}
+                        {row.payment_status === "pending" && row.days_unpaid > 0 && (
+                          <span className="font-bold" style={{ color: "#8A3F27" }}>{row.days_unpaid}d unpaid</span>
+                        )}
+                        {row.payment_status === "partial" && row.amount_remaining != null && (
+                          <span>{formatMoney(row.amount_remaining)} left</span>
+                        )}
+                        {row.next_payment_reminder_at && row.days_until_reminder != null && row.days_until_reminder <= 7 && (
+                          <span>Reminder in {row.days_until_reminder}d</span>
+                        )}
+                      </div>
+                    </div>
+                    <CaretRight size={18} style={{ color: "#8B9E7A" }} />
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       ) : (
-        <div className="space-y-2">
-          {filtered.map(row => (
-            <BillingRow
-              key={row.invoice_id}
-              row={row}
-              onEdit={setEditRow}
-              onOpenSheet={openSheet}
-            />
-          ))}
+        <div className="card p-8 text-center mb-4">
+          <Receipt size={40} weight="duotone" className="mx-auto mb-3" style={{ color: "#7A8A6A" }} />
+          <p className="text-sm m-0" style={{ color: "#5C6853" }}>Choose a client from the dropdown above to view invoices and package balance.</p>
+        </div>
+      )}
+
+      {attentionItems.length > 0 && (
+        <div className="card overflow-hidden mb-4">
+          <div className="px-4 py-2.5 border-b flex items-center justify-between" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
+            <span className="text-xs font-bold tracking-wider" style={{ color: "#8A3F27" }}>
+              NEEDS ATTENTION · {attentionItems.length}
+            </span>
+            <span className="text-[10px]" style={{ color: "#8B9E7A" }}>Unpaid & partial payments</span>
+          </div>
+          <div className="max-h-52 overflow-y-auto">
+            {attentionItems.map(row => (
+              <CompactAttentionRow key={row.invoice_id} row={row} onEdit={setEditRow} onOpenSheet={openSheet} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {attentionItems.length === 0 && (
+        <div className="card p-6 text-center mb-4">
+          <CheckCircle size={32} weight="duotone" className="mx-auto mb-2" style={{ color: "#7A8A6A" }} />
+          <p className="text-sm m-0 font-semibold" style={{ color: "#2C3625" }}>All caught up</p>
+          <p className="text-xs m-0 mt-1" style={{ color: "#8B9E7A" }}>No unpaid or partial invoices need attention right now.</p>
         </div>
       )}
 

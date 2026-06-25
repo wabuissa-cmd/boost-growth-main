@@ -140,19 +140,19 @@ export function isOpsLead(user) {
 export function canManageLeaves(user) {
   if (!user) return false;
   if (user.can_manage_leaves) return true;
-  return isPortalAdmin(user) || isJenan(user);
+  return isJenan(user);
 }
 
 export function canHrReviewLeaves(user) {
   if (!user) return false;
   if (user.can_hr_review_leaves) return true;
-  return isPortalAdmin(user) || isHrOps(user);
+  return isHrOps(user);
 }
 
 export function canEditStaffRequests(user) {
   if (!user) return false;
   if (user.can_edit_staff_requests) return true;
-  return isPortalAdmin(user) || isJenan(user) || isHrOps(user);
+  return isJenan(user) || isHrOps(user);
 }
 
 export function canEditIntake(user) {

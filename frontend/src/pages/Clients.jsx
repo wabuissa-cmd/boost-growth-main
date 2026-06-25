@@ -28,23 +28,30 @@ export default function Clients() {
   const [selectedClientId, setSelectedClientId] = useState(null);
   const [panelClient, setPanelClient] = useState(null); // { client, section }
   const [pkgByClient, setPkgByClient] = useState({});
-  const [clientPickerOpen, setClientPickerOpen] = useState(false);
+  const [pageReady, setPageReady] = useState(false);
 
   const closePanel = () => setPanelClient(null);
 
+  const [clientPickerOpen, setClientPickerOpen] = useState(false);
+
   const load = async () => {
-    const [c, t] = await Promise.all([
-      cachedGet("/clients"),
-      cachedGet("/therapists").catch(() => []),
-    ]);
-    const clients = Array.isArray(c) ? c : [];
-    setItems(clients);
-    setTherapists(Array.isArray(t) ? t : []);
-    setPanelClient((pc) => {
-      if (!pc?.client?.id) return pc;
-      const fresh = clients.find((x) => x.id === pc.client.id);
-      return fresh ? { ...pc, client: fresh } : pc;
-    });
+    setPageReady(false);
+    try {
+      const [c, t] = await Promise.all([
+        cachedGet("/clients"),
+        cachedGet("/therapists").catch(() => []),
+      ]);
+      const clients = Array.isArray(c) ? c : [];
+      setItems(clients);
+      setTherapists(Array.isArray(t) ? t : []);
+      setPanelClient((pc) => {
+        if (!pc?.client?.id) return pc;
+        const fresh = clients.find((x) => x.id === pc.client.id);
+        return fresh ? { ...pc, client: fresh } : pc;
+      });
+    } finally {
+      setPageReady(true);
+    }
   };
   useEffect(() => { load(); }, []);
 
@@ -57,7 +64,7 @@ export default function Clients() {
       }
       setPkgByClient(map);
     }).catch(() => setPkgByClient({}));
-  }, [items]);
+  }, []);
 
   const save = async () => {
     if (edit.id) await api.put(`/clients/${edit.id}`, edit);
@@ -79,23 +86,27 @@ export default function Clients() {
     [pkgByClient]
   );
 
+  const filteredRaw = useMemo(() => {
+    const q = search.toLowerCase();
+    return items.filter(c => {
+      const matchSearch = c.name.toLowerCase().includes(q) || (c.file_no || "").includes(search);
+      const isActive = (c.status || "Active") !== "Inactive";
+      const matchTab = statusTab === "active" ? isActive : !isActive;
+      return matchSearch && matchTab;
+    });
+  }, [items, search, statusTab]);
+
   const enrichedClients = useMemo(
-    () => items.map(c => enrichClientForCardView(c, packageRows)),
-    [items, packageRows]
+    () => filteredRaw.map(c => enrichClientForCardView(c, packageRows)),
+    [filteredRaw, packageRows]
   );
 
-  const filtered = enrichedClients.filter(c => {
-    const q = search.toLowerCase();
-    const matchSearch = c.name.toLowerCase().includes(q) || (c.file_no || "").includes(search);
-    const isActive = (c.status || "Active") !== "Inactive";
-    const matchTab = statusTab === "active" ? isActive : !isActive;
-    return matchSearch && matchTab;
-  });
+  const filtered = enrichedClients;
 
-  const attentionCount = enrichedClients.filter(c => {
+  const attentionCount = useMemo(() => items.filter(c => {
     const rows = pkgByClient[c.id] || [];
     return rows.some(r => ["critical", "low"].includes(r.status));
-  }).length;
+  }).length, [items, pkgByClient]);
 
   const layoutCounts = {
     all: items.length,
@@ -109,6 +120,15 @@ export default function Clients() {
     if (!selectedClient) return;
     setPanelClient({ client: selectedClient, section });
   };
+
+  if (!pageReady) {
+    return (
+      <div className="card p-12 text-center">
+        <div className="spinner mx-auto" />
+        <p className="text-sm mt-3" style={{ color: "#8B9E7A" }}>Loading clients…</p>
+      </div>
+    );
+  }
 
   return (
     <div>

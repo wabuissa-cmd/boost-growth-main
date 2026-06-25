@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "../../api";
 import { useAuth, canEditIntake } from "../../auth";
-import { Plus, Trash, PencilSimple, Star, Phone, MapPin, ArrowsClockwise, GraduationCap, ClipboardText, CaretDown } from "@phosphor-icons/react";
+import { Plus, Trash, PencilSimple, Star, Phone, MapPin, ArrowsClockwise, Buildings, ClipboardText, CaretDown, CalendarBlank } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -45,11 +45,19 @@ export default function WaitingPage({ mode }) {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [listMeta, setListMeta] = useState({ last_updated: null, updated_by: null });
+  const [editingDate, setEditingDate] = useState(false);
+  const [dateDraft, setDateDraft] = useState("");
+  const [savingDate, setSavingDate] = useState(false);
 
   const load = async () => {
     try {
-      const { data } = await api.get("/intake");
-      setItems(data);
+      const [intakeRes, metaRes] = await Promise.all([
+        api.get("/intake"),
+        api.get("/intake/meta").catch(() => ({ data: {} })),
+      ]);
+      setItems(intakeRes.data);
+      setListMeta(metaRes.data || {});
       setLoadError(null);
     } catch (e) {
       setItems([]);
@@ -79,7 +87,7 @@ export default function WaitingPage({ mode }) {
   };
 
   const syncFromGoogle = async () => {
-    if (!window.confirm("Sync waiting list from the official Google Sheet?\n\nSheet rows update by child name and queue type. Stale synced rows are removed.")) return;
+    if (!window.confirm("Sync waiting list from the official Google Sheet?\n\nOnly names currently in the sheet will remain. Stale rows are removed.")) return;
     setSyncing(true);
     setSyncResult(null);
     try {
@@ -91,6 +99,19 @@ export default function WaitingPage({ mode }) {
       setSyncResult({ ok: false, msg: e.response?.data?.detail || e.message });
     }
     setSyncing(false);
+  };
+
+  const saveLastUpdated = async () => {
+    setSavingDate(true);
+    try {
+      const { data } = await api.put("/intake/meta", { last_updated: dateDraft || null });
+      setListMeta(data);
+      setEditingDate(false);
+    } catch (e) {
+      alert(e.response?.data?.detail || e.message);
+    } finally {
+      setSavingDate(false);
+    }
   };
 
   const moveToPost = async (item) => {
@@ -206,7 +227,7 @@ export default function WaitingPage({ mode }) {
   const tabToolbar = isSchool ? (
     <div className="editorial-pill-row">
       <span className="editorial-pill is-active" style={{ cursor: "default" }}>
-        <GraduationCap size={14} weight="duotone" /> {totalSchool} in queue
+        <Buildings size={14} weight="duotone" /> {totalSchool} in queue
       </span>
       <button
         type="button"
@@ -270,6 +291,39 @@ export default function WaitingPage({ mode }) {
         toolbar={tabToolbar}
       />
 
+      {canManage && (
+        <div className="flex flex-wrap items-center gap-2 mb-3 text-xs px-1">
+          <CalendarBlank size={14} style={{ color: "#8B9E7A" }} />
+          <span style={{ color: "#5C6853" }}>Last updated:</span>
+          {editingDate ? (
+            <>
+              <input
+                type="date"
+                className="input text-xs py-1 h-8"
+                value={dateDraft}
+                onChange={e => setDateDraft(e.target.value)}
+              />
+              <button type="button" className="btn btn-primary text-[10px] px-2 py-1 min-h-0" onClick={saveLastUpdated} disabled={savingDate}>
+                {savingDate ? "Saving…" : "Save"}
+              </button>
+              <button type="button" className="btn btn-secondary text-[10px] px-2 py-1 min-h-0" onClick={() => setEditingDate(false)}>Cancel</button>
+            </>
+          ) : (
+            <>
+              <strong style={{ color: "#2C3625" }}>{listMeta.last_updated || "—"}</strong>
+              {listMeta.updated_by && <span style={{ color: "#8B9E7A" }}>by {listMeta.updated_by}</span>}
+              <button
+                type="button"
+                className="text-[10px] underline"
+                onClick={() => { setDateDraft(listMeta.last_updated || new Date().toISOString().slice(0, 10)); setEditingDate(true); }}
+              >
+                Edit date
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {loadError && (
         <div className="mb-4 p-3 rounded-xl border text-sm font-semibold bg-[#F8EBE7] border-[#ECA6A6] text-[#8A3F27]">
           {loadError}
@@ -286,7 +340,7 @@ export default function WaitingPage({ mode }) {
         <section className="req-panel-left">
           <div className="req-panel-head">
             <h2 className="font-bold text-sm m-0 flex items-center gap-1.5" style={{ color: "#2C3625" }}>
-              {isSchool ? <GraduationCap size={16} weight="duotone" /> : <ClipboardText size={16} weight="duotone" />}
+              {isSchool ? <Buildings size={16} weight="duotone" /> : <ClipboardText size={16} weight="duotone" />}
               {isSchool ? "School Waiting Queue" : tab === "pre" ? "Pre-Intake Queue" : "Post-Intake Queue"}
             </h2>
             <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>

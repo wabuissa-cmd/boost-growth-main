@@ -51,15 +51,21 @@ export function getTherapistScheduleName(t) {
 /** Full name for home banner greetings (first + family, with overrides). */
 const PORTAL_GREETING_OVERRIDES = {
   mswalaa: "Walaa Abu Eissa",
+  msmaha: "Maha Althunayan",
+  msfahda: "Fahda Alghadeeb",
+  msjenan: "Jenan Almuhaisin",
 };
 
-export function getPortalDisplayName(user) {
+export function getPortalDisplayName(user, therapistRow = null) {
   if (!user) return "";
-  const key = (user.key || "").toLowerCase();
+  const key = (user.key || therapistRow?.key || "").toLowerCase();
   if (PORTAL_GREETING_OVERRIDES[key]) return PORTAL_GREETING_OVERRIDES[key];
-  const email = (user.email || "").toLowerCase();
+  const email = (user.email || therapistRow?.email || "").toLowerCase();
   if (email === "walaa@boostgrowthsa.com") return PORTAL_GREETING_OVERRIDES.mswalaa;
-  return getTherapistScheduleName({ name: user.name, key: user.key })
+  if (email === "msalthunayan@boostgrowthsa.com") return PORTAL_GREETING_OVERRIDES.msmaha;
+  if (email === "falghadeeb@boostgrowthsa.com") return PORTAL_GREETING_OVERRIDES.msfahda;
+  if (email === "jsalmuhaisin@boostgrowthsa.com") return PORTAL_GREETING_OVERRIDES.msjenan;
+  return getTherapistScheduleName(therapistRow || { name: user.name, key: user.key })
     || (user.name || "").replace(/^Ms\.?\s*/i, "").trim()
     || "";
 }

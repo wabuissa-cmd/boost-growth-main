@@ -82,6 +82,7 @@ export default function Home() {
   const [pendingLeaves, setPendingLeaves] = useState(0);
   const [newIntake, setNewIntake] = useState(0);
   const [parentCancellationsPending, setParentCancellationsPending] = useState(0);
+  const [therapistRows, setTherapistRows] = useState([]);
 
   useEffect(() => {
     setHeroImageId(loadHeroPreference(user));
@@ -129,6 +130,7 @@ export default function Home() {
 
         const clientsList = asList({ data: c });
         const therapists = asList({ data: t });
+        setTherapistRows(therapists);
         const requests = asList({ data: r });
         const schedule = asList({ data: s });
         const sessions = asList({ data: sess });
@@ -187,9 +189,9 @@ export default function Home() {
       billing: billingSummary,
       pendingLeaves,
       newIntake,
-      excludeHr: walaaOps,
+      excludeHr: walaaOps || technicalAdmin,
     }),
-    [notifications, pkgAlerts, stats.requests, billingSummary, pendingLeaves, newIntake, walaaOps]
+    [notifications, pkgAlerts, stats.requests, billingSummary, pendingLeaves, newIntake, walaaOps, technicalAdmin]
   );
 
   useEffect(() => { if (!showOpsHome) loadPersonal(); }, [weekISO, weekEndISO, showOpsHome]);
@@ -204,7 +206,10 @@ export default function Home() {
       .catch(() => setParentCancellationsPending(0));
   }, [parentCancelOps, user?.id]);
 
-  const displayName = getPortalDisplayName(user) || "Friend";
+  const displayName = useMemo(() => {
+    const row = therapistRows.find(t => t.id === user?.id || (t.email || "").toLowerCase() === (user?.email || "").toLowerCase());
+    return getPortalDisplayName(user, row) || "Friend";
+  }, [user, therapistRows]);
   const dateStr = showOpsHome
     ? saudiDateString()
     : new Date().toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });

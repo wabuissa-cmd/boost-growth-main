@@ -64,7 +64,8 @@ export default function ClientInfoLayout({
   }, [onSelect]);
 
   useEffect(() => {
-    if (clients.length && !clients.some(c => c.id === selectedId)) handleSelect(clients[0].id);
+    if (!clients.length) return;
+    if (selectedId == null) handleSelect(clients[0].id);
   }, [clients, selectedId, handleSelect]);
 
   const selectedPkg = selected ? (pkgByClient[selected.id] || []) : [];

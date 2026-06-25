@@ -26,7 +26,6 @@ function fmtMoney(p) {
   return "—";
 }
 
-
 export default function Purchases() {
   const [items, setItems] = useState([]);
   const [therapists, setTherapists] = useState([]);
@@ -126,16 +125,104 @@ export default function Purchases() {
         title="Purchases"
         subtitle="Staff reimbursements · Jan – Jul"
         className="editorial-banner--compact-mobile"
-        tabs={monthTabs.map((m) => ({
-          id: m.value,
-          label: m.short,
-          count: items.filter((p) => p.purchase_month === m.value).length,
-        }))}
-        activeTab={filterMonth}
-        onTabChange={setFilterMonth}
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+      <div className="card overflow-hidden mb-4">
+        <div className="flex gap-0 overflow-x-auto border-b" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+          {monthTabs.map((m) => {
+            const active = filterMonth === m.value;
+            const count = items.filter((p) => p.purchase_month === m.value).length;
+            return (
+              <button
+                key={m.value}
+                type="button"
+                onClick={() => setFilterMonth(m.value)}
+                className={`shrink-0 px-4 py-2.5 text-xs font-bold border-b-2 transition min-h-[44px] ${
+                  active ? "border-[#7A8A6A] text-[#2C3625] bg-white" : "border-transparent text-[#8B9E7A] hover:text-[#5C6853]"
+                }`}
+              >
+                {m.short}
+                {count > 0 && <span className="ml-1 opacity-70">({count})</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="p-3 flex flex-wrap gap-2 items-center border-b" style={{ borderColor: "#EDE9E3" }}>
+          <ShoppingBag size={18} style={{ color: "#7A8A6A" }}/>
+          <select className="input text-sm w-auto" value={filterTherapist} onChange={e => setFilterTherapist(e.target.value)}>
+            <option value="">All therapists</option>
+            {therapists.map(t => <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>)}
+          </select>
+          <select className="input text-sm w-auto" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+            <option value="">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="reimbursed">Reimbursed</option>
+          </select>
+        </div>
+
+        <div className="intake-table-wrap" style={{ margin: 0, borderRadius: 0, border: "none" }}>
+          <table className="intake-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Item</th>
+                <th>Category</th>
+                <th>Purchaser</th>
+                <th>QTY</th>
+                <th>Unit</th>
+                <th>Total</th>
+                <th>Status</th>
+                <th>Reimb. date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.length === 0 && (
+                <tr><td colSpan={10} className="text-center py-8" style={{ color: "#8B9E7A" }}>No purchases found</td></tr>
+              )}
+              {items.map((p, i) => {
+                const st = STATUS_META[p.status] || STATUS_META.pending;
+                return (
+                  <tr key={p.id}>
+                    <td>{p.row_no || i + 1}</td>
+                    <td>
+                      <div className="font-semibold">{p.item}</div>
+                      {p.description && p.description !== "-" && (
+                        <div className="text-[10px]" style={{ color: "#8B9E7A" }}>{p.description}</div>
+                      )}
+                    </td>
+                    <td>{p.category}</td>
+                    <td>{p.purchaser_name || p.therapist_name || "—"}</td>
+                    <td>{p.qty || "—"}</td>
+                    <td>{p.unit_price || "—"}</td>
+                    <td>{fmtMoney(p)}</td>
+                    <td><span className={`pill text-[10px] ${st.cls}`}>{st.icon} {st.label}</span></td>
+                    <td>{fmtDate(p.reimbursement_date)}</td>
+                    <td>
+                      {p.status !== "approved" && (
+                        <button type="button" className="text-[10px] underline mr-2" onClick={() => updateStatus(p.id, "approved")}>Approve</button>
+                      )}
+                      {p.status !== "reimbursed" && (
+                        <button type="button" className="text-[10px] underline" onClick={() => updateStatus(p.id, "reimbursed")}>Reimburse</button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {categories.length > 0 && (
+          <div className="text-[10px] p-3 border-t" style={{ color: "#8B9E7A", borderColor: "#EDE9E3" }}>
+            Categories: {categories.join(" · ")}
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="card p-4 lg:col-span-1">
           <div className="text-xs font-bold tracking-wider mb-2" style={{ color: "#8B9E7A" }}>SUMMARY</div>
           <div className="font-display text-2xl font-semibold" style={{ color: "#2C3625" }}>{totals.count} entries</div>
@@ -199,80 +286,6 @@ export default function Purchases() {
           </div>
         </div>
       </div>
-
-
-      <div className="card p-3 mb-3 flex flex-wrap gap-2 items-center">
-        <ShoppingBag size={18} style={{ color: "#7A8A6A" }}/>
-        <select className="input text-sm w-auto" value={filterTherapist} onChange={e => setFilterTherapist(e.target.value)}>
-          <option value="">All therapists</option>
-          {therapists.map(t => <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>)}
-        </select>
-        <select className="input text-sm w-auto" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-          <option value="">All statuses</option>
-          <option value="pending">Pending</option>
-          <option value="approved">Approved</option>
-          <option value="reimbursed">Reimbursed</option>
-        </select>
-      </div>
-
-      <div className="intake-table-wrap">
-        <table className="intake-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Item</th>
-              <th>Category</th>
-              <th>Purchaser</th>
-              <th>QTY</th>
-              <th>Unit</th>
-              <th>Total</th>
-              <th>Status</th>
-              <th>Reimb. date</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.length === 0 && (
-              <tr><td colSpan={10} className="text-center py-8" style={{ color: "#8B9E7A" }}>No purchases found</td></tr>
-            )}
-            {items.map((p, i) => {
-              const st = STATUS_META[p.status] || STATUS_META.pending;
-              return (
-                <tr key={p.id}>
-                  <td>{p.row_no || i + 1}</td>
-                  <td>
-                    <div className="font-semibold">{p.item}</div>
-                    {p.description && p.description !== "-" && (
-                      <div className="text-[10px]" style={{ color: "#8B9E7A" }}>{p.description}</div>
-                    )}
-                  </td>
-                  <td>{p.category}</td>
-                  <td>{p.purchaser_name || p.therapist_name || "—"}</td>
-                  <td>{p.qty || "—"}</td>
-                  <td>{p.unit_price || "—"}</td>
-                  <td>{fmtMoney(p)}</td>
-                  <td><span className={`pill text-[10px] ${st.cls}`}>{st.icon} {st.label}</span></td>
-                  <td>{fmtDate(p.reimbursement_date)}</td>
-                  <td>
-                    {p.status !== "approved" && (
-                      <button type="button" className="text-[10px] underline mr-2" onClick={() => updateStatus(p.id, "approved")}>Approve</button>
-                    )}
-                    {p.status !== "reimbursed" && (
-                      <button type="button" className="text-[10px] underline" onClick={() => updateStatus(p.id, "reimbursed")}>Reimburse</button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {categories.length > 0 && (
-        <div className="text-[10px] mt-3" style={{ color: "#8B9E7A" }}>
-          Categories: {categories.join(" · ")}
-        </div>
-      )}
     </div>
   );
 }
