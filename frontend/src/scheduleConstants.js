@@ -48,6 +48,22 @@ export function getTherapistScheduleName(t) {
   return first || t.name || "";
 }
 
+/** Full name for home banner greetings (first + family, with overrides). */
+const PORTAL_GREETING_OVERRIDES = {
+  mswalaa: "Walaa Abu Eissa",
+};
+
+export function getPortalDisplayName(user) {
+  if (!user) return "";
+  const key = (user.key || "").toLowerCase();
+  if (PORTAL_GREETING_OVERRIDES[key]) return PORTAL_GREETING_OVERRIDES[key];
+  const email = (user.email || "").toLowerCase();
+  if (email === "walaa@boostgrowthsa.com") return PORTAL_GREETING_OVERRIDES.mswalaa;
+  return getTherapistScheduleName({ name: user.name, key: user.key })
+    || (user.name || "").replace(/^Ms\.?\s*/i, "").trim()
+    || "";
+}
+
 export function sortTherapistsForSchedule(list) {
   const orderMap = new Map(THERAPIST_SCHEDULE_ORDER.map((k, i) => [k, i]));
   return [...list].sort((a, b) => {

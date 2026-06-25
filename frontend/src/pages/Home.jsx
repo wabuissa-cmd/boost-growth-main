@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link } from "react-router-dom";
 import api, { startOfWeek, toISODate, addDays } from "../api";
 import { cachedGet } from "../dataCache";
 import { useAuth, showAdminNav, hasOpsAccess, isHrOps, isJenan, canParentCancellationOps, isWalaaOps } from "../auth";
@@ -16,7 +16,7 @@ import PlatformUpdates from "../components/PlatformUpdates";
 import AdminRemindersPanel, { buildAdminReminders } from "../components/AdminRemindersPanel";
 import HrInboxPanel from "../components/HrInboxPanel";
 import { saudiGreetingParts, saudiDateString } from "../saudiGreeting";
-import { getTherapistScheduleName } from "../scheduleConstants";
+import { getPortalDisplayName } from "../scheduleConstants";
 import "../dashboardLayout.css";
 
 const HERO_OPTIONS = [
@@ -203,9 +203,7 @@ export default function Home() {
       .catch(() => setParentCancellationsPending(0));
   }, [parentCancelOps, user?.id]);
 
-  const displayName = getTherapistScheduleName({ name: user?.name, key: user?.key })
-    || user?.name?.replace(/^Ms\.?\s*/i, "")
-    || "Friend";
+  const displayName = getPortalDisplayName(user) || "Friend";
   const dateStr = showOpsHome
     ? saudiDateString()
     : new Date().toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
@@ -217,34 +215,13 @@ export default function Home() {
     { to: "/clients", icon: UsersThree, title: "Client Portfolios", desc: "Profiles, locations, packages, and progress reports.", ...beigeCard },
   ];
 
-  const loc = useLocation();
-  const adminHeroNav = [
-    { to: "/home", label: "Home" },
-    { to: "/schedule", label: "Schedule" },
-    { to: "/clients", label: "Clients" },
-    { to: "/waiting/intake", label: "Waiting" },
-    { to: "/billing", label: "Billing" },
-  ];
-
-  const HeroBanner = ({ compact, greetingParts, showNav }) => (
+  const HeroBanner = ({ compact, greetingParts }) => (
     <header className={`portal-hero${heroStyle === "plain" ? " portal-hero-plain" : ""}${heroStyle === "olive" ? " portal-hero-olive" : ""}`}>
       {heroImage && (
         <>
           <div className="portal-hero-bg" style={{ backgroundImage: `url(${heroImage})` }} aria-hidden />
           <div className="portal-hero-overlay" aria-hidden />
         </>
-      )}
-      {showNav && (
-        <nav className="portal-hero-nav" aria-label="Quick navigation">
-          {adminHeroNav.map(item => {
-            const active = loc.pathname === item.to || (item.to !== "/home" && loc.pathname.startsWith(item.to));
-            return (
-              <Link key={item.to} to={item.to} className={`portal-hero-nav-link${active ? " is-active" : ""}`}>
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
       )}
       <div className="portal-hero-picker" role="group" aria-label="Choose hero background">
         {HERO_OPTIONS.map(o => (
@@ -324,7 +301,7 @@ export default function Home() {
     <div className="page-enter">
       {showOpsHome ? (
         <>
-          <HeroBanner greetingParts={saudiGreetingParts(displayName)} showNav />
+          <HeroBanner greetingParts={saudiGreetingParts(displayName)} />
 
           {parentCancelOps && parentCancellationsPending > 0 && (
             <Link

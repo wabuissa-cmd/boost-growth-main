@@ -25,7 +25,6 @@ export default function Clients() {
   const [edit, setEdit] = useState(null);
   const [search, setSearch] = useState("");
   const [statusTab, setStatusTab] = useState("active");
-  const [therapistFilter, setTherapistFilter] = useState("");
   const [selectedClientId, setSelectedClientId] = useState(null);
   const [panelClient, setPanelClient] = useState(null); // { client, section }
   const [pkgByClient, setPkgByClient] = useState({});
@@ -90,8 +89,7 @@ export default function Clients() {
     const matchSearch = c.name.toLowerCase().includes(q) || (c.file_no || "").includes(search);
     const isActive = (c.status || "Active") !== "Inactive";
     const matchTab = statusTab === "active" ? isActive : !isActive;
-    const matchTherapist = !therapistFilter || c.main_therapist_id === therapistFilter;
-    return matchSearch && matchTab && matchTherapist;
+    return matchSearch && matchTab;
   });
 
   const attentionCount = enrichedClients.filter(c => {
@@ -116,37 +114,40 @@ export default function Clients() {
     <div>
       <PageBanner
         title="Client Info"
-        subtitle="Active portfolios, locations, records, and clinical summaries"
-        badge={(
-          <button
-            type="button"
-            data-testid="all-clients-btn"
-            className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0 whitespace-nowrap"
-            onClick={() => setClientPickerOpen(true)}
-          >
-            <UsersThree size={14} weight="duotone" /> All Clients
-          </button>
-        )}
+        className="editorial-banner--compact-mobile editorial-banner--clients-compact"
         tabs={[
           { id: "active", label: "Active", count: activeCount },
           { id: "inactive", label: "Inactive", count: items.length - activeCount },
         ]}
         activeTab={statusTab}
         onTabChange={setStatusTab}
-        toolbar={(
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {isAdmin && (
-              <select className="select text-[11px] min-h-0 h-8 py-0 max-w-[140px]" value={therapistFilter} onChange={e => setTherapistFilter(e.target.value)}>
-                <option value="">All therapists</option>
-                {therapists.map(t => <option key={t.id} value={t.id}>{t.name?.replace("Ms. ", "")}</option>)}
-              </select>
-            )}
-            <div className="relative flex-1 min-w-[120px] max-w-[200px]">
-              <MagnifyingGlass size={13} className="absolute top-1/2 -translate-y-1/2 left-2" style={{color: "#8B9E7A"}}/>
-              <input className="input pl-7 w-full text-[11px] min-h-0 h-7" placeholder="Search name or file #…" value={search} onChange={e=>setSearch(e.target.value)}/>
+        badge={(
+          <div className="client-info-banner-actions">
+            <button
+              type="button"
+              data-testid="all-clients-btn"
+              className="btn btn-secondary text-[11px] px-2 py-1 min-h-0 whitespace-nowrap"
+              onClick={() => setClientPickerOpen(true)}
+            >
+              <UsersThree size={14} weight="duotone" /> All Clients
+            </button>
+            <div className="relative client-info-banner-search">
+              <MagnifyingGlass size={13} className="absolute top-1/2 -translate-y-1/2 left-2" style={{ color: "#8B9E7A" }} />
+              <input
+                className="input pl-7 w-full text-[11px] min-h-0 h-8"
+                placeholder="Search…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
             </div>
             {isAdmin && (
-              <button data-testid="add-client-btn" onClick={() => setEdit({ name: "", file_no: "", package_hours: 24, color: "#A2C4C9", main_therapist_id: "", co_therapist_ids: [], locations: [] })} className="btn btn-primary text-[11px] px-2.5 py-1 min-h-0 ml-auto"><Plus size={14}/> New Child</button>
+              <button
+                data-testid="add-client-btn"
+                onClick={() => setEdit({ name: "", file_no: "", package_hours: 24, color: "#A2C4C9", main_therapist_id: "", co_therapist_ids: [], locations: [] })}
+                className="btn btn-primary text-[11px] px-2.5 py-1 min-h-0 whitespace-nowrap"
+              >
+                <Plus size={14} /> New Child
+              </button>
             )}
           </div>
         )}

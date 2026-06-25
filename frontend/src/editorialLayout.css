@@ -303,8 +303,11 @@
   }
   .schedule-toolbar-mobile-card .schedule-toolbar--wrap {
     gap: 0.45rem;
+    flex-direction: column;
+    align-items: stretch;
   }
   .schedule-toolbar-mobile-card .schedule-toolbar-week-nav {
+    order: -1;
     position: static !important;
     top: auto !important;
     box-shadow: none !important;
@@ -327,6 +330,33 @@
     padding: 0.3rem 0.45rem;
   }
   .schedule-legend-strip p { display: none; }
+  .editorial-banner--clients-compact .editorial-banner__subtitle,
+  .editorial-banner--clients-compact .editorial-banner__stats,
+  .editorial-banner--clients-compact .editorial-banner__eyebrow {
+    display: none;
+  }
+  .editorial-banner--clients-compact .editorial-banner__head {
+    padding-bottom: 0.35rem;
+  }
+  .editorial-banner--clients-compact .editorial-banner__panel {
+    padding-top: 0.25rem;
+  }
+  .editorial-banner--clients-compact .editorial-banner__nav {
+    padding-top: 0.35rem;
+  }
+  .client-info-banner-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .client-info-banner-search {
+    flex: 1 1 88px;
+    min-width: 72px;
+    max-width: 140px;
+  }
 }
 
 /* Pill tab row — shared outside banner */

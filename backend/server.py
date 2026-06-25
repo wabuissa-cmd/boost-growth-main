@@ -293,7 +293,7 @@ async def schedule_edit_or_admin(user: dict = Depends(get_current_user)) -> dict
 
 
 async def ops_or_admin(user: dict = Depends(get_current_user)) -> dict:
-    if _is_portal_admin(user) or _is_hr_ops(user):
+    if _is_portal_admin(user) or _is_hr_ops(user) or _is_walaa_ops(user):
         return user
     raise HTTPException(status_code=403, detail="Admin access required")
 

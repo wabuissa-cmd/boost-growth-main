@@ -167,15 +167,17 @@
     max-height: none;
     overflow-y: visible;
     padding-right: calc(58vw + 0.35rem);
-    min-height: calc(100dvh - 12rem);
+    padding-bottom: calc(11rem + env(safe-area-inset-bottom, 0px));
+    min-height: auto;
   }
   .prep-detail {
     position: fixed;
-    top: 3.65rem;
+    top: auto;
+    bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
     right: max(0.65rem, env(safe-area-inset-right, 0px));
     width: min(58vw, 228px);
     z-index: 25;
-    max-height: calc(100dvh - 4.75rem);
+    max-height: min(42dvh, 320px);
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     padding: 0.85rem;
@@ -215,9 +217,11 @@
   .prep-stats { display: none; }
   .prep-client-list {
     padding-right: calc(62vw + 0.25rem);
+    padding-bottom: calc(10.5rem + env(safe-area-inset-bottom, 0px));
   }
   .prep-detail {
     width: min(62vw, 210px);
-    top: 3.5rem;
+    bottom: calc(0.65rem + env(safe-area-inset-bottom, 0px));
+    max-height: min(40dvh, 280px);
   }
 }

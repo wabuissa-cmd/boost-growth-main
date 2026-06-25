@@ -200,3 +200,10 @@ export function canParentCancellationOps(user) {
   if (user.can_parent_cancellation_ops) return true;
   return isPortalAdmin(user) || isHrOps(user) || isWalaaOps(user);
 }
+
+/** My Request / My Report nav — all therapist logins including client-lead team & Walaa */
+export function showMyPortalNav(user) {
+  if (!user || isHrOps(user)) return false;
+  if (isPortalAdmin(user) && !isClientLead(user) && !isWalaaOps(user)) return false;
+  return user.role === "therapist" || isWalaaOps(user);
+}

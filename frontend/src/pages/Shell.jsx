@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, Suspense } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData, isWalaaOps } from "../auth";
+import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData, isWalaaOps, showMyPortalNav } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch } from "../dataCache";
 import {
@@ -67,7 +67,7 @@ export default function Shell() {
   const leaveManager = canManageLeaves(user);
   const hrLeaveReview = canHrReviewLeaves(user);
   const intakeAccess = canEditIntake(user);
-  const showPersonal = !portalAdmin && !hrOps;
+  const showMyPortal = showMyPortalNav(user);
   const showBilling = hasOpsAccess(user);
   const therapistOnly = Boolean(user && !portalAdmin && !hrOps && !walaaOps);
   const profileRole = hrOps ? "HR" : walaaOps ? "Coordination" : portalAdmin ? "Admin" : "Therapist";
@@ -106,7 +106,7 @@ export default function Shell() {
     : [];
 
   // Personal portal dropdown (therapists + ops team; hidden for admin login)
-  const myPortalItems = showPersonal ? [
+  const myPortalItems = showMyPortal ? [
     { to: "/my-requests", label: "Request", testid: "nav-my-requests" },
     { to: "/my-reports", label: "My Report", testid: "nav-my-reports" },
   ] : [];
