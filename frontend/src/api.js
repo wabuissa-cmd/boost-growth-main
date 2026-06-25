@@ -6,7 +6,7 @@ import { invalidateForMutation } from "./dataCache";
 const BACKEND_URL = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
 export const API = BACKEND_URL ? `${BACKEND_URL}/api` : "/api";
 
-const api = axios.create({ baseURL: API, withCredentials: true });
+const api = axios.create({ baseURL: API, withCredentials: true, timeout: 25000 });
 
 api.interceptors.response.use(
   (res) => {

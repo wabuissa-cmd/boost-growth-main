@@ -16,6 +16,8 @@ const TTL_MS = {
   "/schedule": 45 * 1000,
 };
 
+const DEFAULT_TIMEOUT_MS = 20000;
+
 function pathOf(url) {
   return String(url || "").split("?")[0];
 }
@@ -28,6 +30,21 @@ function cacheKey(url, params) {
 
 function ttlFor(url) {
   return TTL_MS[pathOf(url)] ?? 45 * 1000;
+}
+
+/** Read last cached payload without fetching (instant paint on revisit). */
+export function peekCache(url, params) {
+  const hit = store.get(cacheKey(url, params));
+  return hit?.data ?? null;
+}
+
+function withTimeout(promise, ms = DEFAULT_TIMEOUT_MS) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("Request timed out")), ms);
+    }),
+  ]);
 }
 
 export function invalidateCache(prefix) {
@@ -52,7 +69,7 @@ export async function cachedGet(url, { params, force = false, staleOk = true } =
 
   if (inflight.has(key)) return inflight.get(key);
 
-  const req = api.get(url, { params })
+  const req = withTimeout(api.get(url, { params }), DEFAULT_TIMEOUT_MS)
     .then(res => {
       store.set(key, { data: res.data, at: Date.now() });
       inflight.delete(key);

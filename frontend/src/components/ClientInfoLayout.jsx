@@ -4,6 +4,7 @@ import {
   Leaf, PencilSimple, Trash, CaretRight,
 } from "@phosphor-icons/react";
 import { getChildColor, readable } from "../childColors";
+import { prepTrackMeta, cardStatusMeta } from "../attendanceUtils";
 import { getTherapistScheduleName } from "../scheduleConstants";
 import { formatPkgBadge, pkgStatusStyle, formatPkgUsedRemaining } from "../packageStatusUtils";
 import "../clientInfoLayout.css";
@@ -65,8 +66,8 @@ export default function ClientInfoLayout({
 
   useEffect(() => {
     if (!clients.length) return;
-    if (selectedId == null) handleSelect(clients[0].id);
-  }, [clients, selectedId, handleSelect]);
+    if (selectedId == null && clients[0]?.id) onSelect(clients[0].id);
+  }, [clients, selectedId, onSelect]);
 
   const selectedPkg = selected ? (pkgByClient[selected.id] || []) : [];
   const track = selected ? prepTrackMeta(selected) : null;

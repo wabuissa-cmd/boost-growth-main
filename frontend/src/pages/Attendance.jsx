@@ -32,7 +32,7 @@ import PageBanner from "../components/PageBanner";
 import LogSessionModal from "../components/LogSessionModal";
 import SsWeekStatusRow, { SsWeekLegend } from "../components/SsWeekStatusRow";
 import ExportColumnsModal, { buildInvoiceSheetColumns, EXPORT_COLUMN_DEFS, EXPORT_EXTRA_COLUMN_DEFS } from "../components/ExportColumnsModal";
-import { cachedGet } from "../dataCache";
+import { cachedGet, peekCache } from "../dataCache";
 
 const EXPORT_COLS_KEY = "bg_export_columns";
 
@@ -173,16 +173,31 @@ export default function Attendance() {
   const [selectedPrepId, setSelectedPrepId] = useState(null);
 
   const load = useCallback(async (force = false) => {
-    const [c, t, pkg] = await Promise.all([
-      cachedGet("/clients", { force }),
-      cachedGet("/therapists", { force }).catch(() => []),
-      cachedGet("/clients/package-status", { force }).catch(() => []),
-    ]);
-    setClients(Array.isArray(c) ? c : []);
-    setTherapists(Array.isArray(t) ? t : []);
-    setPackageRows(Array.isArray(pkg) ? pkg : []);
-    setCardsReady(true);
-    cachedGet("/sessions", { force }).then(s => setSessions(Array.isArray(s) ? s : [])).catch(() => {});
+    const staleClients = peekCache("/clients");
+    const stalePkg = peekCache("/clients/package-status");
+    if (Array.isArray(staleClients) && staleClients.length) {
+      setClients(staleClients);
+      setCardsReady(true);
+    }
+    if (Array.isArray(stalePkg)) setPackageRows(stalePkg);
+
+    try {
+      const c = await cachedGet("/clients", { force }).catch(() => staleClients || []);
+      setClients(Array.isArray(c) ? c : []);
+      setCardsReady(true);
+    } catch {
+      if (!staleClients?.length) setCardsReady(true);
+    }
+
+    Promise.all([
+      cachedGet("/therapists", { force }).catch(() => peekCache("/therapists") || []),
+      cachedGet("/clients/package-status", { force }).catch(() => peekCache("/clients/package-status") || []),
+      cachedGet("/sessions", { force }).catch(() => peekCache("/sessions") || []),
+    ]).then(([t, pkg, s]) => {
+      setTherapists(Array.isArray(t) ? t : []);
+      setPackageRows(Array.isArray(pkg) ? pkg : []);
+      setSessions(Array.isArray(s) ? s : []);
+    });
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -279,7 +294,7 @@ export default function Attendance() {
 
       {/* Client list — design preview layout */}
       <div className="stagger">
-        {!cardsReady && (
+        {!cardsReady && !clients.length && (
           <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>
             <div className="spinner mx-auto mb-3" /> Loading clients…
           </div>

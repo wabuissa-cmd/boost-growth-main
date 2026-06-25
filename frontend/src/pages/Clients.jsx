@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api";
-import { cachedGet } from "../dataCache";
+import { cachedGet, peekCache } from "../dataCache";
 import { useAuth, showAdminNav, hasOpsAccess, hasFullClientAccess, isJenan } from "../auth";
 import { Plus, MagnifyingGlass, MapPin, ArrowSquareOut, Trash, PencilSimple, UsersThree, EnvelopeSimple } from "@phosphor-icons/react";
 import ClientInfoLayout from "../components/ClientInfoLayout";
@@ -34,12 +34,12 @@ export default function Clients() {
 
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
 
-  const load = async () => {
-    setPageReady(false);
+  const load = async ({ background = false } = {}) => {
+    if (!background) setPageReady(false);
     try {
       const [c, t] = await Promise.all([
-        cachedGet("/clients"),
-        cachedGet("/therapists").catch(() => []),
+        cachedGet("/clients").catch(() => peekCache("/clients") || []),
+        cachedGet("/therapists").catch(() => peekCache("/therapists") || []),
       ]);
       const clients = Array.isArray(c) ? c : [];
       setItems(clients);
@@ -49,21 +49,45 @@ export default function Clients() {
         const fresh = clients.find((x) => x.id === pc.client.id);
         return fresh ? { ...pc, client: fresh } : pc;
       });
+    } catch {
+      const stale = peekCache("/clients");
+      if (Array.isArray(stale) && stale.length) setItems(stale);
     } finally {
       setPageReady(true);
     }
   };
-  useEffect(() => { load(); }, []);
 
   useEffect(() => {
-    cachedGet("/clients/package-status").then(rows => {
+    const staleClients = peekCache("/clients");
+    const staleTherapists = peekCache("/therapists");
+    if (Array.isArray(staleClients) && staleClients.length) {
+      setItems(staleClients);
+      setPageReady(true);
+    }
+    if (Array.isArray(staleTherapists)) setTherapists(staleTherapists);
+    load({ background: Boolean(staleClients?.length) });
+  }, []);
+
+  useEffect(() => {
+    const stale = peekCache("/clients/package-status");
+    if (Array.isArray(stale) && stale.length) {
       const map = {};
-      for (const row of rows || []) {
+      for (const row of stale) {
         if (!map[row.client_id]) map[row.client_id] = [];
         map[row.client_id].push(row);
       }
       setPkgByClient(map);
-    }).catch(() => setPkgByClient({}));
+    }
+    cachedGet("/clients/package-status")
+      .then(rows => {
+        const map = {};
+        for (const row of rows || []) {
+          if (!map[row.client_id]) map[row.client_id] = [];
+          map[row.client_id].push(row);
+        }
+        setPkgByClient(map);
+      })
+      .catch(() => {});
   }, []);
 
   const save = async () => {
@@ -121,7 +145,7 @@ export default function Clients() {
     setPanelClient({ client: selectedClient, section });
   };
 
-  if (!pageReady) {
+  if (!pageReady && !items.length) {
     return (
       <div className="card p-12 text-center">
         <div className="spinner mx-auto" />
