@@ -389,15 +389,15 @@ export default function Shell() {
       {/* Mobile drawer — sidebar-style list */}
       {mobileNav && (
         <div className="fixed inset-0 z-50 bg-black/40 modal-backdrop lg:hidden" onClick={() => setMobileNav(false)}>
-          <div className="absolute left-0 top-0 h-full w-72 max-w-[88vw] shadow-2xl overflow-y-auto bg-[#FAFAF7]" onClick={e=>e.stopPropagation()}>
-            <div className="p-4 flex items-center justify-between border-b border-[#E2DDD4]">
+          <div className="absolute left-0 top-0 h-full w-72 max-w-[88vw] shadow-2xl overflow-y-auto mobile-sidebar-panel" onClick={e=>e.stopPropagation()}>
+            <div className="p-4 flex items-center justify-between mobile-sidebar-panel-header">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-[#7A8A6A] flex items-center justify-center p-1.5">
+                <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center p-1.5 border border-white/20">
                   <img src="/bg-logo.png" alt="" className="w-full h-full object-contain"/>
                 </div>
-                <div className="font-bold text-sm" style={{ color: "#2C3625" }}>Boost Growth</div>
+                <div className="font-bold text-sm text-white">Boost Growth</div>
               </div>
-              <button onClick={() => setMobileNav(false)} className="btn btn-ghost p-2 min-w-[44px] min-h-[44px]"><X size={20}/></button>
+              <button onClick={() => setMobileNav(false)} className="sidebar-link p-2 min-w-[44px] min-h-[44px] justify-center"><X size={20}/></button>
             </div>
             <div className="p-2">
               <SidebarNav

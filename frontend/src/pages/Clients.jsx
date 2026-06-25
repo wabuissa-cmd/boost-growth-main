@@ -386,14 +386,14 @@ function AttachmentsPanelModal({ client, canSyncDrive, onClose, onSaved, onRefre
     <ModalBase title="Records & Files" subtitle={`${client.name} · Google Drive links`} onClose={onClose} size="lg"
       footer={
         <>
-          <ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>
+          <ModalBtnSecondary type="button" className="records-modal-btn" onClick={onClose}>Close</ModalBtnSecondary>
           {canSyncDrive && (
-            <ModalBtnSecondary type="button" onClick={syncFromDrive} disabled={syncing}>
+            <ModalBtnSecondary type="button" className="records-modal-btn" onClick={syncFromDrive} disabled={syncing}>
               {syncing ? "Syncing…" : "Sync from Drive"}
             </ModalBtnSecondary>
           )}
           {canSyncDrive ? (
-            <ModalBtnPrimary data-testid="save-attachments-btn" type="button" onClick={saveAttachments} disabled={saving}>
+            <ModalBtnPrimary data-testid="save-attachments-btn" className="records-modal-btn" type="button" onClick={saveAttachments} disabled={saving}>
               {saving ? <span className="spinner" /> : "Save Links"}
             </ModalBtnPrimary>
           ) : null}
@@ -584,7 +584,7 @@ function CaseDetailsPanelModal({ client, therapists, isAdmin, onClose, onSaved }
       }>
       {!editing ? (
         <div className="space-y-6">
-          <dl className="grid grid-cols-3 gap-y-1 text-sm">
+          <dl className="grid grid-cols-3 gap-y-1 text-sm case-summary-dl">
             <Field label="Full name"><span className="font-medium" style={{ color: "#1C2617" }}>{client.name}</span></Field>
             <Field label="File number"><span className="font-medium" style={{ color: "#1C2617" }}>{client.file_no || "—"}</span></Field>
             <Field label="Package hours"><span className="font-medium" style={{ color: "#1C2617" }}>{client.billing_mode === "weeks" ? `${client.cycle_weeks || 4}-week cycle` : `${client.package_hours || 24}h`}</span></Field>

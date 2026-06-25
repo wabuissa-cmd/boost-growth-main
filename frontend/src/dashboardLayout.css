@@ -40,7 +40,7 @@ a.dash-stat-card:hover {
 .dash-stat-icon {
   width: 44px;
   height: 44px;
-  border-radius: 14px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -342,6 +342,8 @@ a.dash-stat-card:hover {
 .portal-hero-picker-btn {
   width: 2.35rem;
   height: 2.35rem;
+  aspect-ratio: 1;
+  flex-shrink: 0;
   padding: 0;
   border: 2px solid rgba(255, 255, 255, 0.35);
   border-radius: 50%;
@@ -562,7 +564,7 @@ a.dash-stat-card:hover {
 .home-feature-icon {
   width: 48px;
   height: 48px;
-  border-radius: 16px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;

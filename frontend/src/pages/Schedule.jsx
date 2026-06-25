@@ -28,6 +28,9 @@ import { sortTherapistsForSchedule, getTherapistScheduleName, scheduleOwnBlockOn
 import { cachedGet } from "../dataCache";
 import "../dashboardLayout.css";
 
+const SCHEDULE_MOBILE_BP = 768;
+const SCHEDULE_TABLET_BP = 1024;
+
 const SCHEDULE_ZOOM = 80;
 
 function formatSlotHeader(ts) {
@@ -137,6 +140,12 @@ export default function Schedule() {
     // Default to "Per Therapist" (blocks) view for all users per business request.
     return "blocks";
   });
+  const [isScheduleNarrow, setIsScheduleNarrow] = useState(
+    () => typeof window !== "undefined" && window.innerWidth <= SCHEDULE_MOBILE_BP,
+  );
+  const [isScheduleTablet, setIsScheduleTablet] = useState(
+    () => typeof window !== "undefined" && window.innerWidth > SCHEDULE_MOBILE_BP && window.innerWidth <= SCHEDULE_TABLET_BP,
+  );
   const [weekStart, setWeekStart] = useState(startOfWeek(new Date()));
   const [cells, setCells] = useState([]);
   const [therapists, setTherapists] = useState([]);
@@ -184,6 +193,23 @@ export default function Schedule() {
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [adminEditsOpen]);
+
+  useEffect(() => {
+    const mqNarrow = window.matchMedia(`(max-width: ${SCHEDULE_MOBILE_BP}px)`);
+    const mqTablet = window.matchMedia(`(min-width: ${SCHEDULE_MOBILE_BP + 1}px) and (max-width: ${SCHEDULE_TABLET_BP}px)`);
+    const sync = () => {
+      setIsScheduleNarrow(mqNarrow.matches);
+      setIsScheduleTablet(mqTablet.matches);
+      if (mqNarrow.matches) setView((v) => (v === "sheet" ? "blocks" : v));
+    };
+    sync();
+    mqNarrow.addEventListener("change", sync);
+    mqTablet.addEventListener("change", sync);
+    return () => {
+      mqNarrow.removeEventListener("change", sync);
+      mqTablet.removeEventListener("change", sync);
+    };
+  }, []);
 
   const openCtxAt = (x, y, cell, therapist_id, day, time_slot) => {
     if (!canNotifySchedule) return;
@@ -1056,12 +1082,14 @@ export default function Schedule() {
           { n: clients.length, label: "Clients", color: "#3D4F35" },
         ]}
         toolbar={(
-          <div className="flex items-center gap-1.5 flex-wrap schedule-toolbar relative">
+          <div className="flex items-center gap-1.5 flex-wrap schedule-toolbar schedule-toolbar--wrap relative">
+            {!isScheduleNarrow && (
             <div className="inline-flex items-center rounded-lg border border-[#E2DDD4] p-0.5 bg-[#FAFAF7] shrink-0">
               <button data-testid="view-sheet-btn" onClick={() => setView("sheet")} className={`btn ${view === "sheet" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`}><Table size={13} /> Sheet</button>
               <button data-testid="view-blocks-btn" onClick={() => setView("blocks")} className={`btn ${view === "blocks" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`}><GridFour size={13} /> Per Therapist</button>
             </div>
-            <div className="inline-flex items-center rounded-lg border border-[#E2DDD4] px-0.5 bg-[#FAFAF7] shrink-0">
+            )}
+            <div className="inline-flex items-center rounded-lg border border-[#E2DDD4] px-0.5 bg-[#FAFAF7] shrink-0 schedule-toolbar-week-nav">
               <button data-testid="prev-week-btn" onClick={() => setWeekStart(addDays(weekStart, -7))} className="btn btn-ghost p-1 min-h-0"><CaretLeft size={14} /></button>
               <div className="px-2 text-[11px] font-bold whitespace-nowrap" style={{ color: "#2C3625" }}>{formatDateRange(weekStart)}</div>
               <button data-testid="next-week-btn" onClick={() => setWeekStart(addDays(weekStart, 7))} className="btn btn-ghost p-1 min-h-0"><CaretRight size={14} /></button>
@@ -1180,6 +1208,9 @@ export default function Schedule() {
               )}
             </div>
           </div>
+        )}
+        {view === "sheet" && isScheduleTablet && (
+          <p className="schedule-sheet-hint no-print">Swipe table horizontally to see all time slots</p>
         )}
         {view === "sheet" && renderSheet()}
         {view === "blocks" && (

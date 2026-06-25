@@ -464,7 +464,50 @@
 
 @media (max-width: 960px) {
   .ci-canvas { grid-template-columns: 1fr; }
-  .ci-pane-left { max-height: 260px; border-right: none; border-bottom: 1px solid #E2DDD4; }
+  .ci-pane-left { max-height: none; border-right: none; border-bottom: 1px solid #E2DDD4; }
+  .ci-pane-right { max-height: none; }
+}
+
+@media (max-width: 768px) {
+  .ci-canvas {
+    border-radius: 16px;
+    min-height: 0;
+  }
+  .ci-pane-left { max-height: none; }
+  .ci-profile-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .ci-profile-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .ci-btn-purple,
+  .ci-btn-outline-p {
+    min-height: 44px;
+    padding: 0.55rem 0.85rem;
+    font-size: 0.75rem;
+    flex: 1 1 auto;
+  }
+  .ci-timeline-card {
+    width: 100%;
+  }
+  .ci-profile-grid {
+    grid-template-columns: 1fr;
+  }
+  .records-modal-btn {
+    min-height: 44px;
+  }
+  .case-summary-dl {
+    grid-template-columns: 1fr !important;
+  }
+  .case-summary-dl dt {
+    padding-top: 0.65rem;
+  }
+  .case-summary-dl dd {
+    grid-column: 1;
+    padding-bottom: 0.35rem;
+  }
 }
 
 /* Intake table */
