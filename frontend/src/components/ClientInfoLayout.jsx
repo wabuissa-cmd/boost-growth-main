@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import {
   MapPin, Paperclip, ClipboardText,
-  Leaf, PencilSimple, Trash,
+  Leaf, PencilSimple, Trash, CaretRight,
 } from "@phosphor-icons/react";
 import { getChildColor, readable } from "../childColors";
 import { prepTrackMeta, cardStatusMeta } from "../attendanceUtils";

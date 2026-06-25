@@ -89,7 +89,7 @@ export default function Clients() {
   const filteredRaw = useMemo(() => {
     const q = search.toLowerCase();
     return items.filter(c => {
-      const matchSearch = c.name.toLowerCase().includes(q) || (c.file_no || "").includes(search);
+    const matchSearch = (c.name || "").toLowerCase().includes(q) || (c.file_no || "").includes(search);
       const isActive = (c.status || "Active") !== "Inactive";
       const matchTab = statusTab === "active" ? isActive : !isActive;
       return matchSearch && matchTab;

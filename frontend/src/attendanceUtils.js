@@ -791,9 +791,11 @@ export function cardStatusMeta(cardStatus) {
 /** Progress ring / bar for preparation cards (HS hours or SS weeks). */
 export function prepTrackMeta(client) {
   if (client?.hasHs && client.hsProgress) {
-    const { used, pkg, pct, remaining } = client.hsProgress;
+    const used = Number(client.hsProgress?.used) || 0;
+    const pkg = client.hsProgress?.pkg ?? 24;
+    const remaining = Number(client.hsProgress?.remaining) || 0;
     return {
-      pct: pct ?? 0,
+      pct: client.hsProgress?.pct ?? 0,
       label: `Home Session · ${used.toFixed(1)}h of ${pkg}h`,
       sub: `${remaining.toFixed(1)}h remaining`,
       service: "HS",

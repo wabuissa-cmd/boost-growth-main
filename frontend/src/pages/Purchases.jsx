@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import api, { formatErr } from "../api";
 import {
-  ShoppingBag, Bell, CheckCircle, Hourglass, Clock, FloppyDisk, PaperPlaneTilt,
+  ShoppingBag, Bell, CheckCircle, Hourglass, Clock, FloppyDisk, PaperPlaneTilt, ArrowsClockwise,
 } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
 import { getTherapistScheduleName } from "../scheduleConstants";
 import { yearMonthTabs } from "../monthTabs";
+import { isJenan, isWalaaOps, showAdminNav, useAuth } from "../auth";
 import "../clientInfoLayout.css";
+
+const PURCHASES_SHEET_URL = "https://docs.google.com/spreadsheets/d/10ZGq3ABQ1t-w32jrGZIu6Gxa2wevIJU2GLe9YWGdkIQ/edit";
 
 const STATUS_META = {
   pending: { label: "Pending", cls: "bg-[#FAF0D1] text-[#6B5218]", icon: <Hourglass size={14} weight="duotone"/> },
@@ -27,6 +30,9 @@ function fmtMoney(p) {
 }
 
 export default function Purchases() {
+  const { user } = useAuth();
+  const canManageStatus = isJenan(user);
+  const canSyncSheet = isJenan(user) || isWalaaOps(user) || showAdminNav(user);
   const [items, setItems] = useState([]);
   const [therapists, setTherapists] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -40,6 +46,7 @@ export default function Purchases() {
   const [settings, setSettings] = useState({ day_of_month: 25, enabled: true, therapist_ids: [] });
   const [savingSettings, setSavingSettings] = useState(false);
   const [sending, setSending] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const load = async () => {
     const params = {};
@@ -97,11 +104,39 @@ export default function Purchases() {
     setSending(true);
     try {
       const { data } = await api.post("/purchases/send-reminders");
-      alert(`Reminders sent to ${data.sent || 0} therapist(s).`);
+      const lines = [
+        `Portal notifications sent: ${data.sent || 0}`,
+      ];
+      if (data.provider_configured === false) {
+        lines.push("⚠ No email provider configured — emails were queued but not delivered. Check Admin → Email settings.");
+      }
+      if (data.email_results?.length) {
+        lines.push("", "Email delivery:");
+        data.email_results.forEach((e) => {
+          lines.push(`• ${e.to}: ${e.status}${e.error ? ` (${e.error})` : ""}${e.hint ? `\n  ${e.hint}` : ""}`);
+        });
+      } else {
+        lines.push("", "No therapist emails on file for selected recipients.");
+      }
+      alert(lines.join("\n"));
     } catch (e) {
       alert(formatErr(e.response?.data?.detail) || e.message);
     } finally {
       setSending(false);
+    }
+  };
+
+  const syncFromSheet = async () => {
+    if (!window.confirm("Sync purchases from the official Google Sheet?\n\nMay–Jul tabs replace existing imported rows for those months.")) return;
+    setSyncing(true);
+    try {
+      const { data } = await api.post("/import/purchases-google", { sheet_url: PURCHASES_SHEET_URL });
+      alert(data.message || `Imported ${data.inserted} rows`);
+      load();
+    } catch (e) {
+      alert(formatErr(e.response?.data?.detail) || e.message);
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -125,6 +160,12 @@ export default function Purchases() {
         title="Purchases"
         subtitle="Staff reimbursements · Jan – Jul"
         className="editorial-banner--compact-mobile"
+        toolbar={canSyncSheet ? (
+          <button type="button" className="btn btn-secondary text-xs min-h-[36px]" onClick={syncFromSheet} disabled={syncing}>
+            <ArrowsClockwise size={14} className={syncing ? "animate-spin" : ""} />
+            {syncing ? "Syncing…" : "Sync from Sheet"}
+          </button>
+        ) : null}
       />
 
       <div className="card overflow-hidden mb-4">
@@ -201,10 +242,10 @@ export default function Purchases() {
                     <td><span className={`pill text-[10px] ${st.cls}`}>{st.icon} {st.label}</span></td>
                     <td>{fmtDate(p.reimbursement_date)}</td>
                     <td>
-                      {p.status !== "approved" && (
+                      {canManageStatus && p.status !== "approved" && (
                         <button type="button" className="text-[10px] underline mr-2" onClick={() => updateStatus(p.id, "approved")}>Approve</button>
                       )}
-                      {p.status !== "reimbursed" && (
+                      {canManageStatus && p.status !== "reimbursed" && (
                         <button type="button" className="text-[10px] underline" onClick={() => updateStatus(p.id, "reimbursed")}>Reimburse</button>
                       )}
                     </td>
@@ -240,7 +281,7 @@ export default function Purchases() {
             <h3 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Monthly reminder</h3>
           </div>
           <p className="text-xs mb-3" style={{ color: "#5C6853" }}>
-            Remind selected therapists to log their purchases before month-end. Notifications appear in the portal bell.
+            Remind selected therapists to log purchases before month-end. Sends a <strong>portal notification</strong> and <strong>email</strong> to each selected therapist.
           </p>
           <div className="flex flex-wrap items-end gap-3 mb-3">
             <label className="text-xs">

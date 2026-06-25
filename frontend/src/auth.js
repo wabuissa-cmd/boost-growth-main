@@ -143,6 +143,10 @@ export function canManageLeaves(user) {
   return isJenan(user);
 }
 
+export function canManagePurchaseStatus(user) {
+  return isJenan(user);
+}
+
 export function canHrReviewLeaves(user) {
   if (!user) return false;
   if (user.can_hr_review_leaves) return true;

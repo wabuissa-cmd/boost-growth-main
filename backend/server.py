@@ -4453,8 +4453,21 @@ async def _resolve_therapist_by_purchaser(purchaser: str) -> Optional[dict]:
     if not raw:
         return None
     low = raw.lower()
-    tokens = [t for t in re.split(r"[\s,]+", low) if t]
+    first = low.split()[0] if low else ""
+    first_aliases = {
+        "walaa": "walaa", "maha": "maha", "jenan": "jenan",
+        "fahda": "fahda", "fhdah": "fahda", "fahdah": "fahda", "fhdah": "fahda",
+    }
     therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1}).to_list(500)
+    if first in first_aliases:
+        want = first_aliases[first]
+        for t in therapists:
+            tname = (t.get("name") or "").lower().replace("ms.", "").replace("ms ", "").strip()
+            if want == "fahda" and ("fahd" in tname or "fhd" in tname):
+                return t
+            if want in tname or tname.startswith(want):
+                return t
+    tokens = [t for t in re.split(r"[\s,]+", low) if t]
     best = None
     best_score = 0
     for t in therapists:
@@ -4462,7 +4475,7 @@ async def _resolve_therapist_by_purchaser(purchaser: str) -> Optional[dict]:
         t_tokens = [x for x in re.split(r"[\s.]+", tname) if x]
         score = 0
         for tok in tokens:
-            if tok in ("almuhaisin", "althunayan", "algadheeb", "algadeeb"):
+            if tok in ("almuhaisin", "althunayan", "algadheeb", "algadeeb", "abueissa"):
                 continue
             if any(tok in tt or tt.startswith(tok[:3]) for tt in t_tokens):
                 score += 2
@@ -4480,7 +4493,155 @@ def _normalize_purchase_status(s: str) -> str:
         return v
     if v == "reimbursed":
         return "reimbursed"
+    if v == "approved":
+        return "approved"
     return "pending"
+
+
+_PURCHASE_MONTH_MAP = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6, "jul": 7,
+    "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+
+PURCHASES_SHEET_ID = "10ZGq3ABQ1t-w32jrGZIu6Gxa2wevIJU2GLe9YWGdkIQ"
+PURCHASES_SHEET_URL = f"https://docs.google.com/spreadsheets/d/{PURCHASES_SHEET_ID}/edit"
+
+
+def _purchase_month_from_tab(tab_name: str) -> Optional[str]:
+    name = (tab_name or "").strip()
+    m = re.search(r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})", name, re.I)
+    if not m:
+        return None
+    month = _PURCHASE_MONTH_MAP.get(m.group(1).lower()[:3])
+    if not month:
+        return None
+    return f"{int(m.group(2))}-{month:02d}"
+
+
+def _parse_loose_date(val) -> Optional[str]:
+    if val is None:
+        return None
+    if hasattr(val, "isoformat"):
+        try:
+            return val.isoformat()[:10]
+        except Exception:
+            pass
+    s = str(val).strip()
+    if not s or s.lower() in ("none", "-"):
+        return None
+    m = re.match(r"(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})", s)
+    if m:
+        d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        return f"{y}-{mo:02d}-{d:02d}"
+    if re.match(r"\d{4}-\d{2}-\d{2}", s):
+        return s[:10]
+    return None
+
+
+def _parse_purchase_total(val) -> tuple:
+    if val is None:
+        return None, ""
+    if isinstance(val, (int, float)):
+        return float(val), str(val)
+    s = str(val).strip()
+    nums = re.findall(r"[\d.]+", s.replace(",", ""))
+    if nums:
+        return float(nums[0]), s
+    return None, s
+
+
+def _read_purchases_xlsx(content: bytes, months: Optional[List[str]] = None) -> List[dict]:
+    import io
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+    records: List[dict] = []
+    for tab in wb.sheetnames:
+        purchase_month = _purchase_month_from_tab(tab)
+        if not purchase_month:
+            continue
+        if months and purchase_month not in months:
+            continue
+        ws = wb[tab]
+        for r in range(3, (ws.max_row or 0) + 1):
+            item = ws.cell(r, 2).value
+            if item is None or not str(item).strip():
+                continue
+            category = str(ws.cell(r, 3).value or "").strip()
+            if not category:
+                continue
+            total, total_display = _parse_purchase_total(ws.cell(r, 7).value)
+            if total is None and not str(ws.cell(r, 7).value or "").strip():
+                continue
+            purchaser = str(ws.cell(r, 8).value or "").strip()
+            status_raw = str(ws.cell(r, 9).value or "").strip()
+            reimb = _parse_loose_date(ws.cell(r, 10).value)
+            row_no = ws.cell(r, 1).value
+            try:
+                row_no = int(float(row_no)) if row_no is not None else r - 2
+            except (TypeError, ValueError):
+                row_no = r - 2
+            records.append({
+                "row_no": row_no,
+                "item": str(item).strip(),
+                "category": category,
+                "description": str(ws.cell(r, 4).value or "").strip() or "-",
+                "qty": str(ws.cell(r, 5).value or "1").strip(),
+                "unit_price": str(ws.cell(r, 6).value or "").strip(),
+                "total": total,
+                "total_display": total_display or (str(total) if total is not None else ""),
+                "purchaser": purchaser,
+                "status": _normalize_purchase_status(status_raw),
+                "reimbursement_date": reimb,
+                "purchase_month": purchase_month,
+                "purchase_date": reimb or f"{purchase_month}-01",
+            })
+    return records
+
+
+async def _upsert_purchases_from_sheet(records: List[dict]) -> dict:
+    months = sorted({r["purchase_month"] for r in records if r.get("purchase_month")})
+    if months:
+        await db.staff_purchases.delete_many({
+            "purchase_month": {"$in": months},
+            "$or": [{"sync_source": "google_sheet"}, {"imported": True}],
+        })
+    inserted = 0
+    skipped = 0
+    for rec in records:
+        t = await _resolve_therapist_by_purchaser(rec.get("purchaser") or "")
+        if not t:
+            skipped += 1
+            continue
+        doc = {
+            "id": str(uuid.uuid4()),
+            "row_no": rec.get("row_no"),
+            "therapist_id": t["id"],
+            "therapist_name": t.get("name"),
+            "purchaser_name": rec.get("purchaser"),
+            "item": rec.get("item"),
+            "category": rec.get("category"),
+            "description": rec.get("description") or "",
+            "qty": rec.get("qty") or "1",
+            "unit_price": rec.get("unit_price") or "",
+            "total": rec.get("total"),
+            "total_display": rec.get("total_display") or "",
+            "status": rec.get("status") or "pending",
+            "reimbursement_date": rec.get("reimbursement_date"),
+            "purchase_date": rec.get("purchase_date"),
+            "purchase_month": rec.get("purchase_month"),
+            "sync_source": "google_sheet",
+            "updated_at": now_iso(),
+            "created_at": now_iso(),
+        }
+        await db.staff_purchases.insert_one(doc)
+        inserted += 1
+    return {"inserted": inserted, "skipped": skipped, "months": months, "total_rows": len(records)}
+
+
+async def _therapist_email(therapist_id: str) -> Optional[str]:
+    t = await db.therapists.find_one({"id": therapist_id}, {"_id": 0, "email": 1})
+    email = (t or {}).get("email") or ""
+    return email.strip() or None
 
 
 async def _get_purchase_reminder_settings() -> dict:
@@ -4511,20 +4672,67 @@ async def _send_purchase_reminders(force: bool = False) -> dict:
     if not tids:
         return {"sent": 0, "skipped": "no_therapists_selected"}
     sent = 0
+    email_results = []
     title = "Monthly purchase log reminder"
     message = (
         f"Please log your purchases for {today.strftime('%B %Y')} before month-end. "
-        "Open Request → Purchases to add items you bought for work."
+        "Open the portal → Purchases to add items you bought for work."
+    )
+    await _reload_email_settings_from_db()
+    provider_ok = bool(
+        _mailgun_configured() or _brevo_configured() or _resend_configured() or _smtp_configured()
     )
     for tid in tids:
         await _notify(tid, "purchase_reminder", title, message)
         sent += 1
+        email = await _therapist_email(tid)
+        if email:
+            er = await _send_email_stub(email, title, message)
+            email_results.append({
+                "to": email,
+                "status": er.get("status"),
+                "error": er.get("error"),
+                "hint": er.get("hint"),
+            })
     await db.purchase_reminder_settings.update_one(
         {"id": "default"},
         {"$set": {"last_sent_month": month_key, "updated_at": now_iso()}},
         upsert=True,
     )
-    return {"sent": sent, "month": month_key}
+    return {
+        "sent": sent,
+        "month": month_key,
+        "email_results": email_results,
+        "provider_configured": provider_ok,
+    }
+
+
+@api.post("/import/purchases-google")
+async def import_purchases_google(body: dict = None, user=Depends(get_current_user)):
+    """Sync staff purchases from the official Google Sheet (Jan–Jul tabs)."""
+    if not (_is_jenan(user) or _is_walaa_ops(user) or _is_portal_admin(user)):
+        raise HTTPException(status_code=403, detail="Not allowed")
+    import httpx
+    body = body or {}
+    sheet_url = (body.get("url") or body.get("sheet_url") or PURCHASES_SHEET_URL).strip()
+    months = body.get("months")
+    export_url = _google_sheet_export_url(sheet_url)
+    async with httpx.AsyncClient(follow_redirects=True, timeout=120.0) as client:
+        resp = await client.get(export_url)
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not download purchases sheet (HTTP {resp.status_code}).",
+        )
+    try:
+        records = _read_purchases_xlsx(resp.content, months=months)
+    except Exception as e:
+        logger.exception("Purchases Google Sheet parse failed")
+        raise HTTPException(status_code=400, detail=f"Could not parse purchases sheet: {e}")
+    result = await _upsert_purchases_from_sheet(records)
+    result["message"] = f"Imported {result['inserted']} purchases ({result.get('skipped', 0)} skipped — unknown purchaser)"
+    result["sheet_url"] = PURCHASES_SHEET_URL
+    return result
 
 
 @api.get("/purchases/categories")
@@ -4626,16 +4834,16 @@ async def update_purchase(pid: str, payload: PurchaseUpdate, user=Depends(get_cu
     existing = await db.staff_purchases.find_one({"id": pid}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Purchase not found")
-    is_admin = _is_portal_admin(user) or _is_hr_ops(user)
     tid = await _resolve_user_therapist_id(user) or user.get("id")
-    if not is_admin and existing.get("therapist_id") != tid:
+    is_owner = existing.get("therapist_id") == tid
+    if not is_owner and not _is_jenan(user):
         raise HTTPException(status_code=403, detail="Forbidden")
-    if not is_admin and existing.get("status") != "pending":
+    if is_owner and not _is_jenan(user) and existing.get("status") != "pending":
         raise HTTPException(status_code=403, detail="Only pending entries can be edited")
     patch = {k: v for k, v in payload.model_dump().items() if v is not None}
     if "status" in patch:
-        if not is_admin:
-            raise HTTPException(status_code=403, detail="Admin only")
+        if not _is_jenan(user):
+            raise HTTPException(status_code=403, detail="Only Jenan can update purchase status")
         patch["status"] = _normalize_purchase_status(patch["status"])
     if "purchase_date" in patch:
         patch["purchase_date"] = patch["purchase_date"][:10]
@@ -4643,7 +4851,7 @@ async def update_purchase(pid: str, payload: PurchaseUpdate, user=Depends(get_cu
     patch["updated_at"] = now_iso()
     await db.staff_purchases.update_one({"id": pid}, {"$set": patch})
     updated = await db.staff_purchases.find_one({"id": pid}, {"_id": 0})
-    if is_admin and patch.get("status") == "reimbursed" and existing.get("status") != "reimbursed":
+    if _is_jenan(user) and patch.get("status") == "reimbursed" and existing.get("status") != "reimbursed":
         await _notify(
             existing["therapist_id"],
             "purchase_reimbursed",
