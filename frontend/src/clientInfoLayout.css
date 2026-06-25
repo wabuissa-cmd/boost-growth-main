@@ -1100,12 +1100,54 @@
 .case-summary-sheet__table tbody tr:nth-child(even) td {
   background: #FAFAF7;
 }
+.case-summary-sheet--rtl {
+  direction: rtl;
+  text-align: right;
+}
+.case-summary-sheet--rtl .case-summary-sheet__masthead {
+  flex-direction: row-reverse;
+}
+.case-summary-sheet--rtl .case-summary-sheet__brand {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+.case-summary-sheet--rtl .case-summary-sheet__meta {
+  text-align: right;
+}
+.case-summary-sheet--rtl .case-summary-sheet__table th,
+.case-summary-sheet--rtl .case-summary-sheet__table td {
+  text-align: right;
+}
+.case-summary-sheet__subhead td {
+  background: #EDE8DF;
+  font-weight: 800;
+  font-size: 0.78rem;
+  color: #2C5035;
+  text-align: center !important;
+  border-bottom: 2px solid #C4D4B8;
+}
+.case-summary-sheet__para-row td {
+  line-height: 1.7;
+  padding: 0.65rem 0.85rem;
+  background: #fff !important;
+  white-space: pre-wrap;
+}
+.case-summary-sheet__bullet {
+  color: #7A8A6A;
+  font-weight: 700;
+  margin-inline-end: 0.35rem;
+}
 .case-summary-sheet__label {
   width: 34%;
+  min-width: 7.5rem;
   font-weight: 700;
   background: #F3EFE8 !important;
   color: #4A5D42;
 }
-.case-summary-sheet__table--kv td:last-child {
+.case-summary-sheet__value {
   width: 66%;
+  color: #2C3625;
+}
+.case-summary-sheet__table--kv .case-summary-sheet__value {
+  background: #FAFAF7;
 }

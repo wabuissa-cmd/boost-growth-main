@@ -538,6 +538,130 @@ function sectionsToEditableText(sections) {
   return parts.join("\n").trim();
 }
 
+function isMostlyArabic(text) {
+  const sample = String(text || "");
+  const ar = (sample.match(/[\u0600-\u06FF]/g) || []).length;
+  const letters = (sample.match(/[a-zA-Z\u0600-\u06FF]/g) || []).length;
+  return letters > 0 && ar / letters > 0.35;
+}
+
+function isLongParagraph(text) {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  return t.length > 90 || t.split(/\s+/).length > 16 || /[.!?؟]\s/.test(t);
+}
+
+function looksLikeLabel(text) {
+  const t = String(text || "").trim();
+  if (!t || isLongParagraph(t)) return false;
+  if (/[:：]\s*$/.test(t)) return true;
+  return t.length <= 48 && !/[.!?؟]/.test(t);
+}
+
+/** Pair stacked single-column Excel rows into label | value rows. */
+function pairTableRows(table) {
+  const flat = [];
+  for (const row of table || []) {
+    const cells = (row || []).map((c) => String(c ?? "").trim()).filter((c) => c && c !== "-");
+    if (!cells.length) continue;
+    if (cells.length >= 2) {
+      flat.push({ kind: "kv", label: cells[0], value: cells.slice(1).join(" — ") });
+    } else {
+      flat.push({ kind: "cell", text: cells[0] });
+    }
+  }
+
+  const out = [];
+  let i = 0;
+  while (i < flat.length) {
+    const cur = flat[i];
+    if (cur.kind === "kv") {
+      out.push(cur);
+      i += 1;
+      continue;
+    }
+    const text = cur.text;
+    const next = flat[i + 1];
+
+    if (next?.kind === "cell" && looksLikeLabel(text) && !looksLikeLabel(next.text)) {
+      out.push({ kind: "kv", label: text, value: next.text });
+      i += 2;
+      continue;
+    }
+    if (isLongParagraph(text)) {
+      out.push({ kind: "para", text });
+      i += 1;
+      continue;
+    }
+    if (next?.kind === "cell" && looksLikeLabel(next.text) && text.length <= 80 && !looksLikeLabel(text)) {
+      out.push({ kind: "heading", text });
+      i += 1;
+      continue;
+    }
+    if (looksLikeLabel(text) && next?.kind === "cell") {
+      out.push({ kind: "kv", label: text, value: next.text });
+      i += 2;
+      continue;
+    }
+    out.push({ kind: "para", text });
+    i += 1;
+  }
+  return out;
+}
+
+function pairParagraphRows(paragraphs) {
+  const out = [];
+  const items = paragraphs || [];
+  let i = 0;
+  while (i < items.length) {
+    const text = String(items[i] || "").trim();
+    const colon = text.split(/[:：]\s*/, 2);
+    if (colon.length === 2 && colon[0].length < 48 && !isLongParagraph(colon[1])) {
+      out.push({ kind: "kv", label: colon[0], value: colon[1] });
+      i += 1;
+      continue;
+    }
+    const next = String(items[i + 1] || "").trim();
+    if (looksLikeLabel(text) && next && !looksLikeLabel(next)) {
+      out.push({ kind: "kv", label: text, value: next });
+      i += 2;
+      continue;
+    }
+    if (isLongParagraph(text)) {
+      out.push({ kind: "para", text });
+    } else if (text) {
+      out.push({ kind: "para", text });
+    }
+    i += 1;
+  }
+  return out;
+}
+
+function renderPairedRows(rows, keyPrefix) {
+  return rows.map((item, ri) => {
+    if (item.kind === "heading") {
+      return (
+        <tr key={`${keyPrefix}-h-${ri}`} className="case-summary-sheet__subhead">
+          <td colSpan={2}>{item.text}</td>
+        </tr>
+      );
+    }
+    if (item.kind === "para") {
+      return (
+        <tr key={`${keyPrefix}-p-${ri}`} className="case-summary-sheet__para-row">
+          <td colSpan={2}>{item.text}</td>
+        </tr>
+      );
+    }
+    return (
+      <tr key={`${keyPrefix}-kv-${ri}`}>
+        <td className="case-summary-sheet__label">{item.label}</td>
+        <td className="case-summary-sheet__value">{item.value}</td>
+      </tr>
+    );
+  });
+}
+
 function CaseSummaryView({ sections, clientName, fileNo }) {
   if (!sections?.length) {
     return (
@@ -547,15 +671,25 @@ function CaseSummaryView({ sections, clientName, fileNo }) {
     );
   }
 
+  const allText = (sections || []).flatMap((sec) => [
+    sec.heading,
+    ...(sec.paragraphs || []),
+    ...(sec.bullets || []),
+    ...(sec.tables || []).flat(2),
+  ]).join(" ");
+  const rtl = isMostlyArabic(allText);
+
   const renderTable = (table, key) => {
     if (!table?.length) return null;
     const headerRow = table[0] || [];
     const bodyRows = table.slice(1);
-    const useHeader = headerRow.length > 1 && bodyRows.length > 0;
-    return (
-      <div key={key} className="case-summary-sheet__table-wrap">
-        <table className="case-summary-sheet__table">
-          {useHeader ? (
+    const multiCol = headerRow.filter((c) => String(c).trim()).length > 1
+      && bodyRows.some((r) => (r || []).filter((c) => String(c).trim()).length > 1);
+
+    if (multiCol) {
+      return (
+        <div key={key} className="case-summary-sheet__table-wrap">
+          <table className="case-summary-sheet__table">
             <thead>
               <tr>
                 {headerRow.map((cell, ci) => (
@@ -563,25 +697,31 @@ function CaseSummaryView({ sections, clientName, fileNo }) {
                 ))}
               </tr>
             </thead>
-          ) : null}
-          <tbody>
-            {(useHeader ? bodyRows : table).map((row, ri) => (
-              <tr key={ri}>
-                {row.map((cell, ci) => (
-                  <td key={ci} className={!useHeader && ci === 0 ? "case-summary-sheet__label" : ""}>
-                    {cell}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
+            <tbody>
+              {bodyRows.map((row, ri) => (
+                <tr key={ri}>
+                  {row.map((cell, ci) => <td key={ci}>{cell}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
+    const paired = pairTableRows(table);
+    if (!paired.length) return null;
+    return (
+      <div key={key} className="case-summary-sheet__table-wrap">
+        <table className="case-summary-sheet__table case-summary-sheet__table--kv">
+          <tbody>{renderPairedRows(paired, key)}</tbody>
         </table>
       </div>
     );
   };
 
   return (
-    <div className="case-summary-sheet">
+    <div className={`case-summary-sheet${rtl ? " case-summary-sheet--rtl" : ""}`} dir={rtl ? "rtl" : "ltr"}>
       <div className="case-summary-sheet__masthead">
         <div className="case-summary-sheet__brand">
           <img src="/bg-logo.png" alt="" className="case-summary-sheet__logo" />
@@ -607,26 +747,10 @@ function CaseSummaryView({ sections, clientName, fileNo }) {
               <div className="case-summary-sheet__table-wrap">
                 <table className="case-summary-sheet__table case-summary-sheet__table--kv">
                   <tbody>
-                    {(sec.paragraphs || []).map((p, j) => {
-                      const parts = String(p).split(/:\s*/, 2);
-                      const isKv = parts.length === 2 && parts[0].length < 48;
-                      return (
-                        <tr key={`p-${j}`}>
-                          {isKv ? (
-                            <>
-                              <td className="case-summary-sheet__label">{parts[0]}</td>
-                              <td>{parts[1]}</td>
-                            </>
-                          ) : (
-                            <td colSpan={2}>{p}</td>
-                          )}
-                        </tr>
-                      );
-                    })}
+                    {renderPairedRows(pairParagraphRows(sec.paragraphs), `p-${i}`)}
                     {(sec.bullets || []).map((b, j) => (
-                      <tr key={`b-${j}`}>
-                        <td className="case-summary-sheet__label">•</td>
-                        <td>{b}</td>
+                      <tr key={`b-${j}`} className="case-summary-sheet__para-row">
+                        <td colSpan={2}><span className="case-summary-sheet__bullet">•</span> {b}</td>
                       </tr>
                     ))}
                   </tbody>
