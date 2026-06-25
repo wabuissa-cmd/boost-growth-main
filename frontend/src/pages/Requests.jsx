@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import api from "../api";
-import { useAuth, showAdminNav, canEditStaffRequests, canManageLeaves, canHrReviewLeaves, isJenan, isWalaaOps } from "../auth";
+import { useAuth, showAdminNav, canEditStaffRequests, canManageLeaves, canHrReviewLeaves, isJenan } from "../auth";
 import { Navigate } from "react-router-dom";
 import { Plus, PencilSimple, Trash, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Calendar, Package, UploadSimple } from "@phosphor-icons/react";
 import {
@@ -34,7 +34,7 @@ function allowedStatusOptions(user, currentStatus) {
   const hr = canHrReviewLeaves(user) && !portalAdmin;
   const effective = isPendingManagerStatus(currentStatus) ? "pending_manager" : currentStatus;
 
-  if (portalAdmin || isWalaaOps(user)) {
+  if (portalAdmin) {
     return Object.keys(STATUS_MAP);
   }
   if (manager && isPendingManagerStatus(effective)) {

@@ -268,7 +268,7 @@ def _is_jenan(user: dict) -> bool:
 
 
 async def leave_manager(user: dict = Depends(get_current_user)) -> dict:
-    if _is_portal_admin(user) or _is_jenan(user) or _is_walaa_ops(user):
+    if _is_portal_admin(user) or _is_jenan(user):
         return user
     raise HTTPException(status_code=403, detail="Leave management access required")
 
@@ -691,10 +691,10 @@ async def me(user: dict = Depends(get_current_user)):
     user["portal_admin"] = _is_portal_admin(user)
     user["staff_admin"] = user["portal_admin"] or _is_walaa_ops(user)
     user["jenan_hr"] = _is_jenan(user)
-    user["can_manage_leaves"] = _is_portal_admin(user) or _is_jenan(user) or _is_walaa_ops(user)
-    user["can_hr_review_leaves"] = _is_portal_admin(user) or _is_hr_ops(user) or _is_walaa_ops(user)
+    user["can_manage_leaves"] = _is_portal_admin(user) or _is_jenan(user)
+    user["can_hr_review_leaves"] = _is_portal_admin(user) or _is_hr_ops(user)
     user["can_edit_staff_requests"] = (
-        _is_portal_admin(user) or _is_jenan(user) or _is_hr_ops(user) or _is_walaa_ops(user)
+        _is_portal_admin(user) or _is_jenan(user) or _is_hr_ops(user)
     )
     user["can_import"] = _is_portal_admin(user) or _is_walaa_ops(user)
     user["can_edit_intake"] = _is_portal_admin(user) or _is_client_lead(user) or _is_hr_ops(user)
@@ -4645,7 +4645,7 @@ def _enrich_request_attachment(req: dict) -> dict:
 
 @api.get("/requests")
 async def list_requests(user=Depends(get_current_user)):
-    if _is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user) or _is_walaa_ops(user):
+    if _is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user):
         q = {}
     else:
         q = {"therapist_id": user["id"]}
@@ -4851,7 +4851,7 @@ async def download_request_attachment(rid: str, user=Depends(get_current_user)):
     req = await db.requests.find_one({"id": rid}, {"_id": 0})
     if not req or not req.get("attachment_file_path"):
         raise HTTPException(status_code=404, detail="No attachment")
-    if not (_is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user) or _is_walaa_ops(user)):
+    if not (_is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user)):
         if req.get("therapist_id") != user["id"]:
             raise HTTPException(status_code=403, detail="Forbidden")
     fp = UPLOAD_DIR / req["attachment_file_path"]
@@ -4868,7 +4868,7 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
     prev_status = req.get("status")
     effective_prev = _normalize_request_status(prev_status)
     new_status = payload.status
-    is_pa = _is_portal_admin(user) or _is_walaa_ops(user)
+    is_pa = _is_portal_admin(user)
     is_hr = _is_hr_ops(user)
     is_jenan_mgr = _is_jenan(user) and not is_pa
 
@@ -4914,7 +4914,7 @@ async def delete_request(rid: str, user=Depends(get_current_user)):
     req = await db.requests.find_one({"id": rid})
     if not req:
         return {"ok": True}
-    if not (_is_portal_admin(user) or _is_walaa_ops(user)) and req.get("therapist_id") != user["id"]:
+    if not _is_portal_admin(user) and req.get("therapist_id") != user["id"]:
         raise HTTPException(status_code=403, detail="Forbidden")
     await db.requests.delete_one({"id": rid})
     return {"ok": True}
@@ -5887,7 +5887,7 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
     prev_status = leave.get("status")
     effective_prev = _normalize_leave_status(prev_status)
     new_status = payload.status
-    is_pa = _is_portal_admin(user) or _is_walaa_ops(user)
+    is_pa = _is_portal_admin(user)
     is_hr = _is_hr_ops(user)
     is_jenan_mgr = _is_jenan(user) and not is_pa
 

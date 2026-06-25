@@ -66,7 +66,7 @@ export default function HrInboxPanel({ user, coordinationOnly = false }) {
         testId: "inbox-leaves-hr",
       });
     }
-    if (jenan || portalAdmin || walaaOps) {
+    if (jenan || portalAdmin) {
       rows.push({
         to: "/staff-leave?tab=staff",
         icon: ListChecks,
@@ -75,7 +75,7 @@ export default function HrInboxPanel({ user, coordinationOnly = false }) {
         testId: "inbox-requests-manager",
       });
     }
-    if (hrOps || portalAdmin || walaaOps) {
+    if (hrOps || portalAdmin) {
       rows.push({
         to: "/staff-leave?tab=staff",
         icon: ListChecks,
