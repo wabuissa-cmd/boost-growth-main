@@ -1204,6 +1204,25 @@ async def _notify_hr_ops(ntype: str, title: str, message: str, **extra):
             await _notify(a["id"], ntype, title, message, **extra)
 
 
+async def _notify_ops_leads(ntype: str, title: str, message: str, **extra):
+    """Walaa, Maha, Fahda (+ Walaa ops account)."""
+    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "email": 1, "key": 1, "name": 1}).to_list(300)
+    notified: set = set()
+    for t in therapists:
+        stub = {"email": t.get("email"), "key": t.get("key"), "name": t.get("name"), "role": "therapist"}
+        if (_is_client_lead(stub) or _is_walaa_ops(stub)) and t["id"] not in notified:
+            await _notify(t["id"], ntype, title, message, **extra)
+            notified.add(t["id"])
+
+
+async def _notify_request_submitted(title: str, message: str):
+    """Jenan (manager) and HR both get new-request alerts."""
+    jenan_id = await _jenan_therapist_id()
+    if jenan_id:
+        await _notify(jenan_id, "request_new", title, message)
+    await _notify_hr_ops("request_new", title, message)
+
+
 async def _walaa_notify_user_ids() -> List[str]:
     t = await db.therapists.find_one(
         {"email": {"$regex": r"^walaa@boostgrowthsa\.com$", "$options": "i"}},
@@ -4644,6 +4663,80 @@ async def _therapist_email(therapist_id: str) -> Optional[str]:
     return email.strip() or None
 
 
+def _schedule_cell_date_iso(cell: dict) -> Optional[str]:
+    ws = cell.get("week_start")
+    day = cell.get("day")
+    if ws is None or day is None:
+        return None
+    try:
+        base = datetime.fromisoformat(str(ws)[:10])
+        return (base + timedelta(days=int(day))).strftime("%Y-%m-%d")
+    except Exception:
+        return None
+
+
+async def _process_unprepared_session_alerts(force: bool = False) -> dict:
+    """Notify ops leads when a scheduled session was 24h+ ago with no completed log."""
+    today = now_iso()[:10]
+    meta = await db.meta.find_one({"key": "unprepared_alerts_last_run"})
+    if not force and meta and (meta.get("date") or "")[:10] == today:
+        return {"skipped": "already_ran_today", "alerts": 0}
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    cells = await db.schedule_cells.find(
+        {
+            "child_name": {"$exists": True, "$nin": ["", None]},
+            "state": {"$nin": ["cancel_therapist", "cancel_child"]},
+            "service_code": {"$nin": ["LEAVE", "BREAK", "AVC", ""]},
+        },
+        {"_id": 0},
+    ).to_list(8000)
+    sessions = await db.sessions.find(
+        {"status": "Completed"},
+        {"_id": 0, "session_date": 1, "client_id": 1, "therapist_ids": 1},
+    ).to_list(25000)
+    logged = set()
+    for s in sessions:
+        sd = (s.get("session_date") or "")[:10]
+        cid = s.get("client_id")
+        for tid in s.get("therapist_ids") or []:
+            logged.add((sd, tid, cid))
+    clients = await db.clients.find(_active_client_filter(), {"_id": 0, "id": 1, "name": 1}).to_list(600)
+    name_to_id = {_normalize_intake_name(c.get("name") or ""): c["id"] for c in clients}
+    alerts = 0
+    for cell in cells:
+        slot_date = _schedule_cell_date_iso(cell)
+        if not slot_date:
+            continue
+        try:
+            slot_end = datetime.fromisoformat(f"{slot_date}T17:00:00").replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if slot_end > cutoff:
+            continue
+        child = (cell.get("child_name") or "").strip()
+        if not child:
+            continue
+        cid = name_to_id.get(_normalize_intake_name(child))
+        tid = cell.get("therapist_id")
+        if not cid or not tid:
+            continue
+        if (slot_date, tid, cid) in logged:
+            continue
+        dedupe = f"unprepared:{cell.get('id')}:{slot_date}"
+        if await db.notifications.find_one({"type": "unprepared_session", "link": dedupe}):
+            continue
+        slot = cell.get("time_slot") or ""
+        msg = f"{child} — {slot_date} {slot}".strip() + " · no session logged 24h+ after scheduled time"
+        await _notify_ops_leads("unprepared_session", "Session not prepared / logged", msg, link=dedupe)
+        alerts += 1
+    await db.meta.update_one(
+        {"key": "unprepared_alerts_last_run"},
+        {"$set": {"date": today, "at": now_iso(), "alerts": alerts}},
+        upsert=True,
+    )
+    return {"alerts": alerts, "date": today}
+
+
 async def _get_purchase_reminder_settings() -> dict:
     doc = await db.purchase_reminder_settings.find_one({"id": "default"}, {"_id": 0})
     if not doc:
@@ -4899,11 +4992,7 @@ async def create_request(payload: RequestIn, user=Depends(get_current_user)):
     await db.requests.insert_one(doc)
     doc.pop("_id", None)
     msg = f"{user.get('name')}: {payload.title} (priority: {payload.priority})"
-    jenan_id = await _jenan_therapist_id()
-    if jenan_id:
-        await _notify(jenan_id, "request_new", f"New {payload.request_type} request", msg)
-    else:
-        await _notify_admins("request_new", f"New {payload.request_type} request", msg)
+    await _notify_request_submitted(f"New {payload.request_type} request", msg)
     return _enrich_request_attachment(doc)
 
 
@@ -4990,11 +5079,7 @@ async def upload_request_attachment(
     await db.requests.insert_one(doc)
     doc.pop("_id", None)
     msg = f"{user.get('name')}: {doc['title']} (report date: {report_date})"
-    jenan_id = await _jenan_therapist_id()
-    if jenan_id:
-        await _notify(jenan_id, "request_new", "New report attachment", msg)
-    else:
-        await _notify_admins("request_new", "New report attachment", msg)
+    await _notify_request_submitted("New report attachment", msg)
     return _enrich_request_attachment(doc)
 
 
@@ -5022,6 +5107,12 @@ async def tracking_inbox(user=Depends(get_current_user)):
             "state": "cancel_therapist",
             "parent_notify_pending": True,
         })
+    unprepared_alerts = 0
+    try:
+        prep = await _process_unprepared_session_alerts(force=False)
+        unprepared_alerts = int(prep.get("alerts") or 0)
+    except Exception:
+        logger.exception("Unprepared session alert check failed")
     return {
         "leaves_pending_manager": leaves_pending_manager,
         "leaves_pending_hr": leaves_pending_hr,
@@ -5031,6 +5122,7 @@ async def tracking_inbox(user=Depends(get_current_user)):
         "purchases_pending": purchases_pending,
         "billing_reminders_soon": billing_reminders_soon,
         "parent_cancellations_pending": parent_cancellations_pending,
+        "unprepared_sessions_today": unprepared_alerts,
     }
 
 
@@ -5142,6 +5234,22 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
     }
     await _notify(req["therapist_id"], "request", "Request update",
                   f"Your request '{req['title']}' is now: {status_map.get(new_status, new_status)}")
+    if new_status in ("approved", "done") and is_hr:
+        email = await _therapist_email(req.get("therapist_id"))
+        if email:
+            ts = now_iso()[:16].replace("T", " ")
+            body = (
+                f"Hello,\n\nYour request \"{req.get('title')}\" was {status_map.get(new_status, new_status)} "
+                f"on {ts}.\n"
+            )
+            if payload.admin_note:
+                body += f"\nNote from HR: {payload.admin_note}\n"
+            body += "\n— Boost Growth Portal"
+            await _send_email_stub(
+                email,
+                f"Request {status_map.get(new_status, new_status)} — {req.get('title')}",
+                body,
+            )
     return await db.requests.find_one({"id": rid}, {"_id": 0})
 
 @api.delete("/requests/{rid}")
@@ -6059,6 +6167,12 @@ async def leaves_balance(year: Optional[int] = None, user=Depends(get_current_us
         used_unpaid = sum(float(l.get("days") or 0) for l in own if l.get("leave_type") == "Unpaid" and l.get("status") in ("approved", "done"))
         used_sick = sum(float(l.get("days") or 0) for l in own if l.get("leave_type") == "Sickleave" and l.get("status") in ("approved", "done"))
         used_permission = sum(float(l.get("days") or 0) for l in own if l.get("leave_type") == "Permission" and l.get("status") in ("approved", "done") and l.get("is_paid", True))
+        permission_count = sum(1 for l in own if l.get("leave_type") == "Permission")
+        other_requests_count = await db.requests.count_documents({
+            "therapist_id": t["id"],
+            "request_type": {"$nin": ["leave", "permission"]},
+            "status": {"$in": ["pending_manager", "pending_hr", "in_progress"]},
+        })
         pending = sum(
             float(l.get("days") or 0)
             for l in own
@@ -6075,6 +6189,8 @@ async def leaves_balance(year: Optional[int] = None, user=Depends(get_current_us
             "allocated": allocated,
             "used_annual": round(used_annual, 1),
             "used_permission": round(used_permission, 1),
+            "permission_count": permission_count,
+            "other_requests_count": other_requests_count,
             "used_unpaid": round(used_unpaid, 1),
             "used_sick": round(used_sick, 1),
             "pending": round(pending, 1),
@@ -7136,16 +7252,19 @@ def _parse_intake_record(r: dict, sheet_name: str = "") -> Optional[dict]:
     if not _looks_like_person_name(name):
         return None
 
-    raw_type = _clean_str(r.get("intake_type") or r.get("type") or r.get("_sheet_intake_type")) or _sheet_intake_type_hint(sheet_name) or "pre"
+    sheet_hint = _sheet_intake_type_hint(sheet_name)
+    raw_type = _clean_str(r.get("intake_type") or r.get("type") or r.get("_sheet_intake_type")) or sheet_hint or "pre"
     intake_type = raw_type.lower()
-    sheet_low = (sheet_name or "").lower()
-    if "school" in intake_type or "school" in sheet_low or ("ss" in sheet_low and "waiting" in sheet_low):
+    sheet_low = (sheet_name or "").lower().strip()
+
+    # Queue is determined by SHEET TAB only — never move pre/post rows to school because of SS service.
+    if sheet_hint == "school" or ("ss" in sheet_low and "waiting" in sheet_low):
         intake_type = "school"
-    elif "post" in intake_type:
+    elif sheet_hint == "post" or ("post" in sheet_low and "intake" in sheet_low):
         intake_type = "post"
-    elif "pre" in intake_type or "pending" in intake_type:
+    elif sheet_hint == "pre" or "pending" in sheet_low:
         intake_type = "pre"
-    else:
+    elif intake_type == "school" and sheet_hint not in ("school",):
         intake_type = "pre"
 
     list_category = _sheet_list_category(sheet_name, intake_type)
@@ -7153,9 +7272,12 @@ def _parse_intake_record(r: dict, sheet_name: str = "") -> Optional[dict]:
     service = _extract_service_from_row(r)
     school_name = _clean_str(r.get("school_name"))
     school_start = _clean_str(r.get("school_start_date"))
-    if _is_school_intake_service(service) or school_name or school_start:
-        intake_type = "school"
-        list_category = "school"
+    if list_category == "school" or intake_type == "school":
+        if school_name and not service:
+            service = service or "SS"
+    elif school_name or school_start:
+        # School metadata on a pre/post row stays as notes context only.
+        pass
 
     diagnosis, age_from_da = _split_diagnosis_age(r.get("diagnosis_age"))
     notes, language = _extract_notes_and_language(r)
@@ -7198,6 +7320,25 @@ def _dedupe_column_names(raw_headers) -> List[str]:
     return out
 
 
+def _intake_sheets_to_process(sheet_names: List[str]) -> List[str]:
+    """When duplicate tab names exist (with/without trailing space), keep the best variant."""
+    groups: dict = {}
+    for s in sheet_names:
+        key = re.sub(r"\s+", " ", (s or "").strip().lower())
+        groups.setdefault(key, []).append(s)
+    out: List[str] = []
+    skip_keys = {"readme", "template", "settings", "dashboard"}
+    for key, variants in groups.items():
+        if key in skip_keys:
+            continue
+        if len(sheet_names) > 6 and not any(
+            k in key for k in ("intake", "waiting", "pending", "post", "pre", "list", "school")
+        ):
+            continue
+        out.append(max(variants, key=lambda v: (len(v), v)))
+    return out
+
+
 def _read_intake_rows(content: bytes, filename: str) -> tuple:
     """Parse each sheet once, filter junk rows, dedupe by name + intake type."""
     import pandas as pd
@@ -7237,14 +7378,7 @@ def _read_intake_rows(content: bytes, filename: str) -> tuple:
         ingest_sheet(df_raw, "")
     else:
         xl = pd.ExcelFile(io.BytesIO(content), engine="openpyxl")
-        for sheet in xl.sheet_names:
-            low = sheet.lower().strip()
-            if low in ("readme", "template", "settings", "dashboard"):
-                continue
-            if len(xl.sheet_names) > 6 and not any(
-                k in low for k in ("intake", "waiting", "pending", "post", "pre", "list", "school")
-            ):
-                continue
+        for sheet in _intake_sheets_to_process(xl.sheet_names):
             try:
                 df_raw = pd.read_excel(io.BytesIO(content), sheet_name=sheet, header=None, engine="openpyxl")
                 if df_raw.empty:
@@ -7409,30 +7543,30 @@ WAITING_LIST_SHEET_ID = "14DLxQZOWSRnS_4kWeOsgKfpYMQiZ6hQiv2be_-J_hBg"
 WAITING_LIST_SHEET_URL = f"https://docs.google.com/spreadsheets/d/{WAITING_LIST_SHEET_ID}/edit"
 
 
+async def _purge_stale_google_intake(synced_keys: set) -> int:
+    """Remove google-synced rows not in this import, per queue (pre / post / school)."""
+    removed = 0
+    queue_filters = [
+        ("pre", {"intake_type": "pre", "list_category": {"$ne": "school"}}),
+        ("post", {"intake_type": "post", "list_category": {"$ne": "school"}}),
+        ("school", {"$or": [{"intake_type": "school"}, {"list_category": "school"}]}),
+    ]
+    for label, base_q in queue_filters:
+        if label == "school":
+            keys = [k for k in synced_keys if k.endswith("|school|school")]
+        else:
+            keys = [k for k in synced_keys if k.endswith(f"|intake|{label}")]
+        if not keys:
+            continue
+        q = {**base_q, "name_key": {"$nin": keys}, "sync_source": {"$ne": "manual"}}
+        r = await db.intake.delete_many(q)
+        removed += r.deleted_count
+    return removed
+
+
 async def _reclassify_school_intake_records() -> int:
-    """Move SS / school-support rows out of regular pre/post intake into School Waiting."""
-    fixed = 0
-    rows = await db.intake.find(
-        {"$or": [{"intake_type": {"$in": ["pre", "post"]}}, {"list_category": {"$ne": "school"}}]},
-        {"_id": 0},
-    ).to_list(3000)
-    for row in rows:
-        if row.get("intake_type") == "school" and row.get("list_category") == "school":
-            continue
-        svc = row.get("service")
-        if not (_is_school_intake_service(svc) or row.get("school_name") or row.get("school_start_date")):
-            continue
-        name = (row.get("child_name") or "").strip()
-        if not name:
-            continue
-        patch = {
-            "intake_type": "school",
-            "list_category": "school",
-            "name_key": _intake_name_key(name, "school", "school"),
-        }
-        await db.intake.update_one({"id": row["id"]}, {"$set": patch})
-        fixed += 1
-    return fixed
+    """Deprecated — school queue is sheet-driven only. Kept for manual admin repair."""
+    return 0
 
 
 async def _upsert_intake_rows(rows: List[dict], detected_columns: List[str], parse_meta: str, replace_google_stale: bool = False) -> dict:
@@ -7473,14 +7607,11 @@ async def _upsert_intake_rows(rows: List[dict], detected_columns: List[str], par
                 logger.warning(f"Intake insert skipped for {name}: {e}")
                 skipped += 1
     if replace_google_stale and synced_keys:
-        stale = await db.intake.delete_many({
-            "name_key": {"$nin": list(synced_keys)},
-            "sync_source": {"$ne": "manual"},
-        })
+        stale_removed = await _purge_stale_google_intake(synced_keys)
+        stale = type("R", (), {"deleted_count": stale_removed})()
     else:
         stale = type("R", (), {"deleted_count": 0})()
     deduped = await _dedupe_intake_records()
-    reclassified = await _reclassify_school_intake_records()
     total_in_db = await db.intake.count_documents({})
     hint = None
     if not rows:
@@ -7496,7 +7627,6 @@ async def _upsert_intake_rows(rows: List[dict], detected_columns: List[str], par
         "pre_count": pre_count,
         "post_count": post_count,
         "school_count": school_count,
-        "reclassified_school": reclassified,
         "detected_columns": detected_columns,
         "parse_meta": parse_meta,
         "message": f"{updated} updated, {created} added, {skipped} skipped, {deduped} duplicates removed · {total_in_db} total in list",
@@ -7505,12 +7635,23 @@ async def _upsert_intake_rows(rows: List[dict], detected_columns: List[str], par
 
 
 @api.post("/admin/fix-school-intake")
-async def admin_fix_school_intake(_=Depends(admin_only)):
-    """Re-route SS / school-support children from pre-intake to School Waiting."""
-    fixed = await _reclassify_school_intake_records()
-    total = await db.intake.count_documents({})
-    school = await db.intake.count_documents({"$or": [{"intake_type": "school"}, {"list_category": "school"}]})
-    return {"ok": True, "fixed": fixed, "total": total, "school_count": school}
+async def admin_fix_school_intake(_=Depends(import_access)):
+    """Re-sync all waiting lists from Google Sheet tabs (pre / post / school)."""
+    import httpx
+    export_url = _google_sheet_export_url(WAITING_LIST_SHEET_URL)
+    async with httpx.AsyncClient(follow_redirects=True, timeout=120.0) as client:
+        resp = await client.get(export_url)
+    if resp.status_code != 200:
+        raise HTTPException(status_code=400, detail=f"Could not download sheet (HTTP {resp.status_code})")
+    rows, detected_columns, parse_meta = _read_intake_rows(resp.content, "waiting_list.xlsx")
+    result = await _upsert_intake_rows(rows, detected_columns, parse_meta, replace_google_stale=True)
+    result["ok"] = True
+    result["message"] = (
+        f"Restored: {result.get('pre_count', 0)} pre · "
+        f"{result.get('post_count', 0)} post · "
+        f"{result.get('school_count', 0)} school"
+    )
+    return result
 
 
 @api.post("/import/intake")

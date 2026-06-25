@@ -199,22 +199,30 @@ export default function TherapistRequests() {
               </div>
             )}
             {balance ? (
-              <div className="req-leave-stat-grid">
+              <div className="req-leave-stat-grid req-leave-stat-grid--six">
                 <div className="req-leave-stat-box">
                   <div className="req-leave-stat-val">{balance.remaining}</div>
                   <div className="req-leave-stat-lbl">Remaining paid</div>
                 </div>
                 <div className="req-leave-stat-box">
-                  <div className="req-leave-stat-val">{(balance.used_annual || 0) + (balance.used_permission || 0)}</div>
-                  <div className="req-leave-stat-lbl">Used</div>
+                  <div className="req-leave-stat-val">{balance.used_annual || 0}</div>
+                  <div className="req-leave-stat-lbl">Annual used</div>
+                </div>
+                <div className="req-leave-stat-box">
+                  <div className="req-leave-stat-val">{balance.permission_count ?? 0}</div>
+                  <div className="req-leave-stat-lbl">Permission</div>
                 </div>
                 <div className="req-leave-stat-box">
                   <div className="req-leave-stat-val">{balance.used_unpaid || 0}</div>
-                  <div className="req-leave-stat-lbl">Unpaid leave days</div>
+                  <div className="req-leave-stat-lbl">Unpaid days</div>
                 </div>
                 <div className="req-leave-stat-box">
-                  <div className="req-leave-stat-val">{leaves.filter(l => l.status === "pending" || l.status === "pending_manager" || l.status === "pending_hr").length}</div>
-                  <div className="req-leave-stat-lbl">Pending requests</div>
+                  <div className="req-leave-stat-val">{balance.pending || 0}</div>
+                  <div className="req-leave-stat-lbl">Pending leave</div>
+                </div>
+                <div className="req-leave-stat-box">
+                  <div className="req-leave-stat-val">{balance.other_requests_count ?? 0}</div>
+                  <div className="req-leave-stat-lbl">Other requests</div>
                 </div>
               </div>
             ) : (

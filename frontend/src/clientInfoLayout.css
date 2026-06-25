@@ -853,6 +853,16 @@
   gap: 0.5rem;
 }
 
+.req-leave-stat-grid--six {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 480px) {
+  .req-leave-stat-grid--six {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 .req-leave-stat-box {
   background: rgba(255, 255, 255, 0.14);
   border: 1px solid rgba(255, 255, 255, 0.22);

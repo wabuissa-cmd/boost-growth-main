@@ -431,18 +431,19 @@ export default function ImportPage() {
           )}
         </div>
         <div className="card p-6 mt-5 border-2" style={{ borderColor: "#C4D4B8" }}>
-          <div className="font-bold mb-1" style={{ color: "#2C3625" }}>Fix School Waiting List</div>
+          <div className="font-bold mb-1" style={{ color: "#2C3625" }}>Restore Waiting Lists</div>
           <div className="text-sm mb-4" style={{ color: "#5C6853" }}>
-            Moves children with <strong>SS</strong> service (or school start date) from regular Pre-Intake into the <strong>School Waiting</strong> tab.
+            Re-sync <strong>Pre-Intake</strong>, <strong>Post-Intake</strong>, and <strong>School Waiting</strong> from the official Google Sheet. Removes stale names and keeps school queue separate.
           </div>
           <button type="button" onClick={fixSchoolIntake} disabled={fixingSchool} className="btn btn-secondary text-sm">
-            {fixingSchool ? <span className="spinner" /> : "Fix School Intake"}
+            {fixingSchool ? <span className="spinner" /> : "Restore from Sheet"}
           </button>
           {fixSchoolResult && (
             <div className="text-xs p-3 rounded-xl mt-3" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
-              {fixSchoolResult.fixed != null
-                ? `Moved ${fixSchoolResult.fixed} child(ren) to School Waiting · ${fixSchoolResult.school_count} total in school list`
-                : (fixSchoolResult.message || JSON.stringify(fixSchoolResult))}
+              {fixSchoolResult.message
+                || (fixSchoolResult.pre_count != null
+                  ? `Pre: ${fixSchoolResult.pre_count} · Post: ${fixSchoolResult.post_count} · School: ${fixSchoolResult.school_count}`
+                  : JSON.stringify(fixSchoolResult))}
             </div>
           )}
         </div>
