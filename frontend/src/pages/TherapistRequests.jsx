@@ -188,30 +188,39 @@ export default function TherapistRequests() {
 
   const isLeaveFlow = edit?.request_type === "permission" || edit?.request_type === "leave";
 
+  const requestActions = (
+    <div className="req-head-actions flex items-center gap-1.5 flex-wrap">
+      <button
+        type="button"
+        data-testid="upload-attachment-btn"
+        onClick={() => setUploadOpen(true)}
+        className="btn btn-outline text-[11px] px-2.5 py-1 min-h-0"
+      >
+        <UploadSimple size={13}/> Upload Attachment
+      </button>
+      <button data-testid="new-request-btn" onClick={openNew} className="btn btn-primary text-[11px] px-2.5 py-1 min-h-0">
+        <Plus size={13}/> New Request
+      </button>
+    </div>
+  );
+
   return (
     <div>
       <PageBanner
         title="Request"
         subtitle="General requests · materials · leave · permission · attachments"
-        badge={(
-          <div className="flex items-center gap-1.5 flex-wrap justify-end">
-            <button
-              type="button"
-              data-testid="upload-attachment-btn"
-              onClick={() => setUploadOpen(true)}
-              className="btn btn-outline text-[11px] px-2.5 py-1 min-h-0"
-            >
-              <UploadSimple size={13}/> Upload Attachment
-            </button>
-            <button data-testid="new-request-btn" onClick={openNew} className="btn btn-primary text-[11px] px-2.5 py-1 min-h-0">
-              <Plus size={13}/> New Request
-            </button>
-          </div>
-        )}
+        className="editorial-banner--compact-mobile"
       />
 
       <div className="req-split">
         <section className="req-panel-left">
+          <div className="req-panel-head req-panel-head--actions">
+            <div className="min-w-0">
+              <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Leave & Requests</h2>
+              <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>Balance · leave history · new requests</p>
+            </div>
+            {requestActions}
+          </div>
           <div className="req-leave-balance mx-3 mt-3">
             <div className="text-[10px] tracking-[0.2em] font-bold opacity-90 mb-2">LEAVE BALANCE</div>
             {balance?.contract_period_start && (

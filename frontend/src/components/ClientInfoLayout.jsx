@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import {
   MapPin, Paperclip, ClipboardText,
   Leaf, PencilSimple, CaretRight, Trash,
@@ -52,9 +52,20 @@ export default function ClientInfoLayout({
     [clients, selectedId]
   );
 
+  const detailRef = useRef(null);
+
+  const handleSelect = useCallback((id) => {
+    onSelect(id);
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 960px)").matches) {
+      requestAnimationFrame(() => {
+        detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+  }, [onSelect]);
+
   useEffect(() => {
-    if (clients.length && !clients.some(c => c.id === selectedId)) onSelect(clients[0].id);
-  }, [clients, selectedId, onSelect]);
+    if (clients.length && !clients.some(c => c.id === selectedId)) handleSelect(clients[0].id);
+  }, [clients, selectedId, handleSelect]);
 
   const selectedPkg = selected ? (pkgByClient[selected.id] || []) : [];
   const track = selected ? prepTrackMeta(selected) : null;
@@ -107,7 +118,7 @@ export default function ClientInfoLayout({
               const avatarColor = getChildColor(c.name) || c.color ? readable(bg) : "#606E52";
               const isSelected = selected?.id === c.id;
               return (
-                <button key={c.id} type="button" className={`ci-client-card${isSelected ? " selected" : ""}`} onClick={() => onSelect(c.id)}>
+                <button key={c.id} type="button" className={`ci-client-card${isSelected ? " selected" : ""}`} onClick={() => handleSelect(c.id)}>
                   <div className="ci-client-card-inner">
                     <div className="ci-client-card-avatar" style={{ background: bg, color: avatarColor }}>
                       {c.initials || c.name?.charAt(0)}
@@ -128,7 +139,7 @@ export default function ClientInfoLayout({
           </div>
         </div>
 
-        <div className="ci-pane-right">
+        <div className="ci-pane-right" ref={detailRef}>
           {selected ? (
             <div className="ci-profile-body">
               <div className="ci-profile-card">

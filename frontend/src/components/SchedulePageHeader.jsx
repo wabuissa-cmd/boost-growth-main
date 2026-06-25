@@ -29,7 +29,7 @@ export default function SchedulePageHeader({ subtitle, badge, stats = [], toolba
         badge={badge}
         stats={stats}
         toolbar={toolbar}
-        className={className}
+        className={`editorial-banner--schedule-mobile ${className}`.trim()}
       />
       <ScheduleLegendStrip />
     </>

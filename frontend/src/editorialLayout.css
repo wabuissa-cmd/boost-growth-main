@@ -3,7 +3,7 @@
 .editorial-banner {
   position: relative;
   border-radius: 22px;
-  overflow: hidden;
+  overflow: visible;
   margin-bottom: 0.85rem;
   border: 1px solid rgba(74, 93, 66, 0.12);
   box-shadow: 0 6px 24px rgba(42, 51, 40, 0.05);
@@ -216,6 +216,84 @@
   border-radius: 10px;
   background: rgba(255, 252, 247, 0.85);
   border: 1px solid var(--border-light, #E8E0D2);
+}
+
+@media (max-width: 768px) {
+  .editorial-banner {
+    margin-bottom: 0.45rem;
+    border-radius: 16px;
+  }
+  .editorial-banner__head {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0.45rem 0.65rem 0.35rem;
+    gap: 0.25rem;
+  }
+  .editorial-banner__title { font-size: 1.05rem; }
+  .editorial-banner__subtitle {
+    font-size: 0.68rem;
+    margin-top: 0.1rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .editorial-banner__nav {
+    padding: 0.4rem 0.55rem 0;
+    gap: 0.25rem;
+  }
+  .editorial-pill {
+    font-size: 0.62rem;
+    padding: 0.28rem 0.55rem;
+    min-height: unset !important;
+  }
+  .editorial-banner__panel {
+    margin: 0 0.35rem 0.35rem;
+    padding: 0.4rem 0.45rem;
+  }
+  .editorial-banner--schedule-mobile .editorial-banner__eyebrow {
+    display: none;
+  }
+  .editorial-banner--schedule-mobile .editorial-banner__head {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.35rem;
+    padding-bottom: 0.25rem;
+  }
+  .editorial-banner--schedule-mobile .editorial-banner__copy {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .editorial-banner--schedule-mobile .editorial-banner__badge {
+    flex: 0 0 auto;
+    align-self: center;
+  }
+  .editorial-banner--schedule-mobile .editorial-banner__stats {
+    display: none;
+  }
+  .editorial-banner--schedule-mobile .editorial-banner__subtitle {
+    display: none;
+  }
+  .editorial-banner--schedule-mobile .editorial-banner__panel {
+    padding-top: 0.3rem;
+  }
+  .editorial-banner--schedule-mobile .editorial-banner__toolbar {
+    margin-top: 0.3rem;
+    padding-top: 0.3rem;
+  }
+  .editorial-banner--compact-mobile .editorial-banner__subtitle {
+    display: none;
+  }
+  .editorial-banner--compact-mobile .editorial-banner__stats {
+    display: none;
+  }
+  .schedule-legend-strip {
+    margin: 0 0 0.45rem;
+    padding: 0.3rem 0.45rem;
+  }
+  .schedule-legend-strip p { display: none; }
 }
 
 /* Pill tab row — shared outside banner */

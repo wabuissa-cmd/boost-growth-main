@@ -153,7 +153,7 @@ export default function WaitingPage({ mode }) {
     : "Pre- and post-intake queues for home-based services";
 
   const adminBadge = canManage ? (
-    <div className="relative flex justify-end">
+    <>
       <button
         type="button"
         onClick={() => setActionsOpen(o => !o)}
@@ -162,45 +162,45 @@ export default function WaitingPage({ mode }) {
         Actions <CaretDown size={12} className="inline ml-0.5" />
       </button>
       {actionsOpen && (
-        <div
-          className="absolute right-0 top-full mt-1 z-50 min-w-[180px] shadow-lg rounded-lg border overflow-hidden"
-          style={{ background: "#FFFFFF", borderColor: "#EDE9E3" }}
-        >
-          <button type="button" onClick={() => { syncFromGoogle(); setActionsOpen(false); }} disabled={syncing}
-            className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-[#FAFAF7] flex items-center gap-1.5">
-            {syncing ? <span className="spinner" /> : <ArrowsClockwise size={13} />} Sync Sheet
-          </button>
-          <a href={WAITING_LIST_SHEET_URL} target="_blank" rel="noreferrer"
-            className="block w-full text-left px-3 py-2 text-xs font-medium hover:bg-[#FAFAF7] border-t no-underline"
-            style={{ color: "#374151", borderColor: "#EDE9E3" }}>
-            Open Google Sheet
-          </a>
-          {isSchool ? (
-            <button data-testid="add-school-waiting" type="button"
-              onClick={() => { setEdit(emptyItem("school", "school")); setActionsOpen(false); }}
-              className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-[#FAFAF7] border-t flex items-center gap-1.5"
-              style={{ borderColor: "#EDE9E3" }}>
-              <Plus size={13} /> Add Case
+        <>
+          <div className="waiting-actions-backdrop" onClick={() => setActionsOpen(false)} aria-hidden />
+          <div className="waiting-actions-menu">
+            <button type="button" onClick={() => { syncFromGoogle(); setActionsOpen(false); }} disabled={syncing}
+              className="w-full text-left px-3 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] flex items-center gap-1.5">
+              {syncing ? <span className="spinner" /> : <ArrowsClockwise size={13} />} Sync Sheet
             </button>
-          ) : (
-            <>
-              <button data-testid="add-pre-intake" type="button"
-                onClick={() => { setEdit(emptyItem("pre", "intake")); setActionsOpen(false); }}
-                className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-[#FAFAF7] border-t flex items-center gap-1.5"
+            <a href={WAITING_LIST_SHEET_URL} target="_blank" rel="noreferrer"
+              className="block w-full text-left px-3 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] border-t no-underline"
+              style={{ color: "#374151", borderColor: "#EDE9E3" }}>
+              Open Google Sheet
+            </a>
+            {isSchool ? (
+              <button data-testid="add-school-waiting" type="button"
+                onClick={() => { setEdit(emptyItem("school", "school")); setActionsOpen(false); }}
+                className="w-full text-left px-3 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] border-t flex items-center gap-1.5"
                 style={{ borderColor: "#EDE9E3" }}>
-                <Plus size={13} /> Pre-Intake
+                <Plus size={13} /> Add Case
               </button>
-              <button data-testid="add-post-intake" type="button"
-                onClick={() => { setEdit(emptyItem("post", "intake")); setActionsOpen(false); }}
-                className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-[#FAFAF7] border-t flex items-center gap-1.5"
-                style={{ borderColor: "#EDE9E3" }}>
-                <Plus size={13} /> Post-Intake
-              </button>
-            </>
-          )}
-        </div>
+            ) : (
+              <>
+                <button data-testid="add-pre-intake" type="button"
+                  onClick={() => { setEdit(emptyItem("pre", "intake")); setActionsOpen(false); }}
+                  className="w-full text-left px-3 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] border-t flex items-center gap-1.5"
+                  style={{ borderColor: "#EDE9E3" }}>
+                  <Plus size={13} /> Pre-Intake
+                </button>
+                <button data-testid="add-post-intake" type="button"
+                  onClick={() => { setEdit(emptyItem("post", "intake")); setActionsOpen(false); }}
+                  className="w-full text-left px-3 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] border-t flex items-center gap-1.5"
+                  style={{ borderColor: "#EDE9E3" }}>
+                  <Plus size={13} /> Post-Intake
+                </button>
+              </>
+            )}
+          </div>
+        </>
       )}
-    </div>
+    </>
   ) : null;
 
   const tabToolbar = isSchool ? (
@@ -249,10 +249,15 @@ export default function WaitingPage({ mode }) {
 
   return (
     <div className="page-enter">
+      {canManage && (
+        <div className="waiting-actions-bar flex justify-end mb-2 relative">
+          {adminBadge}
+        </div>
+      )}
       <PageBanner
         title={title}
         subtitle={subtitle}
-        badge={adminBadge}
+        className="editorial-banner--compact-mobile"
         tabs={bannerTabs}
         activeTab={bannerActiveTab}
         onTabChange={handleBannerTab}
