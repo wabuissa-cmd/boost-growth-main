@@ -1,8 +1,9 @@
-import { useEffect, useState, useRef, Suspense } from "react";
+import { useEffect, useState, useRef, Suspense, useMemo } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData, isWalaaOps, showMyPortalNav } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
-import { prefetch } from "../dataCache";
+import { prefetch, cachedGet } from "../dataCache";
+import { getPortalDisplayName } from "../scheduleConstants";
 import {
   House, CalendarBlank,   ClipboardText, UsersThree, Receipt,
   Bell, SignOut,   ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, CaretDown, Folder, UserCircle,
@@ -58,6 +59,7 @@ export default function Shell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try { return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1"; } catch { return false; }
   });
+  const [therapists, setTherapists] = useState([]);
   const loc = useLocation();
   const portalAdmin = showAdminNav(user);
   const hrOps = isHrOps(user);
@@ -81,7 +83,17 @@ export default function Shell() {
     if (!user) return;
     prefetch("/clients");
     prefetch("/therapists");
+    cachedGet("/therapists").then((t) => setTherapists(Array.isArray(t) ? t : [])).catch(() => {});
   }, [user]);
+
+  const portalDisplayName = useMemo(() => {
+    const row = therapists.find(
+      (t) => t.id === user?.id || (t.email || "").toLowerCase() === (user?.email || "").toLowerCase()
+    );
+    return getPortalDisplayName(user, row) || (user?.name || "").replace(/^Ms\.?\s*/i, "").trim() || user?.email || "";
+  }, [user, therapists]);
+
+  const avatarInitial = portalDisplayName.charAt(0) || "U";
   useEffect(() => { warmRoute(loc.pathname); }, [loc.pathname]);
 
   const unread = notifs.filter(n => !n.read).length;
@@ -197,9 +209,9 @@ export default function Shell() {
           {!sidebarCollapsed && (
             <div className="sidebar-profile">
               <div className="sidebar-profile-avatar" style={{ background: user?.color || "#D4A64A" }}>
-                {user?.name?.replace("Ms. ", "").charAt(0) || "U"}
+                {avatarInitial}
               </div>
-              <div className="sidebar-profile-name">{user?.name?.replace("Ms. ", "") || user?.email}</div>
+              <div className="sidebar-profile-name">{portalDisplayName}</div>
               <div className="sidebar-profile-role">{profileRole}</div>
             </div>
           )}
@@ -220,10 +232,10 @@ export default function Shell() {
           </div>
           <div className="sidebar-footer p-3 border-t">
             {sidebarCollapsed && (
-              <div className="flex justify-center mb-2" title={user?.name || user?.email}>
+              <div className="flex justify-center mb-2" title={portalDisplayName}>
                 <div className="sidebar-profile-avatar w-8 h-8 text-xs"
                      style={{ background: user?.color || "#D4A64A" }}>
-                  {user?.name?.replace("Ms. ", "").charAt(0) || "U"}
+                  {avatarInitial}
                 </div>
               </div>
             )}
@@ -366,10 +378,10 @@ export default function Shell() {
               {!useSidebar && (
               <>
               <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-white text-sm" style={{background: user?.color || "#D4A64A"}}>
-                {user?.name?.replace("Ms. ", "").charAt(0) || "U"}
+                {avatarInitial}
               </div>
               <div className="text-xs leading-tight">
-                <div className="font-bold truncate max-w-[120px]" style={{color: "#2C3625"}}>{user?.name?.replace("Ms. ", "") || user?.email}</div>
+                <div className="font-bold truncate max-w-[160px]" style={{color: "#2C3625"}}>{portalDisplayName}</div>
                 <div style={{color: "#8B9E7A"}}>{profileRole}</div>
               </div>
               </>

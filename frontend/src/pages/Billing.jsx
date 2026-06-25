@@ -315,9 +315,9 @@ export default function Billing() {
     return <div className="card p-12 text-center"><div className="spinner mx-auto" /></div>;
   }
 
-  const clientToolbar = (
+  const clientSelect = (
     <select
-      className="input text-sm min-w-[200px] max-w-full"
+      className="input text-sm w-full"
       value={selectedClientId}
       onChange={e => onClientChange(e.target.value)}
       data-testid="billing-client-select"
@@ -331,18 +331,38 @@ export default function Billing() {
     </select>
   );
 
+  const attentionPanel = (
+    <div className="card overflow-hidden flex flex-col lg:sticky lg:top-[4.5rem] max-h-[min(480px,calc(100vh-6rem))] lg:max-h-[calc(100vh-6rem)]">
+      <div className="px-3 py-2 border-b flex items-center justify-between shrink-0" style={{ borderColor: "#EDE9E3", background: "#FDF8F3" }}>
+        <span className="text-xs font-bold tracking-wider" style={{ color: "#8A3F27" }}>
+          NEEDS ATTENTION · {attentionItems.length}
+        </span>
+        <span className="text-[10px]" style={{ color: "#8B9E7A" }}>Unpaid & partial</span>
+      </div>
+      <div className="overflow-y-auto flex-1 min-h-0">
+        {attentionItems.length === 0 ? (
+          <div className="p-8 text-center">
+            <CheckCircle size={28} weight="duotone" className="mx-auto mb-2" style={{ color: "#7A8A6A" }} />
+            <p className="text-sm m-0 font-semibold" style={{ color: "#2C3625" }}>All caught up</p>
+          </div>
+        ) : attentionItems.map(row => (
+          <CompactAttentionRow key={row.invoice_id} row={row} onEdit={setEditRow} onOpenSheet={openSheet} />
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <div>
       <PageBanner
         title="Billing & Payments"
-        subtitle="Select a client to view invoices, package balance & payment status"
+        subtitle="Client billing on the left · payment alerts on the right"
         className="editorial-banner--compact-mobile"
         stats={[
           { label: "Unpaid", n: summary.unpaid, color: "#8A3F27" },
           { label: "Partial", n: summary.partial, color: "#6B5218" },
           { label: "Reminders", n: summary.reminders_soon, color: "#5C6853" },
         ]}
-        toolbar={clientToolbar}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4 p-3 rounded-xl border" style={{ background: "#FAFAF7", borderColor: "#E2DDD4" }}>
@@ -363,156 +383,135 @@ export default function Billing() {
         <BillingProgressStrip summary={summary} items={data.items || []} />
       </div>
 
-      {selectedClient ? (
-        <div className="mb-4">
-          <div className="card p-4 mb-3">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="font-display text-lg font-semibold m-0" style={{ color: "#2C3625" }}>{selectedClient.name}</h2>
-                <p className="text-xs m-0 mt-1" style={{ color: "#8B9E7A" }}>File #{selectedClient.file_no || "—"}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => openSheetForClient(selectedClient)}
-                className="btn btn-primary text-xs min-h-[40px]"
-              >
-                <ClipboardText size={14} /> Open Invoice Sheet
-              </button>
-            </div>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+        <div className="lg:col-span-8 flex flex-col gap-3 min-w-0 order-2 lg:order-1">
+          <div className="card p-4">
+            <label className="label block mb-2 text-xs font-bold tracking-wide" style={{ color: "#5C6853" }}>
+              CLIENT
+            </label>
+            {clientSelect}
+          </div>
 
-            {clientPkg.length > 0 && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
-                {clientPkg.map(row => {
-                  const ur = formatPkgUsedRemaining(row);
-                  const needsInvoice = ["critical", "expired", "low"].includes(row.status);
-                  return (
-                    <div
-                      key={`${row.client_id}-${row.service_type}`}
-                      className="p-3 rounded-xl border"
-                      style={{ borderColor: needsInvoice ? "#E8C4A8" : "#E2DDD4", background: needsInvoice ? "#FDF8F3" : "#FAFAF7" }}
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-bold text-sm" style={{ color: "#2C3625" }}>{row.service_type}</span>
-                        {needsInvoice && <Warning size={16} weight="fill" style={{ color: "#C4783A" }} />}
-                      </div>
-                      <p className="text-xs m-0" style={{ color: "#5C6853" }}>{formatPkgBadge(row)}</p>
-                      <p className="text-[11px] m-0 mt-1" style={{ color: "#8B9E7A" }}>
-                        {ur.used} used · {ur.remaining} remaining
-                      </p>
-                      {needsInvoice && (
-                        <p className="text-[11px] font-bold m-0 mt-2" style={{ color: "#8A3F27" }}>
-                          Upload / issue invoice soon
-                        </p>
+          {selectedClient ? (
+            <>
+              <div className="card p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="font-display text-lg font-semibold m-0" style={{ color: "#2C3625" }}>{selectedClient.name}</h2>
+                    <p className="text-xs m-0 mt-1" style={{ color: "#8B9E7A" }}>File #{selectedClient.file_no || "—"}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openSheetForClient(selectedClient)}
+                    className="btn btn-primary text-xs min-h-[40px]"
+                  >
+                    <ClipboardText size={14} /> Open Invoice Sheet
+                  </button>
+                </div>
+
+                {clientPkg.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                    {clientPkg.map(row => {
+                      const ur = formatPkgUsedRemaining(row);
+                      const needsInvoice = ["critical", "expired", "low"].includes(row.status);
+                      return (
+                        <div
+                          key={`${row.client_id}-${row.service_type}`}
+                          className="p-3 rounded-xl border"
+                          style={{ borderColor: needsInvoice ? "#E8C4A8" : "#E2DDD4", background: needsInvoice ? "#FDF8F3" : "#FAFAF7" }}
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-bold text-sm" style={{ color: "#2C3625" }}>{row.service_type}</span>
+                            {needsInvoice && <Warning size={16} weight="fill" style={{ color: "#C4783A" }} />}
+                          </div>
+                          <p className="text-xs m-0" style={{ color: "#5C6853" }}>{formatPkgBadge(row)}</p>
+                          <p className="text-[11px] m-0 mt-1" style={{ color: "#8B9E7A" }}>
+                            {ur.used} used · {ur.remaining} remaining
+                          </p>
+                          {needsInvoice && (
+                            <p className="text-[11px] font-bold m-0 mt-2" style={{ color: "#8A3F27" }}>
+                              Upload / issue invoice soon
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="card overflow-hidden flex flex-col max-h-[420px]">
+                <div className="px-3 py-2 border-b text-xs font-bold tracking-wider shrink-0" style={{ borderColor: "#EDE9E3", color: "#5C6853", background: "#FAFAF7" }}>
+                  INVOICE HISTORY · {clientInvoices.length}
+                </div>
+                <div className="overflow-y-auto flex-1 min-h-0">
+                  {clientInvoices.length === 0 ? (
+                    <div className="p-6 text-center text-xs" style={{ color: "#8B9E7A" }}>No invoices on file.</div>
+                  ) : clientInvoices.map(row => {
+                    const st = paymentStatusStyle(row.payment_status);
+                    const active = selectedInvoiceId === row.invoice_id;
+                    return (
+                      <button
+                        key={row.invoice_id}
+                        type="button"
+                        onClick={() => setSelectedInvoiceId(row.invoice_id)}
+                        className={`w-full text-left px-3 py-2.5 border-b transition text-xs ${active ? "bg-[#E5EBE1]" : "hover:bg-[#FAFAF7]"}`}
+                        style={{ borderColor: "#EDE9E3" }}
+                      >
+                        <div className="font-semibold truncate" style={{ color: "#2C3625" }}>{row.invoice_number || "Invoice"}</div>
+                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                          <span className="pill text-[9px] font-bold px-1.5 py-0.5" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>
+                            {paymentStatusLabel(row.payment_status)}
+                          </span>
+                          <span style={{ color: "#8B9E7A" }}>{row.start_date || "—"}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {selectedInvoiceId && (() => {
+                const row = clientInvoices.find(r => r.invoice_id === selectedInvoiceId);
+                if (!row) return null;
+                const st = paymentStatusStyle(row.payment_status);
+                return (
+                  <div className="card p-3 text-xs">
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <span className="font-bold">{row.invoice_number}</span>
+                      <span className="pill text-[10px] font-bold px-2 py-0.5" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>
+                        {paymentStatusLabel(row.payment_status)}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1" style={{ color: "#5C6853" }}>
+                      <span>{formatServiceTypeDisplay(row.service_type) || row.service_type}</span>
+                      {row.amount != null && <span>{formatMoney(row.amount)}</span>}
+                      {row.payment_status === "partial" && row.amount_remaining != null && (
+                        <span>{formatMoney(row.amount_remaining)} remaining</span>
+                      )}
+                      {row.payment_status === "pending" && row.days_unpaid > 0 && (
+                        <span className="font-bold" style={{ color: "#8A3F27" }}>{row.days_unpaid}d unpaid</span>
                       )}
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
-            <div className="lg:col-span-4 card overflow-hidden flex flex-col max-h-[420px]">
-              <div className="px-3 py-2 border-b text-xs font-bold tracking-wider shrink-0" style={{ borderColor: "#EDE9E3", color: "#5C6853", background: "#FAFAF7" }}>
-                INVOICE HISTORY · {clientInvoices.length}
-              </div>
-              <div className="overflow-y-auto flex-1 min-h-0">
-                {clientInvoices.length === 0 ? (
-                  <div className="p-6 text-center text-xs" style={{ color: "#8B9E7A" }}>No invoices on file.</div>
-                ) : clientInvoices.map(row => {
-                  const st = paymentStatusStyle(row.payment_status);
-                  const active = selectedInvoiceId === row.invoice_id;
-                  return (
-                    <button
-                      key={row.invoice_id}
-                      type="button"
-                      onClick={() => setSelectedInvoiceId(row.invoice_id)}
-                      className={`w-full text-left px-3 py-2.5 border-b transition text-xs ${active ? "bg-[#E5EBE1]" : "hover:bg-[#FAFAF7]"}`}
-                      style={{ borderColor: "#EDE9E3" }}
-                    >
-                      <div className="font-semibold truncate" style={{ color: "#2C3625" }}>{row.invoice_number || "Invoice"}</div>
-                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                        <span className="pill text-[9px] font-bold px-1.5 py-0.5" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>
-                          {paymentStatusLabel(row.payment_status)}
-                        </span>
-                        <span style={{ color: "#8B9E7A" }}>{row.start_date || "—"}</span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="lg:col-span-8 card overflow-hidden flex flex-col max-h-[420px]">
-              <div className="px-3 py-2 border-b flex items-center justify-between shrink-0" style={{ borderColor: "#EDE9E3", background: "#FDF8F3" }}>
-                <span className="text-xs font-bold tracking-wider" style={{ color: "#8A3F27" }}>
-                  NEEDS ATTENTION · {attentionItems.length}
-                </span>
-                <span className="text-[10px]" style={{ color: "#8B9E7A" }}>Unpaid & partial · reminders</span>
-              </div>
-              <div className="overflow-y-auto flex-1 min-h-0">
-                {attentionItems.length === 0 ? (
-                  <div className="p-8 text-center">
-                    <CheckCircle size={28} weight="duotone" className="mx-auto mb-2" style={{ color: "#7A8A6A" }} />
-                    <p className="text-sm m-0 font-semibold" style={{ color: "#2C3625" }}>All caught up</p>
+                    <div className="flex gap-2 mt-2">
+                      <button type="button" className="btn btn-secondary text-[10px] px-2 py-1 min-h-0" onClick={() => setEditRow(row)}>Update payment</button>
+                    </div>
                   </div>
-                ) : attentionItems.map(row => (
-                  <CompactAttentionRow key={row.invoice_id} row={row} onEdit={setEditRow} onOpenSheet={openSheet} />
-                ))}
-              </div>
+                );
+              })()}
+            </>
+          ) : (
+            <div className="card p-8 text-center">
+              <Receipt size={40} weight="duotone" className="mx-auto mb-3" style={{ color: "#7A8A6A" }} />
+              <p className="text-sm m-0" style={{ color: "#5C6853" }}>Choose a client above to view invoices, package balance & payment details.</p>
             </div>
-          </div>
+          )}
+        </div>
 
-          {selectedInvoiceId && (() => {
-            const row = clientInvoices.find(r => r.invoice_id === selectedInvoiceId);
-            if (!row) return null;
-            const st = paymentStatusStyle(row.payment_status);
-            return (
-              <div className="card p-3 mt-3 text-xs">
-                <div className="flex flex-wrap items-center gap-2 mb-2">
-                  <span className="font-bold">{row.invoice_number}</span>
-                  <span className="pill text-[10px] font-bold px-2 py-0.5" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>
-                    {paymentStatusLabel(row.payment_status)}
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1" style={{ color: "#5C6853" }}>
-                  <span>{formatServiceTypeDisplay(row.service_type) || row.service_type}</span>
-                  {row.amount != null && <span>{formatMoney(row.amount)}</span>}
-                  {row.payment_status === "partial" && row.amount_remaining != null && (
-                    <span>{formatMoney(row.amount_remaining)} remaining</span>
-                  )}
-                  {row.payment_status === "pending" && row.days_unpaid > 0 && (
-                    <span className="font-bold" style={{ color: "#8A3F27" }}>{row.days_unpaid}d unpaid</span>
-                  )}
-                </div>
-                <div className="flex gap-2 mt-2">
-                  <button type="button" className="btn btn-secondary text-[10px] px-2 py-1 min-h-0" onClick={() => setEditRow(row)}>Update payment</button>
-                </div>
-              </div>
-            );
-          })()}
+        <div className="lg:col-span-4 min-w-0 order-1 lg:order-2">
+          {attentionPanel}
         </div>
-      ) : (
-        <div className="card p-8 text-center mb-4">
-          <Receipt size={40} weight="duotone" className="mx-auto mb-3" style={{ color: "#7A8A6A" }} />
-          <p className="text-sm m-0" style={{ color: "#5C6853" }}>Choose a client from the dropdown above to view invoices and package balance.</p>
-        </div>
-      )}
-
-      {!selectedClient && attentionItems.length > 0 && (
-        <div className="card overflow-hidden mb-4 max-h-52">
-          <div className="px-4 py-2.5 border-b flex items-center justify-between" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
-            <span className="text-xs font-bold tracking-wider" style={{ color: "#8A3F27" }}>
-              NEEDS ATTENTION · {attentionItems.length}
-            </span>
-          </div>
-          <div className="overflow-y-auto max-h-40">
-            {attentionItems.map(row => (
-              <CompactAttentionRow key={row.invoice_id} row={row} onEdit={setEditRow} onOpenSheet={openSheet} />
-            ))}
-          </div>
-        </div>
-      )}
+      </div>
 
       {editRow && (
         <PaymentEditModal

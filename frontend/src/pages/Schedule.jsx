@@ -1370,7 +1370,7 @@ export default function Schedule() {
           }
           subtitle={
             notify.cancelState
-              ? `${therapists.find(t => t.id === notify.therapist_id)?.name} · ${DAYS_EN[notify.day]} · ${notify.time_slot}`
+              ? `${getTherapistScheduleName(therapists.find(t => t.id === notify.therapist_id))} · ${DAYS_EN[notify.day]} · ${notify.time_slot}`
               : "Notify one or more therapists about a schedule change"
           }
           onClose={() => setNotify(null)}
@@ -1414,7 +1414,7 @@ export default function Schedule() {
                     checked={(notify.recipient_ids || []).includes(t.id)}
                     onChange={() => toggleRecipient(t.id)}
                   />
-                  {t.name}
+                  {getTherapistScheduleName(t)}
                 </label>
               ))}
             </div>

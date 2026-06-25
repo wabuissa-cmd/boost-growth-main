@@ -4,7 +4,7 @@ import {
   Leaf, PencilSimple, Trash, CaretRight,
 } from "@phosphor-icons/react";
 import { getChildColor, readable } from "../childColors";
-import { prepTrackMeta, cardStatusMeta } from "../attendanceUtils";
+import { getTherapistScheduleName } from "../scheduleConstants";
 import { formatPkgBadge, pkgStatusStyle, formatPkgUsedRemaining } from "../packageStatusUtils";
 import "../clientInfoLayout.css";
 
@@ -71,7 +71,9 @@ export default function ClientInfoLayout({
   const selectedPkg = selected ? (pkgByClient[selected.id] || []) : [];
   const track = selected ? prepTrackMeta(selected) : null;
   const statusMeta = selected ? cardStatusMeta(selected.cardStatus || "ok") : null;
-  const therapistName = selected ? findTherapist(selected.main_therapist_id)?.name?.replace("Ms. ", "") : "";
+  const therapistName = selected
+    ? getTherapistScheduleName(findTherapist(selected.main_therapist_id))
+    : "";
   const driveLinkCount = selected ? (selected.drive_links?.length || 0) : 0;
   const avatarBg = selected ? (getChildColor(selected.name) || selected.color || "#E5EBE1") : "#E5EBE1";
   const canEditPhone = isAdmin || hasOps || Boolean(onPhoneSave);
@@ -114,7 +116,7 @@ export default function ClientInfoLayout({
           <div className="ci-pane-list">
             {clients.map(c => {
               const dot = pkgAlertDot(pkgByClient[c.id]);
-              const tName = findTherapist(c.main_therapist_id)?.name?.replace("Ms. ", "");
+              const tName = getTherapistScheduleName(findTherapist(c.main_therapist_id));
               const bg = getChildColor(c.name) || c.color || "#E5EBE1";
               const avatarColor = getChildColor(c.name) || c.color ? readable(bg) : "#606E52";
               const isSelected = selected?.id === c.id;

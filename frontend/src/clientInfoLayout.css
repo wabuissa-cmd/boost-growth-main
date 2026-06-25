@@ -1137,17 +1137,33 @@
   font-weight: 700;
   margin-inline-end: 0.35rem;
 }
+.case-summary-sheet__table--kv {
+  table-layout: fixed;
+}
 .case-summary-sheet__label {
-  width: 34%;
-  min-width: 7.5rem;
+  width: 38%;
+  min-width: 8rem;
+  max-width: 42%;
   font-weight: 700;
   background: #F3EFE8 !important;
   color: #4A5D42;
+  vertical-align: middle;
 }
 .case-summary-sheet__value {
-  width: 66%;
+  width: 62%;
   color: #2C3625;
+  vertical-align: middle;
 }
 .case-summary-sheet__table--kv .case-summary-sheet__value {
   background: #FAFAF7;
+}
+.case-summary-sheet--rtl .case-summary-sheet__table--kv .case-summary-sheet__label {
+  text-align: right;
+  border-left: 2px solid #C4D4B8;
+}
+.case-summary-sheet--rtl .case-summary-sheet__table--kv .case-summary-sheet__value {
+  text-align: right;
+}
+.case-summary-sheet:not(.case-summary-sheet--rtl) .case-summary-sheet__table--kv .case-summary-sheet__label {
+  border-right: 2px solid #C4D4B8;
 }

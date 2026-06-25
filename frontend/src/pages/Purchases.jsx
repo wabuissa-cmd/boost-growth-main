@@ -57,7 +57,6 @@ export default function Purchases() {
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState(emptyPurchaseForm);
   const [submitting, setSubmitting] = useState(false);
-  const [filterTherapist, setFilterTherapist] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterMonth, setFilterMonth] = useState(() => {
     const tabs = yearMonthTabs();
@@ -71,7 +70,6 @@ export default function Purchases() {
 
   const load = async () => {
     const params = {};
-    if (filterTherapist) params.therapist_id = filterTherapist;
     if (filterStatus) params.status = filterStatus;
     if (filterMonth) params.month = filterMonth;
     const { data } = await api.get("/purchases", { params });
@@ -80,7 +78,7 @@ export default function Purchases() {
 
   useEffect(() => {
     load();
-  }, [filterTherapist, filterStatus, filterMonth]);
+  }, [filterStatus, filterMonth]);
 
   useEffect(() => {
     Promise.all([
@@ -234,6 +232,9 @@ export default function Purchases() {
       />
 
       <div className="card overflow-hidden mb-4">
+        <div className="px-3 py-2 border-b text-[10px] font-bold tracking-wider" style={{ borderColor: "#E2DDD4", background: "#FAFAF7", color: "#5C6853" }}>
+          CALENDAR MONTHS · JAN – JUL {new Date().getFullYear()}
+        </div>
         <div className="flex gap-0 overflow-x-auto border-b" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
           {monthTabs.map((m) => {
             const active = filterMonth === m.value;
@@ -243,12 +244,13 @@ export default function Purchases() {
                 key={m.value}
                 type="button"
                 onClick={() => setFilterMonth(m.value)}
-                className={`shrink-0 px-4 py-2.5 text-xs font-bold border-b-2 transition min-h-[44px] ${
+                className={`shrink-0 px-4 py-3 text-xs font-bold border-b-2 transition min-h-[48px] min-w-[5.5rem] ${
                   active ? "border-[#7A8A6A] text-[#2C3625] bg-white" : "border-transparent text-[#8B9E7A] hover:text-[#5C6853]"
                 }`}
               >
-                {m.short}
-                {count > 0 && <span className="ml-1 opacity-70">({count})</span>}
+                <span className="block text-[11px] leading-tight">{m.label}</span>
+                <span className="block text-[9px] font-semibold opacity-70 mt-0.5">{m.short}</span>
+                {count > 0 && <span className="block text-[9px] mt-0.5 opacity-80">({count})</span>}
               </button>
             );
           })}
@@ -256,10 +258,6 @@ export default function Purchases() {
 
         <div className="p-3 flex flex-wrap gap-2 items-center border-b" style={{ borderColor: "#EDE9E3" }}>
           <ShoppingBag size={18} style={{ color: "#7A8A6A" }}/>
-          <select className="input text-sm w-auto" value={filterTherapist} onChange={e => setFilterTherapist(e.target.value)}>
-            <option value="">All therapists</option>
-            {therapists.map(t => <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>)}
-          </select>
           <select className="input text-sm w-auto" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
             <option value="">All statuses</option>
             <option value="pending">Pending</option>

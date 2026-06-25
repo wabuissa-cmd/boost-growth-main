@@ -555,7 +555,20 @@ function looksLikeLabel(text) {
   const t = String(text || "").trim();
   if (!t || isLongParagraph(t)) return false;
   if (/[:：]\s*$/.test(t)) return true;
+  const hasArabic = /[\u0600-\u06FF]/.test(t);
+  if (hasArabic) {
+    return t.length <= 72 && t.split(/\s+/).length <= 10 && !/[.!]\s/.test(t);
+  }
   return t.length <= 48 && !/[.!?؟]/.test(t);
+}
+
+function splitLabelValueCell(text) {
+  const t = String(text || "").trim();
+  const parts = t.split(/[:：]\s*/, 2);
+  if (parts.length === 2 && parts[0].length > 0 && parts[0].length <= 72 && !isLongParagraph(parts[1])) {
+    return { label: parts[0].trim(), value: parts[1].trim() };
+  }
+  return null;
 }
 
 /** Pair stacked single-column Excel rows into label | value rows. */
@@ -567,7 +580,9 @@ function pairTableRows(table) {
     if (cells.length >= 2) {
       flat.push({ kind: "kv", label: cells[0], value: cells.slice(1).join(" — ") });
     } else {
-      flat.push({ kind: "cell", text: cells[0] });
+      const split = splitLabelValueCell(cells[0]);
+      if (split) flat.push({ kind: "kv", label: split.label, value: split.value });
+      else flat.push({ kind: "cell", text: cells[0] });
     }
   }
 
@@ -584,6 +599,18 @@ function pairTableRows(table) {
     const next = flat[i + 1];
 
     if (next?.kind === "cell" && looksLikeLabel(text) && !looksLikeLabel(next.text)) {
+      out.push({ kind: "kv", label: text, value: next.text });
+      i += 2;
+      continue;
+    }
+    if (
+      next?.kind === "cell"
+      && !isLongParagraph(text)
+      && !isLongParagraph(next.text)
+      && text.length <= 80
+      && next.text.length <= 240
+      && (looksLikeLabel(text) || text.length <= next.text.length)
+    ) {
       out.push({ kind: "kv", label: text, value: next.text });
       i += 2;
       continue;
