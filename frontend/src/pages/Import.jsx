@@ -9,6 +9,7 @@ export default function ImportPage() {
   const [file, setFile] = useState(null);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [replaceMissingClients, setReplaceMissingClients] = useState(false);
   const [historicalWeeks, setHistoricalWeeks] = useState([]);
   const [clearExisting, setClearExisting] = useState(false);
   const [scheduleWeekStart, setScheduleWeekStart] = useState(toISODate(startOfWeek(new Date())));
@@ -79,12 +80,15 @@ export default function ImportPage() {
         if (clearExisting) fd.append("clear_existing", "true");
         if (sheetName) fd.append("sheet_name", sheetName);
       }
+      if (type === "clients" && replaceMissingClients) {
+        fd.append("replace_missing", "true");
+      }
       const { data } = await api.post(endpoint, fd, { headers: {"Content-Type": "multipart/form-data"}});
       const msg = type === "schedule"
         ? `${data.cells_inserted} cells for week ${data.week_start}${data.sheet_used ? ` · sheet "${data.sheet_used}"` : ""}${data.merge_spans_detected != null ? ` · ${data.merge_spans_detected} merged spans detected` : ""}${data.week_start_warning ? ` · ${data.week_start_warning}` : ""}`
         : type === "intake"
         ? [data.message, data.hint].filter(Boolean).join(' — ')
-        : `${data.created} created, ${data.skipped} skipped`;
+        : `${data.created} created, ${data.skipped} skipped${data.removed_missing ? ` · ${data.removed_missing} removed (missing from file)` : ""}`;
       setResult({ ok: true, msg });
       setFile(null);
     } catch (e) { setResult({ ok: false, msg: e.response?.data?.detail || e.message }); }
@@ -331,6 +335,15 @@ export default function ImportPage() {
               {type === "intake" && (
                 <div className="mt-2 p-2 rounded-lg" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
                   Re-uploading the same file updates existing cases by name — it should not create duplicates. Intake is separate from Clients.
+                </div>
+              )}
+              {type === "clients" && (
+                <div className="mt-2 p-2 rounded-lg border" style={{ background: "#FFFBF0", borderColor: "#E8C572", color: "#6B5218" }}>
+                  <div className="font-bold mb-1">Make portal match Excel count</div>
+                  <label className="flex items-center gap-2 text-xs cursor-pointer">
+                    <input type="checkbox" checked={replaceMissingClients} onChange={e => setReplaceMissingClients(e.target.checked)} />
+                    <span>Soft-delete clients that are not present in this uploaded file (safe — can be restored)</span>
+                  </label>
                 </div>
               )}
             </div>

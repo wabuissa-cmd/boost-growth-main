@@ -7056,9 +7056,14 @@ def _extract_intake_child_name(r: dict) -> str:
     return ""
 
 @api.post("/import/clients")
-async def import_clients(file: UploadFile = File(...), _=Depends(import_access)):
+async def import_clients(
+    file: UploadFile = File(...),
+    replace_missing: bool = Form(False),
+    _=Depends(import_access),
+):
     rows = _read_table(file)
     created, updated, skipped = 0, 0, 0
+    file_nos_in_file: set = set()
     therapists = await db.therapists.find({}, {"_id": 0}).to_list(100)
     t_by_name = {t["name"].lower(): t["id"] for t in therapists}
     for r in rows:
@@ -7071,6 +7076,7 @@ async def import_clients(file: UploadFile = File(...), _=Depends(import_access))
             skipped += 1
             continue
         file_no = file_no_raw.zfill(3)
+        file_nos_in_file.add(file_no)
         main_name = (r.get("main_therapist") or r.get("main") or "").strip().lower() if r.get("main_therapist") or r.get("main") else None
         main_id = t_by_name.get(main_name) if main_name else None
         doc = {
@@ -7103,7 +7109,21 @@ async def import_clients(file: UploadFile = File(...), _=Depends(import_access))
                 **doc,
             })
             created += 1
-    return {"created": created, "updated": updated, "skipped": skipped}
+    removed_missing = 0
+    if replace_missing and file_nos_in_file:
+        r = await db.clients.update_many(
+            _active_client_filter({"file_no": {"$nin": list(sorted(file_nos_in_file))}}),
+            {"$set": {"deleted": True, "deleted_at": now_iso(), "dedupe_note": "missing from clients import file"}},
+        )
+        removed_missing = int(r.modified_count or 0)
+    dedupe = await _dedupe_duplicate_clients()
+    return {
+        "created": created,
+        "updated": updated,
+        "skipped": skipped,
+        "removed_missing": removed_missing,
+        "dedupe_removed": dedupe.get("removed") if isinstance(dedupe, dict) else None,
+    }
 
 WAITING_LIST_SHEET_ID = "14DLxQZOWSRnS_4kWeOsgKfpYMQiZ6hQiv2be_-J_hBg"
 WAITING_LIST_SHEET_URL = f"https://docs.google.com/spreadsheets/d/{WAITING_LIST_SHEET_ID}/edit"
