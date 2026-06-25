@@ -114,14 +114,14 @@ export default function Clients() {
     <div>
       <PageBanner
         title="Client Info"
-        className="editorial-banner--compact-mobile editorial-banner--clients-compact"
+        className="editorial-banner--compact-mobile editorial-banner--clients-compact editorial-banner--clients-toolbar"
         tabs={[
           { id: "active", label: "Active", count: activeCount },
           { id: "inactive", label: "Inactive", count: items.length - activeCount },
         ]}
         activeTab={statusTab}
         onTabChange={setStatusTab}
-        badge={(
+        toolbar={(
           <div className="client-info-banner-actions">
             <button
               type="button"
@@ -493,22 +493,31 @@ function AttachmentsPanelModal({ client, canSyncDrive, onClose, onSaved, onRefre
   );
 }
 
-function CaseSummaryView({ sections, url }) {
+function sectionsToEditableText(sections) {
+  const parts = [];
+  for (const sec of sections || []) {
+    if (sec.heading && sec.heading !== "Overview") parts.push(sec.heading);
+    for (const p of sec.paragraphs || []) parts.push(p);
+    for (const b of sec.bullets || []) parts.push(`• ${b}`);
+    for (const table of sec.tables || []) {
+      for (const row of table) parts.push(row.join("\t"));
+    }
+    if (parts.length) parts.push("");
+  }
+  return parts.join("\n").trim();
+}
+
+function CaseSummaryView({ sections }) {
   const allTables = (sections || []).flatMap((sec) => sec.tables || []);
   if (!sections?.length) {
     return (
       <div className="text-sm py-6 text-center rounded-xl border" style={{ color: "#8B9E7A", borderColor: "#EDE9E3", background: "#FAFAF7" }}>
-        No case summary content yet.{url ? " Open the linked document or sync from Drive." : " Add a Case Summary link below."}
+        No case summary yet. Use <strong>Edit summary</strong> to add clinical notes here in the portal.
       </div>
     );
   }
   return (
     <div className="space-y-3">
-      {url && (
-        <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs underline" style={{ color: "#5C8A47" }}>
-          Open source document ↗ <ArrowSquareOut size={12} />
-        </a>
-      )}
       {allTables.length > 0 ? (
         allTables.map((table, ti) => (
           <div key={ti} className="overflow-x-auto rounded-lg border case-summary-excel-table" style={{ borderColor: "#B8C8A8" }}>
@@ -570,33 +579,31 @@ function CaseDetailsPanelModal({ client, therapists, user, isAdmin, onClose, onS
   );
   const canRemind = hasFullClientAccess(user) || isJenan(user) || isAdmin;
   const [editing, setEditing] = useState(false);
-  const [summaryUrl, setSummaryUrl] = useState(client.case_summary_url || "");
+  const [summaryText, setSummaryText] = useState("");
   const [saving, setSaving] = useState(false);
   const [reminding, setReminding] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [summary, setSummary] = useState({
     sections: client.case_summary_sections?.sections || [],
-    url: client.case_summary_url || null,
   });
 
   useEffect(() => {
     let cancelled = false;
     setSummaryLoading(true);
-    api.get(`/clients/${client.id}/case-summary`, { params: { refresh: true } })
-      .then(r => { if (!cancelled) setSummary({ sections: r.data?.sections || [], url: r.data?.url || client.case_summary_url }); })
-      .catch(() => { if (!cancelled) setSummary({ sections: client.case_summary_sections?.sections || [], url: client.case_summary_url }); })
+    api.get(`/clients/${client.id}/case-summary`)
+      .then(r => { if (!cancelled) setSummary({ sections: r.data?.sections || [] }); })
+      .catch(() => { if (!cancelled) setSummary({ sections: client.case_summary_sections?.sections || [] }); })
       .finally(() => { if (!cancelled) setSummaryLoading(false); });
     return () => { cancelled = true; };
-  }, [client.id, client.case_summary_url, JSON.stringify(client.case_summary_sections)]);
+  }, [client.id, JSON.stringify(client.case_summary_sections)]);
 
   const saveSummary = async () => {
     setSaving(true);
     try {
       const r = await api.put(`/clients/${client.id}/case-summary`, {
-        case_summary_url: summaryUrl,
-        refresh: true,
+        case_summary_text: summaryText,
       });
-      setSummary({ sections: r.data?.sections || [], url: r.data?.url || summaryUrl });
+      setSummary({ sections: r.data?.sections || [] });
       setEditing(false);
       onSaved && onSaved();
     } catch (e) {
@@ -625,8 +632,8 @@ function CaseDetailsPanelModal({ client, therapists, user, isAdmin, onClose, onS
       footer={
         editing ? (
           <>
-            <ModalBtnSecondary type="button" onClick={() => { setEditing(false); setSummaryUrl(client.case_summary_url || ""); }}>Cancel</ModalBtnSecondary>
-            <ModalBtnPrimary type="button" onClick={saveSummary} disabled={saving}>{saving ? "Saving…" : "Save & sync"}</ModalBtnPrimary>
+            <ModalBtnSecondary type="button" onClick={() => { setEditing(false); }}>Cancel</ModalBtnSecondary>
+            <ModalBtnPrimary type="button" onClick={saveSummary} disabled={saving}>{saving ? "Saving…" : "Save summary"}</ModalBtnPrimary>
           </>
         ) : (
           <>
@@ -637,8 +644,11 @@ function CaseDetailsPanelModal({ client, therapists, user, isAdmin, onClose, onS
               </ModalBtnSecondary>
             )}
             {canEdit && (
-              <ModalBtnPrimary type="button" onClick={() => { setSummaryUrl(summary.url || client.case_summary_url || ""); setEditing(true); }}>
-                <PencilSimple size={14} className="inline mr-1" /> Edit link
+              <ModalBtnPrimary type="button" onClick={() => {
+                setSummaryText(sectionsToEditableText(summary.sections));
+                setEditing(true);
+              }}>
+                <PencilSimple size={14} className="inline mr-1" /> Edit summary
               </ModalBtnPrimary>
             )}
           </>
@@ -648,21 +658,21 @@ function CaseDetailsPanelModal({ client, therapists, user, isAdmin, onClose, onS
         summaryLoading ? (
           <div className="text-sm italic py-8 text-center" style={{ color: "#8B9E7A" }}>Loading case summary…</div>
         ) : (
-          <CaseSummaryView sections={summary.sections} url={summary.url} />
+          <CaseSummaryView sections={summary.sections} />
         )
       ) : (
-        <div className="space-y-4">
-          <FormField label="Case summary document URL" hint="Google Doc link from the client Drive folder">
-            <input
-              className="modal-input"
-              value={summaryUrl}
-              onChange={e => setSummaryUrl(e.target.value)}
-              placeholder="https://docs.google.com/document/d/…"
-            />
-          </FormField>
-          <p className="text-xs m-0" style={{ color: "#8B9E7A" }}>
-            Saving will sync the document and refresh the summary table below.
+        <div className="space-y-3">
+          <p className="text-xs m-0" style={{ color: "#5C6853" }}>
+            Edit the case summary directly here. Use headings (e.g. <strong>Diagnosis:</strong>), bullet lines starting with <strong>•</strong>, or tab-separated columns for tables — same layout as the Excel sheet.
           </p>
+          <textarea
+            className="modal-input font-sans text-sm leading-relaxed"
+            rows={16}
+            value={summaryText}
+            onChange={e => setSummaryText(e.target.value)}
+            placeholder={"Diagnosis:\nAutism Spectrum Disorder\n\nGoals:\n• Improve communication\n• Reduce challenging behavior"}
+            style={{ direction: "rtl" }}
+          />
         </div>
       )}
     </ModalBase>

@@ -3190,6 +3190,7 @@ async def get_client_case_summary(cid: str, refresh: bool = False, user=Depends(
 
 class CaseSummaryUpdateIn(BaseModel):
     case_summary_url: Optional[str] = None
+    case_summary_text: Optional[str] = None
     refresh: bool = True
 
 
@@ -3204,14 +3205,28 @@ async def _user_can_edit_case_summary(user: dict, client: dict) -> bool:
 
 @api.put("/clients/{cid}/case-summary")
 async def update_client_case_summary(cid: str, body: CaseSummaryUpdateIn, user=Depends(get_current_user)):
-    """Specialists may set the case summary link; supervisors/admins may edit any client."""
-    from drive_sync import fetch_case_summary_content
+    """Specialists may edit case summary content in-portal; supervisors/admins may edit any client."""
+    from drive_sync import fetch_case_summary_content, parse_case_summary_text
 
     client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     if not await _user_can_edit_case_summary(user, client):
         raise HTTPException(status_code=403, detail="Case summary edit not allowed")
+
+    # Direct in-portal edit (preferred — no Drive round-trip)
+    if body.case_summary_text is not None:
+        text = (body.case_summary_text or "").strip()
+        fetched = parse_case_summary_text(text) if text else {"sections": [], "raw_preview": ""}
+        patch = {
+            "case_summary_sections": fetched,
+            "case_summary_updated_at": now_iso(),
+            "case_summary_updated_by": user.get("id"),
+            "case_summary_source": "portal",
+        }
+        await db.clients.update_one({"id": cid}, {"$set": patch})
+        url = (client.get("case_summary_url") or "").strip() or None
+        return {"url": url, "sections": fetched.get("sections", []), "cached": False}
 
     patch: dict = {}
     if body.case_summary_url is not None:

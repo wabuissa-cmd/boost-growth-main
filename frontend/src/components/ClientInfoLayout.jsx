@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import {
   MapPin, Paperclip, ClipboardText,
-  Leaf, PencilSimple, CaretRight, Trash,
+  Leaf, PencilSimple, Trash,
 } from "@phosphor-icons/react";
 import { getChildColor, readable } from "../childColors";
 import { prepTrackMeta, cardStatusMeta } from "../attendanceUtils";
@@ -213,26 +213,19 @@ export default function ClientInfoLayout({
               )}
 
               <div className="ci-timeline">
-                <p className="ci-timeline-title">Records & files</p>
-                <div className="ci-timeline-list">
-                  {SECTIONS.map((s, i) => {
+                <p className="ci-timeline-title">Client records</p>
+                <div className="ci-section-grid">
+                  {SECTIONS.map((s) => {
                     const Icon = s.icon;
                     const desc = s.id === "attachments" && driveLinkCount > 0
-                      ? `${driveLinkCount} Drive link${driveLinkCount !== 1 ? "s" : ""} on file`
+                      ? `${driveLinkCount} file${driveLinkCount !== 1 ? "s" : ""}`
                       : s.desc;
                     return (
-                      <button key={s.id} type="button" className="ci-timeline-item" onClick={() => onOpenSection(s.id)}>
-                        <div className="ci-timeline-rail">
-                          <div className="ci-timeline-dot" />
-                          {i < SECTIONS.length - 1 && <div className="ci-timeline-line" />}
-                        </div>
-                        <div className="ci-timeline-card">
-                          <span className="ci-timeline-icon"><Icon size={18} weight="duotone" /></span>
-                          <div className="flex-1 min-w-0">
-                            <h3>{s.title}</h3>
-                            <p>{desc}</p>
-                          </div>
-                          <CaretRight size={14} style={{ color: "#8B9E7A", flexShrink: 0 }} />
+                      <button key={s.id} type="button" className="ci-section-card" onClick={() => onOpenSection(s.id)}>
+                        <span className="ci-section-card-icon"><Icon size={20} weight="duotone" /></span>
+                        <div className="ci-section-card-body">
+                          <h3>{s.title}</h3>
+                          <p>{desc}</p>
                         </div>
                       </button>
                     );

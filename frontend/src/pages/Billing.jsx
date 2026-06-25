@@ -6,9 +6,11 @@ import { useAuth, showAdminNav } from "../auth";
 import { HistoryModal } from "./Attendance";
 import PageBanner from "../components/PageBanner";
 import BillingProgressStrip from "../components/BillingProgressStrip";
+import "../clientInfoLayout.css";
 import { ModalBase, FormSection, FormField, ModalBtnPrimary, ModalBtnSecondary } from "../components/Modal";
 import { formatMoney, paymentStatusLabel, paymentStatusStyle } from "../billingUtils";
 import { formatServiceTypeDisplay } from "../attendanceUtils";
+import { yearMonthTabs, monthKeyFromDate } from "../monthTabs";
 import {
   Receipt, CheckCircle, MagnifyingGlass, EnvelopeSimple, ClipboardText,
 } from "@phosphor-icons/react";
@@ -179,6 +181,7 @@ export default function Billing() {
   const deepService = params.get("service");
   const deepNewInvoice = params.get("newInvoice") === "1";
   const [data, setData] = useState(null);
+  const [invoices, setInvoices] = useState([]);
   const [clients, setClients] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [therapists, setTherapists] = useState([]);
@@ -186,11 +189,19 @@ export default function Billing() {
   const [search, setSearch] = useState("");
   const [editRow, setEditRow] = useState(null);
   const [sending, setSending] = useState(false);
+  const monthTabs = useMemo(() => yearMonthTabs(), []);
+  const defaultMonth = useMemo(() => {
+    const now = new Date();
+    const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    return monthTabs.some((m) => m.value === key) ? key : monthTabs[0]?.value || "";
+  }, [monthTabs]);
+  const [filterMonth, setFilterMonth] = useState(defaultMonth);
 
   const loadSupport = useCallback(() => {
     cachedGet("/clients", { force: true }).then(c => setClients(Array.isArray(c) ? c : [])).catch(() => {});
     cachedGet("/therapists", { force: true }).then(t => setTherapists(Array.isArray(t) ? t : [])).catch(() => {});
     cachedGet("/sessions", { force: true }).then(s => setSessions(Array.isArray(s) ? s : [])).catch(() => {});
+    api.get("/invoices").then(r => setInvoices(Array.isArray(r.data) ? r.data : [])).catch(() => setInvoices([]));
   }, []);
 
   const load = useCallback(() => {
@@ -206,12 +217,59 @@ export default function Billing() {
     if (c) setSheetClient(c);
   }, [deepClientId, clients]);
 
+  const clientMap = useMemo(() => {
+    const m = {};
+    clients.forEach((c) => { m[c.id] = c; });
+    return m;
+  }, [clients]);
+
+  const monthlyRows = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return invoices
+      .map((inv) => {
+        const client = clientMap[inv.client_id];
+        if (!client) return null;
+        const start = (inv.start_date || inv.created_at || "").slice(0, 10);
+        const month = monthKeyFromDate(start);
+        const amount = parseFloat(inv.amount) || 0;
+        const paid = parseFloat(inv.amount_paid) || 0;
+        const status = inv.payment_status === "complete" || (amount > 0 && paid >= amount)
+          ? "complete"
+          : (inv.payment_status === "partial" || (paid > 0 && paid < amount) ? "partial" : "pending");
+        return {
+          invoice_id: inv.id,
+          invoice_number: inv.invoice_number,
+          client_id: client.id,
+          client_name: client.name,
+          file_no: client.file_no,
+          service_type: inv.service_type,
+          payment_status: status,
+          amount: amount || null,
+          amount_paid: paid || null,
+          amount_remaining: amount > 0 ? Math.max(0, amount - paid) : null,
+          start_date: start || null,
+          month,
+          days_unpaid: start && status !== "complete" ? Math.max(0, Math.floor((Date.parse(today) - Date.parse(start)) / 86400000)) : 0,
+          next_payment_reminder_at: inv.next_payment_reminder_at || null,
+          payment_notes: inv.payment_notes,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => (b.start_date || "").localeCompare(a.start_date || "") || (a.client_name || "").localeCompare(b.client_name || ""));
+  }, [invoices, clientMap]);
+
+  const monthFilteredRows = useMemo(() => {
+    if (!filterMonth) return monthlyRows;
+    return monthlyRows.filter((r) => r.month === filterMonth);
+  }, [monthlyRows, filterMonth]);
+
   const list = useMemo(() => {
-    if (!data) return [];
-    if (tab === "unpaid") return data.unpaid || [];
-    if (tab === "partial") return data.partial || [];
-    return data.items || [];
-  }, [data, tab]);
+    const base = filterMonth ? monthFilteredRows : (data ? (tab === "unpaid" ? data.unpaid || [] : tab === "partial" ? data.partial || [] : data.items || []) : []);
+    if (!filterMonth) return base;
+    if (tab === "unpaid") return base.filter((r) => r.payment_status === "pending");
+    if (tab === "partial") return base.filter((r) => r.payment_status === "partial");
+    return base;
+  }, [data, tab, filterMonth, monthFilteredRows]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -283,14 +341,35 @@ export default function Billing() {
     <div>
       <PageBanner
         title="Billing & Payments"
-        subtitle="Invoices, payment tracking, and installment reminders"
+        subtitle="Monthly invoice payments · Jan–Jul overview"
         stats={[
           { label: "Unpaid", n: summary.unpaid, color: "#8A3F27" },
           { label: "Partial", n: summary.partial, color: "#6B5218" },
           { label: "Reminders soon", n: summary.reminders_soon, color: "#5C6853" },
-          { label: "Open items", n: (data.items || []).length, color: "#3D4F35" },
+          { label: filterMonth ? "This month" : "Open items", n: filterMonth ? monthFilteredRows.length : (data.items || []).length, color: "#3D4F35" },
         ]}
       />
+
+      <div className="card p-3 mb-4 sticky top-[3.5rem] z-10" style={{ background: "#FAFCF8", borderColor: "#B8C8A8" }}>
+        <div className="text-xs font-bold tracking-wider mb-2" style={{ color: "#5C6853" }}>PAYMENTS BY MONTH</div>
+        <div className="flex gap-2 overflow-x-auto pb-1" style={{ WebkitOverflowScrolling: "touch" }}>
+          {monthTabs.map((m) => (
+            <button
+              key={m.value}
+              type="button"
+              className={`btn text-xs whitespace-nowrap min-h-[36px] ${filterMonth === m.value ? "btn-primary" : "btn-outline"}`}
+              onClick={() => setFilterMonth(m.value)}
+            >
+              {m.short}
+            </button>
+          ))}
+        </div>
+        <div className="text-[11px] mt-2" style={{ color: "#5C6853" }}>
+          {filterMonth
+            ? `${monthFilteredRows.length} invoice${monthFilteredRows.length === 1 ? "" : "s"} in ${monthTabs.find((m) => m.value === filterMonth)?.label || filterMonth}`
+            : "Select a month above"}
+        </div>
+      </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4 p-3 rounded-xl border" style={{ background: "#FAFAF7", borderColor: "#E2DDD4" }}>
         <p className="ui-caption m-0 flex-1 min-w-[200px]">
@@ -350,10 +429,58 @@ export default function Billing() {
       {filtered.length === 0 ? (
         <div className="card p-10 text-center">
           <CheckCircle size={40} weight="duotone" className="mx-auto mb-3" style={{ color: "#7A8A6A" }} />
-          <div className="font-bold" style={{ color: "#2C3625" }}>No items in this list</div>
-          <div className="text-sm mt-1" style={{ color: "#8B9E7A" }}>
-            {tab === "unpaid" ? "All open invoices are paid or partially paid." : "Nothing to show here."}
+          <div className="font-bold" style={{ color: "#2C3625" }}>
+            {filterMonth ? "No invoices this month" : "No items in this list"}
           </div>
+          <div className="text-sm mt-1" style={{ color: "#8B9E7A" }}>
+            {filterMonth
+              ? `No payment records for ${monthTabs.find((m) => m.value === filterMonth)?.label || filterMonth}.`
+              : (tab === "unpaid" ? "All open invoices are paid or partially paid." : "Nothing to show here.")}
+          </div>
+        </div>
+      ) : filterMonth ? (
+        <div className="intake-table-wrap">
+          <table className="intake-table">
+            <thead>
+              <tr>
+                <th>Client</th>
+                <th>Invoice</th>
+                <th>Service</th>
+                <th>Status</th>
+                <th>Amount</th>
+                <th>Paid</th>
+                <th>Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((row) => {
+                const st = paymentStatusStyle(row.payment_status);
+                return (
+                  <tr key={row.invoice_id}>
+                    <td>
+                      <div className="font-semibold">{row.client_name}</div>
+                      <div className="text-[10px]" style={{ color: "#8B9E7A" }}>#{row.file_no || "—"}</div>
+                    </td>
+                    <td>{row.invoice_number || "—"}</td>
+                    <td>{formatServiceTypeDisplay(row.service_type) || row.service_type || "—"}</td>
+                    <td>
+                      <span className="pill text-[10px] font-bold px-2 py-0.5" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>
+                        {paymentStatusLabel(row.payment_status)}
+                      </span>
+                    </td>
+                    <td>{row.amount != null ? formatMoney(row.amount) : "—"}</td>
+                    <td>{row.amount_paid != null ? formatMoney(row.amount_paid) : "—"}</td>
+                    <td>{row.start_date || "—"}</td>
+                    <td>
+                      <button type="button" className="text-[10px] underline mr-2" onClick={() => openSheet(row)}>Sheet</button>
+                      <button type="button" className="text-[10px] underline" onClick={() => setEditRow(row)}>Update</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       ) : (
         <div className="space-y-2">

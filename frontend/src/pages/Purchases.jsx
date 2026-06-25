@@ -5,6 +5,7 @@ import {
 } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
 import { getTherapistScheduleName } from "../scheduleConstants";
+import { yearMonthTabs } from "../monthTabs";
 import "../clientInfoLayout.css";
 
 const STATUS_META = {
@@ -25,15 +26,6 @@ function fmtMoney(p) {
   return "—";
 }
 
-const MONTH_TABS = [
-  { key: "01", label: "Jan" },
-  { key: "02", label: "Feb" },
-  { key: "03", label: "Mar" },
-  { key: "04", label: "Apr" },
-  { key: "05", label: "May" },
-  { key: "06", label: "Jun" },
-  { key: "07", label: "Jul" },
-];
 
 export default function Purchases() {
   const [items, setItems] = useState([]);
@@ -41,7 +33,11 @@ export default function Purchases() {
   const [categories, setCategories] = useState([]);
   const [filterTherapist, setFilterTherapist] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
-  const [filterMonth, setFilterMonth] = useState("");
+  const [filterMonth, setFilterMonth] = useState(() => {
+    const tabs = yearMonthTabs();
+    const now = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+    return tabs.some((m) => m.value === now) ? now : tabs[0]?.value || "";
+  });
   const [settings, setSettings] = useState({ day_of_month: 25, enabled: true, therapist_ids: [] });
   const [savingSettings, setSavingSettings] = useState(false);
   const [sending, setSending] = useState(false);
@@ -122,17 +118,33 @@ export default function Purchases() {
     }
   };
 
-  const monthTabs = useMemo(() => {
-    const year = String(new Date().getFullYear());
-    return MONTH_TABS.map(m => ({ value: `${year}-${m.key}`, label: `${m.label} ${year}` }));
-  }, []);
+  const monthTabs = useMemo(() => yearMonthTabs(), []);
 
   return (
     <div className="page-enter">
       <PageBanner
         title="Purchases"
-        subtitle="Staff purchase reimbursement tracking · monthly logging reminders"
+        subtitle="Staff purchase reimbursement · monthly Excel layout"
       />
+
+      <div className="card p-3 mb-4 sticky top-[3.5rem] z-10" style={{ background: "#FAFCF8", borderColor: "#B8C8A8" }}>
+        <div className="text-xs font-bold tracking-wider mb-2" style={{ color: "#5C6853" }}>MONTHS (JAN – JUL)</div>
+        <div className="flex gap-2 overflow-x-auto pb-1" style={{ WebkitOverflowScrolling: "touch" }}>
+          {monthTabs.map((m) => (
+            <button
+              key={m.value}
+              type="button"
+              className={`btn text-xs whitespace-nowrap min-h-[36px] ${filterMonth === m.value ? "btn-primary" : "btn-outline"}`}
+              onClick={() => setFilterMonth(m.value)}
+            >
+              {m.short}
+            </button>
+          ))}
+        </div>
+        <div className="text-[11px] mt-2" style={{ color: "#5C6853" }}>
+          {filterMonth ? `Showing ${monthTabs.find((m) => m.value === filterMonth)?.label || filterMonth}` : "Select a month"}
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
         <div className="card p-4 lg:col-span-1">
@@ -199,31 +211,6 @@ export default function Purchases() {
         </div>
       </div>
 
-      <div className="card p-3 mb-3">
-        <div className="text-xs font-bold tracking-wider mb-2" style={{ color: "#8B9E7A" }}>MONTHS</div>
-        <div className="flex gap-2 overflow-x-auto pb-1" style={{ WebkitOverflowScrolling: "touch" }}>
-          <button
-            type="button"
-            className={`btn text-xs whitespace-nowrap ${filterMonth ? "btn-outline" : "btn-primary"}`}
-            onClick={() => setFilterMonth("")}
-          >
-            All
-          </button>
-          {monthTabs.map((m) => (
-            <button
-              key={m.value}
-              type="button"
-              className={`btn text-xs whitespace-nowrap ${filterMonth === m.value ? "btn-primary" : "btn-outline"}`}
-              onClick={() => setFilterMonth(m.value)}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-        <div className="text-[11px] mt-2" style={{ color: "#5C6853" }}>
-          Showing {filterMonth ? filterMonth : "all months"}.
-        </div>
-      </div>
 
       <div className="card p-3 mb-3 flex flex-wrap gap-2 items-center">
         <ShoppingBag size={18} style={{ color: "#7A8A6A" }}/>
@@ -236,10 +223,6 @@ export default function Purchases() {
           <option value="pending">Pending</option>
           <option value="approved">Approved</option>
           <option value="reimbursed">Reimbursed</option>
-        </select>
-        <select className="input text-sm w-auto" value={filterMonth} onChange={e => setFilterMonth(e.target.value)}>
-          <option value="">All months</option>
-          {monthTabs.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
         </select>
       </div>
 

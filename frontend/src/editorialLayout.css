@@ -344,18 +344,44 @@
   .editorial-banner--clients-compact .editorial-banner__nav {
     padding-top: 0.35rem;
   }
+  .editorial-banner--clients-toolbar .editorial-banner__head {
+    padding-bottom: 0.35rem;
+  }
+  .editorial-banner--clients-toolbar .editorial-banner__panel {
+    padding-top: 0.35rem;
+    padding-bottom: 0.45rem;
+  }
+  .editorial-banner--clients-toolbar .editorial-banner__toolbar {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+  }
   .client-info-banner-actions {
     display: flex;
     align-items: center;
     gap: 0.35rem;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     width: 100%;
-    justify-content: flex-end;
+    justify-content: flex-start;
   }
   .client-info-banner-search {
-    flex: 1 1 88px;
+    flex: 1 1 auto;
     min-width: 72px;
-    max-width: 140px;
+    max-width: none;
+  }
+}
+
+@media (min-width: 961px) {
+  .editorial-banner--clients-toolbar .editorial-banner__head {
+    padding-bottom: 0.25rem;
+  }
+  .client-info-banner-actions {
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+  }
+  .client-info-banner-actions .btn {
+    min-height: 34px !important;
+    font-size: 12px !important;
   }
 }
 
