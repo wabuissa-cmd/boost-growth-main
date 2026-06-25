@@ -217,8 +217,10 @@ def _has_full_client_access(user: dict) -> bool:
 
 
 def _session_editable_by_user(user: dict, session: dict) -> bool:
-    """Therapists may edit/delete only same-day sessions; portal admin always."""
+    """Therapists may edit/delete only same-day sessions; ops/admin always."""
     if _is_portal_admin(user) and not _is_client_lead(user):
+        return True
+    if _is_walaa_ops(user):
         return True
     today = datetime.now(timezone.utc).date().isoformat()
     sd = (session.get("session_date") or "")[:10]
