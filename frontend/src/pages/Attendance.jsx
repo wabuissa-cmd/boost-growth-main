@@ -163,7 +163,7 @@ export default function Attendance() {
   const [therapists, setTherapists] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [packageRows, setPackageRows] = useState([]);
-  const [cardsReady, setCardsReady] = useState(false);
+  const [cardsReady, setCardsReady] = useState(true);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [logFor, setLogFor] = useState(null); // client OR null OR "__pick__"
@@ -199,7 +199,14 @@ export default function Attendance() {
       setSessions(Array.isArray(s) ? s : []);
     });
   }, []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const staleClients = peekCache("/clients");
+    const stalePkg = peekCache("/clients/package-status");
+    if (Array.isArray(staleClients) && staleClients.length) setClients(staleClients);
+    if (Array.isArray(stalePkg)) setPackageRows(stalePkg);
+    setCardsReady(true);
+    load();
+  }, [load]);
 
   const enriched = useMemo(
     () => clients
@@ -294,12 +301,7 @@ export default function Attendance() {
 
       {/* Client list — design preview layout */}
       <div className="stagger">
-        {!cardsReady && !clients.length && (
-          <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>
-            <div className="spinner mx-auto mb-3" /> Loading clients…
-          </div>
-        )}
-        {cardsReady && (
+        {(cardsReady || clients.length > 0) ? (
           <PreparationPrepLayout
             clients={filtered}
             selectedId={selectedPrepId}
@@ -311,6 +313,10 @@ export default function Attendance() {
             isAdmin={isAdmin}
             findTherapist={id => findT(id)}
           />
+        ) : (
+          <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>
+            <div className="spinner mx-auto mb-3" /> Loading clients…
+          </div>
         )}
       </div>
 

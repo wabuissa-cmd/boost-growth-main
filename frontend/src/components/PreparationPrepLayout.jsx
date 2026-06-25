@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { ClipboardText, CheckCircle, Clock, Warning } from "@phosphor-icons/react";
 import { getChildColor, readable } from "../childColors";
+import { prepTrackMeta, cardStatusMeta } from "../attendanceUtils";
 import { getTherapistScheduleName } from "../scheduleConstants";
 import SsWeekStatusRow from "./SsWeekStatusRow";
 import "../preparationLayout.css";
