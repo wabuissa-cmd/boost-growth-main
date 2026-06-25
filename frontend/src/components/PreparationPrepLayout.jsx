@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { ClipboardText, CheckCircle, Clock, Warning } from "@phosphor-icons/react";
 import { getChildColor, readable } from "../childColors";
-import { cardStatusMeta, prepTrackMeta } from "../attendanceUtils";
+import { getTherapistScheduleName } from "../scheduleConstants";
 import SsWeekStatusRow from "./SsWeekStatusRow";
 import "../preparationLayout.css";
 
@@ -33,6 +33,7 @@ export default function PreparationPrepLayout({
   onSelect,
   onLog,
   onHistory,
+  onInvoiceSheet,
   counts,
   isAdmin,
   findTherapist,
@@ -138,7 +139,9 @@ export default function PreparationPrepLayout({
               <div className="prep-detail-head">{selected.name}</div>
               <div className="prep-detail-sub">
                 File #{selected.file_no} · {track?.service || "—"}
-                {findTherapist?.(selected.main_therapist_id) ? ` · ${findTherapist(selected.main_therapist_id).name?.replace("Ms. ", "")}` : ""}
+                {findTherapist?.(selected.main_therapist_id)
+                  ? ` · ${getTherapistScheduleName(findTherapist(selected.main_therapist_id))}`
+                  : ""}
               </div>
             </div>
             <div className="prep-ring-wrap">
@@ -163,6 +166,11 @@ export default function PreparationPrepLayout({
               <button type="button" className="prep-detail-cta secondary" onClick={() => onHistory(selected)}>
                 View history
               </button>
+              {onInvoiceSheet && (
+                <button type="button" className="prep-detail-cta secondary" data-testid={`invoice-sheet-${selected.id}`} onClick={() => onInvoiceSheet(selected)}>
+                  Invoice sheet
+                </button>
+              )}
             </div>
           </aside>
         )}

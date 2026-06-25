@@ -2,6 +2,26 @@
 
 export const WEEK_ROW_BG = ["#FFFFFF", "#FAF8F3", "#F5F0E6", "#EDE1C9"];
 
+/** Sunday-start week index from anchor — consistent row banding in invoice sheets. */
+export function sundayWeekIndex(sessionDateISO, anchorISO) {
+  const key = normalizeSessionDateKey(sessionDateISO);
+  const anchorKey = normalizeSessionDateKey(anchorISO) || key;
+  if (!key || !anchorKey) return 0;
+  const d = parseISO(key);
+  const anchor = parseISO(anchorKey);
+  const sessionSunday = new Date(d);
+  sessionSunday.setDate(sessionSunday.getDate() - sessionSunday.getDay());
+  const anchorSunday = new Date(anchor);
+  anchorSunday.setDate(anchorSunday.getDate() - anchorSunday.getDay());
+  const diffDays = Math.round((sessionSunday - anchorSunday) / 86400000);
+  return Math.max(0, Math.floor(diffDays / 7));
+}
+
+export function rowBgForSession(session, anchorISO) {
+  const idx = sundayWeekIndex(session?.session_date, anchorISO);
+  return WEEK_ROW_BG[idx % WEEK_ROW_BG.length];
+}
+
 export function parseISO(iso) {
   if (!iso) return new Date();
   const key = normalizeSessionDateKey(iso);

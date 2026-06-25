@@ -2111,6 +2111,8 @@ async def admin_clear_all_requests(body: ClearRequestsIn, _=Depends(admin_only))
 @api.get("/clients/{cid}/invoices")
 async def list_invoices(cid: str, service_type: Optional[str] = None, user=Depends(get_current_user)):
     items = await db.invoices.find({"client_id": cid}, {"_id": 0}).to_list(200)
+    for inv in items:
+        inv["is_closed"] = bool(inv.get("is_closed"))
     items = sorted(items, key=lambda i: (_invoice_num_key(i), (i.get("start_date") or i.get("created_at") or "")))
     if service_type:
         code = _normalize_service_type(service_type)
@@ -3209,6 +3211,9 @@ async def get_client_case_summary(cid: str, refresh: bool = False, user=Depends(
     url = (client.get("case_summary_url") or "").strip()
     cached = client.get("case_summary_sections")
 
+    if cached and cached.get("sections") and not refresh:
+        return {"url": url or None, "sections": cached["sections"], "cached": True}
+
     if refresh and url:
         try:
             sections = fetch_case_summary_content(url)
@@ -3217,19 +3222,7 @@ async def get_client_case_summary(cid: str, refresh: bool = False, user=Depends(
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"Could not fetch case summary: {exc}")
 
-    if cached and cached.get("sections"):
-        return {"url": url or None, "sections": cached["sections"], "cached": True}
-
-    if url:
-        try:
-            sections = fetch_case_summary_content(url)
-            if sections.get("sections"):
-                await db.clients.update_one({"id": cid}, {"$set": {"case_summary_sections": sections}})
-                return {"url": url, "sections": sections.get("sections", []), "cached": False}
-        except Exception:
-            pass
-
-    return {"url": url or None, "sections": [], "cached": bool(cached)}
+    return {"url": url or None, "sections": (cached or {}).get("sections", []) if cached else [], "cached": bool(cached)}
 
 
 class CaseSummaryUpdateIn(BaseModel):
@@ -4080,11 +4073,14 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
         existing = existing_inv.get(inv_num) or existing_inv.get(clean)
         if existing:
             update = {
-                "is_closed": header_info["is_closed"],
                 "close_date": header_info.get("close_date"),
                 "package_size": inv_pkg,
                 "invoice_number": inv_num,
             }
+            if header_info["is_closed"]:
+                update["is_closed"] = True
+                if header_info.get("close_date"):
+                    update["close_date"] = header_info["close_date"]
             detected_st = _normalize_service_type(header_info.get("service_type"))
             if detected_st:
                 update["service_type"] = detected_st
@@ -4673,8 +4669,12 @@ def _read_purchases_xlsx(content: bytes, months: Optional[List[str]] = None) -> 
             item = ws.cell(r, 2).value
             if item is None or not str(item).strip():
                 continue
+            item_str = str(item).strip()
             category = str(ws.cell(r, 3).value or "").strip()
             if not category:
+                continue
+            # Emergent subscription is May-only — skip if duplicated on June tab
+            if purchase_month and purchase_month.endswith("-06") and "emergent" in item_str.lower():
                 continue
             total, total_display = _parse_purchase_total(ws.cell(r, 7).value)
             if total is None and not str(ws.cell(r, 7).value or "").strip():
@@ -4712,6 +4712,11 @@ async def _upsert_purchases_from_sheet(records: List[dict]) -> dict:
             "purchase_month": {"$in": months},
             "$or": [{"sync_source": "google_sheet"}, {"imported": True}],
         })
+    # Remove known duplicates that should not appear in June
+    await db.staff_purchases.delete_many({
+        "purchase_month": {"$regex": "-06$"},
+        "item": {"$regex": "emergent", "$options": "i"},
+    })
     inserted = 0
     skipped = 0
     for rec in records:

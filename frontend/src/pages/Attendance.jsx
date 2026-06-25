@@ -24,7 +24,7 @@ import {
   pickLatestOpenInvoice, computeSsTotals, ssSessionDayValue,
   groupSessionsByMonth, formatMonthLabel,
   resolveServiceTabState, hasOpenInvoice, countSsWeeksDone, nextWeekOverride,
-  sessionEditableByUser,
+  sessionEditableByUser, rowBgForSession,
 } from "../attendanceUtils";
 import { PackageAlertBanner } from "../components/PackageStatusBadge";
 import PreparationPrepLayout from "../components/PreparationPrepLayout";
@@ -169,6 +169,7 @@ export default function Attendance() {
   const [logFor, setLogFor] = useState(null); // client OR null OR "__pick__"
   const [editingSess, setEditingSess] = useState(null);
   const [historyFor, setHistoryFor] = useState(null);
+  const [invoiceSheetFor, setInvoiceSheetFor] = useState(null);
   const [selectedPrepId, setSelectedPrepId] = useState(null);
 
   const load = useCallback(async (force = false) => {
@@ -290,6 +291,7 @@ export default function Attendance() {
             onSelect={setSelectedPrepId}
             onLog={c => setLogFor(c)}
             onHistory={c => setHistoryFor(c)}
+            onInvoiceSheet={c => setInvoiceSheetFor(c)}
             counts={counts}
             isAdmin={isAdmin}
             findTherapist={id => findT(id)}
@@ -337,6 +339,22 @@ export default function Attendance() {
                                 onClose={() => setHistoryFor(null)}
                                 onEdit={(s) => { setEditingSess(s); }}
                                 onRefresh={load}/>
+      )}
+
+      {invoiceSheetFor && (
+        <HistoryModal
+          client={invoiceSheetFor}
+          sessions={sessions.filter(s => s.client_id === invoiceSheetFor.id)}
+          therapists={therapists}
+          isAdmin={false}
+          readOnly
+          user={user}
+          currentUserId={user?.id}
+          onClose={() => setInvoiceSheetFor(null)}
+          onEdit={() => {}}
+          onDeleted={load}
+          onClientUpdated={load}
+        />
       )}
 
       {logFor && logFor !== "__pick__" && (
@@ -543,6 +561,13 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
     [isSchool, invoiceLocked]
   );
 
+  const hsTotals = useMemo(
+    () => (!isSchool && selectedInvoice ? computeHsInvoiceTotals(cycleSessions, selectedInvoice.package_size) : null),
+    [isSchool, selectedInvoice, cycleSessions]
+  );
+
+  const hsRowAnchor = cycleAnchor || selectedInvoice?.start_date || monthSessions[0]?.session_date;
+
   return (
     <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-2 z-50" onClick={onClose}>
       <div className="card p-0 relative w-full max-w-3xl modal-card max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
@@ -708,9 +733,16 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
                 </div>
               )}
               <div className="border rounded-lg overflow-hidden bg-white" style={{ borderColor: "#C4D4B8" }}>
-                <div className="px-2.5 py-1 flex items-center justify-between" style={{ background: "#EDF4E8" }}>
+                <div className="px-2.5 py-1 flex items-center justify-between flex-wrap gap-1" style={{ background: "#EDF4E8" }}>
                   <span className="font-bold text-xs" style={{ color: "#2C5035" }}>HOME SESSIONS</span>
-                  <span className="text-[10px]" style={{ color: "#5C6853" }}>{monthSessions.length} session{monthSessions.length !== 1 ? "s" : ""}</span>
+                  <span className="text-[10px] text-right" style={{ color: "#5C6853" }}>
+                    {hsTotals && (
+                      <span className="block font-semibold" style={{ color: "#3D4F35" }}>
+                        {hsTotals.hoursUsed.toFixed(1)} of {hsTotals.pkg}h used
+                      </span>
+                    )}
+                    {monthSessions.length} session{monthSessions.length !== 1 ? "s" : ""}
+                  </span>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs min-w-[520px] border-collapse">
@@ -727,7 +759,7 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
                           currentUserId={currentUserId}
                           onEdit={onEdit}
                           onDeleted={() => { onRefresh && onRefresh(); reloadSessions(); }}
-                          rowBg={WEEK_ROW_BG[i % WEEK_ROW_BG.length]}
+                          rowBg={rowBgForSession(s, hsRowAnchor)}
                           billingKind="HS"
                           locked={invoiceLocked}
                           bordered
@@ -747,7 +779,8 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
 }
 
 
-function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUserId, onClose, onEdit, onDeleted, onClientUpdated, initialService, autoNewInvoice }) {
+function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false, user, currentUserId, onClose, onEdit, onDeleted, onClientUpdated, initialService, autoNewInvoice }) {
+  const opsAdmin = isAdmin && !readOnly;
   const [closed, setClosed] = useState(false);
   const [closureDate, setClosureDate] = useState("");
   // Invoice + package management state
@@ -794,11 +827,11 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   }, [client.id, initialService]);
 
   useEffect(() => {
-    if (autoNewInvoice && isAdmin && !autoNewInvDone.current) {
+    if (autoNewInvoice && opsAdmin && !autoNewInvDone.current) {
       autoNewInvDone.current = true;
       setShowNewInvModal(true);
     }
-  }, [autoNewInvoice, isAdmin]);
+  }, [autoNewInvoice, opsAdmin]);
 
   const findT = id => therapists.find(t => t.id === id);
   const tabState = useMemo(() => resolveServiceTabState(client, allInvoices), [client, allInvoices]);
@@ -1143,10 +1176,11 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
     const hit = monthGroups.find(([k]) => k === selectedMonth);
     return hit ? hit[1] : sortedInvoiceSessions;
   }, [selectedMonth, monthGroups, sortedInvoiceSessions]);
-  const invoiceLocked = !!selectedInvoice?.is_closed;
+  const hsRowAnchor = cycleAnchor || selectedInvoice?.start_date || monthSessions[0]?.session_date;
+  const invoiceLocked = readOnly || !!selectedInvoice?.is_closed;
 
   const toggleWeekOverride = async (weekNum, currentKey) => {
-    if (!selectedInvoice || invoiceLocked || !isAdmin) return;
+    if (!selectedInvoice || invoiceLocked || !opsAdmin) return;
     const overrides = { ...(selectedInvoice.week_overrides || {}) };
     const key = String(weekNum);
     const next = nextWeekOverride(currentKey);
@@ -1163,7 +1197,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   };
 
   const addSsWeek = async () => {
-    if (!selectedInvoice || invoiceLocked || !isAdmin || !isSchool) return;
+    if (!selectedInvoice || invoiceLocked || !opsAdmin || !isSchool) return;
     const next = cycleWeeks + 1;
     try {
       await api.put(`/invoices/${selectedInvoice.id}`, {
@@ -1184,7 +1218,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
   };
 
   const removeSsWeek = async () => {
-    if (!selectedInvoice || invoiceLocked || !isAdmin || !isSchool || cycleWeeks <= 4) return;
+    if (!selectedInvoice || invoiceLocked || !opsAdmin || !isSchool || cycleWeeks <= 4) return;
     if (!window.confirm(`Remove Week ${cycleWeeks} from this invoice?`)) return;
     try {
       await api.put(`/invoices/${selectedInvoice.id}`, {
@@ -1239,7 +1273,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                       className="select text-xs min-h-[30px] py-1 px-2" style={{maxWidth: 220}}>
                 {sortedInvoices.map(inv => (
                   <option key={inv.id} value={inv.id}>
-                    {inv.invoice_number} · {inv.is_closed ? "Closed" : "Open"}
+                    {inv.invoice_number} · {Boolean(inv.is_closed) ? "Closed" : "Open"}
                   </option>
                 ))}
               </select>
@@ -1263,7 +1297,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                 No invoices
               </span>
             )}
-            {isAdmin && (
+            {opsAdmin && (
               <div className="relative">
                 <input id={`sync-xlsx-${client.id}`} type="file" accept=".xlsx" className="hidden"
                        data-testid="sync-xlsx-input"
@@ -1303,7 +1337,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                 )}
               </div>
             )}
-            {isAdmin && (
+            {opsAdmin && (
               <button
                 data-testid="new-invoice-btn"
                 type="button"
@@ -1313,24 +1347,26 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                 <Plus size={13}/> New Invoice
               </button>
             )}
+            {!readOnly && (
             <div className="relative">
               <button onClick={() => setExportOpen(o => !o)} className="btn btn-gold text-xs min-h-[30px] px-2 py-1">Export <CaretDown size={11}/></button>
               {exportOpen && (
                 <div className="absolute right-0 mt-1 card p-1 z-50 min-w-[160px] shadow-lg mobile-action-menu">
                   <button data-testid="export-excel-btn" onClick={() => { setExportOpen(false); setExportPendingMode("excel"); setShowExportColumns(true); }} className="btn btn-ghost w-full justify-start text-xs min-h-[30px] py-1"><FileXls size={13}/> Export as Excel</button>
                   <button onClick={() => { setExportOpen(false); setExportPendingMode("pdf"); setShowExportColumns(true); }} className="btn btn-ghost w-full justify-start text-xs min-h-[30px] py-1"><Printer size={13}/> Export as PDF</button>
-                  {isAdmin && selectedInvoice && (
+                  {opsAdmin && selectedInvoice && (
                     <button onClick={() => { savePackageInfo(); setExportOpen(false); }} className="btn btn-ghost w-full justify-start text-xs min-h-[30px] py-1">Save</button>
                   )}
                 </div>
               )}
             </div>
+            )}
           </div>
         </div>
 
         <PackageAlertBanner
           row={selectedInvoiceAlert}
-          onNewInvoice={isAdmin ? () => setShowNewInvModal(true) : undefined}
+          onNewInvoice={opsAdmin ? () => setShowNewInvModal(true) : undefined}
           onViewDetails={() => setShowInvoiceDetails(true)}
         />
 
@@ -1338,9 +1374,16 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
           <div className="mx-5 mt-2 px-3 py-2 rounded-lg border text-xs no-print flex items-center justify-between gap-2 flex-wrap"
             style={{ background: "#F5F5F5", borderColor: "#E0E0E0", color: "#5C6853" }}>
             <span>⚫ No open {serviceTypeFilter} invoice — showing most recent closed invoice.</span>
-            {isAdmin && (
+            {opsAdmin && (
               <button type="button" onClick={() => setShowNewInvModal(true)} className="btn btn-primary text-xs">Create New Invoice</button>
             )}
+          </div>
+        )}
+
+        {readOnly && (
+          <div className="mx-5 mt-2 px-3 py-2 rounded-lg border text-xs no-print"
+            style={{ background: "#F0F4EC", borderColor: "#C4D4B8", color: "#3D4F35" }}>
+            View only — contact coordination to update invoice details.
           </div>
         )}
 
@@ -1365,14 +1408,14 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               <span style={{color: "#5C6853"}}>{rem.toFixed(1)}h remaining · {used.toFixed(1)}/{pkg}h</span>
             ) : null}
             <button onClick={() => setShowInvoiceDetails(true)} className="btn btn-ghost text-[11px] py-0 px-2">ⓘ Details</button>
-            {isAdmin && (
+            {opsAdmin && (
               <button onClick={() => deleteInvoice(selectedInvoice.id)} className="ml-auto text-[11px] underline" style={{color: "#8A3F27"}}>delete</button>
             )}
           </div>
         )}
 
         {/* Pending payment warning */}
-        {isAdmin && selectedInvoice && paymentStatus === "pending" && (
+        {opsAdmin && selectedInvoice && paymentStatus === "pending" && (
           <div data-testid="pending-warning" className="px-5 py-2 flex items-center gap-2 text-xs font-bold no-print"
                style={{background: "#FAE8C8", color: "#8B6918", borderBottom: "1px solid #E5C387"}}>
             <Warning size={16} weight="fill"/>
@@ -1389,15 +1432,15 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
 
         {isSchool && selectedInvoice && ssWeekSummary.length > 0 && (
           <div className="px-4 py-2 border-b border-[#F0EDE9] no-print" style={{ background: "#FAFAF7" }}>
-            {isAdmin && !invoiceLocked && <SsWeekLegend compact />}
+            {opsAdmin && !invoiceLocked && <SsWeekLegend compact />}
             <SsWeekStatusRow
               weeks={ssWeekSummary}
               compact
-              editable={isAdmin && !invoiceLocked}
+              editable={opsAdmin && !invoiceLocked}
               onToggleOverride={toggleWeekOverride}
-              showAddWeek={isAdmin && !invoiceLocked && isSchool}
+              showAddWeek={opsAdmin && !invoiceLocked && isSchool}
               onAddWeek={addSsWeek}
-              showRemoveWeek={isAdmin && !invoiceLocked && isSchool && cycleWeeks > 4}
+              showRemoveWeek={opsAdmin && !invoiceLocked && isSchool && cycleWeeks > 4}
               onRemoveWeek={removeSsWeek}
             />
           </div>
@@ -1517,7 +1560,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                             key={s.id}
                             s={s}
                             findT={findT}
-                            isAdmin={isAdmin}
+                            isAdmin={opsAdmin}
                             user={user}
                             client={client}
                             currentUserId={currentUserId}
@@ -1555,7 +1598,12 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               <div className="border rounded-xl overflow-hidden" style={{ borderColor: "#C4D4B8" }}>
                 <div className="px-3 py-1.5 flex items-center justify-between" style={{ background: "#EDF4E8" }}>
                   <span className="font-bold text-sm" style={{ color: "#2C5035" }}>HOME SESSIONS</span>
-                  <span className="text-xs" style={{ color: "#5C6853" }}>
+                  <span className="text-xs text-right" style={{ color: "#5C6853" }}>
+                    {hsTotals && (
+                      <span className="block font-semibold text-[11px]" style={{ color: "#3D4F35" }}>
+                        {used.toFixed(1)} of {pkg}h used
+                      </span>
+                    )}
                     {selectedMonth ? formatMonthLabel(selectedMonth) : "All"} · {monthSessions.length} session{monthSessions.length !== 1 ? "s" : ""}
                   </span>
                 </div>
@@ -1568,13 +1616,13 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
                           key={s.id}
                           s={s}
                           findT={findT}
-                          isAdmin={isAdmin}
+                          isAdmin={opsAdmin}
                           user={user}
                           client={client}
                           currentUserId={currentUserId}
                           onEdit={onEdit}
                           onDeleted={onDeleted}
-                          rowBg={WEEK_ROW_BG[i % WEEK_ROW_BG.length]}
+                          rowBg={rowBgForSession(s, hsRowAnchor)}
                           billingKind="HS"
                           locked={invoiceLocked}
                           bordered
@@ -1643,7 +1691,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
             size="sm"
             elevated
             footer={
-              isAdmin ? (
+              opsAdmin ? (
                 <>
                   <ModalBtnSecondary type="button" onClick={() => setShowInvoiceDetails(false)}>Close</ModalBtnSecondary>
                   <ModalBtnPrimary
@@ -1747,7 +1795,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
               )}
             </FormSection>
 
-            {isAdmin && (
+            {opsAdmin && (
               <FormSection title="Dates">
                 <FormField label="Package end date">
                   <input
@@ -1764,7 +1812,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, user, currentUser
         )}
 
         {/* New Invoice modal */}
-        {showNewInvModal && (
+        {showNewInvModal && opsAdmin && (
           <NewInvoiceModal
             client={client}
             serviceTypeFilter={serviceTypeFilter}
