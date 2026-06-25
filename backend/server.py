@@ -594,12 +594,23 @@ class ParentWhatsAppSentIn(BaseModel):
 @api.post("/auth/login")
 async def admin_login(payload: LoginIn, response: Response):
     email = payload.email.lower()
+    # Primary: admin users
     user = await db.users.find_one({"email": email})
-    if not user or not verify_password(payload.password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    token = create_token({"sub": user["id"], "role": "admin", "email": email})
-    set_auth_cookie(response, token)
-    return {"id": user["id"], "email": email, "name": user.get("name"), "role": "admin", "token": token}
+    if user and verify_password(payload.password, user["password_hash"]):
+        token = create_token({"sub": user["id"], "role": "admin", "email": email})
+        set_auth_cookie(response, token)
+        return {"id": user["id"], "email": email, "name": user.get("name"), "role": "admin", "token": token}
+
+    # Secondary: allow ops/supervisors to sign in from the same form using therapist email+password
+    t = await db.therapists.find_one({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}})
+    if t and t.get("password_hash") and verify_password(payload.password, t["password_hash"]):
+        token = create_token({"sub": t["id"], "role": "therapist", "name": t["name"], "email": t.get("email")})
+        set_auth_cookie(response, token)
+        return {"id": t["id"], "name": t["name"], "color": t.get("color"), "email": t.get("email"),
+                "role": "therapist", "token": token,
+                "must_change_password": bool(t.get("must_change_password"))}
+
+    raise HTTPException(status_code=401, detail="Invalid credentials")
 
 @api.get("/auth/therapists-list")
 async def therapists_list_public():
@@ -619,6 +630,9 @@ async def therapist_login(payload: TherapistPinLogin, response: Response):
 async def therapist_email_login(payload: TherapistEmailLogin, response: Response):
     """Login a therapist using their email + password (new flow). PIN flow remains available."""
     email = payload.email.lower().strip()
+    # Ops / supervisors / HR should use the Admin & Supervisor login entry
+    if email in CLIENT_LEAD_EMAILS or email == HR_OPS_EMAIL:
+        raise HTTPException(status_code=403, detail="Please use Admin / Supervisor login for this account")
     t = await db.therapists.find_one({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}})
     if not t or not t.get("password_hash") or not verify_password(payload.password, t["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")

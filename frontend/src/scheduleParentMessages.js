@@ -35,8 +35,8 @@ export function formatTimeArabic(time24) {
   let h12 = h % 12;
   if (h12 === 0) h12 = 12;
   const suffix = isPM ? "م" : "ص";
-  const timeStr = m === 0 ? `${h12}` : `${h12}:${String(m).padStart(2, "0")}`;
-  return `${toArabicDigits(timeStr)} ${suffix}`;
+  const timeStr = `${h12}:${String(m).padStart(2, "0")}`;
+  return `${toArabicDigits(timeStr)}${suffix}`;
 }
 
 export function normalizeWhatsAppPhone(phone) {
@@ -77,14 +77,16 @@ function isPrimarySessionCell(cell, cells) {
   });
 }
 
-function sessionTimeLabel(cell) {
+function sessionTimeLabel(cell, wrapParens = false) {
   if (cell.custom_time?.trim()) {
-    return cell.custom_time.trim();
+    const s = cell.custom_time.trim();
+    return wrapParens ? `(${s})` : s;
   }
   const start = slotToTime24(cell.time_slot);
   const dur = parseFloat(cell.duration) || 1;
   const end = addHoursToTime(start, dur);
-  return `${formatTimeArabic(start)} – ${formatTimeArabic(end)}`;
+  const s = `${formatTimeArabic(start)} - ${formatTimeArabic(end)}`;
+  return wrapParens ? `(${s})` : s;
 }
 
 function greetingForClient(clientId) {
@@ -173,7 +175,7 @@ export function buildParentMessages(cells, clients = []) {
     }
     byChild.get(mapKey).sessions.push({
       day: cell.day,
-      timeLabel: sessionTimeLabel(cell),
+      timeLabel: sessionTimeLabel(cell, true),
       serviceCode: cell.service_code,
     });
   });

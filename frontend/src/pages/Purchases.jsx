@@ -25,6 +25,16 @@ function fmtMoney(p) {
   return "—";
 }
 
+const MONTH_TABS = [
+  { key: "01", label: "Jan" },
+  { key: "02", label: "Feb" },
+  { key: "03", label: "Mar" },
+  { key: "04", label: "Apr" },
+  { key: "05", label: "May" },
+  { key: "06", label: "Jun" },
+  { key: "07", label: "Jul" },
+];
+
 export default function Purchases() {
   const [items, setItems] = useState([]);
   const [therapists, setTherapists] = useState([]);
@@ -112,10 +122,10 @@ export default function Purchases() {
     }
   };
 
-  const monthOptions = useMemo(() => {
-    const set = new Set(items.map(p => p.purchase_month).filter(Boolean));
-    return [...set].sort().reverse();
-  }, [items]);
+  const monthTabs = useMemo(() => {
+    const year = String(new Date().getFullYear());
+    return MONTH_TABS.map(m => ({ value: `${year}-${m.key}`, label: `${m.label} ${year}` }));
+  }, []);
 
   return (
     <div className="page-enter">
@@ -189,6 +199,32 @@ export default function Purchases() {
         </div>
       </div>
 
+      <div className="card p-3 mb-3">
+        <div className="text-xs font-bold tracking-wider mb-2" style={{ color: "#8B9E7A" }}>MONTHS</div>
+        <div className="flex gap-2 overflow-x-auto pb-1" style={{ WebkitOverflowScrolling: "touch" }}>
+          <button
+            type="button"
+            className={`btn text-xs whitespace-nowrap ${filterMonth ? "btn-outline" : "btn-primary"}`}
+            onClick={() => setFilterMonth("")}
+          >
+            All
+          </button>
+          {monthTabs.map((m) => (
+            <button
+              key={m.value}
+              type="button"
+              className={`btn text-xs whitespace-nowrap ${filterMonth === m.value ? "btn-primary" : "btn-outline"}`}
+              onClick={() => setFilterMonth(m.value)}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <div className="text-[11px] mt-2" style={{ color: "#5C6853" }}>
+          Showing {filterMonth ? filterMonth : "all months"}.
+        </div>
+      </div>
+
       <div className="card p-3 mb-3 flex flex-wrap gap-2 items-center">
         <ShoppingBag size={18} style={{ color: "#7A8A6A" }}/>
         <select className="input text-sm w-auto" value={filterTherapist} onChange={e => setFilterTherapist(e.target.value)}>
@@ -203,7 +239,7 @@ export default function Purchases() {
         </select>
         <select className="input text-sm w-auto" value={filterMonth} onChange={e => setFilterMonth(e.target.value)}>
           <option value="">All months</option>
-          {monthOptions.map(m => <option key={m} value={m}>{m}</option>)}
+          {monthTabs.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
         </select>
       </div>
 

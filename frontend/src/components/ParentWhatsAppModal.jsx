@@ -1,12 +1,23 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Copy, Check, WhatsappLogo } from "@phosphor-icons/react";
 import { ModalBase, ModalBtnSecondary } from "./Modal";
+import { buildWhatsAppUrl } from "../scheduleParentMessages";
 
 export default function ParentWhatsAppModal({ open, onClose, messages, weekLabel, publishedNote }) {
   const [copiedId, setCopiedId] = useState(null);
   const [expanded, setExpanded] = useState(null);
+  const [drafts, setDrafts] = useState([]);
 
   if (!open) return null;
+
+  useEffect(() => {
+    setDrafts((messages || []).map((m) => ({
+      ...m,
+      _id: m.childName,
+      _removed: false,
+      _message: m.message || "",
+    })));
+  }, [open]); // reset each open
 
   const copyMessage = async (id, text) => {
     try {
@@ -18,10 +29,12 @@ export default function ParentWhatsAppModal({ open, onClose, messages, weekLabel
     }
   };
 
+  const visibleDrafts = useMemo(() => drafts.filter(d => !d._removed), [drafts]);
+
   const subtitle = [
     weekLabel,
     publishedNote,
-    `${messages.length} famil${messages.length === 1 ? "y" : "ies"} with sessions`,
+    `${visibleDrafts.length} famil${visibleDrafts.length === 1 ? "y" : "ies"} with sessions`,
   ].filter(Boolean).join(" · ");
 
   return (
@@ -36,7 +49,7 @@ export default function ParentWhatsAppModal({ open, onClose, messages, weekLabel
         </div>
       )}
     >
-      {messages.length === 0 ? (
+      {visibleDrafts.length === 0 ? (
         <div className="text-center py-8 text-sm" style={{ color: "#5C6853" }}>
           No client sessions found for this week. Add schedule cells with a child name (HS / SS / OS), then try again.
         </div>
@@ -45,9 +58,11 @@ export default function ParentWhatsAppModal({ open, onClose, messages, weekLabel
           <p className="text-sm m-0" style={{ color: "#5C6853" }}>
             Ready-to-send Arabic messages for each family. Copy the text or open WhatsApp with the message pre-filled.
           </p>
-          {messages.map((row) => {
-            const id = row.childName;
+          {visibleDrafts.map((row) => {
+            const id = row._id;
             const isOpen = expanded === id;
+            const messageText = row._message || "";
+            const whatsappUrl = row.phone ? buildWhatsAppUrl(row.phone, messageText) : null;
             return (
               <div
                 key={id}
@@ -67,14 +82,14 @@ export default function ParentWhatsAppModal({ open, onClose, messages, weekLabel
                     <button
                       type="button"
                       className="btn btn-outline text-xs py-1.5 px-2.5 min-h-0"
-                      onClick={() => copyMessage(id, row.message)}
+                      onClick={() => copyMessage(id, messageText)}
                     >
                       {copiedId === id ? <Check size={14} /> : <Copy size={14} />}
                       {copiedId === id ? "Copied" : "Copy"}
                     </button>
-                    {row.whatsappUrl ? (
+                    {whatsappUrl ? (
                       <a
-                        href={row.whatsappUrl}
+                        href={whatsappUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="btn btn-primary text-xs py-1.5 px-2.5 min-h-0 no-underline"
@@ -87,6 +102,17 @@ export default function ParentWhatsAppModal({ open, onClose, messages, weekLabel
                         Add phone first
                       </span>
                     )}
+                    <button
+                      type="button"
+                      className="btn btn-outline text-xs py-1.5 px-2.5 min-h-0"
+                      onClick={() => {
+                        if (!window.confirm(`Remove ${row.childName} from this list?`)) return;
+                        setDrafts((prev) => prev.map((p) => p._id === id ? { ...p, _removed: true } : p));
+                      }}
+                      title="Remove this client from the send list"
+                    >
+                      Remove
+                    </button>
                   </div>
                 </div>
                 <button
@@ -95,15 +121,19 @@ export default function ParentWhatsAppModal({ open, onClose, messages, weekLabel
                   style={{ color: "#6B8F71" }}
                   onClick={() => setExpanded(isOpen ? null : id)}
                 >
-                  {isOpen ? "Hide message" : "Preview message"}
+                  {isOpen ? "Hide editor" : "Edit message"}
                 </button>
                 {isOpen && (
-                  <pre
-                    className="mt-2 p-3 rounded-lg text-sm whitespace-pre-wrap font-sans leading-relaxed m-0"
+                  <textarea
+                    className="mt-2 p-3 rounded-lg text-sm whitespace-pre-wrap font-sans leading-relaxed m-0 w-full"
+                    rows={8}
                     style={{ background: "#fff", border: "1px solid #E2DDD4", color: "#2F4A35", direction: "rtl" }}
-                  >
-                    {row.message}
-                  </pre>
+                    value={messageText}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setDrafts((prev) => prev.map((p) => p._id === id ? { ...p, _message: v } : p));
+                    }}
+                  />
                 )}
               </div>
             );

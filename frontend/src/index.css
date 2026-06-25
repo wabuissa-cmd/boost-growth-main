@@ -940,6 +940,26 @@ main, .page-enter { min-width: 0; }
     background: #FAFAF7;
     flex-shrink: 0;
 }
+
+/* Schedule banner (desktop): slightly larger + better spacing */
+@media (min-width: 961px) {
+  .schedule-toolbar--wrap {
+    gap: 0.65rem;
+  }
+  .schedule-toolbar--wrap .btn {
+    min-height: 40px !important;
+    padding: 0.55rem 0.9rem !important;
+    font-size: 0.85rem !important;
+  }
+  .schedule-toolbar--wrap .btn svg {
+    width: 18px;
+    height: 18px;
+  }
+  .schedule-parent-actions .btn {
+    padding-left: 0.85rem !important;
+    padding-right: 0.85rem !important;
+  }
+}
 .schedule-sheet-hint {
     margin: 0 0 0.5rem;
     padding: 0.4rem 0.65rem;

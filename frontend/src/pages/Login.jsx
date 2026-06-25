@@ -51,8 +51,8 @@ function ChooseButtons({ onAdmin, onTherapist }) {
       >
         <UserCircle size={28} weight="duotone" color="#6B8F71" />
         <div className="flex-1 text-left">
-          <div className="font-bold">I'm a Therapist</div>
-          <div className="text-xs" style={{ color: "#6B6650" }}>My clients · Session tools</div>
+          <div className="font-bold">Therapist</div>
+          <div className="text-xs" style={{ color: "#6B6650" }}>Client sessions · My tools</div>
         </div>
         <ArrowRight size={20} />
       </button>
