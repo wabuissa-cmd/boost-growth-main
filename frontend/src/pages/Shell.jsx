@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, Suspense } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData } from "../auth";
+import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData, isWalaaOps } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch } from "../dataCache";
 import {
@@ -61,6 +61,7 @@ export default function Shell() {
   const loc = useLocation();
   const portalAdmin = showAdminNav(user);
   const hrOps = isHrOps(user);
+  const walaaOps = isWalaaOps(user);
   const clientLead = isClientLead(user);
   const staffRequestsAccess = canEditStaffRequests(user);
   const leaveManager = canManageLeaves(user);
@@ -68,7 +69,8 @@ export default function Shell() {
   const intakeAccess = canEditIntake(user);
   const showPersonal = !portalAdmin && !hrOps;
   const showBilling = hasOpsAccess(user);
-  const therapistOnly = Boolean(user && !portalAdmin && !hrOps);
+  const therapistOnly = Boolean(user && !portalAdmin && !hrOps && !walaaOps);
+  const profileRole = hrOps ? "HR" : walaaOps ? "Coordination" : portalAdmin ? "Admin" : "Therapist";
 
   const loadNotifs = async () => {
     try { const { data } = await api.get("/notifications"); setNotifs(data); } catch(_e) { /* ignore */ }
@@ -142,7 +144,7 @@ export default function Shell() {
   }));
 
   const homeLink = baseLinks[0];
-  const hrNavItems = requestsItems.map(it => ({
+  const hrNavItems = (walaaOps ? [] : requestsItems).map(it => ({
     ...it,
     icon: <ListChecks size={17} weight="duotone"/>,
   }));
@@ -198,7 +200,7 @@ export default function Shell() {
                 {user?.name?.replace("Ms. ", "").charAt(0) || "U"}
               </div>
               <div className="sidebar-profile-name">{user?.name?.replace("Ms. ", "") || user?.email}</div>
-              <div className="sidebar-profile-role">{hrOps ? "HR" : portalAdmin ? "Admin" : "Therapist"}</div>
+              <div className="sidebar-profile-role">{profileRole}</div>
             </div>
           )}
           <div className="flex-1 overflow-y-auto px-1">
@@ -368,7 +370,7 @@ export default function Shell() {
               </div>
               <div className="text-xs leading-tight">
                 <div className="font-bold truncate max-w-[120px]" style={{color: "#2C3625"}}>{user?.name?.replace("Ms. ", "") || user?.email}</div>
-                <div style={{color: "#8B9E7A"}}>{hrOps ? "HR" : portalAdmin ? "Admin" : "Therapist"}</div>
+                <div style={{color: "#8B9E7A"}}>{profileRole}</div>
               </div>
               </>
               )}

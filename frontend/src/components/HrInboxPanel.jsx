@@ -29,7 +29,7 @@ function InboxRow({ to, icon: Icon, label, count, testId }) {
   );
 }
 
-export default function HrInboxPanel({ user }) {
+export default function HrInboxPanel({ user, coordinationOnly = false }) {
   const [inbox, setInbox] = useState(null);
   const portalAdmin = showAdminNav(user);
   const hrOps = isHrOps(user);
@@ -47,41 +47,43 @@ export default function HrInboxPanel({ user }) {
   if (!inbox) return null;
 
   const rows = [];
-  if (jenan || portalAdmin) {
-    rows.push({
-      to: "/staff-leave?tab=leave-requests",
-      icon: CalendarBlank,
-      label: "Leaves awaiting manager review",
-      count: inbox.leaves_pending_manager,
-      testId: "inbox-leaves-manager",
-    });
-  }
-  if (hrOps || portalAdmin) {
-    rows.push({
-      to: "/staff-leave?tab=leave-requests",
-      icon: CalendarBlank,
-      label: "Leaves awaiting HR approval",
-      count: inbox.leaves_pending_hr,
-      testId: "inbox-leaves-hr",
-    });
-  }
-  if (jenan || portalAdmin || walaaOps) {
-    rows.push({
-      to: "/staff-leave?tab=staff",
-      icon: ListChecks,
-      label: "Staff requests awaiting manager review",
-      count: inbox.requests_pending_manager,
-      testId: "inbox-requests-manager",
-    });
-  }
-  if (hrOps || portalAdmin || walaaOps) {
-    rows.push({
-      to: "/staff-leave?tab=staff",
-      icon: ListChecks,
-      label: "Staff requests awaiting HR approval",
-      count: inbox.requests_pending_hr,
-      testId: "inbox-requests-hr",
-    });
+  if (!coordinationOnly) {
+    if (jenan || portalAdmin) {
+      rows.push({
+        to: "/staff-leave?tab=leave-requests",
+        icon: CalendarBlank,
+        label: "Leaves awaiting manager review",
+        count: inbox.leaves_pending_manager,
+        testId: "inbox-leaves-manager",
+      });
+    }
+    if (hrOps || portalAdmin) {
+      rows.push({
+        to: "/staff-leave?tab=leave-requests",
+        icon: CalendarBlank,
+        label: "Leaves awaiting HR approval",
+        count: inbox.leaves_pending_hr,
+        testId: "inbox-leaves-hr",
+      });
+    }
+    if (jenan || portalAdmin || walaaOps) {
+      rows.push({
+        to: "/staff-leave?tab=staff",
+        icon: ListChecks,
+        label: "Staff requests awaiting manager review",
+        count: inbox.requests_pending_manager,
+        testId: "inbox-requests-manager",
+      });
+    }
+    if (hrOps || portalAdmin || walaaOps) {
+      rows.push({
+        to: "/staff-leave?tab=staff",
+        icon: ListChecks,
+        label: "Staff requests awaiting HR approval",
+        count: inbox.requests_pending_hr,
+        testId: "inbox-requests-hr",
+      });
+    }
   }
   if (portalAdmin || hrOps || jenan || walaaOps) {
     rows.push({
@@ -111,12 +113,18 @@ export default function HrInboxPanel({ user }) {
 
   const total = rows.reduce((n, r) => n + (r.count || 0), 0);
 
+  const panelTitle = coordinationOnly ? "Coordination Inbox" : "HR Inbox";
+  const emptyTitle = coordinationOnly ? "Coordination clear" : "Inbox clear";
+  const emptyDetail = coordinationOnly
+    ? "No pending coordination items right now"
+    : "No pending HR items right now";
+
   return (
     <div className="card p-5 rounded-[22px] h-full flex flex-col" data-testid="hr-inbox-panel">
       <div className="flex items-center justify-between gap-2 mb-3">
         <div className="dash-section-title m-0 flex items-center gap-2">
           <Tray size={20} weight="duotone" style={{ color: "#6B8F71" }} />
-          HR Inbox
+          {panelTitle}
         </div>
         {total > 0 && (
           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: "#F0E0D4", color: "#965132" }}>
@@ -127,8 +135,8 @@ export default function HrInboxPanel({ user }) {
       {total === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center text-center py-6 gap-2">
           <CheckCircle size={36} weight="duotone" style={{ color: "#6B8F71" }} />
-          <div className="text-sm font-semibold" style={{ color: "#2F4A35" }}>Inbox clear</div>
-          <div className="text-xs" style={{ color: "#6B8270" }}>No pending HR items right now</div>
+          <div className="text-sm font-semibold" style={{ color: "#2F4A35" }}>{emptyTitle}</div>
+          <div className="text-xs" style={{ color: "#6B8270" }}>{emptyDetail}</div>
         </div>
       ) : (
         <div className="space-y-2 flex-1 overflow-y-auto max-h-[420px] pr-0.5">

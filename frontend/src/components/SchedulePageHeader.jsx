@@ -20,7 +20,20 @@ export function ScheduleLegendStrip({ className = "" }) {
   );
 }
 
-export default function SchedulePageHeader({ subtitle, badge, stats = [], toolbar, className = "" }) {
+export default function SchedulePageHeader({
+  subtitle,
+  badge,
+  stats = [],
+  toolbar,
+  className = "",
+  toolbarPlacement = "inline",
+}) {
+  const bannerClass = [
+    "editorial-banner--schedule-mobile",
+    toolbarPlacement === "outside" ? "editorial-banner--schedule-compact" : "",
+    className,
+  ].filter(Boolean).join(" ");
+
   return (
     <>
       <PageBanner
@@ -28,9 +41,12 @@ export default function SchedulePageHeader({ subtitle, badge, stats = [], toolba
         subtitle={subtitle}
         badge={badge}
         stats={stats}
-        toolbar={toolbar}
-        className={`editorial-banner--schedule-mobile ${className}`.trim()}
+        toolbar={toolbarPlacement === "inline" ? toolbar : null}
+        className={bannerClass}
       />
+      {toolbar && toolbarPlacement === "outside" && (
+        <div className="schedule-toolbar-mobile-card no-print">{toolbar}</div>
+      )}
       <ScheduleLegendStrip />
     </>
   );

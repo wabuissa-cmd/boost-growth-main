@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 import api from "../api";
 import { cachedGet } from "../dataCache";
 import { useAuth, showAdminNav, hasOpsAccess, hasFullClientAccess } from "../auth";
-import { Plus, MagnifyingGlass, MapPin, ArrowSquareOut, Trash, PencilSimple } from "@phosphor-icons/react";
+import { Plus, MagnifyingGlass, MapPin, ArrowSquareOut, Trash, PencilSimple, UsersThree } from "@phosphor-icons/react";
 import ClientInfoLayout from "../components/ClientInfoLayout";
+import ClientPickerSheet from "../components/ClientPickerSheet";
 import PageBanner from "../components/PageBanner";
 import { enrichClientForCardView } from "../attendanceUtils";
 import { getMapsHref, isMapsLink } from "../mapsUtils";
@@ -28,6 +29,7 @@ export default function Clients() {
   const [selectedClientId, setSelectedClientId] = useState(null);
   const [panelClient, setPanelClient] = useState(null); // { client, section }
   const [pkgByClient, setPkgByClient] = useState({});
+  const [clientPickerOpen, setClientPickerOpen] = useState(false);
 
   const closePanel = () => setPanelClient(null);
 
@@ -115,6 +117,16 @@ export default function Clients() {
       <PageBanner
         title="Client Info"
         subtitle="Active portfolios, locations, records, and clinical summaries"
+        badge={(
+          <button
+            type="button"
+            data-testid="all-clients-btn"
+            className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0 whitespace-nowrap"
+            onClick={() => setClientPickerOpen(true)}
+          >
+            <UsersThree size={14} weight="duotone" /> All Clients
+          </button>
+        )}
         tabs={[
           { id: "active", label: "Active", count: activeCount },
           { id: "inactive", label: "Inactive", count: items.length - activeCount },
@@ -158,6 +170,15 @@ export default function Clients() {
           await api.put(`/clients/${client.id}`, { ...client, parent_phone: phone || null });
           await load();
         }}
+      />
+
+      <ClientPickerSheet
+        open={clientPickerOpen}
+        onClose={() => setClientPickerOpen(false)}
+        clients={filtered}
+        selectedId={selectedClient?.id}
+        onSelect={setSelectedClientId}
+        findTherapist={findT}
       />
 
       {panelClient?.section === "location" && (

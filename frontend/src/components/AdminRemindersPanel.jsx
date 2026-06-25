@@ -78,6 +78,7 @@ export function buildAdminReminders({
   billing = null,
   pendingLeaves = 0,
   newIntake = 0,
+  excludeHr = false,
 }) {
   const items = [];
 
@@ -92,7 +93,7 @@ export function buildAdminReminders({
     });
   });
 
-  if (pendingRequests > 0) {
+  if (!excludeHr && pendingRequests > 0) {
     items.push({
       id: "requests",
       severity: "warn",
@@ -147,7 +148,7 @@ export function buildAdminReminders({
     });
   }
 
-  if (pendingLeaves > 0) {
+  if (!excludeHr && pendingLeaves > 0) {
     items.push({
       id: "leaves",
       severity: "warn",

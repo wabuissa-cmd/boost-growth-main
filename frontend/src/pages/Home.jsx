@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import api, { startOfWeek, toISODate, addDays } from "../api";
 import { cachedGet } from "../dataCache";
-import { useAuth, showAdminNav, hasOpsAccess, isHrOps, isJenan, canParentCancellationOps } from "../auth";
+import { useAuth, showAdminNav, hasOpsAccess, isHrOps, isJenan, canParentCancellationOps, isWalaaOps } from "../auth";
 import {
   CalendarBlank, ClipboardText, UsersThree, ListChecks, Plant, ArrowRight,
   CheckCircle, Clock, XCircle, CalendarCheck, Heart,
@@ -56,9 +56,12 @@ export default function Home() {
   const isPortalAdminUser = showAdminNav(user);
   const hrOps = isHrOps(user);
   const jenan = isJenan(user);
+  const walaaOps = isWalaaOps(user);
   const parentCancelOps = canParentCancellationOps(user);
-  const showOpsHome = isPortalAdminUser || hrOps;
-  const showInbox = isPortalAdminUser || hrOps || jenan || parentCancelOps || showAdminNav(user);
+  const showOpsHome = isPortalAdminUser || hrOps || walaaOps;
+  const showHrInbox = (isPortalAdminUser || hrOps || jenan) && !walaaOps;
+  const showCoordinationInbox = walaaOps;
+  const showInbox = showHrInbox || showCoordinationInbox || (parentCancelOps && !walaaOps);
   const opsAccess = hasOpsAccess(user);
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [stats, setStats] = useState({
@@ -183,8 +186,9 @@ export default function Home() {
       billing: billingSummary,
       pendingLeaves,
       newIntake,
+      excludeHr: walaaOps,
     }),
-    [notifications, pkgAlerts, stats.requests, billingSummary, pendingLeaves, newIntake]
+    [notifications, pkgAlerts, stats.requests, billingSummary, pendingLeaves, newIntake, walaaOps]
   );
 
   useEffect(() => { if (!showOpsHome) loadPersonal(); }, [weekISO, weekEndISO, showOpsHome]);
@@ -359,15 +363,21 @@ export default function Home() {
 
           <div className="home-admin-panels">
             <PlatformUpdates items={updates} canPost={isPortalAdminUser} onPosted={loadUpdates} />
-            {showInbox ? <HrInboxPanel user={user} /> : <AdminRemindersPanel items={adminReminders} />}
-            {showInbox && isPortalAdminUser && <AdminRemindersPanel items={adminReminders} />}
+            {showHrInbox && <HrInboxPanel user={user} />}
+            {showCoordinationInbox && <HrInboxPanel user={user} coordinationOnly />}
+            {(walaaOps || (!showHrInbox && !showCoordinationInbox)) && (
+              <AdminRemindersPanel items={adminReminders} />
+            )}
+            {showHrInbox && isPortalAdminUser && <AdminRemindersPanel items={adminReminders} />}
           </div>
 
           <CreativeSection title="This week at a glance">
             <div className="dash-stat-row stagger mb-4">
               <DashboardStatCard to="/schedule" variant="sage" value={stats.weekSessions} label="Sessions scheduled" desc={`${stats.weekHours}h total`} icon={<CalendarBlank size={22} weight="duotone" style={{ color: "#2F4A35", background: "rgba(237,225,201,0.65)", borderRadius: 14, padding: 8 }} />} testId="home-tile-schedule" />
               <DashboardStatCard to="/clients" value={stats.clients} label="Active clients" icon={<UsersThree size={22} weight="duotone" style={{ color: "#6B8F71", background: "#F7F3EB", borderRadius: 14, padding: 8 }} />} testId="home-tile-clients" />
-              <DashboardStatCard to="/staff-leave?tab=staff" variant="gold" value={stats.requests} label="Pending requests" icon={<ListChecks size={22} weight="duotone" style={{ color: "#965132", background: "#F0E0D4", borderRadius: 14, padding: 8 }} />} testId="home-tile-requests" />
+              {!walaaOps && (
+                <DashboardStatCard to="/staff-leave?tab=staff" variant="gold" value={stats.requests} label="Pending requests" icon={<ListChecks size={22} weight="duotone" style={{ color: "#965132", background: "#F0E0D4", borderRadius: 14, padding: 8 }} />} testId="home-tile-requests" />
+              )}
               <DashboardStatCard to="/attendance" value={stats.therapists} label="Team therapists" icon={<Heart size={22} weight="duotone" style={{ color: "#6B8F71", background: "rgba(237,225,201,0.5)", borderRadius: 14, padding: 8 }} />} testId="home-tile-attendance" />
             </div>
           </CreativeSection>

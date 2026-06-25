@@ -3,7 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app/backend
 
 # Bump deploy rev to invalidate Docker layer cache when static assets change
-ARG DEPLOY_REV=20260605-roles-requests-workflow
+ARG DEPLOY_REV=20260605-mobile-coordination-ui
 RUN echo "deploy ${DEPLOY_REV}" > /dev/null
 
 COPY backend/requirements.txt .

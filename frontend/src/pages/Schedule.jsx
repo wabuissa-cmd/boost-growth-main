@@ -1057,6 +1057,7 @@ export default function Schedule() {
         <div className={`transition-all ${panelOpen && isAdmin ? "lg:mr-[420px]" : ""}`}>
       <SchedulePageHeader
         className="no-print"
+        toolbarPlacement={isScheduleNarrow ? "outside" : "inline"}
         subtitle={isAdmin
           ? "Right-click any cell for actions · Click to edit · Drag to select multiple slots"
           : scheduleLead && view === "sheet"
@@ -1064,7 +1065,11 @@ export default function Schedule() {
             : view === "blocks"
               ? "Per Therapist — click your sessions to log preparation"
               : "Sheet — view full team schedule"}
-        badge={isAdmin ? (
+        badge={isScheduleNarrow ? (
+          <span className="pill text-[10px] px-2 py-0.5 font-bold bg-white/90 text-[#2F4A35] border border-[#D4DEC8] whitespace-nowrap">
+            {formatDateRange(weekStart)}
+          </span>
+        ) : isAdmin ? (
           weekStatus === "draft" ? (
             <span className="pill text-[10px] px-2 py-1 font-bold bg-[#FAF0D1] text-[#6B5218] border border-[#E5C387]">
               Draft
@@ -1075,7 +1080,7 @@ export default function Schedule() {
             </span>
           )
         ) : null}
-        stats={[
+        stats={isScheduleNarrow ? [] : [
           { n: formatDateRange(weekStart), label: "This Week", color: "#2C3625" },
           { n: view === "blocks" ? "Per Therapist" : "Sheet", label: "View", color: "#5C6853" },
           { n: visibleTherapists.length, label: "Therapists", color: "#6B5218" },
