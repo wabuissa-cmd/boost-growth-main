@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import api from "../api";
-import { useAuth, showAdminNav, canEditStaffRequests, canManageLeaves } from "../auth";
+import { useAuth, showAdminNav, canEditStaffRequests, canManageLeaves, canHrReviewLeaves, isJenan, isWalaaOps } from "../auth";
 import { Navigate } from "react-router-dom";
 import { Plus, PencilSimple, Trash, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Calendar, Package, UploadSimple } from "@phosphor-icons/react";
 import {
@@ -13,11 +13,38 @@ import "../clientInfoLayout.css";
 
 const STATUS_MAP = {
   pending:    { label: "Pending",     cls: "bg-[#FAF0D1] text-[#6B5218] border-[#E6C983]", icon: <Hourglass size={14} weight="duotone"/>, color: "#E6C983" },
+  pending_manager: { label: "Pending Manager", cls: "bg-[#FAF0D1] text-[#6B5218] border-[#E6C983]", icon: <Hourglass size={14} weight="duotone"/>, color: "#E6C983" },
+  pending_hr: { label: "Pending HR", cls: "bg-[#F5EBE3] text-[#965132] border-[#E6C983]", icon: <Hourglass size={14} weight="duotone"/>, color: "#C28E6A" },
   in_progress:{ label: "In Progress", cls: "bg-[#EAF0F3] text-[#375568] border-[#A4BCCB]", icon: <Spinner size={14} weight="duotone"/>, color: "#A4BCCB" },
   approved:   { label: "Approved",    cls: "bg-[#E5EBE1] text-[#3D4F35] border-[#B4C2A9]", icon: <CheckCircle size={14} weight="duotone"/>, color: "#B4C2A9" },
   rejected:   { label: "Rejected",    cls: "bg-[#F8EBE7] text-[#8A3F27] border-[#ECA6A6]", icon: <XCircle size={14} weight="duotone"/>, color: "#ECA6A6" },
   done:       { label: "Completed",   cls: "bg-[#7A8A6A] text-white border-[#7A8A6A]",     icon: <CheckCircle size={14} weight="fill"/>, color: "#7A8A6A" },
 };
+
+const PENDING_MANAGER_STATUSES = new Set(["pending", "pending_manager"]);
+const PENDING_HR_STATUS = "pending_hr";
+
+function isPendingManagerStatus(status) {
+  return PENDING_MANAGER_STATUSES.has(status);
+}
+
+function allowedStatusOptions(user, currentStatus) {
+  const portalAdmin = showAdminNav(user);
+  const manager = isJenan(user) && !portalAdmin;
+  const hr = canHrReviewLeaves(user) && !portalAdmin;
+  const effective = isPendingManagerStatus(currentStatus) ? "pending_manager" : currentStatus;
+
+  if (portalAdmin || isWalaaOps(user)) {
+    return Object.keys(STATUS_MAP);
+  }
+  if (manager && isPendingManagerStatus(effective)) {
+    return ["pending_hr", "rejected"];
+  }
+  if (hr && effective === PENDING_HR_STATUS) {
+    return ["approved", "rejected", "in_progress", "done"];
+  }
+  return Object.keys(STATUS_MAP);
+}
 
 const TYPES = [
   { id: "leave", label: "Time Off", icon: <Calendar size={20} weight="duotone"/>, color: "#A4BCCB" },
@@ -57,7 +84,9 @@ export default function Requests({ personal = false, embedded = false }) {
   const { user } = useAuth();
   const canManageReq = !personal && canEditStaffRequests(user);
   const leaveHr = !personal && canManageLeaves(user);
+  const hrReview = !personal && canHrReviewLeaves(user);
   const isPortalAdminUser = !personal && showAdminNav(user);
+  const isManager = !personal && isJenan(user) && !isPortalAdminUser;
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState("all");
   const [edit, setEdit] = useState(null);
@@ -89,7 +118,11 @@ export default function Requests({ personal = false, embedded = false }) {
     await api.post("/requests", edit);
     setEdit(null); setStep(1); load();
   };
-  const updateStatus = async () => {
+  const updateStatus = async (req, status, admin_note = null) => {
+    await api.put(`/requests/${req.id}/status`, { status, admin_note: admin_note ?? req.admin_note });
+    load();
+  };
+  const updateStatusFromModal = async () => {
     await api.put(`/requests/${statusEdit.id}/status`, { status: statusEdit.status, admin_note: statusEdit.admin_note });
     setStatusEdit(null); load();
   };
@@ -144,13 +177,19 @@ export default function Requests({ personal = false, embedded = false }) {
 
   const filtered = items
     .filter(r => r.request_type !== "leave")
-    .filter(r => filter === "all" || r.status === filter);
+    .filter(r => {
+      if (filter === "all") return true;
+      if (filter === "pending_manager") return isPendingManagerStatus(r.status);
+      return r.status === filter;
+    });
 
   if (!personal && !canEditStaffRequests(user)) {
     return <Navigate to="/my-requests" replace/>;
   }
 
-  const pendingCount = items.filter(r => r.status === "pending").length;
+  const pendingManagerCount = items.filter(r => isPendingManagerStatus(r.status)).length;
+  const pendingHrCount = items.filter(r => r.status === PENDING_HR_STATUS).length;
+  const pendingCount = pendingManagerCount + pendingHrCount;
   const inProgressCount = items.filter(r => r.status === "in_progress").length;
   const doneCount = items.filter(r => r.status === "done").length;
 
@@ -172,6 +211,8 @@ export default function Requests({ personal = false, embedded = false }) {
         stats={[
           { label: "Total", n: items.length, color: "#2C3625" },
           { label: "Pending", n: pendingCount, color: "#6B5218" },
+          { label: "Manager", n: pendingManagerCount, color: "#6B5218" },
+          { label: "HR", n: pendingHrCount, color: "#965132" },
           { label: "In progress", n: inProgressCount, color: "#375568" },
           { label: "Done", n: doneCount, color: "#3D4F35" },
         ]}
@@ -207,8 +248,16 @@ export default function Requests({ personal = false, embedded = false }) {
             <p className="text-xs mt-1 mb-2" style={{ color: "#8B9E7A" }}>Supplies · schedule changes · rewards · general</p>
             <div className="flex gap-1.5 flex-wrap">
               <button onClick={() => setFilter("all")} className={`pill text-[10px] ${filter==="all" ? "bg-[#7A8A6A] text-white" : "bg-[#F0E9D8]"}`}>All ({items.length})</button>
-              {Object.entries(STATUS_MAP).map(([k, v]) => (
-                <button key={k} onClick={() => setFilter(k)} className={`pill text-[10px] border ${filter===k ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : v.cls}`}>{v.label} ({items.filter(r=>r.status===k).length})</button>
+              <button onClick={() => setFilter("pending_manager")} className={`pill text-[10px] border ${filter==="pending_manager" ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : STATUS_MAP.pending_manager.cls}`}>
+                Manager ({pendingManagerCount})
+              </button>
+              <button onClick={() => setFilter("pending_hr")} className={`pill text-[10px] border ${filter==="pending_hr" ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : STATUS_MAP.pending_hr.cls}`}>
+                HR ({pendingHrCount})
+              </button>
+              {["in_progress", "approved", "rejected", "done"].map(k => (
+                <button key={k} onClick={() => setFilter(k)} className={`pill text-[10px] border ${filter===k ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : STATUS_MAP[k].cls}`}>
+                  {STATUS_MAP[k].label} ({items.filter(r => r.status === k).length})
+                </button>
               ))}
             </div>
           </div>
@@ -240,6 +289,26 @@ export default function Requests({ personal = false, embedded = false }) {
                       <div className="text-[10px] mt-0.5" style={{color: "#8B9E7A"}}>{new Date(r.created_at).toLocaleString('en-US')}</div>
                       {r.admin_note && (
                         <div className="mt-2 p-2 rounded-lg text-xs bg-[#E5EBE1]" style={{color: "#3D4F35"}}>{r.admin_note}</div>
+                      )}
+                      {canManageReq && isPendingManagerStatus(r.status) && isManager && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          <button type="button" onClick={() => updateStatus(r, "pending_hr")} className="btn btn-primary text-[10px] py-1 px-2">
+                            <CheckCircle size={12}/> Forward to HR
+                          </button>
+                          <button type="button" onClick={() => updateStatus(r, "rejected")} className="btn btn-outline text-[10px] py-1 px-2" style={{ color: "#8A3F27" }}>
+                            <XCircle size={12}/> Reject
+                          </button>
+                        </div>
+                      )}
+                      {canManageReq && r.status === PENDING_HR_STATUS && hrReview && !isPortalAdminUser && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          <button type="button" onClick={() => updateStatus(r, "approved")} className="btn btn-primary text-[10px] py-1 px-2">
+                            <CheckCircle size={12}/> Approve
+                          </button>
+                          <button type="button" onClick={() => updateStatus(r, "rejected")} className="btn btn-outline text-[10px] py-1 px-2" style={{ color: "#8A3F27" }}>
+                            <XCircle size={12}/> Reject
+                          </button>
+                        </div>
                       )}
                     </div>
                     <div className="flex flex-col gap-1 shrink-0">
@@ -301,7 +370,7 @@ export default function Requests({ personal = false, embedded = false }) {
                       <div className="text-xs mt-0.5" style={{ color: "#5C6853" }}>
                         {fmtDateRange(l.start_date, l.end_date)} · {l.days} day{l.days !== 1 ? "s" : ""}
                       </div>
-                      {l.status === "pending" && (
+                      {(l.status === "pending" || l.status === "pending_manager") && isPortalAdminUser && (
                         <div className="flex flex-wrap gap-1 mt-2">
                           {l.leave_type === "Permission" ? (
                             <>
@@ -511,7 +580,7 @@ export default function Requests({ personal = false, embedded = false }) {
           footer={
             <>
               <ModalBtnSecondary type="button" onClick={() => setStatusEdit(null)}>Cancel</ModalBtnSecondary>
-              <ModalBtnPrimary data-testid="status-save-btn" type="button" onClick={updateStatus}>Save & Notify</ModalBtnPrimary>
+              <ModalBtnPrimary data-testid="status-save-btn" type="button" onClick={updateStatusFromModal}>Save & Notify</ModalBtnPrimary>
             </>
           }
         >
@@ -540,7 +609,9 @@ export default function Requests({ personal = false, embedded = false }) {
 
           <FormSection title="Status">
             <div className="grid grid-cols-1 gap-2">
-              {Object.entries(STATUS_MAP).map(([k, v]) => (
+              {allowedStatusOptions(user, statusEdit.status).map(k => {
+                const v = STATUS_MAP[k] || STATUS_MAP.pending;
+                return (
                 <button
                   key={k}
                   type="button"
@@ -549,7 +620,7 @@ export default function Requests({ personal = false, embedded = false }) {
                 >
                   {v.icon} {v.label}
                 </button>
-              ))}
+              );})}
             </div>
             <FormField label="Response / note" hint="Optional">
               <textarea className="modal-input" rows={3} value={statusEdit.admin_note || ""} onChange={e => setStatusEdit({ ...statusEdit, admin_note: e.target.value })} />

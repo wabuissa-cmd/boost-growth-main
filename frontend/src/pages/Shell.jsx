@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, Suspense } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin } from "../auth";
+import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch } from "../dataCache";
 import {
@@ -122,7 +122,7 @@ export default function Shell() {
 
   // Admin tools — Import for client-lead team + HR; full admin suite for portal admin only
   const adminTools = [
-    ...(clientLead || portalAdmin || hrOps
+    ...(canImportData(user)
       ? [{ to: "/import", label: "Import", testid: "nav-import", icon: <UploadSimple size={17} weight="duotone"/> }]
       : []),
     ...(showSystemAdmin(user)

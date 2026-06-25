@@ -58,7 +58,7 @@ export default function Home() {
   const jenan = isJenan(user);
   const parentCancelOps = canParentCancellationOps(user);
   const showOpsHome = isPortalAdminUser || hrOps;
-  const showInbox = isPortalAdminUser || hrOps || jenan || parentCancelOps;
+  const showInbox = isPortalAdminUser || hrOps || jenan || parentCancelOps || showAdminNav(user);
   const opsAccess = hasOpsAccess(user);
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [stats, setStats] = useState({
@@ -167,7 +167,7 @@ export default function Home() {
 
         setStats({
           clients: clientsList.length, therapists: therapists.length,
-          requests: requests.filter(x => x.status === "pending").length,
+          requests: requests.filter(x => ["pending", "pending_manager", "pending_hr"].includes(x.status)).length,
           weekSessions: real.length, weekHours: scheduledHours,
           completedThisWeek, hoursThisWeek, cancelledThisWeek, todayUpcoming,
         });

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../api";
-import { isHrOps, isJenan, showAdminNav, canParentCancellationOps } from "../auth";
+import { isHrOps, isJenan, showAdminNav, canParentCancellationOps, isWalaaOps } from "../auth";
 import {
   Tray, CalendarBlank, ListChecks, ShoppingBag, Receipt, CheckCircle, WhatsappLogo,
 } from "@phosphor-icons/react";
@@ -34,14 +34,15 @@ export default function HrInboxPanel({ user }) {
   const portalAdmin = showAdminNav(user);
   const hrOps = isHrOps(user);
   const jenan = isJenan(user);
+  const walaaOps = isWalaaOps(user);
   const parentCancelOps = canParentCancellationOps(user);
 
   useEffect(() => {
-    if (!user || (!portalAdmin && !hrOps && !jenan && !parentCancelOps)) return;
+    if (!user || (!portalAdmin && !hrOps && !jenan && !parentCancelOps && !walaaOps)) return;
     api.get("/tracking/inbox")
       .then(r => setInbox(r.data || null))
       .catch(() => setInbox(null));
-  }, [user?.id, portalAdmin, hrOps, jenan, parentCancelOps]);
+  }, [user?.id, portalAdmin, hrOps, jenan, parentCancelOps, walaaOps]);
 
   if (!inbox) return null;
 
@@ -64,14 +65,25 @@ export default function HrInboxPanel({ user }) {
       testId: "inbox-leaves-hr",
     });
   }
-  if (portalAdmin || hrOps || jenan) {
+  if (jenan || portalAdmin || walaaOps) {
     rows.push({
       to: "/staff-leave?tab=staff",
       icon: ListChecks,
-      label: "Pending staff requests",
-      count: inbox.requests_pending,
-      testId: "inbox-requests",
+      label: "Staff requests awaiting manager review",
+      count: inbox.requests_pending_manager,
+      testId: "inbox-requests-manager",
     });
+  }
+  if (hrOps || portalAdmin || walaaOps) {
+    rows.push({
+      to: "/staff-leave?tab=staff",
+      icon: ListChecks,
+      label: "Staff requests awaiting HR approval",
+      count: inbox.requests_pending_hr,
+      testId: "inbox-requests-hr",
+    });
+  }
+  if (portalAdmin || hrOps || jenan || walaaOps) {
     rows.push({
       to: "/purchases",
       icon: ShoppingBag,

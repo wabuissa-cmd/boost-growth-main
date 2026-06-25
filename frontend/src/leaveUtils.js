@@ -2,7 +2,7 @@
 
 export const LEAVE_STATUS = {
   pending: { label: "Pending", therapistLabel: "Under Review", color: "#D4A64A", bg: "#FAF0D1", icon: "🟡" },
-  pending_manager: { label: "Pending Manager", therapistLabel: "Manager Review", color: "#D4A64A", bg: "#FAF0D1", icon: "🟡" },
+  pending_manager: { label: "Pending Manager", therapistLabel: "Direct Manager Review", color: "#D4A64A", bg: "#FAF0D1", icon: "🟡" },
   pending_hr: { label: "Pending HR", therapistLabel: "HR Review", color: "#C28E6A", bg: "#F5EBE3", icon: "🟠" },
   approved: { label: "Approved", color: "#3D4F35", bg: "#E5EBE1", icon: "🟢" },
   done: { label: "Done", color: "#5C6853", bg: "#EFEAE0", icon: "✓" },

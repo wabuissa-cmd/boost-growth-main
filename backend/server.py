@@ -174,6 +174,8 @@ async def get_current_user(request: Request) -> dict:
     return user
 
 async def admin_only(user: dict = Depends(get_current_user)) -> dict:
+    if _is_walaa_ops(user):
+        return user
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     if _is_client_lead(user):
@@ -193,6 +195,7 @@ CLIENT_LEAD_EMAILS = frozenset({
 HR_OPS_EMAIL = "hr@boostgrowthsa.com"
 HR_OPS_PASSWORD = "BoostHR@2026"
 PENDING_MANAGER_STATUSES = frozenset({"pending", "pending_manager"})
+PENDING_MANAGER_REQUEST_STATUSES = frozenset({"pending", "pending_manager"})
 
 
 def _is_client_lead(user: dict) -> bool:
@@ -265,9 +268,15 @@ def _is_jenan(user: dict) -> bool:
 
 
 async def leave_manager(user: dict = Depends(get_current_user)) -> dict:
-    if _is_portal_admin(user) or _is_jenan(user):
+    if _is_portal_admin(user) or _is_jenan(user) or _is_walaa_ops(user):
         return user
     raise HTTPException(status_code=403, detail="Leave management access required")
+
+
+async def import_access(user: dict = Depends(get_current_user)) -> dict:
+    if _is_portal_admin(user) or _is_walaa_ops(user):
+        return user
+    raise HTTPException(status_code=403, detail="Import access required")
 
 
 async def client_lead_or_admin(user: dict = Depends(get_current_user)) -> dict:
@@ -680,11 +689,14 @@ async def me(user: dict = Depends(get_current_user)):
     user["client_lead"] = _is_client_lead(user)
     user["hr_ops"] = _is_hr_ops(user)
     user["portal_admin"] = _is_portal_admin(user)
-    user["staff_admin"] = user["portal_admin"]
+    user["staff_admin"] = user["portal_admin"] or _is_walaa_ops(user)
     user["jenan_hr"] = _is_jenan(user)
-    user["can_manage_leaves"] = _is_portal_admin(user) or _is_jenan(user)
-    user["can_hr_review_leaves"] = _is_portal_admin(user) or _is_hr_ops(user)
-    user["can_edit_staff_requests"] = _is_portal_admin(user) or _is_client_lead(user) or _is_hr_ops(user)
+    user["can_manage_leaves"] = _is_portal_admin(user) or _is_jenan(user) or _is_walaa_ops(user)
+    user["can_hr_review_leaves"] = _is_portal_admin(user) or _is_hr_ops(user) or _is_walaa_ops(user)
+    user["can_edit_staff_requests"] = (
+        _is_portal_admin(user) or _is_jenan(user) or _is_hr_ops(user) or _is_walaa_ops(user)
+    )
+    user["can_import"] = _is_portal_admin(user) or _is_walaa_ops(user)
     user["can_edit_intake"] = _is_portal_admin(user) or _is_client_lead(user) or _is_hr_ops(user)
     user["schedule_lead"] = _is_client_lead(user) and not _is_portal_admin(user)
     user["walaa_ops"] = _is_walaa_ops(user)
@@ -4528,7 +4540,7 @@ def _enrich_request_attachment(req: dict) -> dict:
 
 @api.get("/requests")
 async def list_requests(user=Depends(get_current_user)):
-    if _is_portal_admin(user) or _is_hr_ops(user) or _is_client_lead(user):
+    if _is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user) or _is_walaa_ops(user):
         q = {}
     else:
         q = {"therapist_id": user["id"]}
@@ -4541,14 +4553,17 @@ async def create_request(payload: RequestIn, user=Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Therapist only")
     rid = str(uuid.uuid4())
     doc = {"id": rid, "therapist_id": user["id"], "therapist_name": user.get("name"),
-           **payload.model_dump(), "status": "pending", "admin_note": None,
+           **payload.model_dump(), "status": "pending_manager", "admin_note": None,
            "created_at": now_iso(), "updated_at": now_iso(),
            "timeline": [{"event": "submitted", "at": now_iso(), "by": user.get("name")}]}
     await db.requests.insert_one(doc)
     doc.pop("_id", None)
-    # Notify admins of new request
-    await _notify_admins("request_new", f"New {payload.request_type} request",
-                         f"{user.get('name')}: {payload.title} (priority: {payload.priority})")
+    msg = f"{user.get('name')}: {payload.title} (priority: {payload.priority})"
+    jenan_id = await _jenan_therapist_id()
+    if jenan_id:
+        await _notify(jenan_id, "request_new", f"New {payload.request_type} request", msg)
+    else:
+        await _notify_admins("request_new", f"New {payload.request_type} request", msg)
     return _enrich_request_attachment(doc)
 
 
@@ -4587,7 +4602,7 @@ async def upload_request_attachment(
         "attachment_file_path": stored,
         "attachment_file_name": file.filename,
         "priority": "normal",
-        "status": "pending",
+        "status": "pending_manager",
         "admin_note": None,
         "created_at": now_iso(),
         "updated_at": now_iso(),
@@ -4595,10 +4610,12 @@ async def upload_request_attachment(
     }
     await db.requests.insert_one(doc)
     doc.pop("_id", None)
-    await _notify_admins(
-        "request_new", "New report attachment",
-        f"{user.get('name')}: {doc['title']} (report date: {report_date})",
-    )
+    msg = f"{user.get('name')}: {doc['title']} (report date: {report_date})"
+    jenan_id = await _jenan_therapist_id()
+    if jenan_id:
+        await _notify(jenan_id, "request_new", "New report attachment", msg)
+    else:
+        await _notify_admins("request_new", "New report attachment", msg)
     return _enrich_request_attachment(doc)
 
 
@@ -4608,7 +4625,11 @@ async def tracking_inbox(user=Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Inbox access required")
     leaves_pending_manager = await db.leaves.count_documents({"status": {"$in": list(PENDING_MANAGER_STATUSES)}})
     leaves_pending_hr = await db.leaves.count_documents({"status": "pending_hr"})
-    requests_pending = await db.requests.count_documents({"status": "pending"})
+    requests_pending_manager = await db.requests.count_documents(
+        {"status": {"$in": list(PENDING_MANAGER_REQUEST_STATUSES)}}
+    )
+    requests_pending_hr = await db.requests.count_documents({"status": "pending_hr"})
+    requests_pending = requests_pending_manager + requests_pending_hr
     purchases_pending = await db.staff_purchases.count_documents({"status": "pending"})
     billing_reminders_soon = 0
     try:
@@ -4625,6 +4646,8 @@ async def tracking_inbox(user=Depends(get_current_user)):
     return {
         "leaves_pending_manager": leaves_pending_manager,
         "leaves_pending_hr": leaves_pending_hr,
+        "requests_pending_manager": requests_pending_manager,
+        "requests_pending_hr": requests_pending_hr,
         "requests_pending": requests_pending,
         "purchases_pending": purchases_pending,
         "billing_reminders_soon": billing_reminders_soon,
@@ -4684,8 +4707,9 @@ async def download_request_attachment(rid: str, user=Depends(get_current_user)):
     req = await db.requests.find_one({"id": rid}, {"_id": 0})
     if not req or not req.get("attachment_file_path"):
         raise HTTPException(status_code=404, detail="No attachment")
-    if not _is_portal_admin(user) and req.get("therapist_id") != user["id"]:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    if not (_is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user) or _is_walaa_ops(user)):
+        if req.get("therapist_id") != user["id"]:
+            raise HTTPException(status_code=403, detail="Forbidden")
     fp = UPLOAD_DIR / req["attachment_file_path"]
     if not fp.exists():
         raise HTTPException(status_code=404, detail="File missing")
@@ -4693,21 +4717,52 @@ async def download_request_attachment(rid: str, user=Depends(get_current_user)):
 
 
 @api.put("/requests/{rid}/status")
-async def update_request_status(rid: str, payload: RequestStatusUpdate, admin=Depends(client_lead_or_admin)):
+async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Depends(get_current_user)):
     req = await db.requests.find_one({"id": rid})
     if not req:
         raise HTTPException(status_code=404, detail="Not found")
+    prev_status = req.get("status")
+    effective_prev = _normalize_request_status(prev_status)
+    new_status = payload.status
+    is_pa = _is_portal_admin(user) or _is_walaa_ops(user)
+    is_hr = _is_hr_ops(user)
+    is_jenan_mgr = _is_jenan(user) and not is_pa
+
+    if is_pa:
+        pass
+    elif is_jenan_mgr:
+        if effective_prev not in PENDING_MANAGER_REQUEST_STATUSES:
+            raise HTTPException(status_code=403, detail="Manager can only act on pending manager requests")
+        if new_status not in ("pending_hr", "rejected"):
+            raise HTTPException(status_code=400, detail="Manager must forward to HR or reject")
+    elif is_hr:
+        if effective_prev != "pending_hr":
+            raise HTTPException(status_code=403, detail="HR can only act on HR-pending requests")
+        if new_status not in ("approved", "rejected", "in_progress", "done"):
+            raise HTTPException(status_code=400, detail="HR must approve, reject, mark in progress, or complete")
+    else:
+        raise HTTPException(status_code=403, detail="Staff request management access required")
+
     timeline = req.get("timeline", [])
-    timeline.append({"event": payload.status, "at": now_iso(), "by": admin.get("name") or "Admin",
+    timeline.append({"event": new_status, "at": now_iso(), "by": user.get("name") or _actor_display(user),
                      "note": payload.admin_note})
     await db.requests.update_one({"id": rid}, {"$set": {
-        "status": payload.status, "admin_note": payload.admin_note,
+        "status": new_status, "admin_note": payload.admin_note,
         "updated_at": now_iso(), "timeline": timeline,
     }})
-    status_map = {"pending": "Pending", "in_progress": "In Progress",
-                  "approved": "Approved", "rejected": "Rejected", "done": "Completed"}
+    if new_status == "pending_hr" and effective_prev in PENDING_MANAGER_REQUEST_STATUSES:
+        await _notify_hr_ops(
+            "request",
+            "Staff request awaiting HR approval",
+            f"{req.get('therapist_name') or 'Staff'}: {req.get('title') or 'Request'}",
+        )
+    status_map = {
+        "pending": "Pending", "pending_manager": "Pending manager review",
+        "pending_hr": "Pending HR review", "in_progress": "In Progress",
+        "approved": "Approved", "rejected": "Rejected", "done": "Completed",
+    }
     await _notify(req["therapist_id"], "request", "Request update",
-                  f"Your request '{req['title']}' is now: {status_map.get(payload.status, payload.status)}")
+                  f"Your request '{req['title']}' is now: {status_map.get(new_status, new_status)}")
     return await db.requests.find_one({"id": rid}, {"_id": 0})
 
 @api.delete("/requests/{rid}")
@@ -4715,7 +4770,7 @@ async def delete_request(rid: str, user=Depends(get_current_user)):
     req = await db.requests.find_one({"id": rid})
     if not req:
         return {"ok": True}
-    if user.get("role") != "admin" and req.get("therapist_id") != user["id"]:
+    if not (_is_portal_admin(user) or _is_walaa_ops(user)) and req.get("therapist_id") != user["id"]:
         raise HTTPException(status_code=403, detail="Forbidden")
     await db.requests.delete_one({"id": rid})
     return {"ok": True}
@@ -5502,6 +5557,11 @@ def _normalize_leave_status(status: Optional[str]) -> str:
     return "pending_manager" if s == "pending" else s
 
 
+def _normalize_request_status(status: Optional[str]) -> str:
+    s = (status or "pending").strip()
+    return "pending_manager" if s == "pending" else s
+
+
 def _append_leave_timeline(leave: dict, event: str, actor: str) -> list:
     timeline = list(leave.get("timeline") or [])
     timeline.append({"event": event, "at": now_iso(), "by": actor})
@@ -5683,7 +5743,7 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
     prev_status = leave.get("status")
     effective_prev = _normalize_leave_status(prev_status)
     new_status = payload.status
-    is_pa = _is_portal_admin(user)
+    is_pa = _is_portal_admin(user) or _is_walaa_ops(user)
     is_hr = _is_hr_ops(user)
     is_jenan_mgr = _is_jenan(user) and not is_pa
 
@@ -6852,7 +6912,7 @@ def _extract_intake_child_name(r: dict) -> str:
     return ""
 
 @api.post("/import/clients")
-async def import_clients(file: UploadFile = File(...), _=Depends(ops_or_admin)):
+async def import_clients(file: UploadFile = File(...), _=Depends(import_access)):
     rows = _read_table(file)
     created, updated, skipped = 0, 0, 0
     therapists = await db.therapists.find({}, {"_id": 0}).to_list(100)
@@ -6973,7 +7033,7 @@ async def _upsert_intake_rows(rows: List[dict], detected_columns: List[str], par
 
 
 @api.post("/import/intake")
-async def import_intake(file: UploadFile = File(...), _=Depends(ops_or_admin)):
+async def import_intake(file: UploadFile = File(...), _=Depends(import_access)):
     try:
         content = file.file.read()
         rows, detected_columns, parse_meta = _read_intake_rows(content, file.filename or "")
@@ -6984,7 +7044,7 @@ async def import_intake(file: UploadFile = File(...), _=Depends(ops_or_admin)):
 
 
 @api.post("/import/intake-google")
-async def import_intake_google(body: dict = None, _=Depends(client_lead_or_admin)):
+async def import_intake_google(body: dict = None, _=Depends(import_access)):
     """Sync waiting list from the official Google Sheet (public export xlsx)."""
     import httpx
     body = body or {}
@@ -7022,12 +7082,12 @@ def _load_historical():
     return HISTORICAL_SCHEDULES
 
 @api.get("/import/historical-weeks")
-async def list_historical_weeks(_=Depends(ops_or_admin)):
+async def list_historical_weeks(_=Depends(import_access)):
     data = _load_historical()
     return {"weeks": list(data.keys())}
 
 @api.post("/import/historical-load")
-async def import_historical(body: dict, _=Depends(ops_or_admin)):
+async def import_historical(body: dict, _=Depends(import_access)):
     """Import all historical weeks into schedule_cells. body: {clear_existing?: bool}"""
     data = _load_historical()
     if not data:
@@ -7119,7 +7179,7 @@ async def duplicate_week(body: dict, _=Depends(ops_or_admin)):
     return {"copied": inserted}
 
 @api.post("/import/list-sheets")
-async def list_excel_sheets(file: UploadFile = File(...), _=Depends(ops_or_admin)):
+async def list_excel_sheets(file: UploadFile = File(...), _=Depends(import_access)):
     """Return the list of sheet names in an uploaded .xlsx file (helps user pick the right one)."""
     import openpyxl, io
     content = await file.read()
@@ -7644,7 +7704,7 @@ async def import_schedule_excel(file: UploadFile = File(...),
                                  week_start: str = Form(...),
                                  clear_existing: Optional[str] = Form(None),
                                  sheet_name: Optional[str] = Form(None),
-                                 _=Depends(ops_or_admin)):
+                                 _=Depends(import_access)):
     """Parse Therapists' Schedule .xlsx or .csv and create cells for week_start."""
     import io
     content = await file.read()
@@ -7690,7 +7750,7 @@ async def import_schedule_excel(file: UploadFile = File(...),
 
 
 @api.post("/import/schedule-google")
-async def import_schedule_google(body: dict, _=Depends(ops_or_admin)):
+async def import_schedule_google(body: dict, _=Depends(import_access)):
     """Import a week directly from a public Google Sheets link (preserves merged cells)."""
     import httpx
     sheet_url = (body.get("url") or body.get("sheet_url") or "").strip()

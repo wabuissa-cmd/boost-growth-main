@@ -87,9 +87,9 @@ export function isHrOps(user) {
   return HR_OPS_EMAILS.has((user.email || "").toLowerCase().trim());
 }
 
-/** Portal admin + HR — billing, schedule edit, attendance ops UI */
+/** Portal admin + HR + Walaa — billing, schedule edit, attendance ops UI */
 export function hasOpsAccess(user) {
-  return isPortalAdmin(user) || isHrOps(user);
+  return isPortalAdmin(user) || isHrOps(user) || isWalaaOps(user);
 }
 
 /** All active clients in Client Info (portal admin + HR + client-lead team) */
@@ -107,9 +107,9 @@ export function isPortalAdmin(user) {
   return user?.role === "admin" && !isClientLead(user) && !isHrOps(user);
 }
 
-/** Admin nav + dashboard (excludes client-lead team and HR ops) */
+/** Admin nav + dashboard (portal admin + Walaa ops) */
 export function showAdminNav(user) {
-  return isPortalAdmin(user);
+  return isPortalAdmin(user) || isWalaaOps(user);
 }
 
 /** @deprecated use isPortalAdmin for admin nav; hasOpsAccess for client tools */
@@ -140,19 +140,19 @@ export function isOpsLead(user) {
 export function canManageLeaves(user) {
   if (!user) return false;
   if (user.can_manage_leaves) return true;
-  return isPortalAdmin(user) || isJenan(user);
+  return isPortalAdmin(user) || isJenan(user) || isWalaaOps(user);
 }
 
 export function canHrReviewLeaves(user) {
   if (!user) return false;
   if (user.can_hr_review_leaves) return true;
-  return isPortalAdmin(user) || isHrOps(user);
+  return isPortalAdmin(user) || isHrOps(user) || isWalaaOps(user);
 }
 
 export function canEditStaffRequests(user) {
   if (!user) return false;
   if (user.can_edit_staff_requests) return true;
-  return isPortalAdmin(user) || isClientLead(user) || isHrOps(user);
+  return isPortalAdmin(user) || isJenan(user) || isHrOps(user) || isWalaaOps(user);
 }
 
 export function canEditIntake(user) {
@@ -166,7 +166,18 @@ export function canEditOwnSchedule(user) {
 }
 
 export function showSystemAdmin(user) {
-  return isPortalAdmin(user);
+  return isPortalAdmin(user) || isWalaaOps(user);
+}
+
+export function canImportData(user) {
+  if (!user) return false;
+  if (user.can_import) return true;
+  return isPortalAdmin(user) || isWalaaOps(user);
+}
+
+/** UI label for Jenan as direct manager in leave/request workflows */
+export function directManagerLabel() {
+  return "Direct Manager";
 }
 
 const WALAA_EMAILS = new Set(["walaa@boostgrowthsa.com"]);
