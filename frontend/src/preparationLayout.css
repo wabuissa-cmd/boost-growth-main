@@ -160,46 +160,49 @@
   .prep-stat-value { font-size: 1rem; }
   .prep-stat-label { font-size: 0.62rem; }
   .prep-content {
-    display: block;
-    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 36%) minmax(0, 64%);
+    gap: 0.5rem;
+    align-items: start;
   }
   .prep-client-list {
-    max-height: none;
-    overflow-y: visible;
-    padding-right: calc(58vw + 0.35rem);
-    padding-bottom: calc(11rem + env(safe-area-inset-bottom, 0px));
+    max-height: calc(100dvh - 8.5rem);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-right: 0;
+    padding-bottom: 0;
     min-height: auto;
   }
   .prep-detail {
-    position: fixed;
-    top: auto;
-    bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
-    right: max(0.65rem, env(safe-area-inset-right, 0px));
-    width: min(58vw, 228px);
-    z-index: 25;
-    max-height: min(42dvh, 320px);
+    position: sticky;
+    top: 4.25rem;
+    align-self: start;
+    width: 100%;
+    min-height: min(56dvh, 460px);
+    max-height: calc(100dvh - 5rem);
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    padding: 0.85rem;
-    border-radius: 16px;
+    padding: 1rem 0.9rem;
+    border-radius: 18px;
     min-width: 0;
-    box-shadow: 0 8px 28px rgba(47, 74, 53, 0.18);
+    box-shadow: 0 10px 32px rgba(47, 74, 53, 0.22);
+    z-index: 5;
   }
-  .prep-detail-head { font-size: 0.85rem; line-height: 1.2; }
-  .prep-detail-sub { font-size: 0.65rem; }
+  .prep-detail-head { font-size: 0.95rem; line-height: 1.25; }
+  .prep-detail-sub { font-size: 0.7rem; }
   .prep-detail-cta {
-    min-height: 40px;
-    padding: 0.55rem;
-    font-size: 0.72rem;
+    min-height: 42px;
+    padding: 0.6rem;
+    font-size: 0.78rem;
   }
   .prep-detail-actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
   }
-  .prep-ring { width: 72px; height: 72px; }
-  .prep-ring-val { font-size: 1.1rem; }
-  .prep-ring-wrap { padding: 0.15rem 0; }
+  .prep-ring { width: 96px; height: 96px; }
+  .prep-ring-val { font-size: 1.35rem; }
+  .prep-ring-wrap { padding: 0.35rem 0; }
   .prep-client-card {
     grid-template-columns: auto 1fr;
     padding: 0.55rem 0.6rem;
@@ -210,18 +213,19 @@
   .prep-client-avatar { width: 32px; height: 32px; font-size: 0.7rem; }
   .prep-client-name { font-size: 0.72rem; line-height: 1.2; }
   .prep-client-meta { font-size: 0.6rem; display: none; }
-  .prep-detail-rows { display: none; }
+  .prep-detail-rows { display: flex; font-size: 0.72rem; }
 }
 
 @media (max-width: 480px) {
   .prep-stats { display: none; }
-  .prep-client-list {
-    padding-right: calc(62vw + 0.25rem);
-    padding-bottom: calc(10.5rem + env(safe-area-inset-bottom, 0px));
+  .prep-content {
+    grid-template-columns: minmax(0, 34%) minmax(0, 66%);
+    gap: 0.35rem;
   }
   .prep-detail {
-    width: min(62vw, 210px);
-    bottom: calc(0.65rem + env(safe-area-inset-bottom, 0px));
-    max-height: min(40dvh, 280px);
+    top: 3.85rem;
+    min-height: min(52dvh, 400px);
+    padding: 0.85rem 0.75rem;
   }
+  .prep-ring { width: 80px; height: 80px; }
 }

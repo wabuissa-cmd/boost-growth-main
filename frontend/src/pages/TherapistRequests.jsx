@@ -4,7 +4,7 @@ import { useAuth } from "../auth";
 import {
   Plus, Package, Briefcase, ClockCounterClockwise, CalendarBlank,
   CheckCircle, XCircle, Hourglass, ChatCircleText, Clock, Lightning,
-  Paperclip, UploadSimple, FileArrowDown,
+  Paperclip, FileArrowDown,
 } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
@@ -46,7 +46,7 @@ const PRIORITIES = [
 ];
 
 function emptyRequest() {
-  return { title: "", description: "", request_type: "general", priority: "normal", extra_notes: "" };
+  return { title: "", description: "", request_type: "general", priority: "normal", extra_notes: "", attachmentFile: null, reportDate: "" };
 }
 
 function emptyPermission(userId) {
@@ -82,10 +82,6 @@ export default function TherapistRequests() {
   const [edit, setEdit] = useState(null);
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
-  const [uploadOpen, setUploadOpen] = useState(false);
-  const [uploadFile, setUploadFile] = useState(null);
-  const [uploadReportDate, setUploadReportDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [uploading, setUploading] = useState(false);
 
   const load = async () => {
     const [req, lv, bal] = await Promise.all([
@@ -124,13 +120,21 @@ export default function TherapistRequests() {
           status: "pending",
         });
       } else {
-        await api.post("/requests", {
+        const res = await api.post("/requests", {
           title: edit.title,
           description: edit.description,
           request_type: edit.request_type,
           priority: edit.priority,
           extra_notes: edit.extra_notes,
         });
+        if (edit.attachmentFile && res.data?.id) {
+          const fd = new FormData();
+          fd.append("file", edit.attachmentFile);
+          if (edit.reportDate) fd.append("report_date", edit.reportDate);
+          await api.post(`/requests/${res.data.id}/attachment`, fd, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+        }
       }
       setEdit(null);
       setStep(1);
@@ -139,34 +143,6 @@ export default function TherapistRequests() {
       alert(e.response?.data?.detail || e.message);
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const submitUpload = async () => {
-    if (!uploadFile) {
-      alert("Please choose a file");
-      return;
-    }
-    if (!uploadReportDate) {
-      alert("Please choose the report date");
-      return;
-    }
-    setUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append("file", uploadFile);
-      fd.append("report_date", uploadReportDate);
-      await api.post("/requests/upload-attachment", fd, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      setUploadOpen(false);
-      setUploadFile(null);
-      setUploadReportDate(new Date().toISOString().slice(0, 10));
-      load();
-    } catch (e) {
-      alert(e.response?.data?.detail || e.message);
-    } finally {
-      setUploading(false);
     }
   };
 
@@ -192,14 +168,6 @@ export default function TherapistRequests() {
 
   const requestActions = (
     <div className="req-head-actions flex items-center gap-1.5 flex-wrap">
-      <button
-        type="button"
-        data-testid="upload-attachment-btn"
-        onClick={() => setUploadOpen(true)}
-        className="btn btn-outline text-[11px] px-2.5 py-1 min-h-0"
-      >
-        <UploadSimple size={13}/> Upload Attachment
-      </button>
       <button data-testid="new-request-btn" onClick={openNew} className="btn btn-primary text-[11px] px-2.5 py-1 min-h-0">
         <Plus size={13}/> New Request
       </button>
@@ -330,6 +298,20 @@ export default function TherapistRequests() {
                   )}
                   {!isAttachment && r.description && (
                     <div className="text-xs mt-1" style={{ color: "#5C6853" }}>{r.description}</div>
+                  )}
+                  {!isAttachment && r.attachment_url && (
+                    <div className="text-xs mt-1" style={{ color: "#5C6853" }}>
+                      {r.report_date && <div>Report date: <strong>{fmtShortDate(r.report_date)}</strong></div>}
+                      <a
+                        href={`${API}/requests/${r.id}/attachment`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 mt-1 font-semibold underline"
+                        style={{ color: "#5C8A47" }}
+                      >
+                        <FileArrowDown size={12}/> View attachment
+                      </a>
+                    </div>
                   )}
                   {r.admin_note && (
                     <div className="mt-2 text-xs p-2 rounded-lg bg-[#E5EBE1]" style={{ color: "#3D4F35" }}>
@@ -473,6 +455,27 @@ export default function TherapistRequests() {
                   ))}
                 </div>
               </FormField>
+              <FormField label="Attachment (optional)" hint="PDF, image, or Word document">
+                <input
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx"
+                  className="modal-input"
+                  onChange={e => setEdit({ ...edit, attachmentFile: e.target.files?.[0] || null })}
+                />
+                {edit.attachmentFile && (
+                  <div className="text-xs mt-1" style={{ color: "#5C6853" }}>{edit.attachmentFile.name}</div>
+                )}
+              </FormField>
+              {edit.attachmentFile && (
+                <FormField label="Report date (optional)" hint="When the attached report was dated">
+                  <input
+                    type="date"
+                    className="modal-input"
+                    value={edit.reportDate || ""}
+                    onChange={e => setEdit({ ...edit, reportDate: e.target.value })}
+                  />
+                </FormField>
+              )}
             </FormSection>
           )}
 
@@ -482,48 +485,14 @@ export default function TherapistRequests() {
                 <div className="flex justify-between"><span style={{ color: "#9CA3AF" }}>Type:</span><strong>{typeInfo(edit.request_type).label}</strong></div>
                 <div className="flex justify-between"><span style={{ color: "#9CA3AF" }}>Title:</span><strong>{edit.title}</strong></div>
                 {edit.description && <div><div style={{ color: "#9CA3AF" }}>Description:</div><div className="mt-1">{edit.description}</div></div>}
+                {edit.attachmentFile && (
+                  <div className="flex justify-between"><span style={{ color: "#9CA3AF" }}>Attachment:</span><strong>{edit.attachmentFile.name}</strong></div>
+                )}
               </div>
             </FormSection>
           )}
             </div>
           </div>
-        </ModalBase>
-      )}
-
-      {uploadOpen && (
-        <ModalBase
-          title="Upload Attachment"
-          subtitle="Submit a report file with its report date"
-          onClose={() => { setUploadOpen(false); setUploadFile(null); }}
-          size="md"
-          footer={(
-            <>
-              <ModalBtnSecondary type="button" onClick={() => { setUploadOpen(false); setUploadFile(null); }}>Cancel</ModalBtnSecondary>
-              <ModalBtnPrimary type="button" data-testid="upload-attachment-submit" onClick={submitUpload} disabled={uploading || !uploadFile}>
-                {uploading ? "Uploading…" : "Submit"}
-              </ModalBtnPrimary>
-            </>
-          )}
-        >
-          <FormSection title="Report file">
-            <input
-              type="file"
-              accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx"
-              className="modal-input"
-              onChange={e => setUploadFile(e.target.files?.[0] || null)}
-            />
-            {uploadFile && (
-              <div className="text-xs mt-1" style={{ color: "#5C6853" }}>{uploadFile.name}</div>
-            )}
-          </FormSection>
-          <FormField label="Report date" hint="When the report was dated">
-            <input
-              type="date"
-              className="modal-input"
-              value={uploadReportDate}
-              onChange={e => setUploadReportDate(e.target.value)}
-            />
-          </FormField>
         </ModalBase>
       )}
     </div>

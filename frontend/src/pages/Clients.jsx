@@ -2,8 +2,8 @@ import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api";
 import { cachedGet } from "../dataCache";
-import { useAuth, showAdminNav, hasOpsAccess, hasFullClientAccess } from "../auth";
-import { Plus, MagnifyingGlass, MapPin, ArrowSquareOut, Trash, PencilSimple, UsersThree } from "@phosphor-icons/react";
+import { useAuth, showAdminNav, hasOpsAccess, hasFullClientAccess, isJenan } from "../auth";
+import { Plus, MagnifyingGlass, MapPin, ArrowSquareOut, Trash, PencilSimple, UsersThree, EnvelopeSimple } from "@phosphor-icons/react";
 import ClientInfoLayout from "../components/ClientInfoLayout";
 import ClientPickerSheet from "../components/ClientPickerSheet";
 import PageBanner from "../components/PageBanner";
@@ -189,7 +189,7 @@ export default function Clients() {
         <AttachmentsPanelModal client={panelClient.client} canSyncDrive={hasFullClientAccess(user)} onClose={closePanel} onRefresh={load} onSaved={() => { closePanel(); load(); }} />
       )}
       {panelClient?.section === "details" && (
-        <CaseDetailsPanelModal client={panelClient.client} therapists={therapists} isAdmin={isAdmin}
+        <CaseDetailsPanelModal client={panelClient.client} therapists={therapists} user={user} isAdmin={isAdmin}
           onClose={closePanel} onSaved={() => { closePanel(); load(); }} />
       )}
 
@@ -494,67 +494,85 @@ function AttachmentsPanelModal({ client, canSyncDrive, onClose, onSaved, onRefre
 }
 
 function CaseSummaryView({ sections, url }) {
+  const allTables = (sections || []).flatMap((sec) => sec.tables || []);
   if (!sections?.length) {
     return (
       <div className="text-sm py-6 text-center rounded-xl border" style={{ color: "#8B9E7A", borderColor: "#EDE9E3", background: "#FAFAF7" }}>
-        No case summary content yet.{url ? " Open the linked document or sync from Drive." : " Add a Case Summary link in Records & Files."}
+        No case summary content yet.{url ? " Open the linked document or sync from Drive." : " Add a Case Summary link below."}
       </div>
     );
   }
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {url && (
         <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs underline" style={{ color: "#5C8A47" }}>
           Open source document ↗ <ArrowSquareOut size={12} />
         </a>
       )}
-      {sections.map((sec, i) => (
-        <div key={i} className="rounded-xl border overflow-hidden" style={{ borderColor: "#E2DDD4" }}>
-          <div className="px-4 py-2 text-xs font-bold tracking-wide" style={{ background: "#EDF4E8", color: "#2C5035" }}>
-            {sec.heading || "Section"}
-          </div>
-          <div className="px-4 py-3 space-y-2 text-sm" style={{ background: "#FAFAF7", color: "#2C3625" }}>
-            {(sec.paragraphs || []).map((p, j) => (
-              <p key={j} className="leading-relaxed">{p}</p>
-            ))}
-            {(sec.bullets || []).length > 0 && (
-              <ul className="list-disc pl-5 space-y-1">
-                {sec.bullets.map((b, j) => <li key={j}>{b}</li>)}
-              </ul>
-            )}
-            {(sec.tables || []).map((table, ti) => (
-              <div key={ti} className="overflow-x-auto rounded-lg border" style={{ borderColor: "#E2DDD4" }}>
-                <table className="w-full text-xs">
-                  <tbody>
-                    {table.map((row, ri) => (
-                      <tr key={ri} style={{ background: ri === 0 ? "#E5EBE1" : "white" }}>
-                        {row.map((cell, ci) => (
-                          <td key={ci} className="px-3 py-2 border-b" style={{ borderColor: "#EDE9E3", fontWeight: ri === 0 ? 700 : 400 }}>
-                            {cell}
-                          </td>
-                        ))}
-                      </tr>
+      {allTables.length > 0 ? (
+        allTables.map((table, ti) => (
+          <div key={ti} className="overflow-x-auto rounded-lg border case-summary-excel-table" style={{ borderColor: "#B8C8A8" }}>
+            <table className="w-full text-xs border-collapse">
+              <tbody>
+                {table.map((row, ri) => (
+                  <tr key={ri} style={{ background: ri === 0 ? "#E5EBE1" : ri % 2 === 0 ? "#FAFAF7" : "#FFFFFF" }}>
+                    {row.map((cell, ci) => (
+                      <td
+                        key={ci}
+                        className="px-3 py-2 border"
+                        style={{
+                          borderColor: "#D8E0D0",
+                          fontWeight: ri === 0 || ci === 0 ? 700 : 400,
+                          whiteSpace: "pre-wrap",
+                          verticalAlign: "top",
+                        }}
+                      >
+                        {cell}
+                      </td>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>
-      ))}
+        ))
+      ) : (
+        sections.map((sec, i) => (
+          <div key={i} className="rounded-xl border overflow-hidden" style={{ borderColor: "#E2DDD4" }}>
+            {sec.heading && (
+              <div className="px-4 py-2 text-xs font-bold tracking-wide" style={{ background: "#EDF4E8", color: "#2C5035" }}>
+                {sec.heading}
+              </div>
+            )}
+            <div className="px-4 py-3 space-y-2 text-sm" style={{ background: "#FAFAF7", color: "#2C3625" }}>
+              {(sec.paragraphs || []).map((p, j) => (
+                <p key={j} className="leading-relaxed m-0">{p}</p>
+              ))}
+              {(sec.bullets || []).length > 0 && (
+                <ul className="list-disc pl-5 space-y-1 m-0">
+                  {sec.bullets.map((b, j) => <li key={j}>{b}</li>)}
+                </ul>
+              )}
+            </div>
+          </div>
+        ))
+      )}
     </div>
   );
 }
 
-function CaseDetailsPanelModal({ client, therapists, isAdmin, onClose, onSaved }) {
-  const findT = id => therapists.find(t => t.id === id);
+function CaseDetailsPanelModal({ client, therapists, user, isAdmin, onClose, onSaved }) {
+  const userTid = user?.therapist_id || therapists.find(
+    (t) => (t.email || "").toLowerCase() === (user?.email || "").toLowerCase()
+  )?.id;
+  const canEdit = isAdmin || hasFullClientAccess(user) || (
+    userTid && (client.main_therapist_id === userTid || (client.co_therapist_ids || []).includes(userTid))
+  );
+  const canRemind = hasFullClientAccess(user) || isJenan(user) || isAdmin;
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({
-    ...client,
-    co_therapist_ids: client.co_therapist_ids || [],
-    locations: client.locations || [],
-  });
+  const [summaryUrl, setSummaryUrl] = useState(client.case_summary_url || "");
   const [saving, setSaving] = useState(false);
+  const [reminding, setReminding] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [summary, setSummary] = useState({
     sections: client.case_summary_sections?.sections || [],
@@ -571,10 +589,14 @@ function CaseDetailsPanelModal({ client, therapists, isAdmin, onClose, onSaved }
     return () => { cancelled = true; };
   }, [client.id, client.case_summary_url, JSON.stringify(client.case_summary_sections)]);
 
-  const save = async () => {
+  const saveSummary = async () => {
     setSaving(true);
     try {
-      await api.put(`/clients/${client.id}`, form);
+      const r = await api.put(`/clients/${client.id}/case-summary`, {
+        case_summary_url: summaryUrl,
+        refresh: true,
+      });
+      setSummary({ sections: r.data?.sections || [], url: r.data?.url || summaryUrl });
       setEditing(false);
       onSaved && onSaved();
     } catch (e) {
@@ -582,120 +604,65 @@ function CaseDetailsPanelModal({ client, therapists, isAdmin, onClose, onSaved }
     } finally { setSaving(false); }
   };
 
-  const Field = ({ label, children }) => (
-    <>
-      <dt className="text-xs font-semibold pt-1" style={{ color: "#9CA3AF" }}>{label}</dt>
-      <dd className="col-span-2 pb-2">{children}</dd>
-    </>
-  );
+  const sendReminder = async () => {
+    if (!window.confirm(`Send a reminder email to the main therapist to update the case summary for ${client.name}?`)) return;
+    setReminding(true);
+    try {
+      const r = await api.post(`/clients/${client.id}/case-summary/remind`);
+      const status = r.data?.email_status || "queued";
+      if (status === "sent") {
+        alert(`Reminder sent to ${r.data?.to}`);
+      } else {
+        alert(`Reminder queued for ${r.data?.to} (status: ${status}${r.data?.error ? ` — ${r.data.error}` : ""})`);
+      }
+    } catch (e) {
+      alert(e.response?.data?.detail || e.message);
+    } finally { setReminding(false); }
+  };
 
   return (
     <ModalBase title="Case Summary" subtitle={`${client.name} · File #${client.file_no || "—"}`} onClose={onClose} size="lg"
       footer={
         editing ? (
           <>
-            <ModalBtnSecondary type="button" onClick={() => { setEditing(false); setForm({ ...client, co_therapist_ids: client.co_therapist_ids || [], locations: client.locations || [] }); }}>Cancel</ModalBtnSecondary>
-            <ModalBtnPrimary type="button" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</ModalBtnPrimary>
+            <ModalBtnSecondary type="button" onClick={() => { setEditing(false); setSummaryUrl(client.case_summary_url || ""); }}>Cancel</ModalBtnSecondary>
+            <ModalBtnPrimary type="button" onClick={saveSummary} disabled={saving}>{saving ? "Saving…" : "Save & sync"}</ModalBtnPrimary>
           </>
         ) : (
           <>
             <ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>
-            {isAdmin && <ModalBtnPrimary type="button" onClick={() => setEditing(true)}><PencilSimple size={14} className="inline mr-1" /> Edit</ModalBtnPrimary>}
+            {canRemind && (
+              <ModalBtnSecondary type="button" onClick={sendReminder} disabled={reminding}>
+                <EnvelopeSimple size={14} className="inline mr-1" /> {reminding ? "Sending…" : "Remind specialist"}
+              </ModalBtnSecondary>
+            )}
+            {canEdit && (
+              <ModalBtnPrimary type="button" onClick={() => { setSummaryUrl(summary.url || client.case_summary_url || ""); setEditing(true); }}>
+                <PencilSimple size={14} className="inline mr-1" /> Edit link
+              </ModalBtnPrimary>
+            )}
           </>
         )
       }>
       {!editing ? (
-        <div className="space-y-6">
-          <dl className="grid grid-cols-3 gap-y-1 text-sm case-summary-dl">
-            <Field label="Full name"><span className="font-medium" style={{ color: "#1C2617" }}>{client.name}</span></Field>
-            <Field label="File number"><span className="font-medium" style={{ color: "#1C2617" }}>{client.file_no || "—"}</span></Field>
-            <Field label="Package hours"><span className="font-medium" style={{ color: "#1C2617" }}>{client.billing_mode === "weeks" ? `${client.cycle_weeks || 4}-week cycle` : `${client.package_hours || 24}h`}</span></Field>
-            <Field label="Main therapist"><span className="font-medium" style={{ color: "#1C2617" }}>{findT(client.main_therapist_id)?.name || "—"}</span></Field>
-            <Field label="Co-therapists"><span className="font-medium" style={{ color: "#1C2617" }}>{client.co_therapist_ids?.length ? client.co_therapist_ids.map(id => findT(id)?.name).filter(Boolean).join(", ") : "—"}</span></Field>
-            <Field label="Supervisor"><span className="font-medium" style={{ color: "#1C2617" }}>{client.supervisor || "—"}</span></Field>
-            <Field label="Service type"><span className="font-medium" style={{ color: "#1C2617" }}>{client.service_type || "—"}</span></Field>
-            <Field label="Status"><span className="font-medium" style={{ color: "#1C2617" }}>{client.status || "Active"}</span></Field>
-            <Field label="Age"><span className="font-medium" style={{ color: "#1C2617" }}>{client.age || "—"}</span></Field>
-            <Field label="Locations">
-              {client.locations?.length ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {client.locations.map((loc, i) => (
-                    <span key={i} className="pill text-[10px] px-2 py-1 inline-flex items-center gap-1" style={{ background: "#F0E9D8", color: "#2C3625" }}>
-                      <strong>{loc.service}</strong>
-                      {isMapsLink(loc.address) ? (
-                        <a href={getMapsHref(loc.address)} target="_blank" rel="noreferrer" className="underline" style={{ color: "#5C8A47" }}>Maps ↗</a>
-                      ) : (
-                        <> · {loc.address}</>
-                      )}
-                    </span>
-                  ))}
-                </div>
-              ) : "—"}
-            </Field>
-          </dl>
-
-          <div>
-            <div className="text-xs font-bold mb-3 tracking-wide" style={{ color: "#8B9E7A" }}>CASE SUMMARY</div>
-            {summaryLoading ? (
-              <div className="text-sm italic py-4 text-center" style={{ color: "#8B9E7A" }}>Loading case summary…</div>
-            ) : (
-              <CaseSummaryView sections={summary.sections} url={summary.url} />
-            )}
-          </div>
-        </div>
+        summaryLoading ? (
+          <div className="text-sm italic py-8 text-center" style={{ color: "#8B9E7A" }}>Loading case summary…</div>
+        ) : (
+          <CaseSummaryView sections={summary.sections} url={summary.url} />
+        )
       ) : (
         <div className="space-y-4">
-          <FormField label="Full name"><input className="modal-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></FormField>
-          <div className="grid grid-cols-2 gap-4">
-            <FormField label="File number"><input className="modal-input" value={form.file_no || ""} onChange={e => setForm({ ...form, file_no: e.target.value })} /></FormField>
-            <FormField label="Age"><input className="modal-input" value={form.age || ""} onChange={e => setForm({ ...form, age: e.target.value })} /></FormField>
-            <FormField label="Package hours"><input type="number" className="modal-input" value={form.package_hours || 24} onChange={e => setForm({ ...form, package_hours: parseFloat(e.target.value) || 24 })} /></FormField>
-            <FormField label="Service type">
-              <select className="modal-input" value={form.service_type || ""} onChange={e => setForm({ ...form, service_type: e.target.value || null })}>
-                <option value="">—</option>
-                <option value="HS">HS</option><option value="SS">SS</option><option value="HS+SS">HS+SS</option><option value="AVC">AVC</option>
-              </select>
-            </FormField>
-            <FormField label="Status">
-              <select className="modal-input" value={form.status || "Active"} onChange={e => setForm({ ...form, status: e.target.value })}>
-                <option value="Active">Active</option><option value="Inactive">Inactive</option>
-              </select>
-            </FormField>
-            <FormField label="Supervisor"><input className="modal-input" value={form.supervisor || ""} onChange={e => setForm({ ...form, supervisor: e.target.value })} /></FormField>
-          </div>
-          <FormField label="Main therapist">
-            <select className="modal-input" value={form.main_therapist_id || ""} onChange={e => setForm({ ...form, main_therapist_id: e.target.value || null })}>
-              <option value="">— None —</option>
-              {therapists.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
+          <FormField label="Case summary document URL" hint="Google Doc link from the client Drive folder">
+            <input
+              className="modal-input"
+              value={summaryUrl}
+              onChange={e => setSummaryUrl(e.target.value)}
+              placeholder="https://docs.google.com/document/d/…"
+            />
           </FormField>
-          <FormField label="Co-therapists">
-            <div className="flex flex-wrap gap-1.5">
-              {therapists.map(t => {
-                const sel = (form.co_therapist_ids || []).includes(t.id);
-                return (
-                  <button key={t.id} type="button"
-                    onClick={() => setForm({ ...form, co_therapist_ids: sel ? form.co_therapist_ids.filter(x => x !== t.id) : [...(form.co_therapist_ids || []), t.id] })}
-                    className={`pill text-xs px-2 py-1 ${sel ? "bg-[#7A8A6A] text-white" : "bg-white border"}`}
-                    style={!sel ? { borderColor: "#DDD8D0" } : undefined}>{t.name}</button>
-                );
-              })}
-            </div>
-          </FormField>
-          <FormField label="Locations">
-            <div className="space-y-2">
-              {(form.locations || []).map((l, i) => (
-                <div key={i} className="flex gap-2">
-                  <select className="modal-input w-24 flex-shrink-0" value={l.service} onChange={e => { const ll = [...form.locations]; ll[i] = { ...ll[i], service: e.target.value }; setForm({ ...form, locations: ll }); }}>
-                    <option value="HS">HS</option><option value="SS">SS</option><option value="OS">OS</option>
-                  </select>
-                  <input className="modal-input flex-1" placeholder="Address or Google Maps link" value={l.address} onChange={e => { const ll = [...form.locations]; ll[i] = { ...ll[i], address: e.target.value }; setForm({ ...form, locations: ll }); }} />
-                  <button type="button" onClick={() => setForm({ ...form, locations: form.locations.filter((_, j) => j !== i) })} className="btn btn-ghost p-2 text-red-700"><Trash size={14} /></button>
-                </div>
-              ))}
-              <button type="button" onClick={() => setForm({ ...form, locations: [...(form.locations || []), { service: "HS", address: "" }] })} className="btn btn-outline text-xs"><Plus size={14} /> Add location</button>
-            </div>
-          </FormField>
+          <p className="text-xs m-0" style={{ color: "#8B9E7A" }}>
+            Saving will sync the document and refresh the summary table below.
+          </p>
         </div>
       )}
     </ModalBase>

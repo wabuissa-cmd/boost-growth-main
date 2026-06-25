@@ -1088,12 +1088,10 @@ export default function Schedule() {
         ]}
         toolbar={(
           <div className="flex items-center gap-1.5 flex-wrap schedule-toolbar schedule-toolbar--wrap relative">
-            {!isScheduleNarrow && (
-            <div className="inline-flex items-center rounded-lg border border-[#E2DDD4] p-0.5 bg-[#FAFAF7] shrink-0">
+            <div className="inline-flex items-center rounded-lg border border-[#E2DDD4] p-0.5 bg-[#FAFAF7] shrink-0 schedule-view-toggle">
               <button data-testid="view-sheet-btn" onClick={() => setView("sheet")} className={`btn ${view === "sheet" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`}><Table size={13} /> Sheet</button>
               <button data-testid="view-blocks-btn" onClick={() => setView("blocks")} className={`btn ${view === "blocks" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`}><GridFour size={13} /> Per Therapist</button>
             </div>
-            )}
             <div className="inline-flex items-center rounded-lg border border-[#E2DDD4] px-0.5 bg-[#FAFAF7] shrink-0 schedule-toolbar-week-nav">
               <button data-testid="prev-week-btn" onClick={() => setWeekStart(addDays(weekStart, -7))} className="btn btn-ghost p-1 min-h-0"><CaretLeft size={14} /></button>
               <div className="px-2 text-[11px] font-bold whitespace-nowrap" style={{ color: "#2C3625" }}>{formatDateRange(weekStart)}</div>
@@ -1103,12 +1101,13 @@ export default function Schedule() {
               <input type="date" title="Jump to week" className="input text-[10px] w-[108px] py-1 px-1.5 min-h-0 border-0 bg-transparent"
                 onChange={e => { if (e.target.value) setWeekStart(startOfWeek(new Date(e.target.value + "T12:00:00"))); }} />
             </div>
-            {isAdmin && (view === "blocks" || view === "sheet") && (
+            {isAdmin && !isScheduleNarrow && (view === "blocks" || view === "sheet") && (
               <div className="relative flex-1 min-w-[100px] max-w-[160px]">
                 <MagnifyingGlass size={13} className="absolute top-1/2 -translate-y-1/2 left-2" style={{ color: "#8B9E7A" }} />
                 <input data-testid="schedule-search-input" className="input pl-7 py-1 text-[11px] min-h-0 h-7" placeholder="Search therapist…" value={search} onChange={e => setSearch(e.target.value)} />
               </div>
             )}
+            <div className="schedule-parent-actions flex items-center gap-1.5 flex-wrap shrink-0">
             {canNotifySchedule && (
               <button
                 type="button"
@@ -1142,6 +1141,7 @@ export default function Schedule() {
                 {pendingCancellations.length > 0 ? ` (${pendingCancellations.length})` : ""}
               </button>
             )}
+            </div>
             {isAdmin && (
               <div className="relative ml-auto shrink-0" ref={adminEditsRef}>
                 <button

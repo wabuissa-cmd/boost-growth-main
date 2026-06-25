@@ -2168,14 +2168,27 @@ async def _process_payment_reminders(force: bool = False) -> dict:
     if not force:
         meta = await db.meta.find_one({"key": "billing_reminders_last_run"})
         if meta and meta.get("date") == today:
-            return {"sent": 0, "skipped": True}
+            recipients = await _billing_reminder_recipients()
+            await _reload_email_settings_from_db()
+            return {
+                "sent": 0,
+                "skipped": True,
+                "recipients": recipients,
+                "matched": 0,
+                "email_results": [],
+                "provider_configured": bool(
+                    _mailgun_configured() or _brevo_configured() or _resend_configured() or _smtp_configured()
+                ),
+            }
 
     partial_invs = await db.invoices.find(
         {"is_closed": {"$ne": True}, "next_payment_reminder_at": {"$exists": True, "$ne": None, "$ne": ""}},
         {"_id": 0},
     ).to_list(500)
     sent = 0
+    matched = 0
     recipients = await _billing_reminder_recipients()
+    email_results_map: dict = {}
     for inv in partial_invs:
         if _effective_payment_status(inv) != "partial":
             continue
@@ -2211,8 +2224,14 @@ async def _process_payment_reminders(force: bool = False) -> dict:
         if inv.get("payment_notes"):
             body += f"Notes: {inv.get('payment_notes')}\n"
         body += "\n— Boost Growth Staff Portal"
+        matched += 1
         for email in recipients:
-            await _send_email_stub(email, subj, body)
+            r = await _send_email_stub(email, subj, body)
+            email_results_map[email] = {
+                "to": email,
+                "status": r.get("status"),
+                "error": r.get("error"),
+            }
         await db.invoices.update_one(
             {"id": inv["id"]},
             {"$set": {"last_payment_reminder_sent_at": today}},
@@ -2224,7 +2243,17 @@ async def _process_payment_reminders(force: bool = False) -> dict:
         {"$set": {"date": today, "sent": sent, "at": now_iso()}},
         upsert=True,
     )
-    return {"sent": sent, "skipped": False, "recipients": recipients}
+    await _reload_email_settings_from_db()
+    return {
+        "sent": sent,
+        "skipped": False,
+        "recipients": recipients,
+        "matched": matched,
+        "email_results": list(email_results_map.values()),
+        "provider_configured": bool(
+            _mailgun_configured() or _brevo_configured() or _resend_configured() or _smtp_configured()
+        ),
+    }
 
 
 @api.get("/billing/dashboard")
@@ -3143,6 +3172,82 @@ async def get_client_case_summary(cid: str, refresh: bool = False, user=Depends(
             pass
 
     return {"url": url or None, "sections": [], "cached": bool(cached)}
+
+
+class CaseSummaryUpdateIn(BaseModel):
+    case_summary_url: Optional[str] = None
+    refresh: bool = True
+
+
+async def _user_can_edit_case_summary(user: dict, client: dict) -> bool:
+    if _has_full_client_access(user) or _is_portal_admin(user):
+        return True
+    tid = await _resolve_user_therapist_id(user)
+    if not tid:
+        return False
+    return client.get("main_therapist_id") == tid or tid in (client.get("co_therapist_ids") or [])
+
+
+@api.put("/clients/{cid}/case-summary")
+async def update_client_case_summary(cid: str, body: CaseSummaryUpdateIn, user=Depends(get_current_user)):
+    """Specialists may set the case summary link; supervisors/admins may edit any client."""
+    from drive_sync import fetch_case_summary_content
+
+    client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if not await _user_can_edit_case_summary(user, client):
+        raise HTTPException(status_code=403, detail="Case summary edit not allowed")
+
+    patch: dict = {}
+    if body.case_summary_url is not None:
+        patch["case_summary_url"] = (body.case_summary_url or "").strip() or None
+    if patch:
+        await db.clients.update_one({"id": cid}, {"$set": patch})
+        client = {**client, **patch}
+
+    url = (client.get("case_summary_url") or "").strip()
+    sections = client.get("case_summary_sections")
+    if body.refresh and url:
+        try:
+            fetched = fetch_case_summary_content(url)
+            await db.clients.update_one({"id": cid}, {"$set": {"case_summary_sections": fetched}})
+            return {"url": url, "sections": fetched.get("sections", []), "cached": False}
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Could not fetch case summary: {exc}")
+
+    if sections and sections.get("sections"):
+        return {"url": url or None, "sections": sections["sections"], "cached": True}
+    return {"url": url or None, "sections": [], "cached": False}
+
+
+@api.post("/clients/{cid}/case-summary/remind")
+async def remind_case_summary_update(cid: str, user=Depends(get_current_user)):
+    """Email the main therapist to update the case summary (supervisors / ops)."""
+    if not (_has_full_client_access(user) or _is_jenan(user) or _is_portal_admin(user) or _is_hr_ops(user)):
+        raise HTTPException(status_code=403, detail="Reminder not allowed")
+    client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    main_tid = client.get("main_therapist_id")
+    if not main_tid:
+        raise HTTPException(status_code=400, detail="No main therapist assigned")
+    therapist = await db.therapists.find_one({"id": main_tid}, {"_id": 0, "name": 1, "email": 1})
+    if not therapist or not (therapist.get("email") or "").strip():
+        raise HTTPException(status_code=400, detail="Therapist has no email on file")
+    to = therapist["email"].strip()
+    cname = client.get("name") or "Client"
+    fno = client.get("file_no") or "—"
+    sender = user.get("name") or user.get("email") or "Supervisor"
+    subj = f"Please update case summary · {cname}"
+    body = (
+        f"Hello {therapist.get('name') or 'there'},\n\n"
+        f"Please review and update the case summary for {cname} (File #{fno}) in the staff portal.\n\n"
+        f"Requested by: {sender}\n\n"
+        f"— Boost Growth Staff Portal"
+    )
+    result = await _send_email_stub(to, subj, body)
+    return {"ok": True, "to": to, "email_status": result.get("status"), "error": result.get("error")}
 
 
 class SyncActiveClientsIn(BaseModel):
@@ -4565,6 +4670,45 @@ async def create_request(payload: RequestIn, user=Depends(get_current_user)):
     else:
         await _notify_admins("request_new", f"New {payload.request_type} request", msg)
     return _enrich_request_attachment(doc)
+
+
+@api.post("/requests/{rid}/attachment")
+async def add_request_attachment(
+    rid: str,
+    file: UploadFile = File(...),
+    report_date: Optional[str] = Form(None),
+    user=Depends(get_current_user),
+):
+    """Attach a file to an existing general request (submitted by the same therapist)."""
+    if user.get("role") != "therapist":
+        raise HTTPException(status_code=403, detail="Therapist only")
+    req = await db.requests.find_one({"id": rid}, {"_id": 0})
+    if not req or req.get("therapist_id") != user["id"]:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req.get("request_type") == "attachment":
+        raise HTTPException(status_code=400, detail="Use the dedicated attachment request type")
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="File required")
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 10MB)")
+    ext = Path(file.filename).suffix.lower() or ".pdf"
+    if ext not in (".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".doc", ".docx"):
+        raise HTTPException(status_code=400, detail="PDF, image, or Word document only")
+    stored = f"req_{rid}{ext}"
+    save_path = UPLOAD_DIR / stored
+    save_path.write_bytes(content)
+    report_date = (report_date or "").strip()[:10] or None
+    patch = {
+        "attachment_file_path": stored,
+        "attachment_file_name": file.filename,
+        "updated_at": now_iso(),
+    }
+    if report_date:
+        patch["report_date"] = report_date
+    await db.requests.update_one({"id": rid}, {"$set": patch})
+    updated = {**req, **patch}
+    return _enrich_request_attachment(updated)
 
 
 @api.post("/requests/upload-attachment")

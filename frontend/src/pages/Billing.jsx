@@ -226,14 +226,28 @@ export default function Billing() {
   const summary = data?.summary || { unpaid: 0, partial: 0, reminders_soon: 0 };
 
   const sendReminders = async () => {
+    if (!window.confirm("Send payment reminder emails for invoices due in 1–2 days (or overdue up to 7 days)?")) return;
     setSending(true);
     try {
       const r = await api.post("/billing/send-reminders");
-      const to = (r.data?.recipients || []).join(", ") || "configured recipients";
-      alert(`Reminder emails sent: ${r.data?.sent ?? 0}\nTo: ${to}`);
+      const data = r.data || {};
+      const to = (data.recipients || []).join(", ") || "configured recipients";
+      const lines = [
+        `Invoice reminders processed: ${data.sent ?? 0}`,
+        `Recipients: ${to}`,
+      ];
+      if (data.skipped) lines.push("Note: automatic run already completed today (manual send still applies matching rules).");
+      if (data.provider_configured === false) {
+        lines.push("⚠ No email provider configured — messages were queued but not delivered. Configure Mailgun/Brevo in Admin.");
+      }
+      if (data.email_results?.length) {
+        const statuses = data.email_results.map((e) => `${e.to}: ${e.status}${e.error ? ` (${e.error})` : ""}`);
+        lines.push("", "Email delivery:", ...statuses);
+      }
+      alert(lines.join("\n"));
       load();
-    } catch {
-      alert("Could not send reminders");
+    } catch (e) {
+      alert(e.response?.data?.detail || "Could not send reminders");
     } finally {
       setSending(false);
     }
@@ -270,27 +284,27 @@ export default function Billing() {
       <PageBanner
         title="Billing & Payments"
         subtitle="Invoices, payment tracking, and installment reminders"
-        badge={(
-          <button
-            type="button"
-            onClick={sendReminders}
-            disabled={sending}
-            className="hidden sm:inline-flex items-center gap-1.5 pill px-2.5 py-1 text-[11px] font-bold bg-[#E5EBE1] text-[#3D4F35] border border-[#B8C8A8] hover:bg-[#D8E4D0] transition"
-          >
-            <EnvelopeSimple size={13} /> {sending ? "Sending…" : "Send reminders"}
-          </button>
-        )}
         stats={[
           { label: "Unpaid", n: summary.unpaid, color: "#8A3F27" },
           { label: "Partial", n: summary.partial, color: "#6B5218" },
           { label: "Reminders soon", n: summary.reminders_soon, color: "#5C6853" },
           { label: "Open items", n: (data.items || []).length, color: "#3D4F35" },
         ]}
-      >
-        <p className="ui-caption m-0">
+      />
+
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4 p-3 rounded-xl border" style={{ background: "#FAFAF7", borderColor: "#E2DDD4" }}>
+        <p className="ui-caption m-0 flex-1 min-w-[200px]">
           Open <strong>Invoice Sheet</strong> for full billing details. Reminder emails go to admin and Walaa <strong>1–2 days before</strong> the next payment date on partial invoices.
         </p>
-      </PageBanner>
+        <button
+          type="button"
+          onClick={sendReminders}
+          disabled={sending}
+          className="inline-flex items-center gap-1.5 pill px-3 py-2 text-xs font-bold bg-[#E5EBE1] text-[#3D4F35] border border-[#B8C8A8] hover:bg-[#D8E4D0] transition shrink-0 min-h-[40px]"
+        >
+          <EnvelopeSimple size={14} /> {sending ? "Sending…" : "Send reminders"}
+        </button>
+      </div>
 
       <div className="mb-4">
         <BillingProgressStrip summary={summary} items={data.items || []} />

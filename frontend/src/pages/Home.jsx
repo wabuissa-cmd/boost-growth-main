@@ -59,7 +59,8 @@ export default function Home() {
   const walaaOps = isWalaaOps(user);
   const parentCancelOps = canParentCancellationOps(user);
   const showOpsHome = isPortalAdminUser || hrOps || walaaOps;
-  const showHrInbox = (isPortalAdminUser || hrOps || jenan) && !walaaOps;
+  const technicalAdmin = isPortalAdminUser && !walaaOps;
+  const showHrInbox = (hrOps || jenan) && !walaaOps && !technicalAdmin;
   const showCoordinationInbox = walaaOps;
   const showInbox = showHrInbox || showCoordinationInbox || (parentCancelOps && !walaaOps);
   const opsAccess = hasOpsAccess(user);
@@ -342,10 +343,9 @@ export default function Home() {
             <PlatformUpdates items={updates} canPost={isPortalAdminUser} onPosted={loadUpdates} />
             {showHrInbox && <HrInboxPanel user={user} />}
             {showCoordinationInbox && <HrInboxPanel user={user} coordinationOnly />}
-            {(walaaOps || (!showHrInbox && !showCoordinationInbox)) && (
+            {(walaaOps || technicalAdmin || hrOps) && (
               <AdminRemindersPanel items={adminReminders} />
             )}
-            {showHrInbox && isPortalAdminUser && <AdminRemindersPanel items={adminReminders} />}
           </div>
 
           <CreativeSection title="This week at a glance">
@@ -361,7 +361,7 @@ export default function Home() {
         </>
       ) : (
         <>
-          <HeroBanner compact />
+          <HeroBanner compact greetingParts={saudiGreetingParts(displayName)} />
 
           {parentCancelOps && parentCancellationsPending > 0 && (
             <Link

@@ -675,6 +675,30 @@ main, .page-enter { min-width: 0; }
         min-height: 44px !important;
         height: auto !important;
     }
+    .schedule-parent-actions {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        gap: 0.35rem;
+        width: 100%;
+    }
+    .schedule-parent-actions .btn {
+        flex: 1 1 0;
+        min-width: 0;
+        justify-content: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        padding-left: 0.4rem !important;
+        padding-right: 0.4rem !important;
+    }
+    .schedule-view-toggle {
+        width: 100%;
+    }
+    .schedule-view-toggle .btn {
+        flex: 1;
+        justify-content: center;
+    }
 }
 
 @media (min-width: 769px) {
