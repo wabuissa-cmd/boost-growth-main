@@ -6773,7 +6773,7 @@ def _rows_from_dataframe(df) -> List[dict]:
 
 def _sheet_intake_type_hint(sheet_name: str) -> Optional[str]:
     low = (sheet_name or "").lower().strip()
-    if "school" in low or ("ss" in low and "waiting" in low):
+    if "school" in low or "ss wait" in low or low.strip() in ("ss", "ss waiting", "school waiting", "school wait"):
         return "school"
     if "post" in low:
         return "post"
@@ -6886,6 +6886,18 @@ def _is_intake_data_row(r: dict) -> bool:
     return True
 
 
+def _is_school_intake_service(service: Optional[str]) -> bool:
+    """SS / school-support children belong on the School Waiting list, not pre-intake."""
+    s = _re_top.sub(r"\s+", "", (service or "").upper())
+    if not s:
+        return False
+    if s in ("SS", "SCHOOL", "SCHOOLSUPPORT", "SCHOOLSERVICE"):
+        return True
+    if "SCHOOL" in s and "HS" not in s:
+        return True
+    return False
+
+
 def _parse_intake_record(r: dict, sheet_name: str = "") -> Optional[dict]:
     """Map a Waiting List row to a DB-ready intake document."""
     name = _extract_intake_child_name(r)
@@ -6906,6 +6918,13 @@ def _parse_intake_record(r: dict, sheet_name: str = "") -> Optional[dict]:
 
     list_category = _sheet_list_category(sheet_name, intake_type)
 
+    service = _extract_service_from_row(r)
+    school_name = _clean_str(r.get("school_name"))
+    school_start = _clean_str(r.get("school_start_date"))
+    if _is_school_intake_service(service) or school_name or school_start:
+        intake_type = "school"
+        list_category = "school"
+
     diagnosis, age_from_da = _split_diagnosis_age(r.get("diagnosis_age"))
     notes, language = _extract_notes_and_language(r)
 
@@ -6919,7 +6938,7 @@ def _parse_intake_record(r: dict, sheet_name: str = "") -> Optional[dict]:
         "notes": notes,
         "intake_date": _clean_str(r.get("intake_date") or r.get("date")),
         "age": _clean_str(r.get("age") or r.get("dob_age") or r.get("dob")) or age_from_da,
-        "service": _extract_service_from_row(r),
+        "service": service,
         "district": _clean_str(
             r.get("district") or r.get("dis") or r.get("location") or r.get("area") or r.get("school_name")
         ),
@@ -7158,6 +7177,32 @@ WAITING_LIST_SHEET_ID = "14DLxQZOWSRnS_4kWeOsgKfpYMQiZ6hQiv2be_-J_hBg"
 WAITING_LIST_SHEET_URL = f"https://docs.google.com/spreadsheets/d/{WAITING_LIST_SHEET_ID}/edit"
 
 
+async def _reclassify_school_intake_records() -> int:
+    """Move SS / school-support rows out of regular pre/post intake into School Waiting."""
+    fixed = 0
+    rows = await db.intake.find(
+        {"$or": [{"intake_type": {"$in": ["pre", "post"]}}, {"list_category": {"$ne": "school"}}]},
+        {"_id": 0},
+    ).to_list(3000)
+    for row in rows:
+        if row.get("intake_type") == "school" and row.get("list_category") == "school":
+            continue
+        svc = row.get("service")
+        if not (_is_school_intake_service(svc) or row.get("school_name") or row.get("school_start_date")):
+            continue
+        name = (row.get("child_name") or "").strip()
+        if not name:
+            continue
+        patch = {
+            "intake_type": "school",
+            "list_category": "school",
+            "name_key": _intake_name_key(name, "school", "school"),
+        }
+        await db.intake.update_one({"id": row["id"]}, {"$set": patch})
+        fixed += 1
+    return fixed
+
+
 async def _upsert_intake_rows(rows: List[dict], detected_columns: List[str], parse_meta: str, replace_google_stale: bool = False) -> dict:
     created, updated, skipped = 0, 0, 0
     pre_count = sum(1 for d in rows if d.get("intake_type") == "pre")
@@ -7203,6 +7248,7 @@ async def _upsert_intake_rows(rows: List[dict], detected_columns: List[str], par
     else:
         stale = type("R", (), {"deleted_count": 0})()
     deduped = await _dedupe_intake_records()
+    reclassified = await _reclassify_school_intake_records()
     total_in_db = await db.intake.count_documents({})
     hint = None
     if not rows:
@@ -7218,11 +7264,21 @@ async def _upsert_intake_rows(rows: List[dict], detected_columns: List[str], par
         "pre_count": pre_count,
         "post_count": post_count,
         "school_count": school_count,
+        "reclassified_school": reclassified,
         "detected_columns": detected_columns,
         "parse_meta": parse_meta,
         "message": f"{updated} updated, {created} added, {skipped} skipped, {deduped} duplicates removed · {total_in_db} total in list",
         "hint": hint,
     }
+
+
+@api.post("/admin/fix-school-intake")
+async def admin_fix_school_intake(_=Depends(admin_only)):
+    """Re-route SS / school-support children from pre-intake to School Waiting."""
+    fixed = await _reclassify_school_intake_records()
+    total = await db.intake.count_documents({})
+    school = await db.intake.count_documents({"$or": [{"intake_type": "school"}, {"list_category": "school"}]})
+    return {"ok": True, "fixed": fixed, "total": total, "school_count": school}
 
 
 @api.post("/import/intake")

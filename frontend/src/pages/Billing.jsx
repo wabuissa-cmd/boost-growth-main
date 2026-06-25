@@ -341,35 +341,22 @@ export default function Billing() {
     <div>
       <PageBanner
         title="Billing & Payments"
-        subtitle="Monthly invoice payments · Jan–Jul overview"
+        subtitle="Invoice payments by month (Jan – Jul)"
+        className="editorial-banner--compact-mobile"
+        tabs={monthTabs.map((m) => ({
+          id: m.value,
+          label: m.short,
+          count: monthlyRows.filter((r) => r.month === m.value).length,
+        }))}
+        activeTab={filterMonth}
+        onTabChange={setFilterMonth}
         stats={[
           { label: "Unpaid", n: summary.unpaid, color: "#8A3F27" },
           { label: "Partial", n: summary.partial, color: "#6B5218" },
-          { label: "Reminders soon", n: summary.reminders_soon, color: "#5C6853" },
-          { label: filterMonth ? "This month" : "Open items", n: filterMonth ? monthFilteredRows.length : (data.items || []).length, color: "#3D4F35" },
+          { label: "This month", n: monthFilteredRows.length, color: "#3D4F35" },
+          { label: "Reminders", n: summary.reminders_soon, color: "#5C6853" },
         ]}
       />
-
-      <div className="card p-3 mb-4 sticky top-[3.5rem] z-10" style={{ background: "#FAFCF8", borderColor: "#B8C8A8" }}>
-        <div className="text-xs font-bold tracking-wider mb-2" style={{ color: "#5C6853" }}>PAYMENTS BY MONTH</div>
-        <div className="flex gap-2 overflow-x-auto pb-1" style={{ WebkitOverflowScrolling: "touch" }}>
-          {monthTabs.map((m) => (
-            <button
-              key={m.value}
-              type="button"
-              className={`btn text-xs whitespace-nowrap min-h-[36px] ${filterMonth === m.value ? "btn-primary" : "btn-outline"}`}
-              onClick={() => setFilterMonth(m.value)}
-            >
-              {m.short}
-            </button>
-          ))}
-        </div>
-        <div className="text-[11px] mt-2" style={{ color: "#5C6853" }}>
-          {filterMonth
-            ? `${monthFilteredRows.length} invoice${monthFilteredRows.length === 1 ? "" : "s"} in ${monthTabs.find((m) => m.value === filterMonth)?.label || filterMonth}`
-            : "Select a month above"}
-        </div>
-      </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4 p-3 rounded-xl border" style={{ background: "#FAFAF7", borderColor: "#E2DDD4" }}>
         <p className="ui-caption m-0 flex-1 min-w-[200px]">

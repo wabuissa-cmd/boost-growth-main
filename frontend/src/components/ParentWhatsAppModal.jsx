@@ -8,16 +8,19 @@ export default function ParentWhatsAppModal({ open, onClose, messages, weekLabel
   const [expanded, setExpanded] = useState(null);
   const [drafts, setDrafts] = useState([]);
 
-  if (!open) return null;
-
   useEffect(() => {
+    if (!open) return;
     setDrafts((messages || []).map((m) => ({
       ...m,
       _id: m.childName,
       _removed: false,
       _message: m.message || "",
     })));
-  }, [open]); // reset each open
+  }, [open, messages]);
+
+  const visibleDrafts = useMemo(() => drafts.filter(d => !d._removed), [drafts]);
+
+  if (!open) return null;
 
   const copyMessage = async (id, text) => {
     try {
@@ -28,8 +31,6 @@ export default function ParentWhatsAppModal({ open, onClose, messages, weekLabel
       window.prompt("Copy message:", text);
     }
   };
-
-  const visibleDrafts = useMemo(() => drafts.filter(d => !d._removed), [drafts]);
 
   const subtitle = [
     weekLabel,

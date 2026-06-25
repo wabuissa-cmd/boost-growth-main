@@ -20,6 +20,8 @@ export default function ImportPage() {
   const [restoreResult, setRestoreResult] = useState(null);
   const [dedupeResult, setDedupeResult] = useState(null);
   const [deduping, setDeduping] = useState(false);
+  const [fixingSchool, setFixingSchool] = useState(false);
+  const [fixSchoolResult, setFixSchoolResult] = useState(null);
   const [activeClientsFolderUrl, setActiveClientsFolderUrl] = useState(
     "https://drive.google.com/drive/folders/1iMDwfucwzsEIl9WxwhJi_h6tg2vVtAFr"
   );
@@ -39,6 +41,19 @@ export default function ImportPage() {
       setDedupeResult({ message: e.response?.data?.detail || e.message, ok: false });
     }
     setDeduping(false);
+  };
+
+  const fixSchoolIntake = async () => {
+    if (!window.confirm("Move SS / school-support children from Pre-Intake to School Waiting?")) return;
+    setFixingSchool(true);
+    setFixSchoolResult(null);
+    try {
+      const { data } = await api.post("/admin/fix-school-intake");
+      setFixSchoolResult(data);
+    } catch (e) {
+      setFixSchoolResult({ message: e.response?.data?.detail || e.message, ok: false });
+    }
+    setFixingSchool(false);
   };
 
   const pickSheetForWeek = (sheets, weekISO) => {
@@ -412,6 +427,22 @@ export default function ImportPage() {
           {dedupeResult && (
             <div className="text-xs p-3 rounded-xl mt-3" style={{ background: dedupeResult.ok === false ? "#F8EBE7" : "#E5EBE1", color: "#3D4F35" }}>
               {dedupeResult.message}
+            </div>
+          )}
+        </div>
+        <div className="card p-6 mt-5 border-2" style={{ borderColor: "#C4D4B8" }}>
+          <div className="font-bold mb-1" style={{ color: "#2C3625" }}>Fix School Waiting List</div>
+          <div className="text-sm mb-4" style={{ color: "#5C6853" }}>
+            Moves children with <strong>SS</strong> service (or school start date) from regular Pre-Intake into the <strong>School Waiting</strong> tab.
+          </div>
+          <button type="button" onClick={fixSchoolIntake} disabled={fixingSchool} className="btn btn-secondary text-sm">
+            {fixingSchool ? <span className="spinner" /> : "Fix School Intake"}
+          </button>
+          {fixSchoolResult && (
+            <div className="text-xs p-3 rounded-xl mt-3" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+              {fixSchoolResult.fixed != null
+                ? `Moved ${fixSchoolResult.fixed} child(ren) to School Waiting · ${fixSchoolResult.school_count} total in school list`
+                : (fixSchoolResult.message || JSON.stringify(fixSchoolResult))}
             </div>
           )}
         </div>
