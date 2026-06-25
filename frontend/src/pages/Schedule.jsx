@@ -177,6 +177,10 @@ export default function Schedule() {
   const [showHolidays, setShowHolidays] = useState(false);
   const [closures, setClosures] = useState([]);
   const [quickLog, setQuickLog] = useState(null);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [publishSendAll, setPublishSendAll] = useState(true);
+  const [publishIds, setPublishIds] = useState([]);
+  const [publishSending, setPublishSending] = useState(false);
   const [parentMessagesOpen, setParentMessagesOpen] = useState(false);
   const [parentMessagesNote, setParentMessagesNote] = useState("");
   const [parentCancelOpen, setParentCancelOpen] = useState(false);
@@ -343,13 +347,48 @@ export default function Schedule() {
     setWeekStatus("draft");
     alert("This week is now in Draft mode (hidden from therapists until published).");
   };
+
+  const therapistsWithEmail = useMemo(
+    () => sortTherapistsForSchedule(therapists).filter((t) => (t.email || "").trim()),
+    [therapists],
+  );
+
+  const openPublishModal = () => {
+    setPublishSendAll(true);
+    setPublishIds(therapistsWithEmail.map((t) => t.id));
+    setPublishOpen(true);
+  };
+
+  const togglePublishTherapist = (id) => {
+    setPublishIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return [...next];
+    });
+    setPublishSendAll(false);
+  };
+
   const publishWeek = async () => {
-    if (!window.confirm(`Publish schedule for ${formatDateRange(weekStart)}? All therapists will be emailed.`)) return;
-    const r = await api.post("/schedule/publish", { week_start: weekStartISO });
-    setWeekStatus("published");
-    setParentMessagesNote(`Published · ${r.data?.emails_sent ?? 0} therapist email(s) sent`);
-    setParentMessagesOpen(true);
-    load();
+    if (!publishSendAll && publishIds.length === 0) {
+      alert("Select at least one therapist to email.");
+      return;
+    }
+    setPublishSending(true);
+    try {
+      const payload = { week_start: weekStartISO };
+      if (!publishSendAll) payload.therapist_ids = publishIds;
+      const r = await api.post("/schedule/publish", payload);
+      setWeekStatus("published");
+      setPublishOpen(false);
+      setParentMessagesNote(`Published · ${r.data?.emails_sent ?? 0} therapist email(s) sent`);
+      setParentMessagesOpen(true);
+      load();
+    } catch (e) {
+      alert(e.response?.data?.detail || e.message || "Publish failed");
+    } finally {
+      setPublishSending(false);
+    }
   };
 
   const parentMessages = useMemo(
@@ -1159,7 +1198,7 @@ export default function Schedule() {
                   <div className="schedule-admin-edits-menu absolute right-0 top-[calc(100%+6px)] z-[200] card p-2.5 min-w-[228px] shadow-lg border border-[#E2DDD4] flex flex-col gap-2 bg-white">
                     <button type="button" onClick={() => { setShowHolidays(true); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start min-h-[36px]">Official holidays</button>
                     <button type="button" onClick={() => { setDraft(); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start min-h-[36px]">Save as Draft</button>
-                    <button type="button" onClick={() => { publishWeek(); setAdminEditsOpen(false); }} className="btn btn-primary text-xs w-full justify-start min-h-[36px]">Publish Week</button>
+                    <button type="button" onClick={() => { openPublishModal(); setAdminEditsOpen(false); }} className="btn btn-primary text-xs w-full justify-start min-h-[36px]">Publish Week</button>
                     <button
                       type="button"
                       data-testid="duplicate-week-btn"
@@ -1503,6 +1542,59 @@ export default function Schedule() {
           onClose={() => setQuickLog(null)}
           onSaved={() => { setQuickLog(null); }}
         />
+      )}
+
+      {publishOpen && (
+        <ModalBase
+          title="Publish schedule"
+          subtitle={`Week of ${formatDateRange(weekStart)} — choose who receives the email`}
+          onClose={() => setPublishOpen(false)}
+          size="md"
+          footer={(
+            <>
+              <ModalBtnSecondary type="button" onClick={() => setPublishOpen(false)}>Cancel</ModalBtnSecondary>
+              <ModalBtnPrimary type="button" onClick={publishWeek} disabled={publishSending}>
+                {publishSending ? "Publishing…" : "Publish & send emails"}
+              </ModalBtnPrimary>
+            </>
+          )}
+        >
+          <FormSection title="Email recipients">
+            <label className="flex items-center gap-2 text-sm font-semibold cursor-pointer mb-3 pb-2 border-b border-[#E2DDD4]">
+              <input
+                type="checkbox"
+                checked={publishSendAll}
+                onChange={(e) => {
+                  const all = e.target.checked;
+                  setPublishSendAll(all);
+                  if (all) setPublishIds(therapistsWithEmail.map((t) => t.id));
+                }}
+              />
+              Send to all therapists with email ({therapistsWithEmail.length})
+            </label>
+            <div className="flex flex-wrap gap-2 max-h-52 overflow-y-auto">
+              {therapistsWithEmail.map((t) => (
+                <label
+                  key={t.id}
+                  className={`flex items-center gap-1.5 pill cursor-pointer text-[11px] px-2.5 py-1.5 border ${
+                    publishIds.includes(t.id) ? "border-[#7A8A6A] bg-[#EDF4E8]" : "border-[#E2DDD4]"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={publishIds.includes(t.id)}
+                    disabled={publishSendAll}
+                    onChange={() => togglePublishTherapist(t.id)}
+                  />
+                  {getTherapistScheduleName(t)}
+                </label>
+              ))}
+            </div>
+            {therapistsWithEmail.length === 0 && (
+              <p className="text-xs m-0" style={{ color: "#8B9E7A" }}>No therapist emails on file.</p>
+            )}
+          </FormSection>
+        </ModalBase>
       )}
 
       <ParentWhatsAppModal

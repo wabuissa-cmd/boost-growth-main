@@ -6,7 +6,7 @@ import { useAuth, showAdminNav, hasOpsAccess, hasFullClientAccess, isJenan } fro
 import { Plus, MagnifyingGlass, MapPin, ArrowSquareOut, Trash, PencilSimple, UsersThree, EnvelopeSimple } from "@phosphor-icons/react";
 import ClientInfoLayout from "../components/ClientInfoLayout";
 import ClientPickerSheet from "../components/ClientPickerSheet";
-import PageBanner from "../components/PageBanner";
+import "../clientInfoLayout.css";
 import { enrichClientForCardView } from "../attendanceUtils";
 import { getMapsHref, isMapsLink } from "../mapsUtils";
 import {
@@ -132,46 +132,57 @@ export default function Clients() {
 
   return (
     <div>
-      <PageBanner
-        title="Client Info"
-        className="editorial-banner--compact-mobile editorial-banner--clients-compact editorial-banner--clients-toolbar"
-        tabs={[
-          { id: "active", label: "Active", count: activeCount },
-          { id: "inactive", label: "Inactive", count: items.length - activeCount },
-        ]}
-        activeTab={statusTab}
-        onTabChange={setStatusTab}
-        toolbar={(
-          <div className="client-info-banner-actions">
+      <section className="client-info-strip">
+        <div className="client-info-strip__head">
+          <h1 className="client-info-strip__title">Client Info</h1>
+          <nav className="client-info-strip__tabs" aria-label="Client status">
+            {[
+              { id: "active", label: "Active", count: activeCount },
+              { id: "inactive", label: "Inactive", count: items.length - activeCount },
+            ].map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`client-info-strip__tab${statusTab === t.id ? " is-active" : ""}`}
+                onClick={() => setStatusTab(t.id)}
+              >
+                {t.label} ({t.count})
+              </button>
+            ))}
+          </nav>
+        </div>
+        <div className="client-info-strip__tools">
+          {isAdmin && (
             <button
               type="button"
-              data-testid="all-clients-btn"
-              className="btn btn-secondary text-[11px] px-2 py-1 min-h-0 whitespace-nowrap"
-              onClick={() => setClientPickerOpen(true)}
+              data-testid="add-client-btn"
+              onClick={() => setEdit({ name: "", file_no: "", package_hours: 24, color: "#A2C4C9", main_therapist_id: "", co_therapist_ids: [], locations: [] })}
+              className="client-info-tool"
             >
-              <UsersThree size={14} weight="duotone" /> All Clients
+              <Plus size={16} weight="duotone" />
+              <span>New Child</span>
             </button>
-            <div className="relative client-info-banner-search">
-              <MagnifyingGlass size={13} className="absolute top-1/2 -translate-y-1/2 left-2" style={{ color: "#8B9E7A" }} />
-              <input
-                className="input pl-7 w-full text-[11px] min-h-0 h-8"
-                placeholder="Search…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
-            </div>
-            {isAdmin && (
-              <button
-                data-testid="add-client-btn"
-                onClick={() => setEdit({ name: "", file_no: "", package_hours: 24, color: "#A2C4C9", main_therapist_id: "", co_therapist_ids: [], locations: [] })}
-                className="btn btn-primary text-[11px] px-2.5 py-1 min-h-0 whitespace-nowrap"
-              >
-                <Plus size={14} /> New Child
-              </button>
-            )}
-          </div>
-        )}
-      />
+          )}
+          <button
+            type="button"
+            data-testid="all-clients-btn"
+            className="client-info-tool"
+            onClick={() => setClientPickerOpen(true)}
+          >
+            <UsersThree size={16} weight="duotone" />
+            <span>{selectedClient ? selectedClient.name : "All Clients"}</span>
+          </button>
+          <label className="client-info-tool client-info-tool--search">
+            <MagnifyingGlass size={15} weight="duotone" />
+            <input
+              className="client-info-tool__input"
+              placeholder="Search name or file #…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </label>
+        </div>
+      </section>
 
       <ClientInfoLayout
         clients={filtered}
@@ -527,65 +538,104 @@ function sectionsToEditableText(sections) {
   return parts.join("\n").trim();
 }
 
-function CaseSummaryView({ sections }) {
-  const allTables = (sections || []).flatMap((sec) => sec.tables || []);
+function CaseSummaryView({ sections, clientName, fileNo }) {
   if (!sections?.length) {
     return (
-      <div className="text-sm py-6 text-center rounded-xl border" style={{ color: "#8B9E7A", borderColor: "#EDE9E3", background: "#FAFAF7" }}>
+      <div className="case-summary-sheet case-summary-sheet--empty">
         No case summary yet. Use <strong>Edit summary</strong> to add clinical notes here in the portal.
       </div>
     );
   }
-  return (
-    <div className="space-y-3">
-      {allTables.length > 0 ? (
-        allTables.map((table, ti) => (
-          <div key={ti} className="overflow-x-auto rounded-lg border case-summary-excel-table" style={{ borderColor: "#B8C8A8" }}>
-            <table className="w-full text-xs border-collapse">
-              <tbody>
-                {table.map((row, ri) => (
-                  <tr key={ri} style={{ background: ri === 0 ? "#E5EBE1" : ri % 2 === 0 ? "#FAFAF7" : "#FFFFFF" }}>
-                    {row.map((cell, ci) => (
-                      <td
-                        key={ci}
-                        className="px-3 py-2 border"
-                        style={{
-                          borderColor: "#D8E0D0",
-                          fontWeight: ri === 0 || ci === 0 ? 700 : 400,
-                          whiteSpace: "pre-wrap",
-                          verticalAlign: "top",
-                        }}
-                      >
-                        {cell}
-                      </td>
-                    ))}
-                  </tr>
+
+  const renderTable = (table, key) => {
+    if (!table?.length) return null;
+    const headerRow = table[0] || [];
+    const bodyRows = table.slice(1);
+    const useHeader = headerRow.length > 1 && bodyRows.length > 0;
+    return (
+      <div key={key} className="case-summary-sheet__table-wrap">
+        <table className="case-summary-sheet__table">
+          {useHeader ? (
+            <thead>
+              <tr>
+                {headerRow.map((cell, ci) => (
+                  <th key={ci}>{cell}</th>
                 ))}
-              </tbody>
-            </table>
+              </tr>
+            </thead>
+          ) : null}
+          <tbody>
+            {(useHeader ? bodyRows : table).map((row, ri) => (
+              <tr key={ri}>
+                {row.map((cell, ci) => (
+                  <td key={ci} className={!useHeader && ci === 0 ? "case-summary-sheet__label" : ""}>
+                    {cell}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  return (
+    <div className="case-summary-sheet">
+      <div className="case-summary-sheet__masthead">
+        <div className="case-summary-sheet__brand">
+          <img src="/bg-logo.png" alt="" className="case-summary-sheet__logo" />
+          <div>
+            <div className="case-summary-sheet__brand-title">Boost Growth</div>
+            <div className="case-summary-sheet__brand-sub">Case Summary</div>
           </div>
-        ))
-      ) : (
-        sections.map((sec, i) => (
-          <div key={i} className="rounded-xl border overflow-hidden" style={{ borderColor: "#E2DDD4" }}>
-            {sec.heading && (
-              <div className="px-4 py-2 text-xs font-bold tracking-wide" style={{ background: "#EDF4E8", color: "#2C5035" }}>
-                {sec.heading}
+        </div>
+        <div className="case-summary-sheet__meta">
+          <div><span>Client</span><strong>{clientName || "—"}</strong></div>
+          <div><span>File #</span><strong>{fileNo || "—"}</strong></div>
+        </div>
+      </div>
+
+      {sections.map((sec, i) => (
+        <div key={i} className="case-summary-sheet__section">
+          {sec.heading && (
+            <div className="case-summary-sheet__section-title">{sec.heading}</div>
+          )}
+          <div className="case-summary-sheet__section-body">
+            {(sec.tables || []).map((table, ti) => renderTable(table, `${i}-${ti}`))}
+            {(sec.paragraphs?.length > 0 || sec.bullets?.length > 0) && (
+              <div className="case-summary-sheet__table-wrap">
+                <table className="case-summary-sheet__table case-summary-sheet__table--kv">
+                  <tbody>
+                    {(sec.paragraphs || []).map((p, j) => {
+                      const parts = String(p).split(/:\s*/, 2);
+                      const isKv = parts.length === 2 && parts[0].length < 48;
+                      return (
+                        <tr key={`p-${j}`}>
+                          {isKv ? (
+                            <>
+                              <td className="case-summary-sheet__label">{parts[0]}</td>
+                              <td>{parts[1]}</td>
+                            </>
+                          ) : (
+                            <td colSpan={2}>{p}</td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                    {(sec.bullets || []).map((b, j) => (
+                      <tr key={`b-${j}`}>
+                        <td className="case-summary-sheet__label">•</td>
+                        <td>{b}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
-            <div className="px-4 py-3 space-y-2 text-sm" style={{ background: "#FAFAF7", color: "#2C3625" }}>
-              {(sec.paragraphs || []).map((p, j) => (
-                <p key={j} className="leading-relaxed m-0">{p}</p>
-              ))}
-              {(sec.bullets || []).length > 0 && (
-                <ul className="list-disc pl-5 space-y-1 m-0">
-                  {sec.bullets.map((b, j) => <li key={j}>{b}</li>)}
-                </ul>
-              )}
-            </div>
           </div>
-        ))
-      )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -678,7 +728,11 @@ function CaseDetailsPanelModal({ client, therapists, user, isAdmin, onClose, onS
         summaryLoading ? (
           <div className="text-sm italic py-8 text-center" style={{ color: "#8B9E7A" }}>Loading case summary…</div>
         ) : (
-          <CaseSummaryView sections={summary.sections} />
+          <CaseSummaryView
+            sections={summary.sections}
+            clientName={client.name}
+            fileNo={client.file_no}
+          />
         )
       ) : (
         <div className="space-y-3">

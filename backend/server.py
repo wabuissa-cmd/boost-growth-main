@@ -996,9 +996,17 @@ async def publish_schedule_week(body: dict, admin=Depends(ops_or_admin)):
         {"$set": {"status": "published", "published_at": now_iso(), "published_by": admin.get("name") or "Admin"}},
         upsert=True,
     )
-    therapists = await db.therapists.find({"email": {"$exists": True, "$ne": None}}, {"_id": 0, "email": 1, "name": 1}).to_list(200)
+    wanted_ids = body.get("therapist_ids")
+    if wanted_ids is not None and not isinstance(wanted_ids, list):
+        wanted_ids = None
+    if wanted_ids is not None:
+        wanted_ids = [str(x).strip() for x in wanted_ids if str(x).strip()]
+    therapists = await db.therapists.find({"email": {"$exists": True, "$ne": None}}, {"_id": 0, "id": 1, "email": 1, "name": 1}).to_list(200)
     sent = 0
+    emailed: List[str] = []
     for t in therapists:
+        if wanted_ids is not None and t.get("id") not in wanted_ids:
+            continue
         if t.get("email"):
             r = await _send_email_stub(
                 t["email"],
@@ -1007,11 +1015,12 @@ async def publish_schedule_week(body: dict, admin=Depends(ops_or_admin)):
             )
             if r.get("status") == "sent":
                 sent += 1
+            emailed.append(t.get("email") or "")
     await _push_center_update(
         f"Schedule published — week of {week_start}",
         "Your schedule may have changed. Please review your sessions.",
     )
-    return {"ok": True, "week_start": week_start, "emails_sent": sent}
+    return {"ok": True, "week_start": week_start, "emails_sent": sent, "recipients": [e for e in emailed if e]}
 
 @api.post("/schedule/set-draft")
 async def set_schedule_draft(body: dict, _=Depends(ops_or_admin)):
@@ -1223,6 +1232,14 @@ async def _notify_ops_leads(ntype: str, title: str, message: str, **extra):
         if (_is_client_lead(stub) or _is_walaa_ops(stub)) and t["id"] not in notified:
             await _notify(t["id"], ntype, title, message, **extra)
             notified.add(t["id"])
+
+
+async def _notify_purchase_submitted(purchaser_name: str, item: str, category: str):
+    title = "New staff purchase logged"
+    message = f"{purchaser_name}: {item} ({category}) — pending review"
+    extra = {"link": "/purchases"}
+    await _notify_ops_leads("purchase_new", title, message, **extra)
+    await _notify_hr_ops("purchase_new", title, message, **extra)
 
 
 async def _notify_request_submitted(title: str, message: str):
@@ -4591,13 +4608,19 @@ PURCHASES_SHEET_URL = f"https://docs.google.com/spreadsheets/d/{PURCHASES_SHEET_
 
 def _purchase_month_from_tab(tab_name: str) -> Optional[str]:
     name = (tab_name or "").strip()
-    m = re.search(r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})", name, re.I)
+    m = re.search(
+        r"(January|February|March|April|May|June|July|August|September|October|November|December|"
+        r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s*[-_]?\s*(\d{4})?",
+        name,
+        re.I,
+    )
     if not m:
         return None
     month = _PURCHASE_MONTH_MAP.get(m.group(1).lower()[:3])
     if not month:
         return None
-    return f"{int(m.group(2))}-{month:02d}"
+    year = int(m.group(2)) if m.group(2) else datetime.now(timezone.utc).year
+    return f"{year}-{month:02d}"
 
 
 def _parse_loose_date(val) -> Optional[str]:
@@ -4632,15 +4655,17 @@ def _parse_purchase_total(val) -> tuple:
     return None, s
 
 
-def _read_purchases_xlsx(content: bytes, months: Optional[List[str]] = None) -> List[dict]:
+def _read_purchases_xlsx(content: bytes, months: Optional[List[str]] = None) -> tuple:
     import io
     import openpyxl
     wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
     records: List[dict] = []
+    tabs_used: List[str] = []
     for tab in wb.sheetnames:
         purchase_month = _purchase_month_from_tab(tab)
         if not purchase_month:
             continue
+        tabs_used.append(tab)
         if months and purchase_month not in months:
             continue
         ws = wb[tab]
@@ -4677,7 +4702,7 @@ def _read_purchases_xlsx(content: bytes, months: Optional[List[str]] = None) -> 
                 "purchase_month": purchase_month,
                 "purchase_date": reimb or f"{purchase_month}-01",
             })
-    return records
+    return records, tabs_used
 
 
 async def _upsert_purchases_from_sheet(records: List[dict]) -> dict:
@@ -4881,12 +4906,16 @@ async def import_purchases_google(body: dict = None, user=Depends(get_current_us
             detail=f"Could not download purchases sheet (HTTP {resp.status_code}).",
         )
     try:
-        records = _read_purchases_xlsx(resp.content, months=months)
+        records, tabs_used = _read_purchases_xlsx(resp.content, months=months)
     except Exception as e:
         logger.exception("Purchases Google Sheet parse failed")
         raise HTTPException(status_code=400, detail=f"Could not parse purchases sheet: {e}")
     result = await _upsert_purchases_from_sheet(records)
-    result["message"] = f"Imported {result['inserted']} purchases ({result.get('skipped', 0)} skipped — unknown purchaser)"
+    result["tabs_found"] = tabs_used
+    result["message"] = (
+        f"Imported {result['inserted']} purchases ({result.get('skipped', 0)} skipped — unknown purchaser)"
+        + (f" · tabs: {', '.join(tabs_used)}" if tabs_used else "")
+    )
     result["sheet_url"] = PURCHASES_SHEET_URL
     return result
 
@@ -4989,11 +5018,7 @@ async def create_purchase(payload: PurchaseIn, user=Depends(get_current_user)):
     }
     await db.staff_purchases.insert_one(doc)
     doc.pop("_id", None)
-    await _notify_ops_leads(
-        "purchase_new",
-        "New staff purchase logged",
-        f"{purchaser_name}: {item} ({category}) — pending review",
-    )
+    await _notify_purchase_submitted(purchaser_name, item, category)
     return doc
 
 

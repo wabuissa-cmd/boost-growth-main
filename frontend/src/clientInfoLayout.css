@@ -898,3 +898,214 @@
   .req-split { grid-template-columns: 1fr; }
   .req-modal-split { grid-template-columns: 1fr; }
 }
+
+/* Client Info — compact top strip */
+.client-info-strip {
+  border: 1px solid #DED4C0;
+  border-radius: 16px;
+  background: linear-gradient(155deg, #F7F2EA 0%, #EDE6DA 100%);
+  padding: 0.65rem 0.85rem 0.75rem;
+  margin-bottom: 0.75rem;
+  box-shadow: 0 4px 18px rgba(47, 74, 53, 0.05);
+}
+.client-info-strip__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.55rem;
+}
+.client-info-strip__title {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #2C3625;
+  letter-spacing: -0.02em;
+}
+.client-info-strip__tabs {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.client-info-strip__tab {
+  border: 1px solid rgba(74, 93, 66, 0.22);
+  background: rgba(255, 252, 247, 0.8);
+  color: #4A5D42;
+  border-radius: 999px;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.client-info-strip__tab.is-active {
+  background: #5C6B52;
+  border-color: #5C6B52;
+  color: #fff;
+}
+.client-info-strip__tools {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.5rem;
+}
+.client-info-tool {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 40px;
+  padding: 0.45rem 0.65rem;
+  border-radius: 12px;
+  border: 1px solid #D4DEC8;
+  background: #fff;
+  color: #2C3625;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.client-info-tool span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.client-info-tool--search {
+  cursor: text;
+}
+.client-info-tool__input {
+  border: none;
+  outline: none;
+  background: transparent;
+  width: 100%;
+  font-size: 0.75rem;
+  color: #2C3625;
+}
+@media (max-width: 720px) {
+  .client-info-strip__tools {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Case Summary — invoice-sheet style */
+.case-summary-sheet {
+  border: 1px solid #C4D4B8;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+  font-size: 0.8rem;
+  color: #2C3625;
+}
+.case-summary-sheet--empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: #8B9E7A;
+  background: #FAFAF7;
+}
+.case-summary-sheet__masthead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.85rem 1rem;
+  border-bottom: 2px solid #7A8A6A;
+  background: linear-gradient(180deg, #FAFAF7 0%, #F3EFE8 100%);
+}
+.case-summary-sheet__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+.case-summary-sheet__logo {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+.case-summary-sheet__brand-title {
+  font-family: var(--font-display, inherit);
+  font-size: 1rem;
+  font-weight: 700;
+  color: #2C3625;
+  line-height: 1.1;
+}
+.case-summary-sheet__brand-sub {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #7A8A6A;
+}
+.case-summary-sheet__meta {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  font-size: 0.72rem;
+}
+.case-summary-sheet__meta span {
+  display: block;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8B9E7A;
+}
+.case-summary-sheet__meta strong {
+  display: block;
+  margin-top: 0.1rem;
+  color: #2C3625;
+}
+.case-summary-sheet__section {
+  border-bottom: 1px solid #E2DDD4;
+}
+.case-summary-sheet__section:last-child {
+  border-bottom: none;
+}
+.case-summary-sheet__section-title {
+  padding: 0.45rem 0.85rem;
+  background: #EDF4E8;
+  border-bottom: 1px solid #C4D4B8;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #2C5035;
+}
+.case-summary-sheet__section-body {
+  padding: 0;
+}
+.case-summary-sheet__table-wrap {
+  overflow-x: auto;
+}
+.case-summary-sheet__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+.case-summary-sheet__table th,
+.case-summary-sheet__table td {
+  border: 1px solid #D8E0D0;
+  padding: 0.45rem 0.6rem;
+  vertical-align: top;
+  text-align: left;
+  white-space: pre-wrap;
+}
+.case-summary-sheet__table thead th {
+  background: #E5EBE1;
+  font-weight: 700;
+  color: #2C5035;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.case-summary-sheet__table tbody tr:nth-child(even) td {
+  background: #FAFAF7;
+}
+.case-summary-sheet__label {
+  width: 34%;
+  font-weight: 700;
+  background: #F3EFE8 !important;
+  color: #4A5D42;
+}
+.case-summary-sheet__table--kv td:last-child {
+  width: 66%;
+}

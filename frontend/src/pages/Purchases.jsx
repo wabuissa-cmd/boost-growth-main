@@ -152,7 +152,9 @@ export default function Purchases() {
     setSyncing(true);
     try {
       const { data } = await api.post("/import/purchases-google", { sheet_url: PURCHASES_SHEET_URL });
-      alert(data.message || `Imported ${data.inserted} rows`);
+      const tabLine = data.tabs_found?.length ? `\n\nTabs: ${data.tabs_found.join(", ")}` : "";
+      const monthLine = data.months?.length ? `\nMonths: ${data.months.join(", ")}` : "";
+      alert((data.message || `Imported ${data.inserted} rows`) + monthLine + tabLine);
       load();
     } catch (e) {
       alert(formatErr(e.response?.data?.detail) || e.message);
