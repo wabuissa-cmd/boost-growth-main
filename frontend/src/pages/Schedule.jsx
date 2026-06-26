@@ -23,6 +23,8 @@ import ScheduleHolidaysModal from "../components/ScheduleHolidaysModal";
 import ParentWhatsAppModal from "../components/ParentWhatsAppModal";
 import ParentCancellationModal from "../components/ParentCancellationModal";
 import LogSessionModal, { slotToTime24, addHoursToTime } from "../components/LogSessionModal";
+import SchedulePrepBadge from "../components/SchedulePrepBadge";
+import { buildPrepLookup, isCellPrepComplete, scheduleSlotFromCell } from "../schedulePrepUtils";
 import { buildParentMessages } from "../scheduleParentMessages";
 import { sortTherapistsForSchedule, getTherapistScheduleName, scheduleOwnBlockOnly, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
 import { cachedGet } from "../dataCache";
@@ -112,11 +114,12 @@ function cellClassName(cell, isAdmin, leaveInfo, selected, copied) {
   return parts.join(" ");
 }
 
-function cellClassNameBlock(cell, isAdmin, leaveInfo, selected, copied, canQuickLog) {
+function cellClassNameBlock(cell, isAdmin, leaveInfo, selected, copied, canQuickLog, prepDone) {
   const parts = ["cell-base"];
   if (cell) {
     parts.push("has-event");
     if (cell.state === "available" || cell.service_code === "AVAILABLE") parts.push("cell-available");
+    if (prepDone) parts.push("has-prep-badge");
   } else {
     parts.push("cell-empty");
   }
@@ -189,6 +192,7 @@ export default function Schedule() {
   const [parentCancelOpen, setParentCancelOpen] = useState(false);
   const [parentCancelFocus, setParentCancelFocus] = useState(null);
   const [pendingCancellations, setPendingCancellations] = useState([]);
+  const [prepLookup, setPrepLookup] = useState(() => new Set());
 
   useEffect(() => {
     if (!adminEditsOpen) return;
@@ -288,6 +292,16 @@ export default function Schedule() {
     alert(`Week duplicated: ${dupSource} → ${dupTarget}. Navigate to that week to view.`);
   };
 
+  const loadPreparations = useCallback(async () => {
+    if (!canQuickLog && !scheduleAdmin) return;
+    try {
+      const { data } = await api.get("/schedule/preparations", { params: { week_start: weekStartISO } });
+      setPrepLookup(buildPrepLookup(Array.isArray(data) ? data : []));
+    } catch {
+      setPrepLookup(new Set());
+    }
+  }, [weekStartISO, canQuickLog, scheduleAdmin]);
+
   const load = useCallback(async (force = false) => {
     const yr = weekStart.getFullYear();
     const [c, t, cl, lv] = await Promise.all([
@@ -304,7 +318,8 @@ export default function Schedule() {
       const st = await cachedGet("/schedule/week-status", { params: { week_start: weekStartISO }, force });
       setWeekStatus(st?.status || "published");
     } catch (_) { setWeekStatus("published"); }
-  }, [weekStartISO, weekStart]);
+    loadPreparations();
+  }, [weekStartISO, weekStart, loadPreparations]);
 
   const loadClosures = useCallback(async () => {
     try {
@@ -317,6 +332,15 @@ export default function Schedule() {
 
   useEffect(() => { loadClosures(); }, [loadClosures]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const refreshPrep = () => loadPreparations();
+    window.addEventListener("focus", refreshPrep);
+    document.addEventListener("visibilitychange", refreshPrep);
+    return () => {
+      window.removeEventListener("focus", refreshPrep);
+      document.removeEventListener("visibilitychange", refreshPrep);
+    };
+  }, [loadPreparations]);
 
   const loadPendingCancellations = useCallback(async () => {
     if (!parentCancelOps) {
@@ -696,6 +720,8 @@ export default function Schedule() {
     const dur = parseFloat(cell.duration) || 1;
     setQuickLog({
       client,
+      cell,
+      scheduleSlot: scheduleSlotFromCell(cell, therapist_id, day, weekStartISO, client.id),
       prefill: {
         session_date: sessionDate,
         start_time: start,
@@ -1108,8 +1134,12 @@ export default function Schedule() {
                   const colSpan = scheduleDisplaySpan(cell);
                   const baseStyle = getSheetCellStyle(cell, clients);
                   const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
+                  const showPrepBadge = view === "blocks"
+                    && canQuickLog
+                    && therapist.id === selfTherapist?.id
+                    && isCellPrepComplete(prepLookup, cell, therapist.id, di, weekStartISO, clients);
                   return (
-                    <td key={ts} className={cellClassNameBlock(cell, canEditRow(therapist.id), leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts), canQuickLog && therapist.id === selfTherapist?.id)}
+                    <td key={ts} className={cellClassNameBlock(cell, canEditRow(therapist.id), leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts), canQuickLog && therapist.id === selfTherapist?.id, showPrepBadge)}
                       colSpan={colSpan}
                       style={cellStyle}
                       data-testid={`cell-${therapist.id}-${di}-${ts}`}
@@ -1119,6 +1149,7 @@ export default function Schedule() {
                       onTouchMove={onCellTouchMove}
                       onTouchEnd={onCellTouchEnd}>
                       {renderCellMenuBtn(cell, therapist.id, di, ts)}
+                      {showPrepBadge && <SchedulePrepBadge />}
                       {cell && <CellContent cell={cell} sc={sc} />}
                     </td>
                   );
@@ -1652,8 +1683,10 @@ export default function Schedule() {
           therapists={therapists}
           currentUser={user}
           prefill={quickLog.prefill}
+          scheduleSlot={quickLog.scheduleSlot}
           onClose={() => setQuickLog(null)}
-          onSaved={() => { setQuickLog(null); }}
+          onSaved={() => { setQuickLog(null); loadPreparations(); }}
+          onPrepMarked={loadPreparations}
         />
       )}
 
