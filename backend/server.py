@@ -275,6 +275,19 @@ async def leave_manager(user: dict = Depends(get_current_user)) -> dict:
     raise HTTPException(status_code=403, detail="Leave management access required")
 
 
+async def manager_reports_access(user: dict = Depends(get_current_user)) -> dict:
+    """Reports dashboard — portal admin, Walaa ops, HR ops, and Jenan."""
+    if _is_portal_admin(user) or _is_walaa_ops(user) or _is_hr_ops(user) or _is_jenan(user):
+        return user
+    raise HTTPException(status_code=403, detail="Reports access required")
+
+
+async def hr_manager_access(user: dict = Depends(get_current_user)) -> dict:
+    if _is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user):
+        return user
+    raise HTTPException(status_code=403, detail="HR manager access required")
+
+
 async def import_access(user: dict = Depends(get_current_user)) -> dict:
     if _is_portal_admin(user) or _is_walaa_ops(user):
         return user
@@ -843,14 +856,14 @@ MASTER_THERAPISTS = [
     ("msRazan",    "Razan",    "ralshatery@boostgrowthsa.com",    "therapist", 17,   None),
     ("msManal",    "Manal",    "maldosery@boostgrowthsa.com",     "therapist", 7,    None),
     ("msAsma",     "Asma",     "asma@boostgrowthsa.com",          "therapist", None, None),
-    ("msHajer",    "Hajer",    "halfulaij@boostgrowthsa.com",     "therapist", 11,   None),
+    ("msHajer",    "Hajar",    "halfulaij@boostgrowthsa.com",     "therapist", 11,   None),
     ("msRahaf",    "Rahaf",    "raljuhani@boostgrowthsa.com",     "therapist", 7,    None),
     ("msShatha",   "Shatha",   "shalhammami@boostgrowthsa.com",   "therapist", 21,   "2025-04-06"),
     ("msAlhanouf", "Alhanouf", "a.alromman@boostgrowthsa.com",    "therapist", 0,    "2025-07-14"),
     ("msWaad",     "Waad",     "walhamed@boostgrowthsa.com",      "therapist", 0,    "2025-08-24"),
-    ("msBodoor",   "Bodoor",   "baalkhlifah@boostgrowthsa.com",   "therapist", 28,   "2025-10-21"),
+    ("msBodoor",   "Bodour",   "baalkhlifah@boostgrowthsa.com",   "therapist", 28,   "2025-10-21"),
     ("msFatimah",  "Fatimah",  "falkhater@boostgrowthsa.com",     "therapist", 26,   "2025-11-09"),
-    ("msShrooq",   "Shrooq",   "shalamri@boostgrowthsa.com",      "therapist", 18,   "2026-02-08"),
+    ("msShrooq",   "Shroug",   "shalamri@boostgrowthsa.com",      "therapist", 18,   "2026-02-08"),
     ("msAbeer",    "Abeer",    "a.alshareef@boostgrowthsa.com",   "therapist", 4,    None),
     ("msJenan",    "Jenan",    "jsalmuhaisin@boostgrowthsa.com",  "therapist", None, None),
 ]
@@ -865,7 +878,6 @@ MASTER_CLIENTS = [
     ("027", "Mohammed Alaqel",       "msRahaf",    ["msFahda"],                24, "msFahda", "HS",    "AlMalqa"),
     ("030", "Husam Alturaigy",       "msManal",    ["msShatha"],               24, "msFahda", "SS/HS", "Whales daycare"),
     ("034", "Aljouhrah Alduailij",   "msFahda",    [],                         24, "msFahda", "SS",    "Alnakheel Talat"),
-    ("035", "Saad Alghamdi",         "msShatha",   ["msHajer", "msFatimah"],   40, "msMaha",  "HS/SS", "Al Aqiq"),
     ("037", "Suzan Alsultan",        "msAsma",     [],                         24, "msMaha",  "SS",    "King Fahad Villa"),
     ("038", "Salman Alrasheed",      "msManal",    ["msFahda"],                24, "msMaha",  "SS/HS", "Stars of Knowledge"),
     ("040", "Abdulaziz AlAbdulwahab","msFatimah",  ["msFahda", "msHajer"],     40, "msMaha",  "HS",    "Alraed"),
@@ -877,12 +889,12 @@ MASTER_CLIENTS = [
     ("060", "Mohammed Albedayea",    "msBodoor",   ["msShatha"],               40, "msMaha",  "HS/SS", "Alyasmin"),
     ("061", "Ibrahim Alnasir",       "msRahaf",    ["msFahda"],                24, "msFahda", "HS/SS", "Alyasmin"),
     ("062", "Lulu Almutair",         "msRazan",    ["msFahda"],                24, "msFahda", "HS/SS", "Almuroj"),
-    ("063", "Amani Ghaith",          "msMaha",     [],                         24, "msMaha",  "HS",    "Alnakheel"),
     ("065", "Aser Alharbi",          "msMaha",     ["msMaha"],                 24, "msMaha",  "HS",    "Al Izdihar"),
     ("068", "Abdulrahman Alshawi",   "msRazan",    ["msFahda"],                24, "msFahda", "HS/SS", "AR Rayan"),
     ("070", "Abdulelah Almuhana",    "msAbeer",    ["msMaha"],                 40, "msMaha",  "SS",    "Manarat Riyadh"),
     ("072", "Khalid Bin Shuael",     "msShatha",   ["msFahda"],                24, "msFahda", "HS",    "AlMursalat"),
     ("079", "Fahad Suliman",         "msFahda",    ["msFahda"],                40, "msFahda", "HS",    "Al-Sahafa"),
+    ("053", "Ahmad Alshalfan",       "msHajer",    ["msFahda"],                24, "msFahda", "HS/SS", "Almalqa"),
 ]
 
 async def _resolve_therapist_id(key_to_id: dict, key: str) -> Optional[str]:
@@ -3642,6 +3654,47 @@ async def _migrate_therapist_emails() -> int:
     return updated
 
 
+THERAPIST_DISPLAY_NAMES = {
+    "msAbeer": "Ms. Abeer",
+    "msAlhanouf": "Ms. Alhanouf",
+    "msBodoor": "Ms. Bodour",
+    "msFahda": "Ms. Fahda",
+    "msFatimah": "Ms. Fatimah",
+    "msHajer": "Ms. Hajar",
+    "msJenan": "Ms. Jenan",
+    "msMaha": "Ms. Maha",
+    "msManal": "Ms. Manal",
+    "msRahaf": "Ms. Rahaf",
+    "msRazan": "Ms. Razan",
+    "msShatha": "Ms. Shatha",
+    "msShrooq": "Ms. Shroug",
+    "msWaad": "Ms. Waad",
+    "msNaja": "Ms. Najla",
+    "msAsma": "Ms. Asma",
+}
+
+
+async def _migrate_therapist_display_names() -> int:
+    """Align therapist display names with client-info spelling (e.g. Shroug, Hajar, Bodour)."""
+    updated = 0
+    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1}).to_list(500)
+    for t in therapists:
+        key = t.get("key") or ""
+        canonical = THERAPIST_DISPLAY_NAMES.get(key)
+        if not canonical or (t.get("name") or "") == canonical:
+            continue
+        await db.therapists.update_one({"id": t["id"]}, {"$set": {"name": canonical}})
+        await db.users.update_many({"therapist_id": t["id"]}, {"$set": {"name": canonical}})
+        updated += 1
+    return updated
+
+
+@api.post("/admin/migrate-therapist-display-names")
+async def admin_migrate_therapist_display_names(_=Depends(ops_or_admin)):
+    n = await _migrate_therapist_display_names()
+    return {"ok": True, "records_updated": n}
+
+
 @api.post("/admin/migrate-therapist-emails")
 async def admin_migrate_therapist_emails(_=Depends(admin_only)):
     """Manually run therapist email migration (also runs on server startup)."""
@@ -3852,10 +3905,18 @@ def _parse_invoice_header(ws, sheet_name: str = "") -> dict:
 
     flat = " | ".join(" ".join(r) for r in rows).lower()
 
-    # Open / closed status
-    if "closed" in flat:
+    # Open / closed status (Excel uses "Closed", "CLOSED", or "Close")
+    status_cell = ""
+    for row in rows[:3]:
+        for cell in row[2:4]:
+            if cell:
+                status_cell = cell.strip().lower()
+                break
+        if status_cell:
+            break
+    if status_cell.startswith("clos") or "closed" in flat:
         info["is_closed"] = True
-        m = _re_top.search(r"closed[^0-9]*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", flat)
+        m = _re_top.search(r"clos(?:ed)?[^0-9]*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", flat)
         if m:
             try:
                 info["close_date"] = _normalize_date(m.group(1))
@@ -3907,13 +3968,27 @@ def _parse_invoice_header(ws, sheet_name: str = "") -> dict:
     if info.get("service_type"):
         info["service_type"] = _normalize_service_type(info["service_type"])
 
-    # Package size — "# Paid SESH.: 24 Hours" (usually row 6)
-    m = _re_top.search(r"paid\s+sesh[^0-9]*([\d.]+)", flat)
-    if m:
-        try:
-            info["package_size"] = float(m.group(1))
-        except Exception:
-            pass
+    # SS tabs: "4 Weeks", "School Support", "school Sessions"
+    if not info.get("service_type"):
+        if _re_top.search(r"school\s+support|school\s+session", flat):
+            info["service_type"] = "SS"
+        elif _re_top.search(r"4\s*week", flat):
+            info["service_type"] = "SS"
+
+    # Package size — "# Paid SESH.: 24 Hours" or "4 Weeks"
+    m_weeks = _re_top.search(r"paid\s+sesh[^0-9]*(\d+)\s*week", flat)
+    if m_weeks:
+        info["service_type"] = info.get("service_type") or "SS"
+        info["package_size"] = 4
+    else:
+        m = _re_top.search(r"paid\s+sesh[^0-9]*([\d.]+)", flat)
+        if m:
+            try:
+                info["package_size"] = float(m.group(1))
+            except Exception:
+                pass
+    if info.get("service_type") == "SS" and (info.get("package_size") is None or info.get("package_size") > 12):
+        info["package_size"] = 4
     return info
 
 
@@ -4357,6 +4432,19 @@ async def _sessions_for_invoice_query(client_id: str, invoice_id: str) -> list:
     return merged
 
 
+async def _therapist_assigned_to_client(therapist_id: str, client_id: str) -> bool:
+    """True when therapist is main or co on the client caseload."""
+    if not therapist_id or not client_id:
+        return False
+    client = await db.clients.find_one(
+        _active_client_filter({"id": client_id}),
+        {"_id": 0, "main_therapist_id": 1, "co_therapist_ids": 1},
+    )
+    if not client:
+        return False
+    return client.get("main_therapist_id") == therapist_id or therapist_id in (client.get("co_therapist_ids") or [])
+
+
 @api.get("/sessions")
 async def list_sessions(client_id: Optional[str] = None, invoice_id: Optional[str] = None, user=Depends(get_current_user)):
     if invoice_id and client_id:
@@ -4375,7 +4463,9 @@ async def list_sessions(client_id: Optional[str] = None, invoice_id: Optional[st
         items = await db.sessions.find(q, {"_id": 0}).sort("session_date", -1).to_list(2000)
     if user.get("role") == "therapist" and not _has_full_client_access(user):
         uid = user["id"]
-        items = [s for s in items if uid in (s.get("therapist_ids") or [])]
+        # Caseload therapists see full client history for preparation review
+        if not (client_id and await _therapist_assigned_to_client(uid, client_id)):
+            items = [s for s in items if uid in (s.get("therapist_ids") or [])]
     return _sessions_with_day_names(items)
 
 def _service_code_for_new_session(client: dict, payload: SessionIn) -> str:
@@ -5188,6 +5278,94 @@ async def upload_request_attachment(
     msg = f"{user.get('name')}: {doc['title']} (report date: {report_date})"
     await _notify_request_submitted("New report attachment", msg)
     return _enrich_request_attachment(doc)
+
+
+@api.get("/hr/therapist/{tid}/profile")
+async def hr_therapist_profile(tid: str, _=Depends(hr_manager_access)):
+    """Therapist summary for manager review — requests, leave, contract, training uploads."""
+    therapist = await db.therapists.find_one(
+        {"id": tid},
+        {"_id": 0, "pin_hash": 0, "password_hash": 0},
+    )
+    if not therapist:
+        raise HTTPException(status_code=404, detail="Therapist not found")
+    therapist = await _ensure_contract_balance(therapist)
+    all_reqs = await db.requests.find({"therapist_id": tid}, {"_id": 0}).to_list(500)
+    open_statuses = {"pending", "pending_manager", "pending_hr", "in_progress"}
+    answered_statuses = {"approved", "done", "rejected"}
+    req_open = sum(1 for r in all_reqs if r.get("status") in open_statuses)
+    req_answered = sum(1 for r in all_reqs if r.get("status") in answered_statuses)
+    trainings = sorted(
+        [
+            {
+                "id": r.get("id"),
+                "title": r.get("title"),
+                "report_date": r.get("report_date"),
+                "created_at": r.get("created_at"),
+                "status": r.get("status"),
+                "attachment_file_name": r.get("attachment_file_name"),
+            }
+            for r in all_reqs
+            if r.get("request_type") == "attachment"
+        ],
+        key=lambda x: x.get("report_date") or x.get("created_at") or "",
+        reverse=True,
+    )
+    alerts: List[dict] = []
+    end = therapist.get("contract_period_end")
+    if end:
+        try:
+            end_dt = datetime.fromisoformat(str(end)[:10])
+            days_left = (end_dt.date() - datetime.now().date()).days
+            if days_left <= 60:
+                alerts.append({
+                    "type": "contract_expiry",
+                    "message": f"Contract period ends in {days_left} days ({end[:10]})",
+                    "severity": "urgent" if days_left <= 30 else "warning",
+                })
+        except Exception:
+            pass
+    bal = therapist.get("leave_balance")
+    if bal is not None and float(bal) < 5:
+        alerts.append({
+            "type": "low_leave",
+            "message": f"Leave balance low: {bal} days remaining",
+            "severity": "warning",
+        })
+    ym = datetime.now().strftime("%Y-%m")
+    sessions = await db.sessions.find(
+        {"therapist_ids": tid, "status": "Completed"},
+        {"_id": 0, "hours": 1, "session_date": 1, "therapist_ids": 1},
+    ).to_list(5000)
+    hours_month = sum(
+        float(s.get("hours") or 0)
+        for s in sessions
+        if (s.get("session_date") or "")[:7] == ym and tid in (s.get("therapist_ids") or [])
+    )
+    hours_total = sum(
+        float(s.get("hours") or 0)
+        for s in sessions
+        if tid in (s.get("therapist_ids") or [])
+    )
+    clients = await db.clients.find(_active_client_filter(), {"_id": 0, "main_therapist_id": 1, "co_therapist_ids": 1}).to_list(500)
+    assigned = sum(
+        1 for c in clients
+        if c.get("main_therapist_id") == tid or tid in (c.get("co_therapist_ids") or [])
+    )
+    return {
+        "therapist": therapist,
+        "requests": {"total": len(all_reqs), "open": req_open, "answered": req_answered},
+        "leave_balance": therapist.get("leave_balance"),
+        "annual_balance": therapist.get("annual_balance"),
+        "contract_period_start": therapist.get("contract_period_start"),
+        "contract_period_end": therapist.get("contract_period_end"),
+        "join_date": therapist.get("join_date"),
+        "trainings": trainings,
+        "alerts": alerts,
+        "hours_this_month": round(hours_month, 1),
+        "hours_total": round(hours_total, 1),
+        "assigned_clients": assigned,
+    }
 
 
 @api.get("/tracking/inbox")
@@ -7074,7 +7252,7 @@ async def seed_intake_master(replace: bool = True, _=Depends(admin_only)):
 
 # ------------------- Reports -------------------
 @api.get("/reports/dashboard")
-async def reports_dashboard(_=Depends(admin_only)):
+async def reports_dashboard(_=Depends(manager_reports_access)):
     sessions = await db.sessions.find({}, {"_id": 0}).to_list(5000)
     clients = await db.clients.find(_active_client_filter(), {"_id": 0}).to_list(500)
     therapists = await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).to_list(50)
@@ -8668,7 +8846,7 @@ THERAPIST_SEED = [
     {"name": "Ms. Alhanouf", "color": "#B89968", "email": "alhanouf@boostgrowthsa.com"},
     {"name": "Ms. Waad", "color": "#7B96B5", "email": "waad@boostgrowthsa.com"},
     {"name": "Ms. Fatimah", "color": "#6B9080", "email": "fatimah@boostgrowthsa.com"},
-    {"name": "Ms. Shrooq", "color": "#D49A60", "email": "shrooq@boostgrowthsa.com"},
+    {"name": "Ms. Shroug", "color": "#D49A60", "email": "shalamri@boostgrowthsa.com"},
     {"name": "Ms. Abeer", "color": "#8B7BA8", "email": "abeer@boostgrowthsa.com"},
     {"name": "Ms. Najla", "color": "#7BA890", "email": "najla@boostgrowthsa.com"},
     {"name": "Ms. Asma", "color": "#6A7F9B", "email": "asma@boostgrowthsa.com"},
@@ -8688,7 +8866,7 @@ CLIENT_SEED = [
     {"file_no":"038","name":"Salman Alrasheed","main":"Ms. Manal","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Maha","color":"#F4CCCC","locs":[{"service":"SS","address":"Summer Camp - Stars of Knowledge School"},{"service":"HS","address":"Alnada - Building #26, 3rd floor, apartment #23"}]},
     {"file_no":"040","name":"Abdulaziz AlAbdulwahab","main":"Ms. Fatimah","co":["Ms. Fahda","Ms. Hajer"],"pkg":24,"sup":"Ms. Maha","color":"#6FA8DC","locs":[{"service":"HS","address":"Alraed - house no 8188"}]},
     {"file_no":"041","name":"Ameerah Alshehri","main":"Ms. Fahda","co":["Ms. Fatimah"],"pkg":24,"sup":"Ms. Maha","color":"#EA9999","locs":[{"service":"HS","address":"Roshen - Villa 277"}]},
-    {"file_no":"042","name":"Sultan Aldamer","main":"Ms. Shrooq","co":["Ms. Rahaf"],"pkg":24,"sup":"Ms. Maha","color":"#FFE599","locs":[{"service":"SS","address":"Bright Mind School"},{"service":"HS","address":"Alhada - No house number"}]},
+    {"file_no":"042","name":"Sultan Aldamer","main":"Ms. Shroug","co":["Ms. Rahaf"],"pkg":24,"sup":"Ms. Maha","color":"#FFE599","locs":[{"service":"SS","address":"Bright Mind School"},{"service":"HS","address":"Alhada - No house number"}]},
     {"file_no":"047","name":"Alwaleed Alotaibi","main":"Ms. Hajer","co":["Ms. Alhanouf"],"pkg":24,"sup":"Ms. Maha","color":"#B4A7D6","locs":[{"service":"HS","address":"Alqairawan - house no 10"},{"service":"SS","address":"Al Motaqdimah Schools"}]},
     {"file_no":"052","name":"Sulaiman Alkhurashi","main":"Ms. Rahaf","co":["Ms. Maha"],"pkg":24,"sup":"Ms. Maha","color":"#F9CB9C","locs":[{"service":"HS","address":"Alsulaimanyah - house no 24"}]},
     {"file_no":"054","name":"Omar Alkhurashi","main":"Ms. Manal","co":["Ms. Maha"],"pkg":24,"sup":"Ms. Maha","color":"#D0E0E3","locs":[{"service":"HS","address":"Alsulaimanyah - house no 24"}]},
@@ -8929,6 +9107,13 @@ async def _run_startup():
                 logger.info(f"Therapist email migration: updated {n} record(s)")
         except Exception as e:
             logger.warning(f"Therapist email migration skipped: {e}")
+
+        try:
+            n = await _migrate_therapist_display_names()
+            if n:
+                logger.info(f"Therapist display-name migration: updated {n} record(s)")
+        except Exception as e:
+            logger.warning(f"Therapist display-name migration skipped: {e}")
 
         try:
             pay = await _migrate_mark_all_payments_complete()

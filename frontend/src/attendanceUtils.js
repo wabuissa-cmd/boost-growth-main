@@ -1,4 +1,4 @@
-/** Attendance / invoice billing helpers — home (hours) vs school (4-week cycle). */
+import { formatLocationLabel, isMapsLink } from "./mapsUtils";
 
 export const WEEK_ROW_BG = ["#FFFFFF", "#FAF8F3", "#F5F0E6", "#EDE1C9"];
 
@@ -868,8 +868,9 @@ export function enrichClientForCardView(client, packageRows) {
     };
   }
 
-  const locEntry = client.locations?.[0];
+  const locEntry = client.locations?.find(l => l.service === "HS") || client.locations?.[0];
   const profileServices = getClientProfileServices(client);
+  const rawLocation = locEntry?.address || client.address || "";
   return {
     ...base,
     cardStatus,
@@ -880,7 +881,8 @@ export function enrichClientForCardView(client, packageRows) {
     hsProgress,
     hasSs: profileServices.includes("SS") && Boolean(ssRow?.status && ssRow.status !== "none"),
     hasHs: profileServices.includes("HS") && Boolean(hsRow?.status && hsRow.status !== "none"),
-    location: locEntry?.address || client.address || "",
+    location: formatLocationLabel(rawLocation) || rawLocation,
+    locationHref: isMapsLink(rawLocation) ? rawLocation : null,
     locationService: locEntry?.service || "",
     initials: clientInitials(client.name),
     ssAlert: ssWeekAlertText(ssRow),

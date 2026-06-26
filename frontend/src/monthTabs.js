@@ -21,3 +21,12 @@ export function yearMonthTabs(year = new Date().getFullYear()) {
 export function monthKeyFromDate(iso) {
   return (iso || "").slice(0, 7);
 }
+
+/** "2026-05" → "May 2026" */
+export function formatMonthValue(value) {
+  if (!value) return "—";
+  const [y, m] = String(value).split("-");
+  const tab = YEAR_MONTH_TABS.find((t) => t.key === m);
+  if (tab && y) return `${tab.label} ${y}`;
+  return value;
+}

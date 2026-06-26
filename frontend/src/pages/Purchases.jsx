@@ -9,7 +9,7 @@ import {
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
 import { getTherapistScheduleName } from "../scheduleConstants";
-import { yearMonthTabs } from "../monthTabs";
+import { yearMonthTabs, formatMonthValue } from "../monthTabs";
 import { canAccessPurchases, canManagePurchaseStatus, isJenan, isWalaaOps, showAdminNav, useAuth } from "../auth";
 import "../clientInfoLayout.css";
 
@@ -47,7 +47,7 @@ function emptyPurchaseForm() {
   };
 }
 
-export default function Purchases() {
+export default function Purchases({ embedded = false }) {
   const { user } = useAuth();
   const canManageStatus = canManagePurchaseStatus(user);
   const canSyncSheet = isJenan(user) || isWalaaOps(user) || showAdminNav(user);
@@ -210,6 +210,7 @@ export default function Purchases() {
 
   return (
     <div className="page-enter">
+      {!embedded && (
       <PageBanner
         title="Purchases"
         subtitle="Staff reimbursements · Jan – Jul"
@@ -230,6 +231,7 @@ export default function Purchases() {
           </div>
         )}
       />
+      )}
 
       <div className="card overflow-hidden mb-4">
         <div className="px-3 py-2 border-b text-[10px] font-bold tracking-wider" style={{ borderColor: "#E2DDD4", background: "#FAFAF7", color: "#5C6853" }}>
@@ -277,6 +279,7 @@ export default function Purchases() {
                 <th>QTY</th>
                 <th>Unit</th>
                 <th>Total</th>
+                <th>Month</th>
                 <th>Status</th>
                 <th>Reimb. date</th>
                 <th>Actions</th>
@@ -284,7 +287,7 @@ export default function Purchases() {
             </thead>
             <tbody>
               {items.length === 0 && (
-                <tr><td colSpan={10} className="text-center py-8" style={{ color: "#8B9E7A" }}>No purchases found</td></tr>
+                <tr><td colSpan={11} className="text-center py-8" style={{ color: "#8B9E7A" }}>No purchases found</td></tr>
               )}
               {items.map((p, i) => {
                 const st = STATUS_META[p.status] || STATUS_META.pending;
@@ -302,6 +305,14 @@ export default function Purchases() {
                     <td>{p.qty || "—"}</td>
                     <td>{p.unit_price || "—"}</td>
                     <td>{fmtMoney(p)}</td>
+                    <td className="text-xs whitespace-nowrap" title={p.purchase_month || ""}>
+                      {formatMonthValue(p.purchase_month)}
+                      {filterMonth && p.purchase_month && p.purchase_month !== filterMonth && (
+                        <span className="block text-[9px] font-semibold mt-0.5" style={{ color: "#C97B5C" }}>
+                          ≠ selected tab
+                        </span>
+                      )}
+                    </td>
                     <td><span className={`pill text-[10px] ${st.cls}`}>{st.icon} {st.label}</span></td>
                     <td>{fmtDate(p.reimbursement_date)}</td>
                     <td>
@@ -326,6 +337,7 @@ export default function Purchases() {
         )}
       </div>
 
+      {!embedded && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="card p-4 lg:col-span-1">
           <div className="text-xs font-bold tracking-wider mb-2" style={{ color: "#8B9E7A" }}>SUMMARY</div>
@@ -390,6 +402,7 @@ export default function Purchases() {
           </div>
         </div>
       </div>
+      )}
 
       {addOpen && (
         <ModalBase

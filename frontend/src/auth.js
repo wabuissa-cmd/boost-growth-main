@@ -147,6 +147,13 @@ export function canManagePurchaseStatus(user) {
   return isJenan(user);
 }
 
+/** Reports & analytics — portal admin, Walaa ops, HR ops, Jenan */
+export function canViewReports(user) {
+  if (!user) return false;
+  if (user.can_view_reports) return true;
+  return showSystemAdmin(user) || isHrOps(user) || isJenan(user);
+}
+
 /** Purchases page — Jenan, Walaa, Maha, Fahda + HR + portal admin */
 export function canAccessPurchases(user) {
   return hasOpsAccess(user) || isClientLead(user);

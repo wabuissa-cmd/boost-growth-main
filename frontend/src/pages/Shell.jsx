@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, Suspense, useMemo } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData, isWalaaOps, showMyPortalNav } from "../auth";
+import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData, isWalaaOps, showMyPortalNav, isJenan, canViewReports } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch, cachedGet } from "../dataCache";
 import { getPortalDisplayName } from "../scheduleConstants";
@@ -68,6 +68,7 @@ export default function Shell() {
   const staffRequestsAccess = canEditStaffRequests(user);
   const leaveManager = canManageLeaves(user);
   const hrLeaveReview = canHrReviewLeaves(user);
+  const jenanManager = isJenan(user);
   const intakeAccess = canEditIntake(user);
   const showMyPortal = showMyPortalNav(user);
   const showBilling = hasOpsAccess(user);
@@ -125,8 +126,11 @@ export default function Shell() {
 
   // HR — staff requests & leave tools (single page with tabs)
   const requestsItems = [];
+  if (jenanManager) {
+    requestsItems.push({ to: "/manager", label: "Manager Hub", testid: "nav-manager-hub" });
+  }
   if (staffRequestsAccess || leaveManager || hrLeaveReview) {
-    requestsItems.push({ to: "/staff-leave", label: "Staff & Leave", testid: "nav-staff-leave" });
+    requestsItems.push({ to: "/staff-leave", label: jenanManager ? "Staff & Leave (legacy)" : "Staff & Leave", testid: "nav-staff-leave" });
   }
 
   const financeItems = [];
@@ -139,9 +143,13 @@ export default function Shell() {
     ...(canImportData(user)
       ? [{ to: "/import", label: "Import", testid: "nav-import", icon: <UploadSimple size={17} weight="duotone"/> }]
       : []),
-    ...(showSystemAdmin(user)
+    ...(showSystemAdmin(user) || canViewReports(user)
       ? [
           { to: "/reports", label: "Reports", testid: "nav-reports", icon: <ChartBar size={17} weight="duotone"/> },
+        ]
+      : []),
+    ...(showSystemAdmin(user)
+      ? [
           { to: "/admin", label: "Admin", testid: "nav-admin", icon: <Gear size={17} weight="duotone"/> },
         ]
       : []),

@@ -617,7 +617,7 @@ function LeaveRowAttachButton({ leave, onRefresh }) {
   );
 }
 
-export default function LeaveRequests({ personal = false, embedded = false }) {
+export default function LeaveRequests({ personal = false, embedded = false, grievanceTypes = null }) {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const therapistFilter = personal ? user?.id : (searchParams.get("therapist") || null);
@@ -703,8 +703,11 @@ export default function LeaveRequests({ personal = false, embedded = false }) {
     } else if (hrReview && !portalAdmin && !leaveManager && !therapistFilter) {
       list = list.filter(l => l.status === "pending_hr");
     }
+    if (grievanceTypes?.length) {
+      list = list.filter(l => grievanceTypes.includes(l.leave_type));
+    }
     return list.sort((a, b) => String(b.start_date).localeCompare(String(a.start_date)));
-  }, [reviewerView, activeLeaves, leaves, therapistFilter, isManager, hrReview, portalAdmin, leaveManager]);
+  }, [reviewerView, activeLeaves, leaves, therapistFilter, isManager, hrReview, portalAdmin, leaveManager, grievanceTypes]);
 
   const filteredTherapist = therapistFilter ? therapists.find(t => t.id === therapistFilter) : null;
   const therapistProfileView = Boolean(therapistFilter && reviewerView);
@@ -724,14 +727,16 @@ export default function LeaveRequests({ personal = false, embedded = false }) {
             <select className="select text-[11px] max-w-[80px] min-h-0 h-7 py-0" value={year} onChange={e => setYear(parseInt(e.target.value, 10))}>
               {[currentYear, currentYear - 1, currentYear - 2].map(y => <option key={y} value={y}>{y}</option>)}
             </select>
-            {leaveManager && (
+            {leaveManager && !grievanceTypes && (
               <button type="button" onClick={() => setShowMarkAbsence(true)} className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0">
                 <UserMinus size={13} /> Mark Absence
               </button>
             )}
+            {!grievanceTypes && (
             <button data-testid="add-leave-btn" onClick={() => setEdit(emptyLeave(leaveManager || portalAdmin ? "" : user?.id))} className="btn btn-primary text-[11px] px-2.5 py-1 min-h-0">
               <Plus size={13} /> {reviewerView && (leaveManager || portalAdmin) ? "New Request" : "Request Leave"}
             </button>
+            )}
           </>
         )}
       />

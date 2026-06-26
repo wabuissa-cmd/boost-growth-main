@@ -3,6 +3,7 @@ import { ClipboardText, CheckCircle, Clock, Warning } from "@phosphor-icons/reac
 import { getChildColor, readable } from "../childColors";
 import { prepTrackMeta, cardStatusMeta } from "../attendanceUtils";
 import { getTherapistScheduleName } from "../scheduleConstants";
+import { getMapsHref, isMapsLink } from "../mapsUtils";
 import SsWeekStatusRow from "./SsWeekStatusRow";
 import "../preparationLayout.css";
 
@@ -117,7 +118,13 @@ export default function PreparationPrepLayout({
                   <div className="prep-client-name">{c.name}</div>
                   <div className="prep-client-meta">
                     File #{c.file_no}
-                    {c.location ? ` · ${c.location}` : ""}
+                    {c.location ? (
+                      isMapsLink(c.locationHref || c.location) ? (
+                        <> · <a href={getMapsHref(c.locationHref || c.location)} target="_blank" rel="noreferrer" className="underline" onClick={e => e.stopPropagation()}>{c.location}</a></>
+                      ) : (
+                        <> · {c.location}</>
+                      )
+                    ) : null}
                   </div>
                 </div>
                 <span className="prep-pill">{svc} · {t.pct}%</span>

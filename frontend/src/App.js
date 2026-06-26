@@ -1,6 +1,6 @@
 import { Component, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth, isClientLead, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, hasFullClientAccess, showSystemAdmin, canImportData } from "./auth";
+import { AuthProvider, useAuth, isJenan, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, hasFullClientAccess, showSystemAdmin, canImportData, canViewReports } from "./auth";
 import Login from "./pages/Login";
 import Shell from "./pages/Shell";
 import "./App.css";
@@ -24,6 +24,7 @@ const LeaveRequests = lazy(() => import("./pages/LeaveRequests"));
 const StaffLeave = lazy(() => import("./pages/StaffLeave"));
 const Billing = lazy(() => import("./pages/Billing"));
 const TherapistMyReports = lazy(() => import("./pages/TherapistMyReports"));
+const ManagerHub = lazy(() => import("./pages/ManagerHub"));
 const Purchases = lazy(() => import("./pages/Purchases"));
 const DesignPreview = lazy(() => import("./pages/DesignPreview"));
 
@@ -99,6 +100,22 @@ function PurchasesAccess({ children }) {
   return children;
 }
 
+function ReportsAccess({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <Loading/>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!canViewReports(user)) return <Navigate to="/home" replace />;
+  return children;
+}
+
+function ManagerHubAccess({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <Loading/>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!isJenan(user)) return <Navigate to="/home" replace />;
+  return children;
+}
+
 function ImportAccess({ children }) {
   const { user } = useAuth();
   if (user === null) return <Loading/>;
@@ -134,7 +151,8 @@ function AppRoutes() {
         <Route path="/requests" element={<Navigate to="/staff-leave?tab=staff" replace/>}/>
         <Route path="/directory" element={<Directory/>}/>
         <Route path="/resources" element={<Resources/>}/>
-        <Route path="/reports" element={<AdminOnly><Reports/></AdminOnly>}/>
+        <Route path="/manager" element={<ManagerHubAccess><ManagerHub/></ManagerHubAccess>}/>
+        <Route path="/reports" element={<ReportsAccess><Reports/></ReportsAccess>}/>
         <Route path="/import" element={<ImportAccess><ImportPage/></ImportAccess>}/>
         <Route path="/admin" element={<SystemAdminOnly><Admin/></SystemAdminOnly>}/>
         <Route path="/leave-balance" element={<Navigate to="/staff-leave?tab=balance" replace/>}/>

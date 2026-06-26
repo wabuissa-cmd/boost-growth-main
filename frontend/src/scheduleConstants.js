@@ -38,10 +38,21 @@ export function therapistFamilyName(key) {
   return null;
 }
 
+/** First-name spelling overrides (client info source of truth). */
+const THERAPIST_FIRST_NAME_OVERRIDES = {
+  shrooq: "Shroug",
+  shroug: "Shroug",
+  bodoor: "Bodour",
+  hajer: "Hajar",
+};
+
 export function getTherapistScheduleName(t) {
   if (!t) return "";
-  const first = (t.name || "").replace(/^Ms\.?\s*/i, "").trim();
+  let first = (t.name || "").replace(/^Ms\.?\s*/i, "").trim();
   const firstLower = first.toLowerCase();
+  if (THERAPIST_FIRST_NAME_OVERRIDES[firstLower]) {
+    first = THERAPIST_FIRST_NAME_OVERRIDES[firstLower];
+  }
   if (firstLower === "najla") return "Najla Alhamad";
   const family = therapistFamilyName(t.key);
   if (family) return `${first} ${family}`;

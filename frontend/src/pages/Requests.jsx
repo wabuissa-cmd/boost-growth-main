@@ -80,13 +80,14 @@ function emptyLeaveForm() {
   return { therapist_id: "", start_date: today, end_date: today, days: 1, leave_type: "Annual", notes: "" };
 }
 
-export default function Requests({ personal = false, embedded = false }) {
+export default function Requests({ personal = false, embedded = false, managerView = false }) {
   const { user } = useAuth();
   const canManageReq = !personal && canEditStaffRequests(user);
   const leaveHr = !personal && canManageLeaves(user);
   const hrReview = !personal && canHrReviewLeaves(user);
   const isPortalAdminUser = !personal && showAdminNav(user);
   const isManager = !personal && isJenan(user) && !isPortalAdminUser;
+  const staffLabel = managerView ? "Therapists' Requests" : "Staff Requests";
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState("all");
   const [edit, setEdit] = useState(null);
@@ -244,7 +245,7 @@ export default function Requests({ personal = false, embedded = false }) {
           </div>
 
           <div className="req-panel-head">
-            <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Staff Requests</h2>
+            <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>{staffLabel}</h2>
             <p className="text-xs mt-1 mb-2" style={{ color: "#8B9E7A" }}>Supplies · schedule changes · rewards · general</p>
             <div className="flex gap-1.5 flex-wrap">
               <button onClick={() => setFilter("all")} className={`pill text-[10px] ${filter==="all" ? "bg-[#7A8A6A] text-white" : "bg-[#F0E9D8]"}`}>All ({items.length})</button>

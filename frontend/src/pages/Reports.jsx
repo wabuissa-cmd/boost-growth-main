@@ -6,7 +6,7 @@ import CreativeSection from "../components/CreativeSection";
 import { DonutChart, BarChart } from "../components/SimpleChart";
 import "../dashboardLayout.css";
 
-export default function Reports() {
+export default function Reports({ embedded = false }) {
   const [data, setData] = useState(null);
   useEffect(() => {
     api.get("/reports/dashboard").then(({ data: d }) => setData(d)).catch(() => {});
@@ -53,6 +53,7 @@ export default function Reports() {
 
   return (
     <div className="page-enter">
+      {!embedded && (
       <header className="reports-hero">
         <div className="reports-hero-inner">
           <div className="flex items-center gap-2 text-xs font-bold tracking-widest uppercase opacity-70 mb-1">
@@ -62,6 +63,7 @@ export default function Reports() {
           <p className="reports-hero-sub">Real-time overview of your center&apos;s performance and package health</p>
         </div>
       </header>
+      )}
 
       <div className="reports-stat-grid stagger">
         {tiles.map(x => (

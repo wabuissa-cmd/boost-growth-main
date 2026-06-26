@@ -8,7 +8,7 @@ import ClientInfoLayout from "../components/ClientInfoLayout";
 import ClientPickerSheet from "../components/ClientPickerSheet";
 import "../clientInfoLayout.css";
 import { enrichClientForCardView } from "../attendanceUtils";
-import { getMapsHref, isMapsLink } from "../mapsUtils";
+import { getMapsHref, isMapsLink, formatLocationLabel } from "../mapsUtils";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -393,8 +393,10 @@ function LocationPanelModal({ client, onClose }) {
             <div key={i} className="p-3 rounded-xl border flex items-start gap-3" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
               <span className="pill text-[10px] py-0.5 px-2 shrink-0" style={{ background: l.service === "SS" ? "#E5EBE1" : "#EAF0F3", color: l.service === "SS" ? "#3D4F35" : "#375568" }}>{l.service}</span>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium" style={{ color: "#2C3625" }}>{l.address || "—"}</div>
-                {l.address && (
+                <div className="text-sm font-medium" style={{ color: "#2C3625" }}>
+                  {isMapsLink(l.address) ? formatLocationLabel(l.address) : (l.address || "—")}
+                </div>
+                {l.address && isMapsLink(l.address) && (
                   <a href={getMapsHref(l.address)}
                     target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs mt-2 underline" style={{ color: "#5C8A47" }}>
                     <MapPin size={12} /> Open in Maps ↗
