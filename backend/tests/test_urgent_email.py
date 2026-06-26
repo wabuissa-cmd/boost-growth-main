@@ -60,6 +60,33 @@ class TestUrgentRequestEmail:
         assert "[عاجل]" in match["subject"] and "[Urgent]" in match["subject"]
         assert match.get("status") in ("queued_no_key", "sent", "queued", "failed")
 
+    def test_new_request_queues_urgent_email_to_hr(self, admin_headers, therapist_headers):
+        title = f"TEST HR submit {uuid.uuid4().hex[:8]}"
+        r = requests.post(
+            f"{API}/requests",
+            json={
+                "title": title,
+                "description": "HR should get urgent email on therapist submit",
+                "request_type": "general",
+                "priority": "normal",
+            },
+            headers=therapist_headers,
+        )
+        assert r.status_code == 200, r.text
+        rq = requests.get(f"{API}/admin/email-queue", headers=admin_headers)
+        assert rq.status_code == 200
+        hr_match = next(
+            (
+                i
+                for i in rq.json()
+                if (i.get("to") or "").lower() == HR_EMAIL
+                and (title in (i.get("subject") or "") or title in (i.get("body") or ""))
+            ),
+            None,
+        )
+        assert hr_match is not None, f"No HR urgent email in queue on submit for {title}"
+        assert "[عاجل]" in hr_match["subject"] and "[Urgent]" in hr_match["subject"]
+
     def test_forward_to_hr_queues_urgent_email(self, admin_headers, therapist_headers):
         title = f"TEST HR forward {uuid.uuid4().hex[:8]}"
         cr = requests.post(

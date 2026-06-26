@@ -581,16 +581,38 @@ export default function Admin() {
             </div>
           )}
           {emailQueue.length > 0 && (
-            <details className="mt-3 text-xs">
-              <summary className="cursor-pointer font-bold" style={{ color: "#8B9E7A" }}>Recent activity ({emailQueue.length})</summary>
-              <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
-                {emailQueue.slice(0, 8).map(q => (
-                  <div key={q.id} className="flex gap-2">
-                    <span className="pill text-[10px] px-1">{q.status}</span>
-                    <span className="truncate">{q.to} — {q.subject}</span>
-                  </div>
-                ))}
+            <details className="mt-3 text-xs" open>
+              <summary className="cursor-pointer font-bold" style={{ color: "#8B9E7A" }}>
+                Email delivery log ({emailQueue.length})
+              </summary>
+              <div className="mt-2 space-y-1.5 max-h-64 overflow-y-auto">
+                {emailQueue.slice(0, 50).map(q => {
+                  const ok = q.status === "sent";
+                  const pending = q.status === "queued" || q.status === "queued_no_key";
+                  const stBg = ok ? "#E5EBE1" : pending ? "#F5EBE3" : "#FCE0E8";
+                  const stColor = ok ? "#3D4F35" : pending ? "#6B5218" : "#8B3A55";
+                  return (
+                    <div key={q.id} className="flex flex-wrap items-center gap-2 py-1 border-b last:border-b-0" style={{ borderColor: "#EDE9E3" }}>
+                      <span className="pill text-[10px] px-1.5 font-bold shrink-0" style={{ background: stBg, color: stColor }}>
+                        {q.status}
+                      </span>
+                      <span className="truncate flex-1 min-w-0" title={`${q.to} — ${q.subject}`}>
+                        <strong>{q.to}</strong> — {q.subject}
+                      </span>
+                      {q.created_at && (
+                        <span className="text-[10px] shrink-0" style={{ color: "#8B9E7A" }}>
+                          {String(q.created_at).slice(0, 16).replace("T", " ")}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
+              {emailQueue.length > 50 && (
+                <p className="text-[10px] mt-2 m-0" style={{ color: "#8B9E7A" }}>
+                  Showing latest 50 of {emailQueue.length} — full history in database backup.
+                </p>
+              )}
             </details>
           )}
         </div>

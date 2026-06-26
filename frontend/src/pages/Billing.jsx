@@ -11,6 +11,7 @@ import { ModalBase, FormSection, FormField, ModalBtnPrimary, ModalBtnSecondary }
 import { formatMoney, paymentStatusLabel, paymentStatusStyle } from "../billingUtils";
 import { formatServiceTypeDisplay } from "../attendanceUtils";
 import { formatPkgBadge, formatPkgUsedRemaining } from "../packageStatusUtils";
+import { yearMonthTabs, formatMonthValue, monthKeyFromDate } from "../monthTabs";
 import {
   Receipt, CheckCircle, EnvelopeSimple, ClipboardText, Warning,
 } from "@phosphor-icons/react";
@@ -186,6 +187,11 @@ export default function Billing() {
   const [selectedInvoiceId, setSelectedInvoiceId] = useState(null);
   const [editRow, setEditRow] = useState(null);
   const [sending, setSending] = useState(false);
+  const [filterMonth, setFilterMonth] = useState(() => {
+    const tabs = yearMonthTabs();
+    const now = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+    return tabs.some((m) => m.value === now) ? now : tabs[0]?.value || "";
+  });
 
   const loadSupport = useCallback(() => {
     cachedGet("/clients", { force: true }).then(c => setClients(Array.isArray(c) ? c : [])).catch(() => {});
@@ -223,6 +229,8 @@ export default function Billing() {
     return m;
   }, [clients]);
 
+  const monthTabs = useMemo(() => yearMonthTabs(), []);
+
   const allRows = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     return invoices
@@ -235,14 +243,19 @@ export default function Billing() {
       .sort((a, b) => (b.start_date || "").localeCompare(a.start_date || "") || (a.client_name || "").localeCompare(b.client_name || ""));
   }, [invoices, clientMap]);
 
+  const monthRows = useMemo(() => {
+    if (!filterMonth) return allRows;
+    return allRows.filter((r) => monthKeyFromDate(r.start_date) === filterMonth);
+  }, [allRows, filterMonth]);
+
   const selectedClient = useMemo(
     () => clients.find(c => c.id === selectedClientId) || null,
     [clients, selectedClientId]
   );
 
   const clientInvoices = useMemo(
-    () => allRows.filter(r => r.client_id === selectedClientId),
-    [allRows, selectedClientId]
+    () => monthRows.filter(r => r.client_id === selectedClientId),
+    [monthRows, selectedClientId]
   );
 
   const clientPkg = useMemo(
@@ -252,8 +265,12 @@ export default function Billing() {
 
   const attentionItems = useMemo(() => {
     const items = data?.items || [];
-    return items.filter(r => r.payment_status === "pending" || r.payment_status === "partial");
-  }, [data]);
+    return items.filter((r) => {
+      if (r.payment_status !== "pending" && r.payment_status !== "partial") return false;
+      if (!filterMonth) return true;
+      return monthKeyFromDate(r.start_date) === filterMonth;
+    });
+  }, [data, filterMonth]);
 
   const summary = data?.summary || { unpaid: 0, partial: 0, reminders_soon: 0 };
 
@@ -381,6 +398,37 @@ export default function Billing() {
 
       <div className="mb-4">
         <BillingProgressStrip summary={summary} items={data.items || []} />
+      </div>
+
+      <div className="card overflow-hidden mb-4">
+        <div className="px-3 py-2 border-b text-[10px] font-bold tracking-wider" style={{ borderColor: "#E2DDD4", background: "#FAFAF7", color: "#5C6853" }}>
+          CALENDAR MONTHS · JAN – JUL {new Date().getFullYear()}
+        </div>
+        <div className="flex gap-0 overflow-x-auto border-b" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+          {monthTabs.map((m) => {
+            const active = filterMonth === m.value;
+            const count = allRows.filter((r) => monthKeyFromDate(r.start_date) === m.value).length;
+            return (
+              <button
+                key={m.value}
+                type="button"
+                onClick={() => setFilterMonth(m.value)}
+                className={`shrink-0 px-4 py-3 text-xs font-bold border-b-2 transition min-h-[48px] min-w-[5.5rem] ${
+                  active ? "border-[#7A8A6A] text-[#2C3625] bg-white" : "border-transparent text-[#8B9E7A] hover:text-[#5C6853]"
+                }`}
+              >
+                <span className="block text-[11px] leading-tight">{m.label}</span>
+                <span className="block text-[9px] font-semibold opacity-70 mt-0.5">{m.short}</span>
+                {count > 0 && <span className="block text-[9px] mt-0.5 opacity-80">({count})</span>}
+              </button>
+            );
+          })}
+        </div>
+        {filterMonth && (
+          <div className="px-3 py-2 text-[11px]" style={{ color: "#8B9E7A", background: "#FAFAF7" }}>
+            Showing invoices with start date in <strong style={{ color: "#5C6853" }}>{formatMonthValue(filterMonth)}</strong>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">

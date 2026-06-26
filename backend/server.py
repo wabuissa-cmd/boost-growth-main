@@ -897,6 +897,7 @@ MASTER_CLIENTS = [
     ("072", "Khalid Bin Shuael",     "msShatha",   ["msFahda"],                24, "msFahda", "HS",    "AlMursalat"),
     ("079", "Fahad Suliman",         "msFahda",    ["msFahda"],                40, "msFahda", "HS",    "Al-Sahafa"),
     ("053", "Ahmad Alshalfan",       "msHajer",    ["msFahda"],                24, "msFahda", "HS/SS", "Almalqa"),
+    ("080", "Faisal Alzughaibi",     "msFatimah",  [],                         24, "msFahda", "HS",    "Alyasmeen"),
 ]
 
 async def _resolve_therapist_id(key_to_id: dict, key: str) -> Optional[str]:
@@ -1311,7 +1312,7 @@ async def _email_hr_ops_urgent(subject: str, body: str) -> List[dict]:
 
 
 async def _notify_request_submitted(title: str, message: str, *, email_subject: Optional[str] = None):
-    """Jenan (manager) gets in-app + urgent email; HR gets in-app only until manager forwards."""
+    """Jenan and HR both get in-app + urgent email when a therapist submits a request."""
     jenan_id = await _jenan_therapist_id()
     if jenan_id:
         await _notify(jenan_id, "request_new", title, message)
@@ -1321,7 +1322,9 @@ async def _notify_request_submitted(title: str, message: str, *, email_subject: 
     if portal:
         body += f"\nReview in portal: {portal}/requests\n"
     body += "\n— Boost Growth Portal"
-    await _send_urgent_email(await _jenan_recipient_email(), email_subject or title, body)
+    subj = email_subject or title
+    await _send_urgent_email(await _jenan_recipient_email(), subj, body)
+    await _email_hr_ops_urgent(subj, body)
 
 
 async def _walaa_notify_user_ids() -> List[str]:
