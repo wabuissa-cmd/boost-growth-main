@@ -61,6 +61,7 @@ export default function Shell() {
   });
   const [therapists, setTherapists] = useState([]);
   const loc = useLocation();
+  const navigate = useNavigate();
   const portalAdmin = showAdminNav(user);
   const hrOps = isHrOps(user);
   const walaaOps = isWalaaOps(user);
@@ -201,6 +202,16 @@ export default function Shell() {
   const acknowledge = async (nid) => {
     await api.post(`/notifications/${nid}/acknowledge`);
     loadNotifs();
+  };
+  const openNotification = (n) => {
+    setShowNotif(false);
+    if (n.type === "leave_request" || n.type === "request_new") {
+      navigate("/manager?tab=staff");
+      return;
+    }
+    if (n.type === "parent_cancel_pending") {
+      navigate("/schedule?parentCancel=1");
+    }
   };
 
   return (
@@ -367,7 +378,12 @@ export default function Shell() {
                   <div className="max-h-[28rem] overflow-y-auto">
                     {notifs.length === 0 && <div className="p-8 text-center text-sm" style={{color: "#8B9E7A"}}>No notifications yet</div>}
                     {notifs.map(n => (
-                      <div key={n.id} className={`p-3 border-b border-[#F0EDE9] text-sm transition ${!n.read ? "bg-[#E5EBE1]/40" : ""}`}>
+                      <button
+                        key={n.id}
+                        type="button"
+                        onClick={() => openNotification(n)}
+                        className={`w-full text-left p-3 border-b border-[#F0EDE9] text-sm transition hover:bg-[#F7F3EB] ${!n.read ? "bg-[#E5EBE1]/40" : ""}`}
+                      >
                         <div className="font-bold" style={{color: "#2C3625"}}>{n.title}</div>
                         {n.actor_name && (
                           <div className="text-[10px] font-semibold mt-0.5" style={{color: "#7A8A6A"}}>From {n.actor_name}</div>
@@ -375,12 +391,20 @@ export default function Shell() {
                         <div className="text-xs mt-0.5" style={{color: "#5C6853"}}>{n.message}</div>
                         <div className="text-[10px] mt-1" style={{color: "#8B9E7A"}}>{new Date(n.created_at).toLocaleString('en-US')}</div>
                         {n.requires_ack && !n.acknowledged && (
-                          <button onClick={() => acknowledge(n.id)} className="btn btn-outline text-[10px] mt-2 py-1 px-2">✓ Received & Read</button>
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => { e.stopPropagation(); acknowledge(n.id); }}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); acknowledge(n.id); } }}
+                            className="btn btn-outline text-[10px] mt-2 py-1 px-2 inline-block"
+                          >
+                            ✓ Received & Read
+                          </span>
                         )}
                         {n.acknowledged && (
                           <div className="text-[10px] mt-1 font-bold" style={{color: "#3D4F35"}}>✓ Acknowledged</div>
                         )}
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </div>

@@ -171,7 +171,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
   const isManager = !personal && isJenan(user) && !isPortalAdminUser;
   const staffLabel = managerView ? "Therapists' Requests" : "Staff Requests";
   const [items, setItems] = useState([]);
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState(managerView ? "pending_manager" : "all");
   const [edit, setEdit] = useState(null);
   const [statusEdit, setStatusEdit] = useState(null);
   const [forwardToHr, setForwardToHr] = useState(false);
@@ -343,7 +343,10 @@ export default function Requests({ personal = false, embedded = false, managerVi
   const queueItems = useMemo(() => {
     const staff = items.filter(r => r.request_type !== "leave");
     if (!managerView) return staff;
-    const leaves = staffLeaves.map(normalizeLeaveForQueue);
+    const pendingLeaveStatuses = new Set(["pending", "pending_manager", "pending_attachment"]);
+    const leaves = staffLeaves
+      .filter(l => pendingLeaveStatuses.has(l.status))
+      .map(normalizeLeaveForQueue);
     return [...staff, ...leaves].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
   }, [items, staffLeaves, managerView]);
 

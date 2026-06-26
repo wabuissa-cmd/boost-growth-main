@@ -205,7 +205,8 @@ export default function ManagerHub() {
   }
 
   const tabParam = searchParams.get("tab");
-  const activeTab = tabParam === "leave"
+  // tab=leave is a legacy alias — leave requests live in the unified staff queue
+  const activeTab = (tabParam === "leave" || tabParam === "staff" || !tabParam)
     ? "staff"
     : MAIN_TABS.some(t => t.id === tabParam)
       ? tabParam

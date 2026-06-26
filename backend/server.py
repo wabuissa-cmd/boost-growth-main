@@ -1950,7 +1950,7 @@ async def _notify_leave_submitted(title: str, message: str):
     body = f"{message}\n"
     portal = _portal_base_url()
     if portal:
-        body += f"\nReview in portal: {portal}/manager?tab=leave\n"
+        body += f"\nReview in portal: {portal}/manager\n"
     body += "\n— Boost Growth Portal"
     await _send_urgent_email(await _jenan_recipient_email(), title, body)
 

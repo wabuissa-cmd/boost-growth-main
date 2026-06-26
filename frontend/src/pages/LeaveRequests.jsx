@@ -649,7 +649,7 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
   const load = async () => {
     const leaveParams = { year };
     const balanceParams = { year };
-    if (isManager) {
+    if (isManager || leaveManager) {
       leaveParams.scope = "staff";
       balanceParams.scope = "staff";
     }

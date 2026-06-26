@@ -454,7 +454,7 @@ export default function Home() {
                       : "No pending therapist requests"}
                   </div>
                 </div>
-                <Link to="/manager" className="btn btn-secondary text-xs min-h-0 py-1.5 px-3 shrink-0">
+                <Link to="/manager?tab=staff" className="btn btn-secondary text-xs min-h-0 py-1.5 px-3 shrink-0">
                   Manager Hub <ArrowRight size={14}/>
                 </Link>
               </div>
@@ -463,7 +463,7 @@ export default function Home() {
                   {managerRequests.map((r) => (
                     <Link
                       key={`${r.kind}-${r.id}`}
-                      to="/manager"
+                      to="/manager?tab=staff"
                       className="flex items-center justify-between gap-2 p-2.5 rounded-xl no-underline text-inherit transition hover:bg-white/70"
                       style={{ background: "rgba(255,255,255,0.55)", border: "1px solid #EDE9E3" }}
                     >
