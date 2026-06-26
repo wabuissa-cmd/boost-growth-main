@@ -83,6 +83,8 @@ export default function Home() {
   const [newIntake, setNewIntake] = useState(0);
   const [parentCancellationsPending, setParentCancellationsPending] = useState(0);
   const [therapistRows, setTherapistRows] = useState([]);
+  const [managerRequests, setManagerRequests] = useState([]);
+  const [managerPendingTotal, setManagerPendingTotal] = useState(0);
 
   useEffect(() => {
     setHeroImageId(loadHeroPreference(user));
@@ -195,6 +197,27 @@ export default function Home() {
   );
 
   useEffect(() => { if (!showOpsHome) loadPersonal(); }, [weekISO, weekEndISO, showOpsHome]);
+
+  useEffect(() => {
+    if (!jenan) {
+      setManagerRequests([]);
+      setManagerPendingTotal(0);
+      return;
+    }
+    api.get("/requests", { params: { scope: "staff" } })
+      .then((r) => {
+        const rows = Array.isArray(r.data) ? r.data : [];
+        const pending = rows.filter(x =>
+          ["pending", "pending_manager", "in_progress"].includes(x.status)
+        );
+        setManagerPendingTotal(pending.length);
+        setManagerRequests(pending.slice(0, 6));
+      })
+      .catch(() => {
+        setManagerRequests([]);
+        setManagerPendingTotal(0);
+      });
+  }, [jenan, user?.id]);
 
   useEffect(() => {
     if (!parentCancelOps) {
@@ -386,6 +409,48 @@ export default function Home() {
               </div>
               <ArrowRight size={18} style={{ color: "#8B6918", flexShrink: 0 }} />
             </Link>
+          )}
+
+          {jenan && (
+            <div className="card p-4 mb-4 rounded-[18px]" data-testid="jenan-request-updates" style={{ borderColor: "#E6C983", background: "#FFFCF5" }}>
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div>
+                  <div className="text-xs font-bold uppercase tracking-widest" style={{ color: "#8B9E7A" }}>Request updates</div>
+                  <div className="font-bold text-sm mt-0.5" style={{ color: "#2C3625" }}>
+                    {managerPendingTotal > 0
+                      ? `${managerPendingTotal} therapist request${managerPendingTotal === 1 ? "" : "s"} need your review`
+                      : "No pending therapist requests"}
+                  </div>
+                </div>
+                <Link to="/manager" className="btn btn-secondary text-xs min-h-0 py-1.5 px-3 shrink-0">
+                  Manager Hub <ArrowRight size={14}/>
+                </Link>
+              </div>
+              {managerRequests.length > 0 ? (
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {managerRequests.map((r) => (
+                    <Link
+                      key={r.id}
+                      to="/manager"
+                      className="flex items-center justify-between gap-2 p-2.5 rounded-xl no-underline text-inherit transition hover:bg-white/70"
+                      style={{ background: "rgba(255,255,255,0.55)", border: "1px solid #EDE9E3" }}
+                    >
+                      <div className="min-w-0">
+                        <div className="font-semibold text-sm truncate" style={{ color: "#2C3625" }}>{r.title}</div>
+                        <div className="text-[11px] truncate" style={{ color: "#8B9E7A" }}>
+                          {r.therapist_name || "Therapist"} · {r.request_type?.replace(/_/g, " ")}
+                        </div>
+                      </div>
+                      <span className="pill text-[10px] shrink-0" style={{ background: "#FAF0D1", color: "#6B5218" }}>
+                        {r.status === "in_progress" ? "In progress" : "Pending"}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs m-0" style={{ color: "#8B9E7A" }}>New submissions from therapists will appear here.</p>
+              )}
+            </div>
           )}
 
           {showInbox && !jenan && (

@@ -125,16 +125,20 @@ export default function Shell() {
     ...(showMyReports ? [{ to: "/my-reports", label: "My Report", testid: "nav-my-reports" }] : []),
   ] : [];
 
-  // HR — Jenan: Manager Hub only; others: Staff & Leave
+  // Direct manager — Jenan: Manager Hub + Payments; others: Staff & Leave under HR
+  const managerNavItems = [];
   const requestsItems = [];
   if (jenanManager) {
-    requestsItems.push({ to: "/manager", label: "Manager Hub", testid: "nav-manager-hub" });
+    managerNavItems.push(
+      { to: "/manager", label: "Manager Hub", testid: "nav-manager-hub", icon: <ListChecks size={17} weight="duotone"/> },
+      { to: "/purchases", label: "المدفوعات", testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> },
+    );
   } else if (staffRequestsAccess || leaveManager || hrLeaveReview) {
     requestsItems.push({ to: "/staff-leave", label: "Staff & Leave", testid: "nav-staff-leave" });
   }
 
   const financeItems = [];
-  if (canAccessPurchases(user)) {
+  if (canAccessPurchases(user) && !jenanManager) {
     financeItems.push({ to: "/purchases", label: "Purchases", testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> });
   }
 
@@ -155,7 +159,7 @@ export default function Shell() {
       : []),
   ];
 
-  const hrDropdownItems = [...requestsItems];
+  const hrDropdownItems = jenanManager ? managerNavItems : [...requestsItems];
 
   const financeDropdownItems = financeItems.map(it => ({
     to: it.to,
@@ -164,7 +168,7 @@ export default function Shell() {
   }));
 
   const homeLink = baseLinks[0];
-  const hrNavItems = (walaaOps ? [] : requestsItems).map(it => ({
+  const hrNavItems = (walaaOps || jenanManager ? [] : requestsItems).map(it => ({
     ...it,
     icon: <ListChecks size={17} weight="duotone"/>,
   }));
@@ -230,6 +234,8 @@ export default function Shell() {
               personalItems={personalNavItems}
               waitingItems={waitingNavItems}
               hrItems={hrNavItems}
+              managerItems={jenanManager ? managerNavItems : []}
+              managerSectionTitle="المدير المباشر"
               financeItems={financeItems}
               adminItems={adminTools}
               therapistOnly={therapistOnly}
@@ -311,7 +317,7 @@ export default function Shell() {
                              items={operationsItems} loc={loc} onItemHover={warmRoute}/>
               )}
               {hrDropdownItems.length > 0 && (
-                <NavDropdown testid="nav-hr" label="HR" icon={<UsersThree size={18} weight="duotone"/>}
+                <NavDropdown testid={jenanManager ? "nav-direct-manager" : "nav-hr"} label={jenanManager ? "المدير المباشر" : "HR"} icon={<UsersThree size={18} weight="duotone"/>}
                              items={hrDropdownItems} loc={loc} onItemHover={warmRoute}/>
               )}
               {financeDropdownItems.length > 0 && (
@@ -428,6 +434,9 @@ export default function Shell() {
                 personalItems={personalNavItems}
                 waitingItems={waitingNavItems}
                 hrItems={hrNavItems}
+                managerItems={jenanManager ? managerNavItems : []}
+                managerSectionTitle="المدير المباشر"
+                financeItems={financeItems}
                 adminItems={adminTools}
                 therapistOnly={therapistOnly}
                 loc={loc}

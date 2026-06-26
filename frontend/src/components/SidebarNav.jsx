@@ -72,6 +72,8 @@ export default function SidebarNav({
   personalItems,
   waitingItems,
   hrItems,
+  managerItems,
+  managerSectionTitle,
   financeItems = [],
   adminItems,
   therapistOnly,
@@ -134,6 +136,16 @@ export default function SidebarNav({
       )}
 
       <SidebarSection title="Waiting" items={waitingItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
+      {managerItems?.length > 0 && (
+        <SidebarSection
+          title={managerSectionTitle || "المدير المباشر"}
+          items={managerItems}
+          loc={loc}
+          defaultOpen
+          onItemHover={onItemHover}
+          collapsed={collapsed}
+        />
+      )}
       <SidebarSection title="HR" items={hrItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
       <SidebarSection title="Finance" items={financeItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
       <SidebarSection title="Administration" items={adminItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />

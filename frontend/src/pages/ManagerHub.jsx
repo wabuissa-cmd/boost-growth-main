@@ -83,9 +83,21 @@ function TherapistProfilePanel({ therapistId, onClose }) {
           </div>
         </div>
         <div className="p-3 rounded-xl" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
-          <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#8B9E7A" }}>Contract period</div>
+          <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#8B9E7A" }}>Contract start</div>
           <div className="font-bold text-xs" style={{ color: "#2C3625" }}>
-            {profile.contract_period_start?.slice(0, 10) || "—"} → {profile.contract_period_end?.slice(0, 10) || "—"}
+            {profile.contract_start?.slice(0, 10) || profile.contract_period_start?.slice(0, 10) || "—"}
+          </div>
+        </div>
+        <div className="p-3 rounded-xl" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
+          <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#8B9E7A" }}>Annual contract end</div>
+          <div className="font-bold text-xs" style={{ color: "#2C3625" }}>
+            {profile.annual_contract_end?.slice(0, 10) || profile.contract_period_end?.slice(0, 10) || "—"}
+          </div>
+        </div>
+        <div className="p-3 rounded-xl" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
+          <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#8B9E7A" }}>Probation end (3 mo)</div>
+          <div className="font-bold text-xs" style={{ color: "#2C3625" }}>
+            {profile.probation_end?.slice(0, 10) || "—"}
           </div>
         </div>
         <div className="p-3 rounded-xl" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>

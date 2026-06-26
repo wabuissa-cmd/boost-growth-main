@@ -5557,16 +5557,42 @@ async def hr_therapist_profile(tid: str, _=Depends(hr_manager_access)):
         reverse=True,
     )
     alerts: List[dict] = []
-    end = therapist.get("contract_period_end")
-    if end:
+    contract_start = therapist.get("contract_start") or therapist.get("join_date")
+    annual_end = (
+        therapist.get("annual_contract_end")
+        or therapist.get("contract_period_end")
+    )
+    if annual_end:
         try:
-            end_dt = datetime.fromisoformat(str(end)[:10])
+            end_dt = datetime.fromisoformat(str(annual_end)[:10])
             days_left = (end_dt.date() - datetime.now().date()).days
             if days_left <= 60:
                 alerts.append({
-                    "type": "contract_expiry",
-                    "message": f"Contract period ends in {days_left} days ({end[:10]})",
+                    "type": "annual_contract_expiry",
+                    "message": f"Annual contract expires {annual_end[:10]} ({days_left} days left)",
                     "severity": "urgent" if days_left <= 30 else "warning",
+                })
+        except Exception:
+            pass
+    probation_end = therapist.get("probation_end")
+    if not probation_end and contract_start:
+        try:
+            start_dt = datetime.fromisoformat(str(contract_start)[:10])
+            probation_end = (start_dt.date() + timedelta(days=90)).isoformat()
+        except Exception:
+            probation_end = None
+    if probation_end:
+        try:
+            prob_dt = datetime.fromisoformat(str(probation_end)[:10])
+            prob_days = (prob_dt.date() - datetime.now().date()).days
+            if prob_days <= 30:
+                alerts.append({
+                    "type": "probation_end",
+                    "message": (
+                        f"3-month probation ends {probation_end[:10]}"
+                        + (f" ({prob_days} days left)" if prob_days >= 0 else " (ended)")
+                    ),
+                    "severity": "urgent" if prob_days <= 14 else "warning",
                 })
         except Exception:
             pass
@@ -5604,6 +5630,9 @@ async def hr_therapist_profile(tid: str, _=Depends(hr_manager_access)):
         "annual_balance": therapist.get("annual_balance"),
         "contract_period_start": therapist.get("contract_period_start"),
         "contract_period_end": therapist.get("contract_period_end"),
+        "contract_start": contract_start,
+        "annual_contract_end": annual_end,
+        "probation_end": probation_end,
         "join_date": therapist.get("join_date"),
         "trainings": trainings,
         "alerts": alerts,

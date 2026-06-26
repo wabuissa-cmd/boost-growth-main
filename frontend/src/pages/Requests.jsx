@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import api, { API } from "../api";
 import { useAuth, showAdminNav, canEditStaffRequests, canManageLeaves, canHrReviewLeaves, isJenan } from "../auth";
 import { Navigate } from "react-router-dom";
-import { Plus, PencilSimple, Trash, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Calendar, Package, UploadSimple, Eye, FileArrowDown, ArrowRight } from "@phosphor-icons/react";
+import { Plus, PencilSimple, Trash, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Calendar, Package, UploadSimple, Eye, FileArrowDown } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -122,6 +122,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
   const [filter, setFilter] = useState("all");
   const [edit, setEdit] = useState(null);
   const [statusEdit, setStatusEdit] = useState(null);
+  const [forwardToHr, setForwardToHr] = useState(false);
   const [step, setStep] = useState(1);
   const [therapists, setTherapists] = useState([]);
   const [recentLeaves, setRecentLeaves] = useState([]);
@@ -169,21 +170,24 @@ export default function Requests({ personal = false, embedded = false, managerVi
 
   const openManagerReview = (r) => {
     const keepStatus = isPendingManagerStatus(r.status) ? "pending_manager" : r.status;
+    setForwardToHr(false);
     setStatusEdit({ ...r, status: keepStatus });
   };
 
   const closeStatusModal = () => {
     setStatusEdit(null);
+    setForwardToHr(false);
   };
 
-  const handleManagerStatusSave = () => {
+  const handleManagerStatusSave = async () => {
     if (!statusEdit) return;
-    updateStatusFromModal();
-  };
-
-  const sendToHr = async () => {
-    if (!statusEdit) return;
-    await updateStatusFromModal("pending_hr");
+    const finalStatus = (managerView && isManager && forwardToHr && managerCanForwardToHr(statusEdit.status))
+      ? "pending_hr"
+      : statusEdit.status;
+    await api.put(`/requests/${statusEdit.id}/status`, { status: finalStatus, admin_note: statusEdit.admin_note });
+    setStatusEdit(null);
+    setForwardToHr(false);
+    load();
   };
   const remove = async (id) => { if (!window.confirm("Delete this request?")) return; await api.delete(`/requests/${id}`); load(); };
   const removeLeave = async (id) => { if (!window.confirm("Delete this leave request?")) return; await api.delete(`/leaves/${id}`); loadLeaves(); };
@@ -701,13 +705,8 @@ export default function Requests({ personal = false, embedded = false, managerVi
             managerView && isManager && (isPendingManagerStatus(statusEdit.status) || statusEdit.status === "in_progress") ? (
               <>
                 <ModalBtnSecondary type="button" onClick={closeStatusModal}>Cancel</ModalBtnSecondary>
-                {managerCanForwardToHr(statusEdit.status) && (
-                  <ModalBtnSecondary data-testid="send-to-hr-btn" type="button" onClick={sendToHr}>
-                    <ArrowRight size={14}/> إرسال للـ HR
-                  </ModalBtnSecondary>
-                )}
                 <ModalBtnPrimary data-testid="status-save-btn" type="button" onClick={handleManagerStatusSave}>
-                  Save & Notify
+                  حفظ وإرسال
                 </ModalBtnPrimary>
               </>
             ) : (
@@ -726,7 +725,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
               )}
               {managerView && (
                 <p className="text-sm -mt-2 mb-2" style={{ color: "#5C6853" }}>
-                  Request details are read-only. Set status and add a note, then save — or use إرسال للـ HR to forward separately.
+                  Request details are read-only. Set status, add a note, and choose whether to forward to HR — then حفظ وإرسال.
                 </p>
               )}
 
@@ -843,9 +842,32 @@ export default function Requests({ personal = false, embedded = false, managerVi
                       rows={3}
                       value={statusEdit.admin_note || ""}
                       onChange={e => setStatusEdit({ ...statusEdit, admin_note: e.target.value })}
-                      readOnly={managerView && !isPendingManagerStatus(statusEdit.status)}
+                      readOnly={managerView && !isPendingManagerStatus(statusEdit.status) && statusEdit.status !== "in_progress"}
                     />
                   </FormField>
+
+                  {managerView && isManager && managerCanForwardToHr(statusEdit.status) && (
+                    <div className="mt-4 pt-4 border-t" style={{ borderColor: "#EDE9E3" }}>
+                      <div className="text-xs font-bold uppercase tracking-widest mb-2" style={{ color: "#5C6853" }}>
+                        إرسال للـ HR
+                      </div>
+                      <label className="flex items-start gap-3 cursor-pointer text-sm rounded-xl p-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
+                        <input
+                          type="checkbox"
+                          data-testid="forward-to-hr-checkbox"
+                          className="mt-0.5 w-4 h-4 accent-[#5C8A47]"
+                          checked={forwardToHr}
+                          onChange={e => setForwardToHr(e.target.checked)}
+                        />
+                        <span style={{ color: "#2C3625" }}>
+                          نعم — إرسال الطلب لقسم الموارد البشرية بعد الحفظ
+                          <span className="block text-xs mt-1" style={{ color: "#8B9E7A" }}>
+                            Optional — leave unchecked to save status only
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                  )}
                 </FormSection>
               )}
 
