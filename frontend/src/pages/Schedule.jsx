@@ -1143,10 +1143,10 @@ export default function Schedule() {
         subtitle={isAdmin
           ? "Right-click any cell for actions · Click to edit · Drag to select multiple slots"
           : scheduleLead && view === "sheet"
-            ? "Sheet — right-click or click therapist name or any cell to edit"
+            ? "Team schedule — right-click or click therapist name or any cell to edit"
             : view === "blocks"
-              ? "Per Therapist — click your sessions to log preparation"
-              : "Sheet — view full team schedule"}
+              ? "My schedule — click your sessions to log preparation"
+              : "Team schedule — view all therapists"}
         badge={isScheduleNarrow ? (
           <span className="pill text-[10px] px-2 py-0.5 font-bold bg-white/90 text-[#2F4A35] border border-[#D4DEC8] whitespace-nowrap">
             {formatDateRange(weekStart)}
@@ -1164,15 +1164,15 @@ export default function Schedule() {
         ) : null}
         stats={isScheduleNarrow ? [] : [
           { n: formatDateRange(weekStart), label: "This Week", color: "#2C3625" },
-          { n: view === "blocks" ? "Per Therapist" : "Sheet", label: "View", color: "#5C6853" },
+          { n: view === "blocks" ? "My schedule" : "Team schedule", label: "View", color: "#5C6853" },
           { n: visibleTherapists.length, label: "Therapists", color: "#6B5218" },
           { n: clients.length, label: "Clients", color: "#3D4F35" },
         ]}
         toolbar={(
           <div className="flex items-center gap-1.5 flex-wrap schedule-toolbar schedule-toolbar--wrap relative">
             <div className="inline-flex items-center rounded-lg border border-[#E2DDD4] p-0.5 bg-[#FAFAF7] shrink-0 schedule-view-toggle">
-              <button data-testid="view-sheet-btn" onClick={() => setView("sheet")} className={`btn ${view === "sheet" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`}><Table size={13} /> Sheet</button>
-              <button data-testid="view-blocks-btn" onClick={() => setView("blocks")} className={`btn ${view === "blocks" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`}><GridFour size={13} /> Per Therapist</button>
+              <button data-testid="view-sheet-btn" onClick={() => setView("sheet")} className={`btn ${view === "sheet" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`} title="جدول الفريق" aria-label="Team schedule"><Table size={13} /> Team schedule</button>
+              <button data-testid="view-blocks-btn" onClick={() => setView("blocks")} className={`btn ${view === "blocks" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`} title="جدولي" aria-label="My schedule"><GridFour size={13} /> My schedule</button>
             </div>
             <div className="inline-flex items-center rounded-lg border border-[#E2DDD4] px-0.5 bg-[#FAFAF7] shrink-0 schedule-toolbar-week-nav">
               <button data-testid="prev-week-btn" onClick={() => setWeekStart(addDays(weekStart, -7))} className="btn btn-ghost p-1 min-h-0"><CaretLeft size={14} /></button>

@@ -26,7 +26,7 @@ export const THERAPIST_FAMILY_NAMES = {
   msWalaa: "Althunayan",
 };
 
-/** Supervisors who only see their own block in Per Therapist view. */
+/** Supervisors who only see their own block in My schedule view. */
 export const SCHEDULE_OWN_BLOCK_KEYS = new Set(["msmaha", "msfahda", "mswalaa", "msjenan"]);
 
 export function therapistFamilyName(key) {
