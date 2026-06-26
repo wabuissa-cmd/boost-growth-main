@@ -8,7 +8,7 @@ import {
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
 import PageBanner from "../components/PageBanner";
-import { LEAVE_STATUS, LEAVE_TYPES, diffDays, fmtDateRange, permissionPayLabel } from "../leaveUtils";
+import { LEAVE_STATUS, LEAVE_TYPES, diffDays, fmtDateRange, permissionPayLabel, fmtLeaveSchedule, permissionDaysFromTimes, addHoursToTime24 } from "../leaveUtils";
 import "../clientInfoLayout.css";
 
 const STATUS_MAP = {
@@ -107,7 +107,16 @@ const LEAVE_FORM_TYPES = [
 
 function emptyLeaveForm() {
   const today = new Date().toISOString().slice(0, 10);
-  return { therapist_id: "", start_date: today, end_date: today, days: 1, leave_type: "Annual", notes: "" };
+  return {
+    therapist_id: "",
+    start_date: today,
+    end_date: today,
+    days: 1,
+    leave_type: "Annual",
+    start_time: "14:00",
+    end_time: "15:00",
+    notes: "",
+  };
 }
 
 export default function Requests({ personal = false, embedded = false, managerView = false }) {
@@ -193,8 +202,22 @@ export default function Requests({ personal = false, embedded = false, managerVi
   const removeLeave = async (id) => { if (!window.confirm("Delete this leave request?")) return; await api.delete(`/leaves/${id}`); loadLeaves(); };
 
   const updateLeaveDates = (form, start, end) => {
+    if (form.leave_type === "Permission") {
+      const days = permissionDaysFromTimes(form.start_time, form.end_time, start, end);
+      return { ...form, start_date: start, end_date: end, days };
+    }
     const days = Math.max(1, diffDays(start, end));
     return { ...form, start_date: start, end_date: end, days };
+  };
+
+  const updateLeavePermissionTimes = (form, startTime, endTime) => {
+    const days = permissionDaysFromTimes(
+      startTime,
+      endTime,
+      form.start_date,
+      form.end_date,
+    );
+    return { ...form, start_time: startTime, end_time: endTime, days };
   };
 
   const submitLeave = async () => {
@@ -210,6 +233,15 @@ export default function Requests({ personal = false, embedded = false, managerVi
         notes: leaveModal.notes || null,
         status: "pending",
       };
+      if (leaveModal.leave_type === "Permission") {
+        if (!leaveModal.start_time || !leaveModal.end_time) {
+          alert("Please set start and end time for permission.");
+          setLeaveSubmitting(false);
+          return;
+        }
+        payload.start_time = leaveModal.start_time;
+        payload.end_time = leaveModal.end_time;
+      }
       const { data: created } = await api.post("/leaves", payload);
       if (leaveDoc && created?.id) {
         const fd = new FormData();
@@ -487,7 +519,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                       </div>
                       <div className="font-bold text-sm" style={{ color: "#2C3625" }}>{l.therapist_name || "Therapist"}</div>
                       <div className="text-xs mt-0.5" style={{ color: "#5C6853" }}>
-                        {fmtDateRange(l.start_date, l.end_date)} · {l.days} day{l.days !== 1 ? "s" : ""}
+                        {fmtLeaveSchedule(l)}
                       </div>
                       {(l.status === "pending" || l.status === "pending_manager") && isPortalAdminUser && (
                         <div className="flex flex-wrap gap-1 mt-2">
@@ -537,10 +569,62 @@ export default function Requests({ personal = false, embedded = false, managerVi
               </select>
             </FormField>
             <FormField label="Type">
-              <select className="modal-input" value={leaveModal.leave_type} onChange={e => setLeaveModal({ ...leaveModal, leave_type: e.target.value })}>
+              <select className="modal-input" value={leaveModal.leave_type} onChange={e => {
+                const leave_type = e.target.value;
+                const next = { ...leaveModal, leave_type };
+                if (leave_type === "Permission") {
+                  next.start_date = leaveModal.start_date;
+                  next.end_date = leaveModal.end_date;
+                  next.days = permissionDaysFromTimes(
+                    leaveModal.start_time || "14:00",
+                    leaveModal.end_time || "15:00",
+                    leaveModal.start_date,
+                    leaveModal.end_date,
+                  );
+                } else {
+                  next.days = Math.max(1, diffDays(leaveModal.start_date, leaveModal.end_date));
+                }
+                setLeaveModal(next);
+              }}>
                 {LEAVE_FORM_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
               </select>
             </FormField>
+            {leaveModal.leave_type === "Permission" ? (
+              <>
+                <FormField label="Date">
+                  <input type="date" className="modal-input" value={leaveModal.start_date}
+                    onChange={e => setLeaveModal(f => updateLeaveDates({ ...f, end_date: e.target.value }, e.target.value, e.target.value))} />
+                </FormField>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <FormField label="Start time" required>
+                    <input type="time" className="modal-input" value={leaveModal.start_time || ""}
+                      onChange={e => setLeaveModal(f => updateLeavePermissionTimes(f, e.target.value, f.end_time))} />
+                  </FormField>
+                  <FormField label="End time" required>
+                    <input type="time" className="modal-input" value={leaveModal.end_time || ""}
+                      onChange={e => setLeaveModal(f => updateLeavePermissionTimes(f, f.start_time, e.target.value))} />
+                  </FormField>
+                </div>
+                <FormField label="Quick duration">
+                  <div className="flex gap-2 flex-wrap">
+                    {[1, 2].map((h) => (
+                      <button
+                        key={h}
+                        type="button"
+                        onClick={() => setLeaveModal(f => updateLeavePermissionTimes(
+                          f,
+                          f.start_time || "14:00",
+                          addHoursToTime24(f.start_time || "14:00", h),
+                        ))}
+                        className="pill border text-xs px-3 py-1.5 border-[#DDD8D0]"
+                      >
+                        {h} hour{h !== 1 ? "s" : ""}
+                      </button>
+                    ))}
+                  </div>
+                </FormField>
+              </>
+            ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField label="Date from">
                 <input type="date" className="modal-input" value={leaveModal.start_date}
@@ -551,6 +635,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                   onChange={e => setLeaveModal(f => updateLeaveDates(f, f.start_date, e.target.value))} />
               </FormField>
             </div>
+            )}
             <FormField label="Days">
               <input className="modal-input bg-[#F5F5F5]" readOnly value={leaveModal.days} />
             </FormField>

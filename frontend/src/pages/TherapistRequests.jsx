@@ -17,6 +17,7 @@ import PurchasesPanel from "../components/PurchasesPanel";
 import "../stepperLayout.css";
 import {
   LEAVE_STATUS, LEAVE_TYPES, diffDays, fmtDateRange, leaveStatusLabel, permissionPayLabel,
+  permissionDaysFromTimes, addHoursToTime24, fmtLeaveSchedule,
 } from "../leaveUtils";
 
 const STATUS_MAP = {
@@ -51,7 +52,16 @@ function emptyRequest() {
 
 function emptyPermission(userId) {
   const today = new Date().toISOString().slice(0, 10);
-  return { therapist_id: userId, start_date: today, end_date: today, days: 1, leave_type: "Permission", notes: "" };
+  return {
+    therapist_id: userId,
+    start_date: today,
+    end_date: today,
+    days: 0.125,
+    leave_type: "Permission",
+    start_time: "14:00",
+    end_time: "15:00",
+    notes: "",
+  };
 }
 
 function emptyLeave(userId) {
@@ -101,12 +111,19 @@ export default function TherapistRequests() {
     setSubmitting(true);
     try {
       if (edit.request_type === "permission") {
+        if (!edit.start_time || !edit.end_time) {
+          alert("Please set start and end time for permission.");
+          setSubmitting(false);
+          return;
+        }
         await api.post("/leaves", {
           therapist_id: user.id,
           start_date: edit.start_date,
           end_date: edit.end_date,
           days: edit.days,
           leave_type: "Permission",
+          start_time: edit.start_time,
+          end_time: edit.end_time,
           notes: edit.notes || edit.description || null,
           status: "pending",
         });
@@ -150,6 +167,31 @@ export default function TherapistRequests() {
   const updateLeaveDates = (start, end) => {
     const days = Math.max(1, diffDays(start, end));
     setEdit(e => ({ ...e, start_date: start, end_date: end, days }));
+  };
+
+  const updatePermissionDate = (date) => {
+    const days = permissionDaysFromTimes(
+      edit?.start_time,
+      edit?.end_time,
+      date,
+      date,
+    );
+    setEdit(e => ({ ...e, start_date: date, end_date: date, days }));
+  };
+
+  const updatePermissionTimes = (startTime, endTime) => {
+    const days = permissionDaysFromTimes(
+      startTime,
+      endTime,
+      edit?.start_date || edit?.end_date,
+      edit?.end_date || edit?.start_date,
+    );
+    setEdit(e => ({ ...e, start_time: startTime, end_time: endTime, days }));
+  };
+
+  const setPermissionDurationHours = (hours) => {
+    const start = edit?.start_time || "14:00";
+    updatePermissionTimes(start, addHoursToTime24(start, hours));
   };
 
   const openNew = () => {
@@ -218,8 +260,8 @@ export default function TherapistRequests() {
                   <div className="req-leave-stat-lbl">Unpaid days</div>
                 </div>
                 <div className="req-leave-stat-box">
-                  <div className="req-leave-stat-val">{balance.pending || 0}</div>
-                  <div className="req-leave-stat-lbl">Pending leave</div>
+                  <div className="req-leave-stat-val">{balance.used_sick || 0}</div>
+                  <div className="req-leave-stat-lbl">Sick leave</div>
                 </div>
                 <div className="req-leave-stat-box">
                   <div className="req-leave-stat-val">{balance.other_requests_count ?? 0}</div>
@@ -252,7 +294,7 @@ export default function TherapistRequests() {
                     )}
                   </div>
                   <div className="text-sm font-semibold" style={{ color: "#2C3625" }}>
-                    {fmtDateRange(l.start_date, l.end_date)} · {l.days} day{l.days !== 1 ? "s" : ""}
+                    {fmtLeaveSchedule(l)}
                   </div>
                   {l.notes && <div className="text-xs mt-1 italic" style={{ color: "#8B9E7A" }}>{l.notes}</div>}
                   {l.admin_note && (
@@ -398,18 +440,36 @@ export default function TherapistRequests() {
 
           {step === 2 && edit.request_type === "permission" && (
             <FormSection title="Permission details">
+              <FormField label="Date">
+                <input type="date" className="modal-input" value={edit.start_date}
+                  onChange={e => updatePermissionDate(e.target.value)} />
+              </FormField>
               <div className="grid grid-cols-2 gap-3">
-                <FormField label="Date from">
-                  <input type="date" className="modal-input" value={edit.start_date}
-                    onChange={e => updateLeaveDates(e.target.value, edit.end_date)} />
+                <FormField label="Start time" required>
+                  <input type="time" className="modal-input" value={edit.start_time || ""}
+                    onChange={e => updatePermissionTimes(e.target.value, edit.end_time)} />
                 </FormField>
-                <FormField label="Date to">
-                  <input type="date" className="modal-input" value={edit.end_date}
-                    onChange={e => updateLeaveDates(edit.start_date, e.target.value)} />
+                <FormField label="End time" required>
+                  <input type="time" className="modal-input" value={edit.end_time || ""}
+                    onChange={e => updatePermissionTimes(edit.start_time, e.target.value)} />
                 </FormField>
               </div>
-              <FormField label="Days">
-                <input className="modal-input bg-[#F5F5F5]" readOnly value={edit.days} />
+              <FormField label="Quick duration">
+                <div className="flex gap-2 flex-wrap">
+                  {[1, 2].map((h) => (
+                    <button
+                      key={h}
+                      type="button"
+                      onClick={() => setPermissionDurationHours(h)}
+                      className="pill border text-xs px-3 py-1.5 border-[#DDD8D0] hover:border-[#5C8A47]"
+                    >
+                      {h} hour{h !== 1 ? "s" : ""}
+                    </button>
+                  ))}
+                </div>
+              </FormField>
+              <FormField label="Duration">
+                <input className="modal-input bg-[#F5F5F5]" readOnly value={edit.days < 1 ? `${Math.round(edit.days * 8 * 10) / 10} hours` : `${edit.days} day(s)`} />
               </FormField>
               <FormField label="Note">
                 <textarea className="modal-input" rows={3} value={edit.notes || ""} onChange={e => setEdit({ ...edit, notes: e.target.value })} placeholder="Reason for permission…" />

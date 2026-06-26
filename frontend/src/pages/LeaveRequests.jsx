@@ -13,7 +13,7 @@ import {
 } from "../components/Modal";
 import {
   LEAVE_STATUS, LEAVE_TYPES, DOC_TYPES, documentBadge, leaveRequiresDocument,
-  diffDays, fmtDateRange, isActiveLeave, isHistoryLeave, exportLeavesCsv,
+  diffDays, fmtDateRange, fmtLeaveSchedule, isActiveLeave, isHistoryLeave, exportLeavesCsv,
   scheduleImpactLabel, leavePayCategory, leaveStatusLabel, permissionPayLabel,
   isPendingLeaveStatus,
 } from "../leaveUtils";
@@ -189,7 +189,7 @@ function LeaveRequestCard({
             <div className="font-bold text-lg" style={{ color: "#2C3625" }}>{leave.therapist_name || user?.name || "—"}</div>
             <div className="text-sm" style={{ color: "#5C6853" }}>
               <span className="pill text-[10px] px-2 py-0.5 mr-1" style={{ background: `${tp.color}22`, color: tp.color }}>{tp.label}</span>
-              · {fmtDateRange(leave.start_date, leave.end_date)} · {leave.days} day{leave.days !== 1 ? "s" : ""}
+              · {fmtLeaveSchedule(leave)}
             </div>
           </div>
         </div>

@@ -89,6 +89,79 @@ export function fmtDateRange(start, end) {
   return `${fmt(start)} → ${fmt(end)}`;
 }
 
+/** Parse "HH:MM" to minutes since midnight. */
+export function timeToMinutes(t) {
+  if (!t) return null;
+  const [h, m] = String(t).split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
+}
+
+/** Format 24h "14:00" for display. */
+export function fmtTime24(t) {
+  if (!t) return "";
+  const mins = timeToMinutes(t);
+  if (mins == null) return t;
+  const h24 = Math.floor(mins / 60) % 24;
+  const m = mins % 60;
+  const ampm = h24 >= 12 ? "PM" : "AM";
+  const h12 = h24 % 12 || 12;
+  return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
+export function fmtTimeRange(startTime, endTime) {
+  if (!startTime) return "";
+  if (!endTime) return fmtTime24(startTime);
+  return `${fmtTime24(startTime)} – ${fmtTime24(endTime)}`;
+}
+
+export function computePermissionHours(startTime, endTime) {
+  const sm = timeToMinutes(startTime);
+  const em = timeToMinutes(endTime);
+  if (sm == null || em == null) return null;
+  let diff = em - sm;
+  if (diff <= 0) diff += 24 * 60;
+  return diff / 60;
+}
+
+/** Work-day fraction for permission (8h day); min 1 hour. */
+export function permissionDaysFromTimes(startTime, endTime, startDate, endDate) {
+  const spanDays = diffDays(startDate, endDate);
+  if (spanDays > 1) return spanDays;
+  const hours = computePermissionHours(startTime, endTime);
+  if (hours == null) return 1;
+  return Math.max(0.125, Math.round((hours / 8) * 1000) / 1000);
+}
+
+export function addHoursToTime24(time, hours) {
+  const mins = timeToMinutes(time);
+  if (mins == null) return time;
+  const total = (mins + Math.round(hours * 60)) % (24 * 60);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+export function fmtLeaveDuration(leave) {
+  const days = parseFloat(leave?.days);
+  if (!Number.isFinite(days)) return "";
+  if (leave?.leave_type === "Permission" && days < 1) {
+    const hrs = Math.round(days * 8 * 10) / 10;
+    return `${hrs} hr${hrs !== 1 ? "s" : ""}`;
+  }
+  return `${days} day${days !== 1 ? "s" : ""}`;
+}
+
+export function fmtLeaveSchedule(leave) {
+  const range = fmtDateRange(leave?.start_date, leave?.end_date);
+  const dur = fmtLeaveDuration(leave);
+  if (leave?.leave_type === "Permission" && leave?.start_time) {
+    const timePart = fmtTimeRange(leave.start_time, leave.end_time);
+    return `${range} · ${timePart}${dur ? ` · ${dur}` : ""}`;
+  }
+  return `${range}${dur ? ` · ${dur}` : ""}`;
+}
+
 export function isPendingLeaveStatus(status) {
   return status === "pending" || status === "pending_manager" || status === "pending_hr";
 }

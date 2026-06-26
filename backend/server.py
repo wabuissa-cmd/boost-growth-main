@@ -663,6 +663,8 @@ class LeaveIn(BaseModel):
     days: float = 1
     leave_type: Optional[str] = "Annual"   # Annual / Unpaid / Sickleave / Exam / Emergency
     status: Optional[str] = "pending"      # pending / approved / done / rejected / cancelled
+    start_time: Optional[str] = None       # Permission: "14:00"
+    end_time: Optional[str] = None         # Permission: "16:00"
     notes: Optional[str] = None
     admin_note: Optional[str] = None
 
@@ -6941,7 +6943,12 @@ async def create_leave(payload: LeaveIn, user=Depends(get_current_user)):
     await db.leaves.insert_one(doc)
     doc.pop("_id", None)
     if user.get("role") != "admin":
-        msg = f"{user.get('name')}: {payload.leave_type} {payload.days}d ({payload.start_date} → {payload.end_date})"
+        time_part = ""
+        if payload.leave_type == "Permission" and payload.start_time:
+            time_part = f" {payload.start_time}"
+            if payload.end_time:
+                time_part += f"–{payload.end_time}"
+        msg = f"{user.get('name')}: {payload.leave_type} {payload.days}d ({payload.start_date}{time_part} → {payload.end_date})"
         jenan_id = await _jenan_therapist_id()
         if jenan_id:
             await _notify(jenan_id, "leave_request", "New leave request", msg)

@@ -1239,7 +1239,7 @@ export default function Schedule() {
                   <div className="schedule-admin-edits-menu absolute right-0 top-[calc(100%+6px)] z-[200] card p-2.5 min-w-[228px] shadow-lg border border-[#E2DDD4] flex flex-col gap-2 bg-white">
                     <div className="border-b pb-2 mb-1" style={{ borderColor: "#EDE9E3" }}>
                       <div className="text-[10px] font-bold tracking-wider mb-1.5 flex items-center gap-1" style={{ color: "#5C6853" }}>
-                        <UserPlus size={12} /> Add therapist column
+                        <UserPlus size={12} /> Add specialist · إضافة أخصائية
                       </div>
                       <select
                         className="input text-xs w-full mb-1.5"
