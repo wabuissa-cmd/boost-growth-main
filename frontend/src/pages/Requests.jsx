@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import api, { API } from "../api";
 import { useAuth, showAdminNav, canEditStaffRequests, canManageLeaves, canHrReviewLeaves, isJenan } from "../auth";
 import { Navigate } from "react-router-dom";
@@ -8,7 +8,7 @@ import {
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
 import PageBanner from "../components/PageBanner";
-import { LEAVE_STATUS, LEAVE_TYPES, diffDays, fmtDateRange, permissionPayLabel, fmtLeaveSchedule, permissionDaysFromTimes, addHoursToTime24 } from "../leaveUtils";
+import { LEAVE_STATUS, LEAVE_TYPES, diffDays, fmtDateRange, permissionPayLabel, fmtLeaveSchedule, permissionDaysFromTimes, addHoursToTime24, leaveRequiresDocument } from "../leaveUtils";
 import "../clientInfoLayout.css";
 import { getTherapistScheduleName } from "../scheduleConstants";
 
@@ -82,6 +82,43 @@ function requestAwaitingAttachment(r) {
   return r?.status === "pending_attachment" || (r?.requires_attachment && !r?.attachment_url);
 }
 
+function leaveAwaitingAttachment(leave) {
+  if (!leave) return false;
+  return leave.status === "pending_attachment"
+    || (leaveRequiresDocument(leave.leave_type) && !leave.document_file_path && !leave.document_url);
+}
+
+function normalizeLeaveStatus(status) {
+  return status === "pending" ? "pending_manager" : status;
+}
+
+function normalizeLeaveForQueue(leave) {
+  const tp = LEAVE_TYPES[leave.leave_type] || { label: leave.leave_type, color: "#7A8A6A" };
+  const schedule = fmtLeaveSchedule(leave);
+  return {
+    _queueKind: "leave",
+    leaveId: leave.id,
+    id: leave.id,
+    therapist_name: leave.therapist_name,
+    request_type: "leave",
+    leave_type: leave.leave_type,
+    typeLabel: tp.label,
+    typeColor: tp.color,
+    title: tp.label,
+    description: leave.notes ? `${schedule} — ${leave.notes}` : schedule,
+    created_at: leave.created_at,
+    status: normalizeLeaveStatus(leave.status),
+    admin_note: leave.admin_note,
+    timeline: leave.timeline,
+    _leave: leave,
+  };
+}
+
+function queueItemAwaitingAttachment(item) {
+  if (item._queueKind === "leave") return leaveAwaitingAttachment(item._leave);
+  return requestAwaitingAttachment(item);
+}
+
 const TYPES = [
   { id: "leave", label: "Time Off", icon: <Calendar size={20} weight="duotone"/>, color: "#A4BCCB" },
   { id: "supplies", label: "Supplies / Materials", icon: <Package size={20} weight="duotone"/>, color: "#D4A64A" },
@@ -141,6 +178,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
   const [step, setStep] = useState(1);
   const [therapists, setTherapists] = useState([]);
   const [recentLeaves, setRecentLeaves] = useState([]);
+  const [staffLeaves, setStaffLeaves] = useState([]);
   const [leaveModal, setLeaveModal] = useState(null);
   const [leaveDoc, setLeaveDoc] = useState(null);
   const [leaveSubmitting, setLeaveSubmitting] = useState(false);
@@ -160,15 +198,16 @@ export default function Requests({ personal = false, embedded = false, managerVi
     if (leaveHr || managerView) params.scope = "staff";
     const { data } = await api.get("/leaves", { params });
     const sorted = [...(data || [])].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
-    setRecentLeaves(sorted.slice(0, 10));
+    if (managerView) setStaffLeaves(sorted);
+    if (leaveHr) setRecentLeaves(sorted.slice(0, 10));
   };
   useEffect(() => {
     load();
     if (canManageReq) {
       api.get("/therapists").then(r => setTherapists(r.data || [])).catch(() => {});
     }
-    if (leaveHr) loadLeaves();
-  }, [canManageReq, leaveHr]);
+    if (leaveHr || managerView) loadLeaves();
+  }, [canManageReq, leaveHr, managerView]);
 
   const submitNew = async () => {
     await api.post("/requests", edit);
@@ -198,8 +237,27 @@ export default function Requests({ personal = false, embedded = false, managerVi
 
   const handleManagerStatusSave = async () => {
     if (!statusEdit) return;
-    if (requestAwaitingAttachment(statusEdit)) {
+    if (queueItemAwaitingAttachment(statusEdit)) {
       alert("This request is awaiting an attachment from the therapist and cannot be reviewed yet.");
+      return;
+    }
+    if (statusEdit._queueKind === "leave") {
+      let finalStatus;
+      if (managerView && isManager && forwardToHr && managerCanForwardToHr(statusEdit.status)) {
+        finalStatus = "pending_hr";
+      } else if (statusEdit.status === "rejected") {
+        finalStatus = "rejected";
+      } else {
+        alert("Forward to HR or reject this leave request.");
+        return;
+      }
+      await api.put(`/leaves/${statusEdit.leaveId}/status`, {
+        status: finalStatus,
+        admin_note: statusEdit.admin_note,
+      });
+      setStatusEdit(null);
+      setForwardToHr(false);
+      loadLeaves();
       return;
     }
     const finalStatus = (managerView && isManager && forwardToHr && managerCanForwardToHr(statusEdit.status))
@@ -282,23 +340,28 @@ export default function Requests({ personal = false, embedded = false, managerVi
     loadLeaves();
   };
 
-  const filtered = items
-    .filter(r => r.request_type !== "leave")
-    .filter(r => {
-      if (filter === "all") return true;
-      if (filter === "pending_manager") return isPendingManagerStatus(r.status);
-      return r.status === filter;
-    });
+  const queueItems = useMemo(() => {
+    const staff = items.filter(r => r.request_type !== "leave");
+    if (!managerView) return staff;
+    const leaves = staffLeaves.map(normalizeLeaveForQueue);
+    return [...staff, ...leaves].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+  }, [items, staffLeaves, managerView]);
+
+  const filtered = queueItems.filter(r => {
+    if (filter === "all") return true;
+    if (filter === "pending_manager") return isPendingManagerStatus(r.status);
+    return r.status === filter;
+  });
 
   if (!personal && !canEditStaffRequests(user)) {
     return <Navigate to="/my-requests" replace/>;
   }
 
-  const pendingManagerCount = items.filter(r => isPendingManagerStatus(r.status)).length;
-  const pendingHrCount = items.filter(r => r.status === PENDING_HR_STATUS).length;
+  const pendingManagerCount = queueItems.filter(r => isPendingManagerStatus(r.status)).length;
+  const pendingHrCount = queueItems.filter(r => r.status === PENDING_HR_STATUS).length;
   const pendingCount = pendingManagerCount + pendingHrCount;
-  const inProgressCount = items.filter(r => r.status === "in_progress").length;
-  const doneCount = items.filter(r => r.status === "done").length;
+  const inProgressCount = queueItems.filter(r => r.status === "in_progress").length;
+  const doneCount = queueItems.filter(r => r.status === "done" || r.status === "approved").length;
 
   return (
     <div>
@@ -316,7 +379,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
           </>
         )}
         stats={[
-          { label: "Total", n: items.length, color: "#2C3625" },
+          { label: "Total", n: queueItems.length, color: "#2C3625" },
           { label: "Pending", n: pendingCount, color: "#6B5218" },
           { label: "Manager", n: pendingManagerCount, color: "#6B5218" },
           { label: "HR", n: pendingHrCount, color: "#965132" },
@@ -332,7 +395,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
             <div className="text-[10px] tracking-[0.2em] font-bold opacity-90 mb-2">REQUEST OVERVIEW</div>
             <div className="req-leave-stat-grid">
               <div className="req-leave-stat-box">
-                <div className="req-leave-stat-val">{items.length}</div>
+                <div className="req-leave-stat-val">{queueItems.length}</div>
                 <div className="req-leave-stat-lbl">Total</div>
               </div>
               <div className="req-leave-stat-box">
@@ -353,10 +416,10 @@ export default function Requests({ personal = false, embedded = false, managerVi
           <div className="req-panel-head">
             <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>{staffLabel}</h2>
             <p className="text-xs mt-1 mb-2" style={{ color: "#8B9E7A" }}>
-              {managerView ? "Review therapist submissions — status & HR forwarding only" : "Supplies · schedule changes · rewards · general"}
+              {managerView ? "Leave · salary certificate · supplies · general — one queue" : "Supplies · schedule changes · rewards · general"}
             </p>
             <div className="flex gap-1.5 flex-wrap">
-              <button onClick={() => setFilter("all")} className={`pill text-[10px] ${filter==="all" ? "bg-[#7A8A6A] text-white" : "bg-[#F0E9D8]"}`}>All ({items.length})</button>
+              <button onClick={() => setFilter("all")} className={`pill text-[10px] ${filter==="all" ? "bg-[#7A8A6A] text-white" : "bg-[#F0E9D8]"}`}>All ({queueItems.length})</button>
               <button onClick={() => setFilter("pending_manager")} className={`pill text-[10px] border ${filter==="pending_manager" ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : STATUS_MAP.pending_manager.cls}`}>
                 Manager ({pendingManagerCount})
               </button>
@@ -365,7 +428,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
               </button>
               {["in_progress", "approved", "rejected", "done"].map(k => (
                 <button key={k} onClick={() => setFilter(k)} className={`pill text-[10px] border ${filter===k ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : STATUS_MAP[k].cls}`}>
-                  {STATUS_MAP[k].label} ({items.filter(r => r.status === k).length})
+                  {STATUS_MAP[k].label} ({queueItems.filter(r => r.status === k).length})
                 </button>
               ))}
             </div>
@@ -393,10 +456,13 @@ export default function Requests({ personal = false, embedded = false, managerVi
                   )}
                   {filtered.map(r => {
                     const st = STATUS_MAP[r.status] || STATUS_MAP.pending;
-                    const tp = TYPES.find(t => t.id === r.request_type) || TYPES[4];
+                    const isLeave = r._queueKind === "leave";
+                    const tp = isLeave
+                      ? { label: r.typeLabel, color: r.typeColor }
+                      : (TYPES.find(t => t.id === r.request_type) || TYPES[4]);
                     const wf = managerWorkflowLabel(r);
                     return (
-                      <tr key={r.id}>
+                      <tr key={isLeave ? `leave-${r.id}` : r.id}>
                         <td className="font-semibold" style={{ color: "#2C3625" }}>{r.therapist_name || "—"}</td>
                         <td>
                           <span className="pill text-[10px]" style={{ background: `${tp.color}20`, color: tp.color }}>{tp.label}</span>
@@ -419,7 +485,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                         <td className="text-right">
                           <button
                             type="button"
-                            data-testid={`review-request-${r.id}`}
+                            data-testid={`review-request-${isLeave ? "leave" : "staff"}-${r.id}`}
                             onClick={() => openManagerReview(r)}
                             className="btn btn-primary text-[11px] py-1.5 px-3"
                           >
@@ -793,13 +859,19 @@ export default function Requests({ personal = false, embedded = false, managerVi
           title={managerView ? "Review Request" : (statusEdit.title || "Update Request")}
           subtitle={
             managerView
-              ? `${statusEdit.therapist_name || "Therapist"} · ${TYPES.find(t => t.id === statusEdit.request_type)?.label || statusEdit.request_type}`
+              ? statusEdit._queueKind === "leave"
+                ? `${statusEdit.therapist_name || "Therapist"} · ${statusEdit.typeLabel || "Leave"} · ${fmtLeaveSchedule(statusEdit._leave || {})}`
+                : `${statusEdit.therapist_name || "Therapist"} · ${TYPES.find(t => t.id === statusEdit.request_type)?.label || statusEdit.request_type}`
               : `${STATUS_MAP[statusEdit.status]?.label || statusEdit.status} · ${statusEdit.created_at ? new Date(statusEdit.created_at).toLocaleDateString("en-US") : ""}`
           }
           onClose={closeStatusModal}
           size="md"
           footer={
-            managerView && isManager && (isPendingManagerStatus(statusEdit.status) || statusEdit.status === "in_progress") ? (
+            managerView && isManager && (
+              statusEdit._queueKind === "leave"
+                ? isPendingManagerStatus(statusEdit.status)
+                : (isPendingManagerStatus(statusEdit.status) || statusEdit.status === "in_progress")
+            ) ? (
               <>
                 <ModalBtnSecondary type="button" onClick={closeStatusModal}>Cancel</ModalBtnSecondary>
                 <ModalBtnPrimary data-testid="status-save-btn" type="button" onClick={handleManagerStatusSave}>
@@ -825,7 +897,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                   Request details are read-only. Set status, add a note, and choose whether to forward to HR — then حفظ وإرسال.
                 </p>
               )}
-              {requestAwaitingAttachment(statusEdit) && (
+              {queueItemAwaitingAttachment(statusEdit) && (
                 <div className="rounded-xl p-3 mb-3 text-xs font-semibold border" style={{ background: "#F8EBE7", borderColor: "#ECA6A6", color: "#8A3F27" }}>
                   Awaiting attachment — request will NOT be reviewed until the therapist uploads a file.
                 </div>
@@ -841,7 +913,11 @@ export default function Requests({ personal = false, embedded = false, managerVi
                   )}
                   <div className="rounded-xl p-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
                     <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#8B9E7A" }}>Type</div>
-                    <div className="font-semibold" style={{ color: "#2C3625" }}>{TYPES.find(t => t.id === statusEdit.request_type)?.label || statusEdit.request_type}</div>
+                    <div className="font-semibold" style={{ color: "#2C3625" }}>
+                      {statusEdit._queueKind === "leave"
+                        ? statusEdit.typeLabel
+                        : (TYPES.find(t => t.id === statusEdit.request_type)?.label || statusEdit.request_type)}
+                    </div>
                   </div>
                   <div className="rounded-xl p-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
                     <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#8B9E7A" }}>Submitted</div>
@@ -863,12 +939,29 @@ export default function Requests({ personal = false, embedded = false, managerVi
                   )}
                 </div>
 
+                {statusEdit._queueKind === "leave" && statusEdit._leave && (
+                  <div className="rounded-xl p-3 mb-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
+                    <div className="text-xs font-semibold mb-1" style={{ color: "#9CA3AF" }}>Schedule</div>
+                    <div className="font-semibold" style={{ color: "#1C2617" }}>{fmtLeaveSchedule(statusEdit._leave)}</div>
+                    <div className="text-xs mt-1" style={{ color: "#8B9E7A" }}>{statusEdit._leave.days} day(s)</div>
+                  </div>
+                )}
+
+                {statusEdit._queueKind !== "leave" && (
                 <div className="text-sm rounded-xl p-3 mb-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
                   <div className="text-xs font-semibold mb-1" style={{ color: "#9CA3AF" }}>Subject</div>
                   <div className="font-semibold" style={{ color: "#1C2617" }}>{statusEdit.title}</div>
                 </div>
+                )}
 
-                {statusEdit.description && (
+                {statusEdit._queueKind === "leave" && statusEdit._leave?.notes && (
+                  <div className="text-sm rounded-xl p-3 mb-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
+                    <div className="text-xs font-semibold mb-1" style={{ color: "#9CA3AF" }}>Note</div>
+                    <div style={{ color: "#1C2617" }}>{statusEdit._leave.notes}</div>
+                  </div>
+                )}
+
+                {statusEdit._queueKind !== "leave" && statusEdit.description && (
                   <div className="text-sm rounded-xl p-3 mb-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
                     <div className="text-xs font-semibold mb-1" style={{ color: "#9CA3AF" }}>Description</div>
                     <div style={{ color: "#1C2617" }}>{statusEdit.description}</div>
@@ -886,6 +979,21 @@ export default function Requests({ personal = false, embedded = false, managerVi
                   <div className="text-sm rounded-xl p-3 mb-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
                     <div className="text-xs font-semibold mb-1" style={{ color: "#9CA3AF" }}>Reward type</div>
                     <div style={{ color: "#1C2617" }}>{REWARD_TYPES.find(r => r.id === statusEdit.reward_type)?.label || statusEdit.reward_type}</div>
+                  </div>
+                )}
+
+                {statusEdit._leave?.document_file_path && (
+                  <div className="text-sm rounded-xl p-3 mb-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
+                    <div className="text-xs font-semibold mb-1" style={{ color: "#9CA3AF" }}>Attachment</div>
+                    <a
+                      href={`${API}/leaves/${statusEdit.leaveId}/document`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-semibold underline"
+                      style={{ color: "#5C8A47" }}
+                    >
+                      <FileArrowDown size={14}/> View attachment (read-only)
+                    </a>
                   </div>
                 )}
 
@@ -921,10 +1029,17 @@ export default function Requests({ personal = false, embedded = false, managerVi
                 )}
               </FormSection>
 
-              {(!managerView || (isManager && (isPendingManagerStatus(statusEdit.status) || statusEdit.status === "in_progress"))) && !requestAwaitingAttachment(statusEdit) && (
+              {(!managerView || (isManager && (
+                statusEdit._queueKind === "leave"
+                  ? isPendingManagerStatus(statusEdit.status)
+                  : (isPendingManagerStatus(statusEdit.status) || statusEdit.status === "in_progress")
+              ))) && !queueItemAwaitingAttachment(statusEdit) && (
                 <FormSection title="Status">
                   <div className="grid grid-cols-1 gap-2">
-                    {allowedStatusOptions(user, statusEdit.status).map(k => {
+                    {(statusEdit._queueKind === "leave"
+                      ? ["pending_manager", "rejected"]
+                      : allowedStatusOptions(user, statusEdit.status)
+                    ).map(k => {
                       const v = STATUS_MAP[k] || STATUS_MAP.pending;
                       return (
                         <button
@@ -944,7 +1059,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                       rows={3}
                       value={statusEdit.admin_note || ""}
                       onChange={e => setStatusEdit({ ...statusEdit, admin_note: e.target.value })}
-                      readOnly={managerView && !isPendingManagerStatus(statusEdit.status) && statusEdit.status !== "in_progress"}
+                      readOnly={managerView && statusEdit._queueKind !== "leave" && !isPendingManagerStatus(statusEdit.status) && statusEdit.status !== "in_progress"}
                     />
                   </FormField>
 
@@ -973,9 +1088,15 @@ export default function Requests({ personal = false, embedded = false, managerVi
                 </FormSection>
               )}
 
-              {managerView && isManager && !isPendingManagerStatus(statusEdit.status) && statusEdit.status !== "in_progress" && (
+              {managerView && isManager && statusEdit._queueKind !== "leave" && !isPendingManagerStatus(statusEdit.status) && statusEdit.status !== "in_progress" && (
                 <div className="text-sm rounded-xl p-3" style={{ background: "#FAF0D1", color: "#6B5218" }}>
                   This request has been forwarded to HR. Further status changes are handled by HR.
+                </div>
+              )}
+
+              {managerView && isManager && statusEdit._queueKind === "leave" && statusEdit.status === "pending_hr" && (
+                <div className="text-sm rounded-xl p-3" style={{ background: "#FAF0D1", color: "#6B5218" }}>
+                  This leave request has been forwarded to HR. Further status changes are handled by HR.
                 </div>
               )}
           </>

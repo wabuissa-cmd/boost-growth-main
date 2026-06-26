@@ -85,7 +85,6 @@ export default function Home() {
   const [therapistRows, setTherapistRows] = useState([]);
   const [managerRequests, setManagerRequests] = useState([]);
   const [managerPendingTotal, setManagerPendingTotal] = useState(0);
-  const [managerPendingLeaves, setManagerPendingLeaves] = useState(0);
 
   useEffect(() => {
     setHeroImageId(loadHeroPreference(user));
@@ -207,28 +206,48 @@ export default function Home() {
     if (!jenan) {
       setManagerRequests([]);
       setManagerPendingTotal(0);
-      setManagerPendingLeaves(0);
       return;
     }
-    const pendingStatuses = ["pending", "pending_manager", "pending_hr", "pending_attachment"];
+    const pendingStaffStatuses = ["pending", "pending_manager", "in_progress"];
+    const pendingLeaveStatuses = ["pending", "pending_manager", "pending_attachment"];
     Promise.all([
       api.get("/requests", { params: { scope: "staff" } }),
       api.get("/leaves", { params: { scope: "staff" } }),
     ])
       .then(([reqRes, leaveRes]) => {
         const rows = Array.isArray(reqRes.data) ? reqRes.data : [];
-        const pending = rows.filter(x =>
-          ["pending", "pending_manager", "in_progress"].includes(x.status)
-        );
-        setManagerPendingTotal(pending.length);
-        setManagerRequests(pending.slice(0, 6));
+        const pendingStaff = rows
+          .filter(x => pendingStaffStatuses.includes(x.status))
+          .map(r => ({
+            kind: "staff",
+            id: r.id,
+            title: r.title,
+            therapist_name: r.therapist_name,
+            request_type: r.request_type,
+            status: r.status,
+            created_at: r.created_at,
+          }));
         const leaves = Array.isArray(leaveRes.data) ? leaveRes.data : [];
-        setManagerPendingLeaves(leaves.filter(l => pendingStatuses.includes(l.status)).length);
+        const pendingLeaves = leaves
+          .filter(l => pendingLeaveStatuses.includes(l.status))
+          .map(l => ({
+            kind: "leave",
+            id: l.id,
+            title: l.leave_type === "Permission" ? "Permission" : (l.leave_type === "Sickleave" ? "Sick Leave" : l.leave_type === "Annual" ? "Annual Leave" : l.leave_type || "Leave"),
+            therapist_name: l.therapist_name,
+            request_type: "leave",
+            leave_type: l.leave_type,
+            status: l.status,
+            created_at: l.created_at,
+          }));
+        const unified = [...pendingStaff, ...pendingLeaves]
+          .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+        setManagerPendingTotal(unified.length);
+        setManagerRequests(unified.slice(0, 6));
       })
       .catch(() => {
         setManagerRequests([]);
         setManagerPendingTotal(0);
-        setManagerPendingLeaves(0);
       });
   }, [jenan, user?.id]);
 
@@ -430,11 +449,8 @@ export default function Home() {
                 <div>
                   <div className="text-xs font-bold uppercase tracking-widest" style={{ color: "#8B9E7A" }}>Request updates</div>
                   <div className="font-bold text-sm mt-0.5" style={{ color: "#2C3625" }}>
-                    {managerPendingTotal > 0 || managerPendingLeaves > 0
-                      ? [
-                          managerPendingTotal > 0 ? `${managerPendingTotal} staff request${managerPendingTotal === 1 ? "" : "s"}` : null,
-                          managerPendingLeaves > 0 ? `${managerPendingLeaves} leave request${managerPendingLeaves === 1 ? "" : "s"}` : null,
-                        ].filter(Boolean).join(" · ") + " need your review"
+                    {managerPendingTotal > 0
+                      ? `${managerPendingTotal} therapist request${managerPendingTotal === 1 ? "" : "s"} need your review`
                       : "No pending therapist requests"}
                   </div>
                 </div>
@@ -442,20 +458,11 @@ export default function Home() {
                   Manager Hub <ArrowRight size={14}/>
                 </Link>
               </div>
-              {(managerPendingLeaves > 0 && managerRequests.length === 0) && (
-                <Link
-                  to="/manager?tab=leave"
-                  className="block mb-3 p-2.5 rounded-xl no-underline text-inherit text-xs font-semibold"
-                  style={{ background: "rgba(255,255,255,0.55)", border: "1px solid #EDE9E3", color: "#6B5218" }}
-                >
-                  {managerPendingLeaves} leave request{managerPendingLeaves === 1 ? "" : "s"} awaiting review — open Leave Requests tab
-                </Link>
-              )}
               {managerRequests.length > 0 ? (
                 <div className="space-y-2 max-h-48 overflow-y-auto">
                   {managerRequests.map((r) => (
                     <Link
-                      key={r.id}
+                      key={`${r.kind}-${r.id}`}
                       to="/manager"
                       className="flex items-center justify-between gap-2 p-2.5 rounded-xl no-underline text-inherit transition hover:bg-white/70"
                       style={{ background: "rgba(255,255,255,0.55)", border: "1px solid #EDE9E3" }}
@@ -463,7 +470,7 @@ export default function Home() {
                       <div className="min-w-0">
                         <div className="font-semibold text-sm truncate" style={{ color: "#2C3625" }}>{r.title}</div>
                         <div className="text-[11px] truncate" style={{ color: "#8B9E7A" }}>
-                          {r.therapist_name || "Therapist"} · {r.request_type?.replace(/_/g, " ")}
+                          {r.therapist_name || "Therapist"} · {r.kind === "leave" ? (r.leave_type || "leave").replace("Sickleave", "Sick") : (r.request_type?.replace(/_/g, " ") || "request")}
                         </div>
                       </div>
                       <span className="pill text-[10px] shrink-0" style={{ background: "#FAF0D1", color: "#6B5218" }}>

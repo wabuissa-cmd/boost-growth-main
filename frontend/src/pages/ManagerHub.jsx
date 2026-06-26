@@ -4,7 +4,6 @@ import api from "../api";
 import { useAuth, isJenan } from "../auth";
 import PageBanner from "../components/PageBanner";
 import Requests from "./Requests";
-import LeaveRequests from "./LeaveRequests";
 import LeaveBalance from "./LeaveBalance";
 import {
   MagnifyingGlass, Warning, UserCircle, FileText,
@@ -13,7 +12,6 @@ import { getTherapistScheduleName } from "../scheduleConstants";
 
 const MAIN_TABS = [
   { id: "staff", label: "Therapists' Requests", testid: "mgr-tab-staff" },
-  { id: "leave", label: "Leave Requests", testid: "mgr-tab-leave" },
   { id: "balance", label: "Leave Balance", testid: "mgr-tab-balance" },
   { id: "profiles", label: "Therapist Profiles", testid: "mgr-tab-profiles" },
 ];
@@ -206,9 +204,12 @@ export default function ManagerHub() {
     return <Navigate to="/home" replace />;
   }
 
-  const activeTab = MAIN_TABS.some(t => t.id === searchParams.get("tab"))
-    ? searchParams.get("tab")
-    : "staff";
+  const tabParam = searchParams.get("tab");
+  const activeTab = tabParam === "leave"
+    ? "staff"
+    : MAIN_TABS.some(t => t.id === tabParam)
+      ? tabParam
+      : "staff";
 
   const setTab = (id) => {
     const next = new URLSearchParams(searchParams);
@@ -220,7 +221,7 @@ export default function ManagerHub() {
     <div className="page-enter">
       <PageBanner
         title="Manager Hub"
-        subtitle="Review therapists' requests · leave balances · profiles"
+        subtitle="All therapist requests in one queue · leave balances · profiles"
         badge={(
           <Link to="/my-requests" className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0">
             <FileText size={13}/> My Requests
@@ -243,7 +244,6 @@ export default function ManagerHub() {
       </div>
 
       {activeTab === "staff" && <Requests embedded managerView />}
-      {activeTab === "leave" && <LeaveRequests embedded />}
       {activeTab === "balance" && <LeaveBalance embedded staffScope />}
       {activeTab === "profiles" && <TherapistProfilesTab />}
     </div>
