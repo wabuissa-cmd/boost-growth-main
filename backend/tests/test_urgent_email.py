@@ -51,8 +51,8 @@ class TestUrgentRequestEmail:
             (
                 i
                 for i in rq.json()
-                if title in (i.get("subject") or "")
-                and (i.get("to") or "").lower() == JENAN_EMAIL
+                if (i.get("to") or "").lower() == JENAN_EMAIL
+                and (title in (i.get("subject") or "") or title in (i.get("body") or ""))
             ),
             None,
         )

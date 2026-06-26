@@ -1310,7 +1310,7 @@ async def _email_hr_ops_urgent(subject: str, body: str) -> List[dict]:
     return results
 
 
-async def _notify_request_submitted(title: str, message: str):
+async def _notify_request_submitted(title: str, message: str, *, email_subject: Optional[str] = None):
     """Jenan (manager) gets in-app + urgent email; HR gets in-app only until manager forwards."""
     jenan_id = await _jenan_therapist_id()
     if jenan_id:
@@ -1321,7 +1321,7 @@ async def _notify_request_submitted(title: str, message: str):
     if portal:
         body += f"\nReview in portal: {portal}/requests\n"
     body += "\n— Boost Growth Portal"
-    await _send_urgent_email(await _jenan_recipient_email(), title, body)
+    await _send_urgent_email(await _jenan_recipient_email(), email_subject or title, body)
 
 
 async def _walaa_notify_user_ids() -> List[str]:
@@ -5291,7 +5291,11 @@ async def create_request(payload: RequestIn, user=Depends(get_current_user)):
     await db.requests.insert_one(doc)
     doc.pop("_id", None)
     msg = f"{user.get('name')}: {payload.title} (priority: {payload.priority})"
-    await _notify_request_submitted(f"New {payload.request_type} request", msg)
+    await _notify_request_submitted(
+        f"New {payload.request_type} request",
+        msg,
+        email_subject=f"New staff request: {payload.title}",
+    )
     return _enrich_request_attachment(doc)
 
 
@@ -5378,7 +5382,11 @@ async def upload_request_attachment(
     await db.requests.insert_one(doc)
     doc.pop("_id", None)
     msg = f"{user.get('name')}: {doc['title']} (report date: {report_date})"
-    await _notify_request_submitted("New report attachment", msg)
+    await _notify_request_submitted(
+        "New report attachment",
+        msg,
+        email_subject=f"New report attachment: {doc['title']}",
+    )
     return _enrich_request_attachment(doc)
 
 
