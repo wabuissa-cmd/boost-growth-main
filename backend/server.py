@@ -483,6 +483,11 @@ class SchedulePreparationIn(BaseModel):
     schedule_cell_id: Optional[str] = None
     week_start: Optional[str] = None
     day: Optional[int] = None
+    notes: Optional[str] = None
+
+class PrepHistoryInvoiceLinkIn(BaseModel):
+    invoice_id: Optional[str] = None
+    notes: Optional[str] = None
 
 class LocationIn(BaseModel):
     service: str
@@ -948,7 +953,7 @@ async def delete_therapist(tid: str, _=Depends(admin_only)):
 # ------------------- Full Database Backup (admin only) -------------------
 BACKUP_COLLECTIONS = [
     "users", "therapists", "clients", "sessions", "invoices",
-    "leaves", "requests", "progress_reports", "schedule_cells", "schedule_preparations",
+    "leaves", "requests", "progress_reports", "schedule_cells", "schedule_preparations", "prep_history",
     "intake_pre", "intake_post", "notifications", "attendance_sheets",
     "email_settings", "email_queue",
 ]
@@ -1486,6 +1491,91 @@ async def list_schedule(week_start: Optional[str] = None, user=Depends(get_curre
     return cells
 
 
+def _prep_history_key(therapist_id: str, client_id: str, session_date: str, time_slot: Optional[str] = None) -> dict:
+    return {
+        "therapist_id": therapist_id,
+        "client_id": client_id,
+        "session_date": (session_date or "")[:10],
+        "time_slot": (time_slot or "").strip(),
+    }
+
+
+async def _upsert_prep_history(
+    *,
+    therapist_id: str,
+    client_id: str,
+    session_date: str,
+    prepared_by: str,
+    time_slot: Optional[str] = None,
+    client_name: Optional[str] = None,
+    notes: Optional[str] = None,
+    invoice_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    schedule_cell_id: Optional[str] = None,
+    source: str = "schedule",
+) -> dict:
+    """Persistent preparation log — visible in Preparation history even without an invoice."""
+    session_date = (session_date or "")[:10]
+    q = _prep_history_key(therapist_id, client_id, session_date, time_slot)
+    if not client_name:
+        client = await db.clients.find_one({"id": client_id}, {"_id": 0, "name": 1})
+        client_name = (client or {}).get("name") or ""
+    existing = await db.prep_history.find_one(q, {"_id": 0})
+    doc = {
+        **q,
+        "client_name": client_name,
+        "prepared_by": prepared_by,
+        "prepared_at": now_iso(),
+        "notes": notes or "",
+        "source": source,
+    }
+    if schedule_cell_id:
+        doc["schedule_cell_id"] = schedule_cell_id
+    if session_id:
+        doc["session_id"] = session_id
+    if invoice_id:
+        doc["invoice_id"] = invoice_id
+    elif existing and existing.get("invoice_id"):
+        doc["invoice_id"] = existing["invoice_id"]
+    if existing:
+        await db.prep_history.update_one({"id": existing["id"]}, {"$set": doc})
+        doc["id"] = existing["id"]
+    else:
+        doc["id"] = str(uuid.uuid4())
+        await db.prep_history.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+async def _sync_schedule_preparations_to_prep_history(client_id: Optional[str] = None) -> None:
+    """One-time backfill: legacy schedule_preparations → prep_history."""
+    q: dict = {}
+    if client_id:
+        q["client_id"] = client_id
+    rows = await db.schedule_preparations.find(q, {"_id": 0}).to_list(2000)
+    for rec in rows:
+        tid = rec.get("therapist_id")
+        cid = rec.get("client_id")
+        if not tid or not cid:
+            continue
+        key = _prep_history_key(tid, cid, rec.get("session_date", ""), rec.get("time_slot"))
+        hit = await db.prep_history.find_one(key, {"_id": 0, "id": 1})
+        if hit:
+            continue
+        client = await db.clients.find_one({"id": cid}, {"_id": 0, "name": 1})
+        doc = {
+            **key,
+            "id": str(uuid.uuid4()),
+            "client_name": (client or {}).get("name") or "",
+            "prepared_by": rec.get("prepared_by") or "",
+            "prepared_at": rec.get("prepared_at") or now_iso(),
+            "notes": "",
+            "source": "schedule",
+            "schedule_cell_id": rec.get("schedule_cell_id"),
+        }
+        await db.prep_history.insert_one(doc)
+
+
 async def _upsert_schedule_preparation(
     *,
     therapist_id: str,
@@ -1496,16 +1586,14 @@ async def _upsert_schedule_preparation(
     schedule_cell_id: Optional[str] = None,
     week_start: Optional[str] = None,
     day: Optional[int] = None,
+    notes: Optional[str] = None,
+    invoice_id: Optional[str] = None,
+    client_name: Optional[str] = None,
 ) -> dict:
     """Mark a schedule slot as preparation-complete for therapist + client + date."""
     slot = (time_slot or "").strip()
     session_date = (session_date or "")[:10]
-    q = {
-        "therapist_id": therapist_id,
-        "client_id": client_id,
-        "session_date": session_date,
-        "time_slot": slot,
-    }
+    q = _prep_history_key(therapist_id, client_id, session_date, slot)
     existing = await db.schedule_preparations.find_one(q, {"_id": 0})
     doc = {
         **q,
@@ -1522,6 +1610,18 @@ async def _upsert_schedule_preparation(
         doc["id"] = str(uuid.uuid4())
         await db.schedule_preparations.insert_one(doc)
     doc.pop("_id", None)
+    await _upsert_prep_history(
+        therapist_id=therapist_id,
+        client_id=client_id,
+        session_date=session_date,
+        prepared_by=prepared_by,
+        time_slot=slot,
+        client_name=client_name,
+        notes=notes,
+        invoice_id=invoice_id,
+        schedule_cell_id=schedule_cell_id,
+        source="schedule",
+    )
     return doc
 
 
@@ -1610,8 +1710,50 @@ async def mark_schedule_preparation(payload: SchedulePreparationIn, user=Depends
         schedule_cell_id=payload.schedule_cell_id,
         week_start=payload.week_start,
         day=payload.day,
+        notes=payload.notes,
     )
     return doc
+
+
+@api.get("/clients/{cid}/prep-history")
+async def list_client_prep_history(cid: str, user=Depends(get_current_user)):
+    """All preparation log entries for a client — includes records without an invoice sheet."""
+    client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0, "id": 1})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if user.get("role") == "therapist" and not _has_full_client_access(user):
+        uid = await _resolve_user_therapist_id(user) or user["id"]
+        if not await _therapist_assigned_to_client(uid, cid):
+            raise HTTPException(status_code=403, detail="Forbidden")
+    await _sync_schedule_preparations_to_prep_history(cid)
+    items = await db.prep_history.find({"client_id": cid}, {"_id": 0}).sort(
+        [("session_date", -1), ("prepared_at", -1)]
+    ).to_list(500)
+    return items
+
+
+@api.patch("/prep-history/{hid}")
+async def link_prep_history_invoice(hid: str, payload: PrepHistoryInvoiceLinkIn, user=Depends(get_current_user)):
+    """Attach or update invoice sheet reference on a preparation log entry."""
+    rec = await db.prep_history.find_one({"id": hid}, {"_id": 0})
+    if not rec:
+        raise HTTPException(status_code=404, detail="Not found")
+    if user.get("role") == "therapist" and not _has_full_client_access(user):
+        uid = await _resolve_user_therapist_id(user) or user["id"]
+        if not await _therapist_assigned_to_client(uid, rec["client_id"]):
+            raise HTTPException(status_code=403, detail="Forbidden")
+    patch: dict = {}
+    if payload.invoice_id is not None:
+        if payload.invoice_id:
+            inv = await db.invoices.find_one({"id": payload.invoice_id, "client_id": rec["client_id"]}, {"_id": 0, "id": 1})
+            if not inv:
+                raise HTTPException(status_code=400, detail="Invoice not found for this client")
+        patch["invoice_id"] = payload.invoice_id or None
+    if payload.notes is not None:
+        patch["notes"] = payload.notes
+    if patch:
+        await db.prep_history.update_one({"id": hid}, {"$set": patch})
+    return await db.prep_history.find_one({"id": hid}, {"_id": 0})
 
 
 async def _notification_user_ids(user: dict) -> List[str]:
@@ -5088,6 +5230,23 @@ async def create_session(payload: SessionIn, user=Depends(get_current_user)):
         await _auto_mark_schedule_preparation_for_session(doc, user["id"])
     except Exception:
         logger.exception("Auto-mark schedule preparation failed")
+    try:
+        primary_tid = (therapist_ids or [None])[0]
+        if primary_tid:
+            await _upsert_prep_history(
+                therapist_id=primary_tid,
+                client_id=payload.client_id,
+                session_date=payload.session_date,
+                prepared_by=user["id"],
+                time_slot=payload.start_time or "",
+                client_name=(client or {}).get("name"),
+                notes=payload.note,
+                invoice_id=doc.get("invoice_id"),
+                session_id=sid,
+                source="session",
+            )
+    except Exception:
+        logger.exception("Prep history log failed")
     # Admin alerts
     cname = client.get("name") if client else "—"
     if user.get("role") == "therapist":

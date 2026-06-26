@@ -400,9 +400,32 @@ export default function Attendance() {
   );
 }
 
+function PrepOnlyRow({ rec, findT, bordered = false }) {
+  const cell = bordered ? "p-2 border border-[#E0E8DC]" : "p-2";
+  const t = findT(rec.therapist_id);
+  return (
+    <tr className={bordered ? "" : "border-t border-[#E2DDD4]"} style={{ background: "#F6FAF3" }}>
+      <td className={`${cell} font-bold`}>{dayNameFromDate(rec.session_date)}</td>
+      <td className={`${cell} font-bold`}>{fmtDate(rec.session_date)}</td>
+      <td className={cell}>
+        <span className="pill text-[10px] uppercase" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+          Prep complete
+        </span>
+      </td>
+      <td className={cell}>{rec.time_slot || "—"}</td>
+      <td className={cell}>—</td>
+      <td className={cell}>{t?.name?.replace("Ms. ", "") || "—"}</td>
+      <td className={cell}>—</td>
+      <td className={cell}>—</td>
+      <td className={`${cell} italic`} style={{ color: "#5C6853" }}>{rec.notes || ""}</td>
+    </tr>
+  );
+}
+
 function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, currentUserId, onClose, onEdit, onRefresh }) {
   const findT = id => therapists.find(t => t.id === id);
   const [allInvoices, setAllInvoices] = useState([]);
+  const [prepHistory, setPrepHistory] = useState([]);
   const [serviceTypeFilter, setServiceTypeFilter] = useState(() =>
     inferDefaultServiceType([], client, user, sessions) || "HS"
   );
@@ -433,12 +456,25 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
     }
   }, [client.id]);
 
+  const fetchPrepHistory = useCallback(async () => {
+    try {
+      const r = await api.get(`/clients/${client.id}/prep-history`);
+      return r.data || [];
+    } catch {
+      return [];
+    }
+  }, [client.id]);
+
   const bootstrapModal = useCallback(async () => {
     setLoading(true);
     try {
-      const invRes = await api.get(`/clients/${client.id}/invoices`);
+      const [invRes, prepRows] = await Promise.all([
+        api.get(`/clients/${client.id}/invoices`),
+        fetchPrepHistory(),
+      ]);
       const list = invRes.data || [];
       setAllInvoices(list);
+      setPrepHistory(prepRows);
       const def = inferDefaultServiceType(list, client, user, sessions) || "HS";
       setServiceTypeFilter(def);
       const tab = resolveServiceTabState(client, list);
@@ -452,10 +488,11 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
     } catch {
       setAllInvoices([]);
       setLocalSessions([]);
+      setPrepHistory([]);
     } finally {
       setLoading(false);
     }
-  }, [client, user, sessions, fetchSessionsForInvoice]);
+  }, [client, user, sessions, fetchSessionsForInvoice, fetchPrepHistory]);
 
   useEffect(() => {
     bootstrapModal();
@@ -478,19 +515,35 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
   }, [serviceTypeFilter, allInvoices, tabState.showToggle, client, fetchSessionsForInvoice]);
 
   const reloadSessions = useCallback(async () => {
-    const data = await fetchSessionsForInvoice(selectedInvoiceId);
+    const [data, prepRows] = await Promise.all([
+      fetchSessionsForInvoice(selectedInvoiceId),
+      fetchPrepHistory(),
+    ]);
     setLocalSessions(data);
-  }, [fetchSessionsForInvoice, selectedInvoiceId]);
+    setPrepHistory(prepRows);
+  }, [fetchSessionsForInvoice, selectedInvoiceId, fetchPrepHistory]);
 
   useEffect(() => {
     if (loading) return;
     reloadSessions();
   }, [sessions]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const cycleSessions = useMemo(
-    () => filterSessionsForInvoice(localSessions, selectedInvoice, allInvoices),
-    [localSessions, selectedInvoice, allInvoices]
-  );
+  const cycleSessions = useMemo(() => {
+    if (selectedInvoice) {
+      return filterSessionsForInvoice(localSessions, selectedInvoice, allInvoices);
+    }
+    return sortSessionsByDateAsc(localSessions);
+  }, [localSessions, selectedInvoice, allInvoices]);
+
+  const prepOnlyRows = useMemo(() => {
+    const linkedSessionIds = new Set(cycleSessions.map(s => s.id));
+    return (prepHistory || []).filter(p => {
+      if (p.session_id && linkedSessionIds.has(p.session_id)) return false;
+      if (p.session_id) return false;
+      const sameDaySession = cycleSessions.some(s => (s.session_date || "").slice(0, 10) === (p.session_date || "").slice(0, 10));
+      return !sameDaySession;
+    });
+  }, [prepHistory, cycleSessions]);
   const cycleAnchor = useMemo(
     () => (selectedInvoice ? resolveCycleAnchor(client, selectedInvoice, cycleSessions) : null),
     [client, selectedInvoice, cycleSessions]
@@ -641,8 +694,19 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
             <span className="text-[10px] shrink-0 pill px-1.5 py-0.5" style={{ background: "#F0EDE9", color: "#5C6853" }}>
               {selectedInvoice.invoice_number}
             </span>
-          ) : null}
+          ) : (
+            <span className="text-[10px] shrink-0 pill px-1.5 py-0.5" style={{ background: "#FAF0D1", color: "#6B5218" }}>
+              No sheet yet
+            </span>
+          )}
         </div>
+
+        {!selectedInvoice && (
+          <div className="px-3 py-1.5 text-[10px] leading-snug no-print shrink-0"
+            style={{ background: "#FFF8E6", color: "#6B5218", borderBottom: "1px solid #E6C983" }}>
+            No invoice sheet linked yet — sessions and preparation still appear here. You can attach a sheet later.
+          </div>
+        )}
 
         {invoiceLocked && (
           <div className="px-3 py-1 text-[10px] font-bold no-print shrink-0"
@@ -685,13 +749,13 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
             )}
           </div>
 
-          {!selectedInvoice ? (
-            <div className="p-4 text-center text-sm" style={{ color: "#8B9E7A" }}>No invoice selected</div>
+          {!selectedInvoice && !loading && cycleSessions.length === 0 && prepOnlyRows.length === 0 ? (
+            <div className="p-4 text-center text-sm" style={{ color: "#8B9E7A" }}>No sessions or preparation logged yet</div>
           ) : loading ? (
             <div className="p-4 text-center text-sm" style={{ color: "#8B9E7A" }}>Loading sessions…</div>
-          ) : cycleSessions.length === 0 && !isSchool ? (
+          ) : selectedInvoice && cycleSessions.length === 0 && prepOnlyRows.length === 0 && !isSchool ? (
             <div className="p-4 text-center text-sm" style={{ color: "#8B9E7A" }}>No sessions for this invoice yet</div>
-          ) : isSchool ? (
+          ) : isSchool && selectedInvoice ? (
             <div className="p-2 space-y-2">
               {ssWeekGroups.map((group) => {
                 const wk = ssWeekSummary[group.weekNumber - 1];
@@ -800,6 +864,23 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
                   </table>
                 </div>
               </div>
+              {prepOnlyRows.length > 0 && (
+                <div className="border rounded-lg overflow-hidden bg-white mt-2" style={{ borderColor: "#C4D4B8" }}>
+                  <div className="px-2.5 py-1 font-bold text-xs" style={{ background: "#EDF4E8", color: "#2C5035" }}>
+                    PREPARATION ONLY (no session logged)
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs min-w-[520px] border-collapse">
+                      <HistoryTableHead cols={historySheetCols.filter(c => c.id !== "_action")} bordered />
+                      <tbody>
+                        {prepOnlyRows.map(rec => (
+                          <PrepOnlyRow key={rec.id} rec={rec} findT={findT} bordered />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
