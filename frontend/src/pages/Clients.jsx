@@ -690,29 +690,61 @@ function pairParagraphRows(paragraphs) {
   return out;
 }
 
-function renderPairedRows(rows, keyPrefix) {
-  return rows.map((item, ri) => {
-    if (item.kind === "heading") {
-      return (
-        <tr key={`${keyPrefix}-h-${ri}`} className="case-summary-sheet__subhead">
-          <td colSpan={2}>{item.text}</td>
-        </tr>
-      );
-    }
-    if (item.kind === "para") {
-      return (
-        <tr key={`${keyPrefix}-p-${ri}`} className="case-summary-sheet__para-row">
-          <td colSpan={2}>{item.text}</td>
-        </tr>
-      );
-    }
-    return (
-      <tr key={`${keyPrefix}-kv-${ri}`}>
-        <td className="case-summary-sheet__label">{item.label}</td>
-        <td className="case-summary-sheet__value">{item.value}</td>
-      </tr>
-    );
+function splitValueLines(value) {
+  const text = String(value || "").trim();
+  if (!text) return [];
+  return text
+    .split(/\n+/)
+    .flatMap((line) => {
+      const t = line.trim();
+      if (!t) return [];
+      if (/^[•·▪◆\-–]\s/.test(t)) return [t.replace(/^[•·▪◆\-–]\s+/, "")];
+      return [t];
+    })
+    .filter(Boolean);
+}
+
+function CaseSummaryValue({ value, bullets }) {
+  const items = [];
+  (bullets || []).forEach((b) => {
+    const t = String(b || "").trim();
+    if (t) items.push(t);
   });
+  splitValueLines(value).forEach((line) => {
+    if (!items.includes(line)) items.push(line);
+  });
+  if (items.length > 1) {
+    return (
+      <ul className="case-summary-pr__list">
+        {items.map((item, i) => (
+          <li key={i}>{item}</li>
+        ))}
+      </ul>
+    );
+  }
+  if (items.length === 1) return <>{items[0]}</>;
+  return <>{"—"}</>;
+}
+
+function buildCaseSummaryRows(sections, clientName, fileNo) {
+  const rows = [];
+  const clientLabel = isMostlyArabic(clientName) ? "العميل" : "Client";
+  const fileLabel = isMostlyArabic(clientName) ? "رقم الملف" : "File #";
+  rows.push({ kind: "kv", label: clientLabel, value: clientName || "—", key: "meta-client" });
+  rows.push({ kind: "kv", label: fileLabel, value: fileNo || "—", key: "meta-file" });
+
+  sections.forEach((sec, si) => {
+    if (sec.heading) rows.push({ kind: "section", text: sec.heading, key: `sec-${si}` });
+    (sec.tables || []).forEach((table) => {
+      pairTableRows(table).forEach((item, ri) => rows.push({ ...item, key: `t-${si}-${ri}` }));
+    });
+    pairParagraphRows(sec.paragraphs).forEach((item, ri) => rows.push({ ...item, key: `p-${si}-${ri}` }));
+    const bullets = (sec.bullets || []).map((b) => String(b || "").trim()).filter(Boolean);
+    if (bullets.length) {
+      rows.push({ kind: "kv", label: "•", bullets, key: `b-${si}` });
+    }
+  });
+  return rows;
 }
 
 function CaseSummaryView({ sections, clientName, fileNo }) {
@@ -731,66 +763,51 @@ function CaseSummaryView({ sections, clientName, fileNo }) {
     ...(sec.tables || []).flat(2),
   ]).join(" ");
   const rtl = isMostlyArabic(allText);
-
-  const rows = [];
-  rows.push({ kind: "kv", label: "Client", value: clientName || "—" });
-  rows.push({ kind: "kv", label: "File #", value: fileNo || "—" });
-
-  sections.forEach((sec, si) => {
-    if (sec.heading) rows.push({ kind: "section", text: sec.heading });
-    (sec.tables || []).forEach((table) => {
-      pairTableRows(table).forEach((item, ri) => rows.push({ ...item, key: `t-${si}-${ri}` }));
-    });
-    pairParagraphRows(sec.paragraphs).forEach((item, ri) => rows.push({ ...item, key: `p-${si}-${ri}` }));
-    (sec.bullets || []).forEach((b, bi) => {
-      rows.push({ kind: "kv", label: "•", value: b, key: `b-${si}-${bi}` });
-    });
-  });
+  const rows = buildCaseSummaryRows(sections, clientName, fileNo);
 
   return (
-    <div className={`case-summary-form${rtl ? " case-summary-form--rtl" : ""}`} dir={rtl ? "rtl" : "ltr"}>
-      <table className="case-summary-form__table">
-        <tbody>
-          {rows.map((item, i) => {
-            if (item.kind === "section") {
-              return (
-                <tr key={`sec-${i}`} className="case-summary-form__section">
-                  <td colSpan={2}>{item.text}</td>
-                </tr>
-              );
-            }
-            if (item.kind === "heading") {
-              return (
-                <tr key={item.key || `h-${i}`} className="case-summary-form__section">
-                  <td colSpan={2}>{item.text}</td>
-                </tr>
-              );
-            }
-            if (item.kind === "para") {
-              const colon = String(item.text || "").split(/[:：]\s*/, 2);
-              if (colon.length === 2 && colon[0].length < 56) {
+    <div className={`case-summary-pr${rtl ? " case-summary-pr--rtl" : ""}`} dir={rtl ? "rtl" : "ltr"}>
+      <div className="case-summary-pr__scroll">
+        <table className="case-summary-pr__table">
+          <tbody>
+            {rows.map((item, i) => {
+              if (item.kind === "section" || item.kind === "heading") {
                 return (
-                  <tr key={item.key || `p-${i}`}>
-                    <th className="case-summary-form__label">{colon[0]}</th>
-                    <td className="case-summary-form__value">{colon[1]}</td>
+                  <tr key={item.key || `sec-${i}`} className="case-summary-pr__section-row">
+                    <td colSpan={2}>{item.text}</td>
+                  </tr>
+                );
+              }
+              if (item.kind === "para") {
+                const colon = String(item.text || "").split(/[:：]\s*/, 2);
+                if (colon.length === 2 && colon[0].length < 56 && !isLongParagraph(colon[1])) {
+                  return (
+                    <tr key={item.key || `p-${i}`}>
+                      <td className="case-summary-pr__label">{colon[0]}</td>
+                      <td className="case-summary-pr__value">
+                        <CaseSummaryValue value={colon[1]} />
+                      </td>
+                    </tr>
+                  );
+                }
+                return (
+                  <tr key={item.key || `p-${i}`} className="case-summary-pr__para-row">
+                    <td colSpan={2}>{item.text}</td>
                   </tr>
                 );
               }
               return (
-                <tr key={item.key || `p-${i}`}>
-                  <td colSpan={2} className="case-summary-form__value case-summary-form__value--full">{item.text}</td>
+                <tr key={item.key || `kv-${i}`}>
+                  <td className="case-summary-pr__label">{item.label}</td>
+                  <td className="case-summary-pr__value">
+                    <CaseSummaryValue value={item.value} bullets={item.bullets} />
+                  </td>
                 </tr>
               );
-            }
-            return (
-              <tr key={item.key || `kv-${i}`}>
-                <th className="case-summary-form__label">{item.label}</th>
-                <td className="case-summary-form__value">{item.value}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

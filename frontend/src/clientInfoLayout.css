@@ -598,9 +598,6 @@
   }
   .ci-section-card-body { flex: 1; min-width: 0; }
   .records-modal-btn { min-height: 44px; }
-  .case-summary-dl { grid-template-columns: 1fr !important; }
-  .case-summary-dl dt { padding-top: 0.65rem; }
-  .case-summary-dl dd { grid-column: 1; padding-bottom: 0.35rem; }
 }
 
 /* All Clients picker */
@@ -1201,71 +1198,102 @@
   border-right: 2px solid #C4D4B8;
 }
 
-/* Case Summary — label | value form rows */
-.case-summary-form {
-  border: 1px solid #D8E0D0;
-  border-radius: 12px;
+/* Case Summary — progress-report bordered table (label | value) */
+.case-summary-pr {
+  border: 1px solid #8B9E7A;
+  border-radius: 4px;
   overflow: hidden;
   background: #fff;
-}
-.case-summary-form--rtl .case-summary-form__label {
-  text-align: right;
-}
-.case-summary-form__table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  font-size: 0.82rem;
   color: #2C3625;
 }
-.case-summary-form__table tr {
-  border-bottom: 1px solid #E8EDE3;
+.case-summary-pr__scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
-.case-summary-form__table tr:last-child {
-  border-bottom: none;
+.case-summary-pr__table {
+  width: 100%;
+  min-width: 420px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 0.8rem;
+  line-height: 1.55;
 }
-.case-summary-form__label {
-  width: 34%;
+.case-summary-pr__table td {
+  border: 1px solid #4A5D42;
+  padding: 0.55rem 0.7rem;
+  vertical-align: middle;
+}
+.case-summary-pr__label {
+  width: 36%;
   min-width: 7.5rem;
-  padding: 0.65rem 0.85rem;
+  max-width: 42%;
   font-weight: 700;
-  vertical-align: top;
-  background: #F5F8F2;
-  border-right: 1px solid #E8EDE3;
-  color: #5C6853;
-}
-.case-summary-form--rtl .case-summary-form__label {
-  border-right: none;
-  border-left: 1px solid #E8EDE3;
-}
-.case-summary-form__value {
-  padding: 0.65rem 0.85rem;
-  vertical-align: top;
-  line-height: 1.45;
+  text-align: center;
+  background: #E8ECE4;
+  color: #2C5035;
   white-space: pre-wrap;
 }
-.case-summary-form__value--full {
-  background: #FAFAF7;
+.case-summary-pr__value {
+  width: 64%;
+  background: #fff;
+  text-align: start;
+  white-space: pre-wrap;
 }
-.case-summary-form__section td {
-  padding: 0.5rem 0.85rem;
-  background: #EDF4E8;
-  font-size: 0.68rem;
+.case-summary-pr__section-row td {
+  background: linear-gradient(180deg, #C8D8B8 0%, #B5C9A5 100%);
   font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #2C5035;
-  border-bottom: 1px solid #C4D4B8;
+  font-size: 0.78rem;
+  text-align: center;
+  color: #1E3328;
+  padding: 0.5rem 0.75rem;
+  border-color: #6B8F71;
+}
+.case-summary-pr__para-row td {
+  background: #FAFAF7;
+  line-height: 1.65;
+  padding: 0.65rem 0.85rem;
+}
+.case-summary-pr__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.case-summary-pr__list li {
+  position: relative;
+  padding-inline-start: 1.1rem;
+  margin-bottom: 0.35rem;
+}
+.case-summary-pr__list li:last-child {
+  margin-bottom: 0;
+}
+.case-summary-pr__list li::before {
+  content: "◆";
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0.05em;
+  font-size: 0.55rem;
+  color: #6B8F71;
+  line-height: 1.6;
+}
+.case-summary-pr--rtl {
+  direction: rtl;
+}
+.case-summary-pr--rtl .case-summary-pr__label {
+  text-align: center;
+}
+.case-summary-pr--rtl .case-summary-pr__value {
+  text-align: right;
 }
 @media (max-width: 640px) {
-  .case-summary-form__label {
-    width: 38%;
-    min-width: 5.5rem;
-    font-size: 0.75rem;
-    padding: 0.5rem 0.55rem;
+  .case-summary-pr__table {
+    min-width: 360px;
+    font-size: 0.76rem;
   }
-  .case-summary-form__value {
-    padding: 0.5rem 0.55rem;
-    font-size: 0.78rem;
+  .case-summary-pr__label {
+    min-width: 6.5rem;
+    padding: 0.45rem 0.5rem;
+  }
+  .case-summary-pr__value {
+    padding: 0.45rem 0.55rem;
   }
 }
