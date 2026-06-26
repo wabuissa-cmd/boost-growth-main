@@ -1,6 +1,6 @@
 import { Component, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth, isJenan, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, hasFullClientAccess, showSystemAdmin, canImportData, canViewReports } from "./auth";
+import { AuthProvider, useAuth, isJenan, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, hasFullClientAccess, showSystemAdmin, canImportData, canViewReports, showMyReportsNav } from "./auth";
 import Login from "./pages/Login";
 import Shell from "./pages/Shell";
 import "./App.css";
@@ -116,6 +116,14 @@ function ManagerHubAccess({ children }) {
   return children;
 }
 
+function MyReportsAccess({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <Loading/>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!showMyReportsNav(user)) return <Navigate to="/home" replace />;
+  return children;
+}
+
 function ImportAccess({ children }) {
   const { user } = useAuth();
   if (user === null) return <Loading/>;
@@ -145,7 +153,7 @@ function AppRoutes() {
         <Route path="/waiting/intake" element={<IntakeAccess><IntakeWaiting/></IntakeAccess>}/>
         <Route path="/waiting/school" element={<IntakeAccess><SchoolWaiting/></IntakeAccess>}/>
         <Route path="/my-requests" element={<TherapistRequests/>}/>
-        <Route path="/my-reports" element={<TherapistMyReports/>}/>
+        <Route path="/my-reports" element={<MyReportsAccess><TherapistMyReports/></MyReportsAccess>}/>
         <Route path="/my-leaves" element={<Navigate to="/my-requests" replace/>}/>
         <Route path="/staff-leave" element={<StaffLeaveAccess><StaffLeave/></StaffLeaveAccess>}/>
         <Route path="/requests" element={<Navigate to="/staff-leave?tab=staff" replace/>}/>

@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, Suspense, useMemo } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData, isWalaaOps, showMyPortalNav, isJenan, canViewReports } from "../auth";
+import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData, isWalaaOps, showMyPortalNav, showMyReportsNav, isJenan, canViewReports } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch, cachedGet } from "../dataCache";
 import { getPortalDisplayName } from "../scheduleConstants";
@@ -71,6 +71,7 @@ export default function Shell() {
   const jenanManager = isJenan(user);
   const intakeAccess = canEditIntake(user);
   const showMyPortal = showMyPortalNav(user);
+  const showMyReports = showMyReportsNav(user);
   const showBilling = hasOpsAccess(user);
   const therapistOnly = Boolean(user && !portalAdmin && !hrOps && !walaaOps);
   const profileRole = hrOps ? "HR" : walaaOps ? "Coordination" : portalAdmin ? "Admin" : "Therapist";
@@ -121,7 +122,7 @@ export default function Shell() {
   // Personal portal dropdown (therapists + ops team; hidden for admin login)
   const myPortalItems = showMyPortal ? [
     { to: "/my-requests", label: jenanManager ? "My Requests" : "Request", testid: "nav-my-requests" },
-    { to: "/my-reports", label: "My Report", testid: "nav-my-reports" },
+    ...(showMyReports ? [{ to: "/my-reports", label: "My Report", testid: "nav-my-reports" }] : []),
   ] : [];
 
   // HR — Jenan: Manager Hub only; others: Staff & Leave

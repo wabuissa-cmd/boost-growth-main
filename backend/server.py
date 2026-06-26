@@ -5323,6 +5323,208 @@ async def upload_request_attachment(
     return _enrich_request_attachment(doc)
 
 
+LEAVE_BALANCE_SHEET_URL = os.environ.get(
+    "LEAVE_BALANCE_SHEET_URL",
+    "https://docs.google.com/spreadsheets/d/10Y2lmPEPtzWKZeP2SGIGbbdzTDFmNt_D3oQhG6ko3WQ/edit",
+)
+_leave_grid_cache: Dict[str, tuple] = {}
+LEAVE_GRID_CACHE_SECS = 300
+_SKIP_SHEET_EMPLOYEE_NAMES = frozenset(
+    {"done", "approved", "ongoing", "cancelled", "canceled", "employee", "employee "}
+)
+
+
+def _sheet_cell_date(val) -> Optional[str]:
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        return val.strftime("%Y-%m-%d")
+    s = str(val).strip()
+    return s or None
+
+
+def _norm_person_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (name or "").lower().replace("ms.", "").replace("ms ", ""))
+
+
+def _parse_leave_balance_sheet(wb, year: int) -> List[dict]:
+    sheet_name = f"For {year}"
+    if sheet_name not in wb.sheetnames:
+        year_sheets = [s for s in wb.sheetnames if re.match(r"^For \d{4}$", s)]
+        sheet_name = year_sheets[-1] if year_sheets else wb.sheetnames[0]
+    ws = wb[sheet_name]
+    agg: Dict[str, dict] = {}
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row:
+            continue
+        cells = list(row)
+        for block in range(3):
+            base = block * 10
+            if base >= len(cells):
+                break
+            chunk = cells[base:base + 10]
+            while len(chunk) < 10:
+                chunk.append(None)
+            emp_id, name, _start, _end, days, vtype, status, remaining, join, _notes = chunk[:10]
+            if not name:
+                continue
+            name_s = str(name).strip()
+            if name_s.lower() in _SKIP_SHEET_EMPLOYEE_NAMES:
+                continue
+            if not vtype:
+                continue
+            stat = str(status or "").strip().lower()
+            if stat in ("cancelled", "canceled"):
+                continue
+            try:
+                day_val = float(days or 0)
+            except (TypeError, ValueError):
+                day_val = 0.0
+            key = _norm_person_name(name_s)
+            if not key:
+                continue
+            if key not in agg:
+                agg[key] = {
+                    "employee_id": str(emp_id).strip() if emp_id is not None else None,
+                    "name": name_s,
+                    "annual_days": 0.0,
+                    "sick_days": 0.0,
+                    "permission_count": 0,
+                    "permission_days": 0.0,
+                    "unpaid_days": 0.0,
+                    "remaining_raw": None,
+                    "join_date": None,
+                }
+            rec = agg[key]
+            vt = str(vtype).strip()
+            if vt == "Annual":
+                rec["annual_days"] += day_val
+            elif vt in ("Sickleave", "Sick"):
+                rec["sick_days"] += day_val
+            elif vt == "Permission":
+                rec["permission_count"] += 1
+                rec["permission_days"] += day_val
+            elif vt == "Unpaid":
+                rec["unpaid_days"] += day_val
+            if remaining is not None and str(remaining).strip():
+                rec["remaining_raw"] = str(remaining).strip()
+            if join and not rec["join_date"]:
+                rec["join_date"] = _sheet_cell_date(join)
+    out = []
+    for rec in agg.values():
+        out.append({
+            **rec,
+            "annual_days": round(rec["annual_days"], 1),
+            "sick_days": round(rec["sick_days"], 1),
+            "permission_days": round(rec["permission_days"], 1),
+            "unpaid_days": round(rec["unpaid_days"], 1),
+        })
+    out.sort(key=lambda r: (r.get("name") or "").lower())
+    return out
+
+
+def _match_sheet_row_to_therapist(row: dict, therapists: List[dict]) -> Optional[dict]:
+    row_norm = _norm_person_name(row.get("name"))
+    if not row_norm:
+        return None
+    best = None
+    best_score = 0
+    for t in therapists:
+        t_norm = _norm_person_name(t.get("name"))
+        if not t_norm:
+            continue
+        if row_norm == t_norm:
+            return t
+        if row_norm in t_norm or t_norm in row_norm:
+            score = min(len(row_norm), len(t_norm))
+            if score > best_score:
+                best_score = score
+                best = t
+        row_parts = set(re.split(r"\s+", (row.get("name") or "").lower()))
+        t_parts = set(re.split(r"\s+", (t.get("name") or "").lower().replace("ms.", "")))
+        overlap = len(row_parts & t_parts)
+        if overlap >= 2 and overlap > best_score:
+            best_score = overlap
+            best = t
+    return best
+
+
+async def _leave_balance_grid_rows(year: int) -> List[dict]:
+    cache_key = str(year)
+    cached = _leave_grid_cache.get(cache_key)
+    now_ts = datetime.now(timezone.utc).timestamp()
+    if cached and (now_ts - cached[0]) < LEAVE_GRID_CACHE_SECS:
+        sheet_rows = cached[1]
+    else:
+        from drive_sync import fetch_workbook_from_url
+        wb = await asyncio.to_thread(fetch_workbook_from_url, LEAVE_BALANCE_SHEET_URL)
+        sheet_rows = _parse_leave_balance_sheet(wb, year)
+        _leave_grid_cache[cache_key] = (now_ts, sheet_rows)
+    therapists = await db.therapists.find(
+        {},
+        {"_id": 0, "id": 1, "name": 1, "color": 1, "email": 1, "key": 1},
+    ).to_list(200)
+    matched_ids = set()
+    out = []
+    for row in sheet_rows:
+        t = _match_sheet_row_to_therapist(row, therapists)
+        tid = t.get("id") if t else None
+        if tid:
+            matched_ids.add(tid)
+        out.append({
+            "therapist_id": tid,
+            "name": row.get("name"),
+            "employee_id": row.get("employee_id"),
+            "color": (t or {}).get("color"),
+            "email": (t or {}).get("email"),
+            "annual_days": row.get("annual_days", 0),
+            "sick_days": row.get("sick_days", 0),
+            "permission_count": row.get("permission_count", 0),
+            "permission_days": row.get("permission_days", 0),
+            "unpaid_days": row.get("unpaid_days", 0),
+            "remaining": row.get("remaining_raw"),
+            "join_date": row.get("join_date"),
+            "sheet_matched": bool(t),
+        })
+    for t in therapists:
+        if t["id"] in matched_ids:
+            continue
+        name_l = (t.get("name") or "").lower()
+        if any(skip in name_l for skip in ("jenan", "walaa", "maha", "fahda", "asma", "bodoor", "bodour")):
+            continue
+        out.append({
+            "therapist_id": t["id"],
+            "name": t.get("name"),
+            "employee_id": None,
+            "color": t.get("color"),
+            "email": t.get("email"),
+            "annual_days": 0,
+            "sick_days": 0,
+            "permission_count": 0,
+            "permission_days": 0,
+            "unpaid_days": 0,
+            "remaining": None,
+            "join_date": None,
+            "sheet_matched": False,
+        })
+    out.sort(key=lambda r: (r.get("name") or "").lower())
+    return out
+
+
+@api.get("/hr/leave-balance-grid")
+async def hr_leave_balance_grid(
+    year: Optional[int] = None,
+    refresh: bool = False,
+    _=Depends(hr_manager_access),
+):
+    """All therapists' leave counts from the shared vacations Google Sheet (single fetch, cached)."""
+    yr = year or datetime.now(timezone.utc).year
+    if refresh:
+        _leave_grid_cache.pop(str(yr), None)
+    rows = await _leave_balance_grid_rows(yr)
+    return {"year": yr, "rows": rows, "cached_seconds": LEAVE_GRID_CACHE_SECS}
+
+
 @api.get("/hr/therapist/{tid}/profile")
 async def hr_therapist_profile(tid: str, _=Depends(hr_manager_access)):
     """Therapist summary for manager review — requests, leave, contract, training uploads."""

@@ -38,15 +38,19 @@ function allowedStatusOptions(user, currentStatus) {
     return Object.keys(STATUS_MAP);
   }
   if (manager && effective === "in_progress") {
-    return ["in_progress", "pending_hr", "rejected"];
+    return ["in_progress", "rejected"];
   }
   if (manager && isPendingManagerStatus(effective)) {
-    return ["pending_manager", "in_progress", "pending_hr", "rejected"];
+    return ["pending_manager", "in_progress", "rejected"];
   }
   if (hr && effective === PENDING_HR_STATUS) {
     return ["approved", "rejected", "in_progress", "done"];
   }
   return Object.keys(STATUS_MAP);
+}
+
+function managerCanForwardToHr(status) {
+  return !["pending_hr", "rejected", "approved", "done"].includes(status);
 }
 
 function managerWorkflowLabel(r) {
@@ -118,7 +122,6 @@ export default function Requests({ personal = false, embedded = false, managerVi
   const [filter, setFilter] = useState("all");
   const [edit, setEdit] = useState(null);
   const [statusEdit, setStatusEdit] = useState(null);
-  const [managerStep, setManagerStep] = useState("review");
   const [step, setStep] = useState(1);
   const [therapists, setTherapists] = useState([]);
   const [recentLeaves, setRecentLeaves] = useState([]);
@@ -157,40 +160,30 @@ export default function Requests({ personal = false, embedded = false, managerVi
     await api.put(`/requests/${req.id}/status`, { status, admin_note: admin_note ?? req.admin_note });
     load();
   };
-  const updateStatusFromModal = async () => {
-    await api.put(`/requests/${statusEdit.id}/status`, { status: statusEdit.status, admin_note: statusEdit.admin_note });
+  const updateStatusFromModal = async (overrideStatus) => {
+    const status = overrideStatus ?? statusEdit.status;
+    await api.put(`/requests/${statusEdit.id}/status`, { status, admin_note: statusEdit.admin_note });
     setStatusEdit(null);
-    setManagerStep("review");
     load();
   };
 
   const openManagerReview = (r) => {
     const keepStatus = isPendingManagerStatus(r.status) ? "pending_manager" : r.status;
     setStatusEdit({ ...r, status: keepStatus });
-    setManagerStep("review");
   };
 
   const closeStatusModal = () => {
     setStatusEdit(null);
-    setManagerStep("review");
   };
 
   const handleManagerStatusSave = () => {
     if (!statusEdit) return;
-    if (statusEdit.status === "pending_hr") {
-      setManagerStep("forward_hr");
-      return;
-    }
     updateStatusFromModal();
   };
 
-  const confirmForwardToHr = async (send) => {
+  const sendToHr = async () => {
     if (!statusEdit) return;
-    if (!send) {
-      setManagerStep("review");
-      return;
-    }
-    await updateStatusFromModal();
+    await updateStatusFromModal("pending_hr");
   };
   const remove = async (id) => { if (!window.confirm("Delete this request?")) return; await api.delete(`/requests/${id}`); load(); };
   const removeLeave = async (id) => { if (!window.confirm("Delete this leave request?")) return; await api.delete(`/leaves/${id}`); loadLeaves(); };
@@ -705,54 +698,35 @@ export default function Requests({ personal = false, embedded = false, managerVi
           onClose={closeStatusModal}
           size="md"
           footer={
-            managerView && managerStep === "forward_hr" ? (
-              <>
-                <ModalBtnSecondary type="button" onClick={() => confirmForwardToHr(false)}>Not yet</ModalBtnSecondary>
-                <ModalBtnPrimary data-testid="forward-hr-yes-btn" type="button" onClick={() => confirmForwardToHr(true)}>
-                  <ArrowRight size={14}/> Yes, send to HR
-                </ModalBtnPrimary>
-              </>
-            ) : managerView && isManager && (isPendingManagerStatus(statusEdit.status) || statusEdit.status === "in_progress") ? (
+            managerView && isManager && (isPendingManagerStatus(statusEdit.status) || statusEdit.status === "in_progress") ? (
               <>
                 <ModalBtnSecondary type="button" onClick={closeStatusModal}>Cancel</ModalBtnSecondary>
+                {managerCanForwardToHr(statusEdit.status) && (
+                  <ModalBtnSecondary data-testid="send-to-hr-btn" type="button" onClick={sendToHr}>
+                    <ArrowRight size={14}/> إرسال للـ HR
+                  </ModalBtnSecondary>
+                )}
                 <ModalBtnPrimary data-testid="status-save-btn" type="button" onClick={handleManagerStatusSave}>
-                  {statusEdit.status === "pending_hr" ? "Continue" : "Save & Notify"}
+                  Save & Notify
                 </ModalBtnPrimary>
               </>
             ) : (
               <>
                 <ModalBtnSecondary type="button" onClick={closeStatusModal}>{managerView ? "Close" : "Cancel"}</ModalBtnSecondary>
                 {!managerView && (
-                  <ModalBtnPrimary data-testid="status-save-btn" type="button" onClick={updateStatusFromModal}>Save & Notify</ModalBtnPrimary>
+                  <ModalBtnPrimary data-testid="status-save-btn" type="button" onClick={handleManagerStatusSave}>Save & Notify</ModalBtnPrimary>
                 )}
               </>
             )
           }
         >
-          {managerView && managerStep === "forward_hr" ? (
-            <div className="text-center py-4">
-              <div className="w-14 h-14 rounded-full mx-auto mb-4 flex items-center justify-center" style={{ background: "#E5EBE1", color: "#5C8A47" }}>
-                <ArrowRight size={28} weight="bold"/>
-              </div>
-              <h3 className="font-bold text-lg m-0 mb-2" style={{ color: "#2C3625" }}>Send to HR?</h3>
-              <p className="text-sm m-0" style={{ color: "#5C6853" }}>
-                This will forward <strong>{statusEdit.title}</strong> from {statusEdit.therapist_name} to HR for final review.
-              </p>
-              {statusEdit.admin_note && (
-                <div className="mt-4 text-left text-sm rounded-xl p-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
-                  <div className="text-xs font-semibold mb-1" style={{ color: "#8B9E7A" }}>Your note</div>
-                  <div style={{ color: "#2C3625" }}>{statusEdit.admin_note}</div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <>
+          <>
               {!managerView && (
                 <p className="text-sm -mt-2 mb-2" style={{ color: "#5C6853" }}>The therapist will be auto-notified.</p>
               )}
               {managerView && (
                 <p className="text-sm -mt-2 mb-2" style={{ color: "#5C6853" }}>
-                  Request details are read-only. Update status and optionally add a manager note.
+                  Request details are read-only. Set status and add a note, then save — or use إرسال للـ HR to forward separately.
                 </p>
               )}
 
@@ -880,8 +854,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                   This request has been forwarded to HR. Further status changes are handled by HR.
                 </div>
               )}
-            </>
-          )}
+          </>
         </ModalBase>
       )}
     </div>

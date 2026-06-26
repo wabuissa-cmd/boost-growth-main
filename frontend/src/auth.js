@@ -223,3 +223,9 @@ export function showMyPortalNav(user) {
   if (isPortalAdmin(user) && !isClientLead(user) && !isWalaaOps(user)) return false;
   return user.role === "therapist" || isWalaaOps(user);
 }
+
+/** My Report nav — hidden for Jenan (no clinical cases; Reports page is enough) */
+export function showMyReportsNav(user) {
+  if (!user || isJenan(user)) return false;
+  return showMyPortalNav(user);
+}

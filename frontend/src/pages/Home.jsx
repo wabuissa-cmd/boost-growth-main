@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import api, { startOfWeek, toISODate, addDays } from "../api";
 import { cachedGet } from "../dataCache";
-import { useAuth, showAdminNav, hasOpsAccess, isHrOps, isJenan, canParentCancellationOps, isWalaaOps } from "../auth";
+import { useAuth, showAdminNav, hasOpsAccess, isHrOps, isJenan, canParentCancellationOps, isWalaaOps, showMyReportsNav } from "../auth";
 import {
   CalendarBlank, ClipboardText, UsersThree, ListChecks, Plant, ArrowRight,
   CheckCircle, Clock, XCircle, CalendarCheck, Heart,
@@ -299,8 +299,8 @@ export default function Home() {
   const quickLinks = [
     { to: "/schedule", label: "Schedule", icon: CalendarBlank },
     { to: "/attendance", label: "Attendance", icon: ClipboardText },
-    { to: "/my-requests", label: "Request", icon: ListChecks },
-    { to: "/my-reports", label: "My Report", icon: FileText },
+    { to: "/my-requests", label: jenan ? "My Requests" : "Request", icon: ListChecks },
+    ...(showMyReportsNav(user) ? [{ to: "/my-reports", label: "My Report", icon: FileText }] : []),
   ];
 
   return (

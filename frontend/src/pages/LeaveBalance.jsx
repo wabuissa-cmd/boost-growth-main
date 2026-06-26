@@ -3,12 +3,14 @@ import PageBanner from "../components/PageBanner";
 import { useAuth, showAdminNav, canManageLeaves } from "../auth";
 import api from "../api";
 import LeaveBalanceTable from "../components/LeaveBalanceTable";
+import LeaveBalanceSheetGrid from "../components/LeaveBalanceSheetGrid";
 
 export default function LeaveBalance({ embedded = false, staffScope = false }) {
   const { user } = useAuth();
   const isAdmin = showAdminNav(user);
   const isLeaveManager = canManageLeaves(user);
   const useStaffScope = staffScope || isLeaveManager;
+  const useSheetGrid = staffScope && isLeaveManager;
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
   const [leaves, setLeaves] = useState([]);
@@ -19,7 +21,10 @@ export default function LeaveBalance({ embedded = false, staffScope = false }) {
     const { data } = await api.get("/leaves", { params });
     setLeaves(data || []);
   };
-  useEffect(() => { if (isAdmin || isLeaveManager) load(); }, [year, isAdmin, isLeaveManager]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (useSheetGrid || (!isAdmin && !isLeaveManager)) return;
+    load();
+  }, [year, isAdmin, isLeaveManager, useSheetGrid]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isAdmin && !isLeaveManager) {
     return (
@@ -34,7 +39,7 @@ export default function LeaveBalance({ embedded = false, staffScope = false }) {
       {!embedded && (
       <PageBanner
         title="Leave Balance"
-        subtitle="Annual leave balances — HR overview"
+        subtitle={useSheetGrid ? "All therapists — synced from vacations sheet" : "Annual leave balances — HR overview"}
         badge={(
           <select className="select text-[11px] max-w-[90px] min-h-0 h-7 py-0" value={year} onChange={e => setYear(parseInt(e.target.value, 10))}>
             {[currentYear - 1, currentYear, currentYear + 1].map(y => <option key={y} value={y}>{y}</option>)}
@@ -43,7 +48,19 @@ export default function LeaveBalance({ embedded = false, staffScope = false }) {
       />
       )}
 
-      <LeaveBalanceTable year={year} leaves={leaves} showYearSelect={false} onRefresh={load} staffScope={useStaffScope} />
+      {embedded && useSheetGrid && (
+        <div className="flex justify-end mb-3">
+          <select className="select text-[11px] max-w-[90px] min-h-0 h-7 py-0" value={year} onChange={e => setYear(parseInt(e.target.value, 10))}>
+            {[currentYear - 1, currentYear, currentYear + 1].map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+      )}
+
+      {useSheetGrid ? (
+        <LeaveBalanceSheetGrid year={year} />
+      ) : (
+        <LeaveBalanceTable year={year} leaves={leaves} showYearSelect={false} onRefresh={load} staffScope={useStaffScope} />
+      )}
     </div>
   );
 }
