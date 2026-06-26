@@ -122,7 +122,7 @@ def norm_status(s: str) -> str | None:
     return None
 
 
-def is_ss_tab(ws) -> bool:
+def is_ss_tab(ws, ss_only_client: bool = False) -> bool:
     flat = " ".join(
         str(ws.cell(r, c).value or "")
         for r in range(1, 10)
@@ -132,6 +132,8 @@ def is_ss_tab(ws) -> bool:
         return True
     if re.search(r"4\s*week", flat):
         return True
+    if ss_only_client and "home session" not in flat and "paid sesh" in flat:
+        return True
     return False
 
 
@@ -139,8 +141,8 @@ def is_closed_tab(ws) -> bool:
     return str(ws.cell(1, 3).value or "").strip().lower().startswith("clos")
 
 
-def parse_ss_tab(ws, tab: str) -> dict | None:
-    if not is_ss_tab(ws):
+def parse_ss_tab(ws, tab: str, ss_only_client: bool = False) -> dict | None:
+    if not is_ss_tab(ws, ss_only_client):
         return None
     inv = inv_key(tab)
     hdr = None
@@ -295,11 +297,12 @@ def rebuild_ss_invoice(api: Api, client: dict, inv: dict, excel: dict) -> dict:
     }
 
 
-def rebuild_client_ss(api: Api, client: dict) -> tuple[list, list]:
+def rebuild_client_ss(api: Api, client: dict, rebuild_from: str = REBUILD_FROM) -> tuple[list, list]:
     results = []
     errors = []
     fn = client.get("file_no")
     url = client.get("attendance_sheet_url")
+    ss_only = (client.get("service_type") or "").upper() in ("SS",)
     if not url:
         return results, errors
     try:
@@ -310,8 +313,8 @@ def rebuild_client_ss(api: Api, client: dict) -> tuple[list, list]:
 
     excel_tabs = []
     for tab in wb.sheetnames:
-        pkg = parse_ss_tab(wb[tab], tab)
-        if pkg and pkg["start_date"] >= REBUILD_FROM:
+        pkg = parse_ss_tab(wb[tab], tab, ss_only)
+        if pkg and pkg["start_date"] >= rebuild_from:
             excel_tabs.append(pkg)
 
     if not excel_tabs:
@@ -339,6 +342,7 @@ def main():
     import argparse
     p = argparse.ArgumentParser()
     p.add_argument("--file-no", action="append")
+    p.add_argument("--from-date", default=REBUILD_FROM)
     args = p.parse_args()
     api = Api()
     clients = api.get("/clients")
@@ -351,7 +355,7 @@ def main():
     results = []
     errors = []
     for client in clients:
-        r, e = rebuild_client_ss(api, client)
+        r, e = rebuild_client_ss(api, client, args.from_date)
         results.extend(r)
         errors.extend(e)
 

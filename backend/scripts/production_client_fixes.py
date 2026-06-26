@@ -174,13 +174,13 @@ def fix_alaqel_027(api: Api):
 
 
 def fix_aljouhrah_034(api: Api):
-    """SS only — wrong HS invoices; reopen/create SS cycle."""
-    print("\n[034 Aljouhrah] SS only, fix invoices")
+    """SS only — link attendance from Drive, reopen current SS cycle."""
+    print("\n[034 Aljouhrah] SS only, sync attendance + invoices")
     c = api.client_by_file("034")
     put_client(
         api, c,
         service_type="SS",
-        locations=[{"service": "SS", "address": "Alnakheel Talat"}],
+        locations=[{"service": "SS", "address": "Alnakheel - Talat School"}],
         billing_mode="weeks",
         package_hours=24,
     )
@@ -193,24 +193,24 @@ def fix_aljouhrah_034(api: Api):
     ss_open = [i for i in invs if not i.get("is_closed") and (i.get("service_type") or "SS") == "SS"]
     if ss_open:
         print(f"  open SS: {ss_open[0]['invoice_number']}")
-        return
-    ss_closed = sorted(
-        [i for i in invs if (i.get("service_type") or "SS") == "SS"],
-        key=lambda x: x.get("invoice_number") or "",
-        reverse=True,
-    )
-    if ss_closed:
-        reopen_invoice(api, ss_closed[0], "SS")
     else:
-        api.send("POST", f"/clients/{c['id']}/invoices", {
-            "invoice_number": "INV0516",
-            "service_type": "SS",
-            "package_size": 4,
-            "start_date": "2026-06-18",
-            "is_closed": False,
-            "payment_status": "pending",
-        })
-        print("  created INV0516 open SS")
+        ss_closed = sorted(
+            [i for i in invs if (i.get("service_type") or "SS") == "SS"],
+            key=lambda x: x.get("invoice_number") or "",
+            reverse=True,
+        )
+        if ss_closed:
+            reopen_invoice(api, ss_closed[0], "SS")
+        else:
+            api.send("POST", f"/clients/{c['id']}/invoices", {
+                "invoice_number": "INV0516",
+                "service_type": "SS",
+                "package_size": 4,
+                "start_date": "2026-06-18",
+                "is_closed": False,
+                "payment_status": "pending",
+            })
+            print("  created INV0516 open SS")
 
 
 def fix_ameerah_041(api: Api):
@@ -226,15 +226,37 @@ def fix_ameerah_041(api: Api):
         print(f"  sessions: {len(api.sessions(c['id'], target['id']))}")
 
 
+def fix_hs_only(api: Api, file_no: str, hs_inv: str, address: str | None = None):
+    """Remove SS service/invoices; keep HS only."""
+    c = api.client_by_file(file_no)
+    addr = address or c.get("address") or ""
+    put_client(
+        api, c,
+        service_type="HS",
+        locations=[{"service": "HS", "address": addr}],
+        billing_mode="hours",
+        package_hours=c.get("package_hours") or 24,
+    )
+    for inv in api.invoices(c["id"]):
+        st = (inv.get("service_type") or "").upper()
+        pkg = float(inv.get("package_size") or 0)
+        if st == "SS" or pkg == 4:
+            delete_invoice(api, inv["id"], inv.get("invoice_number"))
+    reopen_current_hs(api, file_no, hs_inv, close_stale=True)
+    print(f"  profile → HS only")
+
+
+def sync_drive_attendance(api: Api, file_nos: list[str]) -> dict:
+    """Bulk-sync attendance sheets + ingest from Active Clients Drive."""
+    return api.send("POST", "/admin/sync-active-clients-from-drive", {
+        "file_nos": file_nos,
+        "dry_run": False,
+    })
+
+
 def fix_ibrahim_061(api: Api):
-    print("\n[061 Ibrahim] HS enabled, reopen current")
-    c = api.client_by_file("061")
-    put_client(api, c, service_type="HS/SS", package_hours=24)
-    invs = api.invoices(c["id"])
-    target = next((i for i in invs if i.get("invoice_number") == "INV0506"), None)
-    if target:
-        reopen_invoice(api, target, "HS")
-        print(f"  INV0506 open, {len(api.sessions(c['id'], target['id']))} sessions")
+    print("\n[061 Ibrahim] HS only — no school support")
+    fix_hs_only(api, "061", "INV0506", "Alyasmin - Home no 39")
 
 
 def fix_lulu_062(api: Api):
@@ -334,13 +356,8 @@ def fix_alharbi_065(api: Api):
 
 
 def fix_alshawi_068(api: Api):
-    print("\n[068 Abdulrahman Alshawi] HS/SS open cycles")
-    reopen_current_hs(api, "068", "INV0511")
-    ss = [i for i in api.invoices(api.client_by_file("068")["id"]) if (i.get("service_type") or "") == "SS"]
-    if ss:
-        reopen_current_ss(api, "068", ss[0]["invoice_number"])
-    else:
-        reopen_current_ss(api, "068", "INV0519")
+    print("\n[068 Abdulrahman Alshawi] HS only — no school support")
+    fix_hs_only(api, "068", "INV0511", "AR Rayan - Home no 32")
 
 
 def fix_binshuael_072(api: Api):
@@ -363,12 +380,12 @@ def fix_alzughaibi_080(api: Api):
 
 
 def fix_abdulelah_070(api: Api):
-    print("\n[070 Abdulelah] SS only, remove wrong HS")
+    print("\n[070 Abdulelah] SS only, sync attendance + reopen current")
     c = api.client_by_file("070")
     put_client(
         api, c,
         service_type="SS",
-        locations=[{"service": "SS", "address": "Manarat Riyadh"}],
+        locations=[{"service": "SS", "address": "Manarat Ar Riyadh"}],
         billing_mode="weeks",
         package_hours=40,
     )
@@ -382,7 +399,11 @@ def fix_abdulelah_070(api: Api):
     if open_ss:
         print(f"  open SS: {open_ss[0]['invoice_number']}")
         return
-    ss_all = sorted(invs, key=lambda x: x.get("invoice_number") or "", reverse=True)
+    ss_all = sorted(
+        [i for i in invs if (i.get("service_type") or "SS") == "SS"],
+        key=lambda x: x.get("invoice_number") or "",
+        reverse=True,
+    )
     if ss_all:
         reopen_invoice(api, ss_all[0], "SS")
     else:
@@ -445,12 +466,94 @@ def fix_asma_account(api: Api):
         print(f"  ok: {asma.get('name')} ({asma.get('key')})")
 
 
+JUN27_CLIENTS = ("053", "061", "068", "079", "034", "070")
+JUN27_HS_REBUILD = ("061", "068")
+JUN27_SS_REBUILD = ("053", "034", "070")
+
+
+def finish_jun27_cleanup(api: Api):
+    """Close/reopen cycles and remove stray invoices after drive sync."""
+    print("\n[finish] reopen HS for 061/068")
+    reopen_current_hs(api, "061", "INV0506", close_stale=True)
+    reopen_current_hs(api, "068", "INV0511", close_stale=True)
+
+    print("\n[finish] 034 SS cleanup")
+    c = api.client_by_file("034")
+    for inv in api.invoices(c["id"]):
+        pkg = float(inv.get("package_size") or 0)
+        num = inv.get("invoice_number")
+        if pkg > 8:
+            delete_invoice(api, inv["id"], num)
+    invs = api.invoices(c["id"])
+    for inv in invs:
+        if inv.get("invoice_number") == "INV0516":
+            continue
+        if not inv.get("is_closed"):
+            put_invoice(api, inv, is_closed=True, close_date=inv.get("close_date"))
+    target = next((i for i in invs if i.get("invoice_number") == "INV0516"), None)
+    if target:
+        reopen_invoice(api, target, "SS")
+
+    print("\n[finish] 070 SS cleanup")
+    c = api.client_by_file("070")
+    for inv in api.invoices(c["id"]):
+        if inv.get("invoice_number") == "INV0517":
+            delete_invoice(api, inv["id"], "INV0517")
+    invs = api.invoices(c["id"])
+    for inv in invs:
+        if inv.get("invoice_number") == "INV0510":
+            continue
+        if not inv.get("is_closed"):
+            put_invoice(api, inv, is_closed=True, close_date=inv.get("close_date"))
+    target = next((i for i in invs if i.get("invoice_number") == "INV0510"), None)
+    if target:
+        put_invoice(api, target, service_type="SS", package_size=4, is_closed=False, close_date=None)
+        print("  INV0510 open SS pkg=4")
+
+
+def run_jun27_fixes(api: Api, api_only: bool = False, rebuild_only: bool = False):
+    """Targeted fixes requested Jun 27 2026."""
+    if not rebuild_only:
+        sync_drive_attendance(api, ["034", "070"])
+        fix_alshalfan_053(api)
+        fix_ibrahim_061(api)
+        fix_alshawi_068(api)
+        fix_suliman_079(api)
+        fix_aljouhrah_034(api)
+        fix_abdulelah_070(api)
+        finish_jun27_cleanup(api)
+    if api_only:
+        return
+    script_dir = Path(__file__).resolve().parent
+    for fn in JUN27_HS_REBUILD:
+        print(f"\n>> rebuild_hs {fn}", flush=True)
+        subprocess.check_call([
+            sys.executable, str(script_dir / "rebuild_hs_from_excel.py"),
+            "--file-no", fn, "--from-date", "2026-05-01",
+        ])
+    for fn in JUN27_SS_REBUILD:
+        print(f"\n>> rebuild_ss {fn}", flush=True)
+        subprocess.check_call([
+            sys.executable, str(script_dir / "rebuild_ss_from_excel.py"),
+            "--file-no", fn, "--from-date", "2025-01-01" if fn == "053" else "2026-04-01",
+        ])
+
+
 def main():
     import argparse
     p = argparse.ArgumentParser()
     p.add_argument("--api-only", action="store_true")
     p.add_argument("--rebuild-only", action="store_true")
+    p.add_argument("--jun27", action="store_true", help="Run Jun 27 targeted client fixes only")
     args = p.parse_args()
+
+    if args.jun27:
+        api = Api()
+        run_jun27_fixes(api, api_only=args.api_only, rebuild_only=args.rebuild_only)
+        print("\n=== JUN27 POST-FIX AUDIT ===", flush=True)
+        for fn in JUN27_CLIENTS:
+            audit(api, fn)
+        return
 
     ALL = (
         "009", "011", "024", "027", "034", "038", "040", "041", "042",
