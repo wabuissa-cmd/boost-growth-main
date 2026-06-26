@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api";
-import { useAuth, showAdminNav } from "../auth";
+import { useAuth, showAdminNav, hasOpsAccess } from "../auth";
 import {
   MagnifyingGlass, Plus, X, Trash, PencilSimple, ClipboardText, ClockCounterClockwise,
   CheckCircle, Prohibit, Warning, XCircle, Clock, MapPin, Printer, FileXls,
@@ -32,6 +32,8 @@ import PageBanner from "../components/PageBanner";
 import LogSessionModal from "../components/LogSessionModal";
 import SsWeekStatusRow, { SsWeekLegend } from "../components/SsWeekStatusRow";
 import ExportColumnsModal, { buildInvoiceSheetColumns, EXPORT_COLUMN_DEFS, EXPORT_EXTRA_COLUMN_DEFS } from "../components/ExportColumnsModal";
+import InvoiceEditModal from "../components/InvoiceEditModal";
+import { effectivePaymentStatus, paymentStatusLabel } from "../billingUtils";
 import { cachedGet, peekCache } from "../dataCache";
 
 const EXPORT_COLS_KEY = "bg_export_columns";
@@ -802,6 +804,7 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
 
 function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false, user, currentUserId, onClose, onEdit, onDeleted, onClientUpdated, initialService, autoNewInvoice }) {
   const opsAdmin = isAdmin && !readOnly;
+  const canEditInvoice = hasOpsAccess(user) && !readOnly;
   const [closed, setClosed] = useState(false);
   const [closureDate, setClosureDate] = useState("");
   // Invoice + package management state
@@ -822,6 +825,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showNewInvModal, setShowNewInvModal] = useState(false);
   const [showInvoiceDetails, setShowInvoiceDetails] = useState(false);
+  const [showInvoiceEdit, setShowInvoiceEdit] = useState(false);
   const [savingClient, setSavingClient] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [syncMenuOpen, setSyncMenuOpen] = useState(false);
@@ -858,6 +862,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
   const tabState = useMemo(() => resolveServiceTabState(client, allInvoices), [client, allInvoices]);
   const isSchool = serviceTypeFilter === "SS";
   const selectedInvoice = invoices.find(i => i.id === selectedInvoiceId);
+  const selectedPaymentStatus = selectedInvoice ? effectivePaymentStatus(selectedInvoice) : paymentStatus;
   const sortedInvoices = useMemo(() => sortInvoicesByRecent(invoices), [invoices]);
   const cycleWeeks = selectedInvoice?.ss_week_count || 4;
   const cycleSessions = useMemo(
@@ -1122,6 +1127,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
 
   // Toggle closed state for the selected invoice and auto-save
   const toggleClosed = async () => {
+    if (!canEditInvoice) return;
     if (!selectedInvoice) {
       // Local-only toggle when no invoice selected
       setClosed(c => !c);
@@ -1145,6 +1151,22 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
       close_date: newDate,
     });
     setAllInvoices(prev => prev.map(inv => inv.id === updated.data.id ? updated.data : inv));
+    onClientUpdated && onClientUpdated();
+  };
+
+  const onInvoiceEdited = (updated) => {
+    if (!updated?.id) return;
+    setAllInvoices(prev => prev.map(inv => inv.id === updated.id ? updated : inv));
+    setPaymentStatus(updated.payment_status || "pending");
+    setClosed(!!updated.is_closed);
+    setClosureDate((updated.close_date || "").slice(0, 10));
+    setInvoiceAmount(updated.amount ?? "");
+    setAmountPaid(updated.amount_paid ?? "");
+    setNextPaymentReminder((updated.next_payment_reminder_at || "").slice(0, 10));
+    setPaymentNotes(updated.payment_notes || "");
+    setPackageEndDate(updated.period_to || "");
+    setPackageSize(updated.package_size || client.package_hours || 24);
+    setInvoiceNumber(updated.invoice_number || "");
     onClientUpdated && onClientUpdated();
   };
 
@@ -1429,6 +1451,16 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
               <span style={{color: "#5C6853"}}>{rem.toFixed(1)}h remaining · {used.toFixed(1)}/{pkg}h</span>
             ) : null}
             <button onClick={() => setShowInvoiceDetails(true)} className="btn btn-ghost text-[11px] py-0 px-2">ⓘ Details</button>
+            {canEditInvoice && (
+              <button
+                type="button"
+                onClick={() => setShowInvoiceEdit(true)}
+                className="btn btn-secondary text-[11px] py-0 px-2 min-h-0"
+                data-testid="invoice-edit-btn"
+              >
+                <PencilSimple size={12} className="inline mr-0.5" /> Edit
+              </button>
+            )}
             {opsAdmin && (
               <button onClick={() => deleteInvoice(selectedInvoice.id)} className="ml-auto text-[11px] underline" style={{color: "#8A3F27"}}>delete</button>
             )}
@@ -1436,7 +1468,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
         )}
 
         {/* Pending payment warning */}
-        {opsAdmin && selectedInvoice && paymentStatus === "pending" && (
+        {opsAdmin && selectedInvoice && selectedPaymentStatus === "pending" && (
           <div data-testid="pending-warning" className="px-5 py-2 flex items-center gap-2 text-xs font-bold no-print"
                style={{background: "#FAE8C8", color: "#8B6918", borderBottom: "1px solid #E5C387"}}>
             <Warning size={16} weight="fill"/>
@@ -1485,14 +1517,16 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
                   <span className="pill text-[11px]" style={{background: "#F4EDE3", color: "#6B5430"}}>{selectedInvoice.invoice_number}</span>
                 )}
                 <span className="pill text-[11px]" style={{
-                    background: paymentStatus === "complete" ? "#E5EBE1" : "#FAE8C8",
-                    color: paymentStatus === "complete" ? "#3D4F35" : "#8B6918"}}>
-                  {paymentStatus === "complete" ? "✓ Paid" : "⚠ Pending"}
+                    background: selectedPaymentStatus === "complete" ? "#E5EBE1" : selectedPaymentStatus === "partial" ? "#FAF0D1" : "#FAE8C8",
+                    color: selectedPaymentStatus === "complete" ? "#3D4F35" : selectedPaymentStatus === "partial" ? "#6B5218" : "#8B6918"}}>
+                  {selectedPaymentStatus === "complete" ? "✓ Paid" : selectedPaymentStatus === "partial" ? "◐ Partial" : "⚠ Unpaid"}
                 </span>
                 <span className="pill text-[11px]" style={{background: closed ? "#F8EBE7" : "#E5EBE1", color: closed ? "#8A3F27" : "#3D4F35"}}>
                   {closed ? "🔒 CLOSED" : "🔓 OPEN"}
                 </span>
-                <button onClick={toggleClosed} className="text-[10px] underline no-print" style={{color: "#7A8A6A"}}>toggle</button>
+                {canEditInvoice && (
+                  <button onClick={toggleClosed} className="text-[10px] underline no-print" style={{color: "#7A8A6A"}}>toggle</button>
+                )}
               </div>
               {closed && (
                 <input type="date" value={closureDate} onChange={e=>setClosureDate(e.target.value)} className="text-xs mt-1 border-0 outline-none bg-transparent text-right no-print"/>
@@ -1533,8 +1567,8 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
               </div>
               <div>
                 <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PAYMENT</div>
-                <div className="font-bold text-sm" style={{color: paymentStatus === "complete" ? "#3D4F35" : "#8B6918"}}>
-                  {paymentStatus === "complete" ? "Paid" : paymentStatus === "partial" ? "Partial" : "Pending"}
+                <div className="font-bold text-sm" style={{color: selectedPaymentStatus === "complete" ? "#3D4F35" : "#8B6918"}}>
+                  {paymentStatusLabel(selectedPaymentStatus)}
                 </div>
               </div>
             </div>
@@ -1672,8 +1706,8 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
                 ))}
                 <div>
                   <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PAYMENT</div>
-                  <div className="font-bold text-sm" style={{color: paymentStatus === "complete" ? "#3D4F35" : "#8B6918"}}>
-                    {paymentStatus === "complete" ? "Paid" : "Pending"}
+                  <div className="font-bold text-sm" style={{color: selectedPaymentStatus === "complete" ? "#3D4F35" : "#8B6918"}}>
+                    {paymentStatusLabel(selectedPaymentStatus)}
                   </div>
                 </div>
               </>
@@ -1712,21 +1746,17 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
             size="sm"
             elevated
             footer={
-              opsAdmin ? (
-                <>
-                  <ModalBtnSecondary type="button" onClick={() => setShowInvoiceDetails(false)}>Close</ModalBtnSecondary>
-                  <ModalBtnPrimary
-                    data-testid="save-pkg-btn"
-                    type="button"
-                    onClick={() => { savePackageInfo(); setShowInvoiceDetails(false); }}
-                    disabled={savingClient}
-                  >
-                    {savingClient ? "Saving..." : "Save"}
-                  </ModalBtnPrimary>
-                </>
-              ) : (
+              <>
                 <ModalBtnSecondary type="button" onClick={() => setShowInvoiceDetails(false)}>Close</ModalBtnSecondary>
-              )
+                {canEditInvoice && (
+                  <ModalBtnPrimary
+                    type="button"
+                    onClick={() => { setShowInvoiceDetails(false); setShowInvoiceEdit(true); }}
+                  >
+                    Edit invoice
+                  </ModalBtnPrimary>
+                )}
+              </>
             }
           >
             <FormSection title="Invoice">
@@ -1823,13 +1853,22 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
                     data-testid="pkg-end-input"
                     type="date"
                     className="modal-input"
+                    readOnly
                     value={packageEndDate}
-                    onChange={e => setPackageEndDate(e.target.value)}
                   />
                 </FormField>
               </FormSection>
             )}
           </ModalBase>
+        )}
+
+        {showInvoiceEdit && selectedInvoice && canEditInvoice && (
+          <InvoiceEditModal
+            invoice={selectedInvoice}
+            clientName={client.name}
+            onClose={() => setShowInvoiceEdit(false)}
+            onSaved={onInvoiceEdited}
+          />
         )}
 
         {/* New Invoice modal */}

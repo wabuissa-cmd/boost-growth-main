@@ -1,3 +1,14 @@
+/** Match backend _effective_payment_status — do not infer "paid" from amount alone. */
+export function effectivePaymentStatus(inv) {
+  const raw = (inv?.payment_status || "pending").toLowerCase();
+  if (raw === "complete" || raw === "paid" || raw === "done") return "complete";
+  const amount = parseFloat(inv?.amount) || 0;
+  const paid = parseFloat(inv?.amount_paid) || 0;
+  if (amount > 0 && paid > 0 && paid < amount) return "partial";
+  if (raw === "partial") return "partial";
+  return "pending";
+}
+
 export function paymentStatusLabel(status) {
   const s = (status || "pending").toLowerCase();
   if (s === "complete" || s === "paid") return "Paid";

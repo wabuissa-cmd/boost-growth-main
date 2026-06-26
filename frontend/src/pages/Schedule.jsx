@@ -173,6 +173,7 @@ export default function Schedule() {
   const longPressTimer = useRef(null);
   const touchStartPos = useRef(null);
   const [adminEditsOpen, setAdminEditsOpen] = useState(false);
+  const [addSpecialistOpen, setAddSpecialistOpen] = useState(false);
   const [addTherapistId, setAddTherapistId] = useState("");
   const [scheduleTherapistBusy, setScheduleTherapistBusy] = useState(false);
   const adminEditsRef = useRef(null);
@@ -482,6 +483,7 @@ export default function Schedule() {
       setTherapists((prev) => prev.map((t) => (t.id === data.id ? { ...t, ...data } : t)));
       setAddTherapistId("");
       setAdminEditsOpen(false);
+      setAddSpecialistOpen(false);
     } catch (e) {
       alert(e.response?.data?.detail || "Could not add therapist to schedule");
     } finally {
@@ -1223,6 +1225,16 @@ export default function Schedule() {
             )}
             </div>
             {isAdmin && (
+              <>
+              <button
+                type="button"
+                data-testid="schedule-add-specialist-btn"
+                onClick={() => { setAddTherapistId(""); setAddSpecialistOpen(true); }}
+                className="btn btn-outline text-[11px] flex items-center gap-1 px-2 py-1 min-h-0 shrink-0"
+              >
+                <UserPlus size={13} />
+                Add specialist · إضافة أخصائية
+              </button>
               <div className="relative ml-auto shrink-0" ref={adminEditsRef}>
                 <button
                   type="button"
@@ -1237,49 +1249,24 @@ export default function Schedule() {
                 </button>
                 {adminEditsOpen && (
                   <div className="schedule-admin-edits-menu absolute right-0 top-[calc(100%+6px)] z-[200] card p-2.5 min-w-[228px] shadow-lg border border-[#E2DDD4] flex flex-col gap-2 bg-white">
-                    <div className="border-b pb-2 mb-1" style={{ borderColor: "#EDE9E3" }}>
-                      <div className="text-[10px] font-bold tracking-wider mb-1.5 flex items-center gap-1" style={{ color: "#5C6853" }}>
-                        <UserPlus size={12} /> Add specialist · إضافة أخصائية
-                      </div>
-                      <select
-                        className="input text-xs w-full mb-1.5"
-                        value={addTherapistId}
-                        onChange={(e) => setAddTherapistId(e.target.value)}
-                        data-testid="schedule-add-therapist-select"
-                      >
-                        <option value="">Choose therapist…</option>
-                        {addableScheduleTherapists.map((t) => (
-                          <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>
+                    {manuallyShownTherapists.length > 0 && (
+                      <div className="border-b pb-2 mb-1 space-y-1" style={{ borderColor: "#EDE9E3" }}>
+                        <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "#8B9E7A" }}>Added specialists</div>
+                        {manuallyShownTherapists.map((t) => (
+                          <div key={t.id} className="flex items-center justify-between gap-1 text-[10px]">
+                            <span className="truncate" style={{ color: "#2C3625" }}>{getTherapistScheduleName(t)}</span>
+                            <button
+                              type="button"
+                              className="text-[9px] underline shrink-0"
+                              disabled={scheduleTherapistBusy}
+                              onClick={() => removeTherapistFromSchedule(t.id)}
+                            >
+                              Remove
+                            </button>
+                          </div>
                         ))}
-                      </select>
-                      <button
-                        type="button"
-                        data-testid="schedule-add-therapist-btn"
-                        onClick={addTherapistToSchedule}
-                        disabled={!addTherapistId || scheduleTherapistBusy}
-                        className="btn btn-primary text-xs w-full justify-center min-h-[32px]"
-                      >
-                        {scheduleTherapistBusy ? "Adding…" : "Add to schedule"}
-                      </button>
-                      {manuallyShownTherapists.length > 0 && (
-                        <div className="mt-2 space-y-1">
-                          <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "#8B9E7A" }}>Added columns</div>
-                          {manuallyShownTherapists.map((t) => (
-                            <div key={t.id} className="flex items-center justify-between gap-1 text-[10px]">
-                              <span className="truncate" style={{ color: "#2C3625" }}>{getTherapistScheduleName(t)}</span>
-                              <button
-                                type="button"
-                                className="text-[9px] underline shrink-0"
-                                disabled={scheduleTherapistBusy}
-                                onClick={() => removeTherapistFromSchedule(t.id)}
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
                     <button type="button" onClick={() => { setShowHolidays(true); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start min-h-[36px]">Official holidays</button>
                     <button type="button" onClick={() => { setDraft(); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start min-h-[36px]">Save as Draft</button>
                     <button type="button" onClick={() => { openPublishModal(); setAdminEditsOpen(false); }} className="btn btn-primary text-xs w-full justify-start min-h-[36px]">Publish Week</button>
@@ -1301,10 +1288,52 @@ export default function Schedule() {
                   </div>
                 )}
               </div>
+              </>
             )}
           </div>
         )}
       />
+
+      {addSpecialistOpen && (
+        <ModalBase
+          title="Add specialist · إضافة أخصائية"
+          subtitle="Choose a therapist to show as a column on the weekly schedule"
+          onClose={() => setAddSpecialistOpen(false)}
+          size="sm"
+          footer={(
+            <>
+              <ModalBtnSecondary type="button" onClick={() => setAddSpecialistOpen(false)}>Cancel</ModalBtnSecondary>
+              <ModalBtnPrimary
+                type="button"
+                data-testid="schedule-add-therapist-btn"
+                onClick={addTherapistToSchedule}
+                disabled={!addTherapistId || scheduleTherapistBusy}
+              >
+                {scheduleTherapistBusy ? "Adding…" : "Add to schedule"}
+              </ModalBtnPrimary>
+            </>
+          )}
+        >
+          <FormSection title="Therapist">
+            <FormField label="Select specialist">
+              <select
+                className="modal-input"
+                value={addTherapistId}
+                onChange={(e) => setAddTherapistId(e.target.value)}
+                data-testid="schedule-add-therapist-select"
+              >
+                <option value="">Choose therapist…</option>
+                {addableScheduleTherapists.map((t) => (
+                  <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>
+                ))}
+              </select>
+            </FormField>
+            {addableScheduleTherapists.length === 0 && (
+              <p className="text-xs m-0" style={{ color: "#8B9E7A" }}>All therapists are already on the schedule.</p>
+            )}
+          </FormSection>
+        </ModalBase>
+      )}
 
       {clipboard && (isAdmin || (scheduleLead && view === "sheet")) && (
         <div className="card p-3 mb-4 flex items-center gap-3 text-sm no-print" style={{ background: "#FFF7E1", borderColor: "#E8C572" }} data-testid="clipboard-banner">

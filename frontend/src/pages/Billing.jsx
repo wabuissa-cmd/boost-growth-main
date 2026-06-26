@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "../api";
 import { cachedGet } from "../dataCache";
-import { useAuth, showAdminNav } from "../auth";
+import { useAuth, showAdminNav, hasOpsAccess } from "../auth";
 import { HistoryModal } from "./Attendance";
 import PageBanner from "../components/PageBanner";
 import BillingProgressStrip from "../components/BillingProgressStrip";
+import InvoiceEditModal from "../components/InvoiceEditModal";
 import "../clientInfoLayout.css";
-import { ModalBase, FormSection, FormField, ModalBtnPrimary, ModalBtnSecondary } from "../components/Modal";
-import { formatMoney, paymentStatusLabel, paymentStatusStyle } from "../billingUtils";
+import { formatMoney, effectivePaymentStatus, paymentStatusLabel, paymentStatusStyle } from "../billingUtils";
 import { formatServiceTypeDisplay } from "../attendanceUtils";
 import { formatPkgBadge, formatPkgUsedRemaining } from "../packageStatusUtils";
 import {
@@ -19,9 +19,7 @@ function invoiceToRow(inv, client, today) {
   const start = (inv.start_date || inv.created_at || "").slice(0, 10);
   const amount = parseFloat(inv.amount) || 0;
   const paid = parseFloat(inv.amount_paid) || 0;
-  const status = inv.payment_status === "complete" || (amount > 0 && paid >= amount)
-    ? "complete"
-    : (inv.payment_status === "partial" || (paid > 0 && paid < amount) ? "partial" : "pending");
+  const status = effectivePaymentStatus(inv);
   let daysUntilReminder = null;
   if (inv.next_payment_reminder_at) {
     daysUntilReminder = Math.floor((Date.parse(inv.next_payment_reminder_at) - Date.parse(today)) / 86400000);
@@ -34,6 +32,7 @@ function invoiceToRow(inv, client, today) {
     file_no: client.file_no,
     service_type: inv.service_type,
     payment_status: status,
+    is_closed: !!inv.is_closed,
     amount: amount || null,
     amount_paid: paid || null,
     amount_remaining: amount > 0 ? Math.max(0, amount - paid) : null,
@@ -42,6 +41,12 @@ function invoiceToRow(inv, client, today) {
     next_payment_reminder_at: inv.next_payment_reminder_at || null,
     days_until_reminder: daysUntilReminder,
     payment_notes: inv.payment_notes,
+    installment_percent: inv.installment_percent ?? null,
+    package_size: inv.package_size ?? null,
+    period_to: inv.period_to || null,
+    close_date: inv.close_date || null,
+    notes: inv.notes || null,
+    created_at: inv.created_at || null,
   };
 }
 
@@ -55,122 +60,39 @@ function CompactAttentionRow({ row, onEdit, onOpenSheet }) {
       </div>
       <div className="flex gap-1 shrink-0">
         <button type="button" className="btn btn-primary text-[10px] px-2 py-1 min-h-0" onClick={() => onOpenSheet(row)}>Sheet</button>
-        <button type="button" className="btn btn-secondary text-[10px] px-2 py-1 min-h-0" onClick={() => onEdit(row)}>Pay</button>
+        {onEdit && (
+          <button type="button" className="btn btn-secondary text-[10px] px-2 py-1 min-h-0" onClick={() => onEdit(row)}>Edit</button>
+        )}
       </div>
     </div>
   );
 }
 
-function PaymentEditModal({ row, onClose, onSaved }) {
-  const [status, setStatus] = useState(row.payment_status || "pending");
-  const [amount, setAmount] = useState(row.amount ?? "");
-  const [installmentPct, setInstallmentPct] = useState(row.installment_percent ?? "");
-  const [amountPaid, setAmountPaid] = useState(row.amount_paid ?? "");
-  const [reminder, setReminder] = useState(row.next_payment_reminder_at || "");
-  const [notes, setNotes] = useState(row.payment_notes || "");
-  const [saving, setSaving] = useState(false);
-
-  const computedPaid = useMemo(() => {
-    const a = parseFloat(amount);
-    const p = parseFloat(installmentPct);
-    if (Number.isFinite(a) && Number.isFinite(p) && p > 0) return (a * p / 100).toFixed(2);
-    return amountPaid;
-  }, [amount, installmentPct, amountPaid]);
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      const payload = {
-        payment_status: status,
-        amount: amount === "" ? null : parseFloat(amount),
-        next_payment_reminder_at: reminder || null,
-        payment_notes: notes || null,
-      };
-      if (installmentPct !== "" && installmentPct != null) {
-        payload.installment_percent = parseFloat(installmentPct);
-      } else {
-        payload.amount_paid = amountPaid === "" ? null : parseFloat(amountPaid);
-      }
-      await api.put(`/invoices/${row.invoice_id}/payment`, payload);
-      onSaved();
-      onClose();
-    } catch {
-      alert("Could not save payment details");
-    } finally {
-      setSaving(false);
-    }
+function rowToInvoice(row) {
+  return {
+    id: row.invoice_id,
+    invoice_number: row.invoice_number,
+    service_type: row.service_type,
+    payment_status: row.payment_status,
+    is_closed: row.is_closed,
+    amount: row.amount,
+    amount_paid: row.amount_paid,
+    installment_percent: row.installment_percent,
+    start_date: row.start_date,
+    period_to: row.period_to,
+    close_date: row.close_date,
+    package_size: row.package_size,
+    next_payment_reminder_at: row.next_payment_reminder_at,
+    payment_notes: row.payment_notes,
+    notes: row.notes,
+    created_at: row.created_at,
   };
-
-  return (
-    <ModalBase
-      title={`Payment · ${row.client_name}`}
-      subtitle={row.invoice_number}
-      onClose={onClose}
-      size="sm"
-      elevated
-      footer={
-        <>
-          <ModalBtnSecondary type="button" onClick={onClose}>Cancel</ModalBtnSecondary>
-          <ModalBtnPrimary type="button" onClick={save} disabled={saving}>
-            {saving ? "Saving…" : "Save"}
-          </ModalBtnPrimary>
-        </>
-      }
-    >
-      <FormSection title="Status">
-        <FormField label="Payment status">
-          <select className="modal-input" value={status} onChange={e => setStatus(e.target.value)}>
-            <option value="pending">Unpaid — service started, no payment</option>
-            <option value="partial">Partial — installment, balance remaining</option>
-            <option value="complete">Paid in full</option>
-          </select>
-        </FormField>
-      </FormSection>
-      <FormSection title="Amounts">
-        <FormField label="Invoice total (SAR)">
-          <input type="number" min="0" step="1" className="modal-input" value={amount} onChange={e => setAmount(e.target.value)} />
-        </FormField>
-        <FormField label="Installment (%)">
-          <select className="modal-input" value={installmentPct} onChange={e => setInstallmentPct(e.target.value)}>
-            <option value="">Custom amount paid</option>
-            <option value="25">25% paid</option>
-            <option value="50">50% paid</option>
-            <option value="75">75% paid</option>
-            <option value="100">100% paid in full</option>
-          </select>
-        </FormField>
-        <FormField label={installmentPct ? "Calculated amount paid (SAR)" : "Amount paid (SAR)"}>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            className="modal-input"
-            value={installmentPct ? computedPaid : amountPaid}
-            readOnly={Boolean(installmentPct)}
-            onChange={e => setAmountPaid(e.target.value)}
-          />
-        </FormField>
-        {amount && computedPaid && installmentPct && parseFloat(installmentPct) < 100 && (
-          <p className="ui-caption">Remaining: {formatMoney(parseFloat(amount) - parseFloat(computedPaid))}</p>
-        )}
-      </FormSection>
-      {(status === "partial" || status === "pending") && (
-        <FormSection title="Reminder">
-          <FormField label="Next payment reminder date" hint="Email sent to admin 1–2 days before this date">
-            <input type="date" className="modal-input" value={reminder} onChange={e => setReminder(e.target.value)} />
-          </FormField>
-          <FormField label="Notes">
-            <textarea className="modal-input" rows={2} value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. 2nd installment due after Eid" />
-          </FormField>
-        </FormSection>
-      )}
-    </ModalBase>
-  );
 }
 
 export default function Billing() {
   const { user } = useAuth();
   const isAdmin = showAdminNav(user);
+  const canEditInvoice = hasOpsAccess(user);
   const [params, setParams] = useSearchParams();
   const deepClientId = params.get("client");
   const deepService = params.get("service");
@@ -345,7 +267,7 @@ export default function Billing() {
             <p className="text-sm m-0 font-semibold" style={{ color: "#2C3625" }}>All caught up</p>
           </div>
         ) : attentionItems.map(row => (
-          <CompactAttentionRow key={row.invoice_id} row={row} onEdit={setEditRow} onOpenSheet={openSheet} />
+          <CompactAttentionRow key={row.invoice_id} row={row} onEdit={canEditInvoice ? setEditRow : null} onOpenSheet={openSheet} />
         ))}
       </div>
     </div>
@@ -465,6 +387,13 @@ export default function Billing() {
                           <span className="pill text-[9px] font-bold px-1.5 py-0.5" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>
                             {paymentStatusLabel(row.payment_status)}
                           </span>
+                          <span className="pill text-[9px] font-bold px-1.5 py-0.5" style={{
+                            background: row.is_closed ? "#F0EDE9" : "#E5EBE1",
+                            color: row.is_closed ? "#5C6853" : "#3D4F35",
+                            border: `1px solid ${row.is_closed ? "#E2DDD4" : "#B4C2A9"}`,
+                          }}>
+                            {row.is_closed ? "Closed" : "Open"}
+                          </span>
                           <span style={{ color: "#8B9E7A" }}>{row.start_date || "—"}</span>
                         </div>
                       </button>
@@ -484,6 +413,13 @@ export default function Billing() {
                       <span className="pill text-[10px] font-bold px-2 py-0.5" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>
                         {paymentStatusLabel(row.payment_status)}
                       </span>
+                      <span className="pill text-[10px] font-bold px-2 py-0.5" style={{
+                        background: row.is_closed ? "#F0EDE9" : "#E5EBE1",
+                        color: row.is_closed ? "#5C6853" : "#3D4F35",
+                        border: `1px solid ${row.is_closed ? "#E2DDD4" : "#B4C2A9"}`,
+                      }}>
+                        {row.is_closed ? "Closed" : "Open"}
+                      </span>
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1" style={{ color: "#5C6853" }}>
                       <span>{formatServiceTypeDisplay(row.service_type) || row.service_type}</span>
@@ -495,9 +431,18 @@ export default function Billing() {
                         <span className="font-bold" style={{ color: "#8A3F27" }}>{row.days_unpaid}d unpaid</span>
                       )}
                     </div>
-                    <div className="flex gap-2 mt-2">
-                      <button type="button" className="btn btn-secondary text-[10px] px-2 py-1 min-h-0" onClick={() => setEditRow(row)}>Update payment</button>
-                    </div>
+                    {canEditInvoice && (
+                      <div className="flex gap-2 mt-2">
+                        <button
+                          type="button"
+                          className="btn btn-secondary text-[10px] px-2 py-1 min-h-0"
+                          onClick={() => setEditRow(row)}
+                          data-testid="billing-edit-invoice-btn"
+                        >
+                          Edit invoice
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })()}
@@ -511,8 +456,9 @@ export default function Billing() {
       </div>
 
       {editRow && (
-        <PaymentEditModal
-          row={editRow}
+        <InvoiceEditModal
+          invoice={rowToInvoice(editRow)}
+          clientName={editRow.client_name}
           onClose={() => setEditRow(null)}
           onSaved={load}
         />

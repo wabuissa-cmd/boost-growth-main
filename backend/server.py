@@ -972,7 +972,7 @@ MASTER_THERAPISTS = [
 MASTER_CLIENTS = [
     # (file_no, name,                 main_key,  co_keys,                   pkg, supervisor_key, service, address)
     ("009", "Saleh Ahusainy",        "msWaad",     ["msManal", "msFahda"],     24, "msFahda", "SS/HS", "Alnakeel"),
-    ("011", "Fahad Alyahya",         "msAlhanouf", ["msFahda"],                24, "msFahda", "HS/SS", "Alyasmin"),
+    ("011", "Fahad Alyahya",         "msAlhanouf", ["msFahda"],                24, "msFahda", "SS",    "Alyasmin"),
     ("018", "Layan AlSaud",          "msJenan",    [],                         24, "msJenan", "ABA",   "Alaqiq"),
     ("023", "Yahya Alqahtani",       "msHajer",    ["msManal"],                24, "msFahda", "HS",    "Alaarid"),
     ("024", "Abdulaziz Alrasheed",   "msShatha",   ["msManal", "msHajer"],     40, "msFahda", "HS",    "Alnada Bldg 26"),
@@ -980,7 +980,7 @@ MASTER_CLIENTS = [
     ("030", "Husam Alturaigy",       "msManal",    ["msShatha"],               24, "msFahda", "SS/HS", "Whales daycare"),
     ("034", "Aljouhrah Alduailij",   "msFahda",    [],                         24, "msFahda", "SS",    "Alnakheel Talat"),
     ("037", "Suzan Alsultan",        "msAsma",     [],                         24, "msMaha",  "SS",    "King Fahad Villa"),
-    ("038", "Salman Alrasheed",      "msManal",    ["msFahda"],                24, "msMaha",  "SS/HS", "Stars of Knowledge"),
+    ("038", "Salman Alrasheed",      "msManal",    ["msFahda"],                24, "msMaha",  "HS",    "Stars of Knowledge"),
     ("040", "Abdulaziz AlAbdulwahab","msFatimah",  ["msFahda", "msHajer"],     40, "msMaha",  "HS",    "Alraed"),
     ("041", "Ameerah Alshehri",      "msFahda",    ["msFatimah"],              24, "msMaha",  "HS",    "Roshen"),
     ("042", "Sultan Aldamer",        "msShrooq",   ["msRahaf", "msManal"],     40, "msMaha",  "SS/HS", "Bright Mind"),
@@ -3186,6 +3186,14 @@ async def update_invoice(iid: str, payload: InvoiceIn, _=Depends(ops_or_admin)):
         "next_payment_reminder_at": payload.next_payment_reminder_at,
         "payment_notes": payload.payment_notes,
     }
+    if payload.installment_percent is not None:
+        update["installment_percent"] = payload.installment_percent
+        amount = float(update.get("amount") if update.get("amount") is not None else 0)
+        if amount == 0:
+            inv_existing = await db.invoices.find_one({"id": iid}, {"_id": 0, "amount": 1})
+            amount = float((inv_existing or {}).get("amount") or 0)
+        if amount > 0 and payload.installment_percent:
+            update["amount_paid"] = round(amount * float(payload.installment_percent) / 100, 2)
     if payload.week_overrides is not None:
         update["week_overrides"] = payload.week_overrides
     if payload.ss_week_count is not None:

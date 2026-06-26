@@ -154,10 +154,25 @@ export function computeSchoolWeekWindows(anchorISO, totalWeeks = 4) {
 export function groupSessionsBySchoolWeeks(sessions, anchorISO, totalWeeks = 4) {
   const windows = computeSchoolWeekWindows(anchorISO, totalWeeks);
   const sorted = sortSessionsByDateAsc(sessions);
-  return windows.map(w => ({
-    ...w,
-    sessions: sorted.filter(s => w.dates.includes(normalizeSessionDateKey(s.session_date))),
-  }));
+  const assigned = new Set();
+  return windows.map((w, wi) => {
+    const nextStart = windows[wi + 1]?.startISO;
+    const inWeek = sorted.filter((s) => {
+      if (!s?.id || assigned.has(s.id)) return false;
+      const d = normalizeSessionDateKey(s.session_date);
+      if (!d) return false;
+      if (w.dates.includes(d)) {
+        assigned.add(s.id);
+        return true;
+      }
+      if (w.startISO && d >= w.startISO && (!nextStart || d < nextStart)) {
+        assigned.add(s.id);
+        return true;
+      }
+      return false;
+    });
+    return { ...w, sessions: inWeek };
+  });
 }
 
 /** HS totals for ONE invoice only — Completed + Cancelled count toward used hours. */
