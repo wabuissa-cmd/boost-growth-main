@@ -1,2 +1,0 @@
-"use strict";(self.webpackChunkfrontend=self.webpackChunkfrontend||[]).push([[21],{2021(t,e,n){n.r(e),n.d(e,{default:()=>c});var a=n(5544),o=n(2691),s=n(579);function c(){const t=(0,o.ok)(),e="post"===(0,a.A)(t,1)[0].get("tab")?"?tab=post":"";return(0,s.jsx)(o.C5,{to:"/waiting/intake".concat(e),replace:!0})}}}]);
-//# sourceMappingURL=21.96e564b4.chunk.js.map

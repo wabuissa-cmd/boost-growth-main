@@ -604,9 +604,67 @@ function splitLabelValueCell(text) {
   const t = String(text || "").trim();
   const parts = t.split(/[:：]\s*/, 2);
   if (parts.length === 2 && parts[0].length > 0 && parts[0].length <= 72 && !isLongParagraph(parts[1])) {
-    return { label: parts[0].trim(), value: parts[1].trim() };
+    return resolveLabelValuePair(parts[0].trim(), parts[1].trim());
   }
   return null;
+}
+
+/** Pick label vs value regardless of source order (fixes reversed Arabic sheet rows). */
+function resolveLabelValuePair(a, b) {
+  const left = String(a || "").trim();
+  const right = String(b || "").trim();
+  const leftIsLabel = looksLikeLabel(left);
+  const rightIsLabel = looksLikeLabel(right);
+  if (leftIsLabel && !rightIsLabel) return { label: left, value: right };
+  if (rightIsLabel && !leftIsLabel) return { label: right, value: left };
+  if (leftIsLabel && rightIsLabel) return { label: left, value: right };
+  return { label: left, value: right };
+}
+
+function resolveKvFromCells(cells) {
+  const cleaned = (cells || []).map((c) => String(c ?? "").trim()).filter((c) => c && c !== "-");
+  if (cleaned.length < 2) return null;
+  const [first, second, ...rest] = cleaned;
+  const tail = rest.length ? ` — ${rest.join(" — ")}` : "";
+  const pair = resolveLabelValuePair(first, second);
+  return { label: pair.label, value: `${pair.value}${tail}`.trim() };
+}
+
+const NARRATIVE_LABEL_RE = /ملخص|summary|goals?|objectives?|skills?|progress|تقرير|أهداف|مهارات|توصيات|خطة|interventions?|recommendations?/i;
+
+function isBasicKvItem(item) {
+  if (item?.kind !== "kv") return false;
+  if (item.bullets?.length) return false;
+  if (item.label === "•") return false;
+  if (NARRATIVE_LABEL_RE.test(String(item.label || ""))) return false;
+  const val = String(item.value || "");
+  if (splitValueLines(val).length > 1) return false;
+  if (isLongParagraph(val)) return false;
+  return val.length <= 120;
+}
+
+function splitCaseSummaryRows(rows) {
+  const basic = [];
+  const narrative = [];
+  let inBasic = true;
+  for (const item of rows) {
+    if (!inBasic) {
+      narrative.push(item);
+      continue;
+    }
+    if (item.kind === "section" || item.kind === "heading" || item.kind === "para") {
+      inBasic = false;
+      narrative.push(item);
+      continue;
+    }
+    if (item.kind === "kv" && isBasicKvItem(item)) {
+      basic.push(item);
+      continue;
+    }
+    inBasic = false;
+    narrative.push(item);
+  }
+  return { basic, narrative };
 }
 
 /** Normalize Doc vs Sheet table shapes into [[cell, ...], ...]. */
@@ -628,7 +686,8 @@ function pairTableRows(table) {
       .filter((c) => c && c !== "-");
     if (!cells.length) continue;
     if (cells.length >= 2) {
-      flat.push({ kind: "kv", label: cells[0], value: cells.slice(1).join(" — ") });
+      const kv = resolveKvFromCells(cells);
+      if (kv) flat.push({ kind: "kv", ...kv });
     } else {
       const split = splitLabelValueCell(cells[0]);
       if (split) flat.push({ kind: "kv", label: split.label, value: split.value });
@@ -641,27 +700,24 @@ function pairTableRows(table) {
   while (i < flat.length) {
     const cur = flat[i];
     if (cur.kind === "kv") {
-      out.push(cur);
+      const fixed = resolveLabelValuePair(cur.label, cur.value);
+      out.push({ ...cur, ...fixed });
       i += 1;
       continue;
     }
     const text = cur.text;
     const next = flat[i + 1];
 
-    if (next?.kind === "cell" && looksLikeLabel(text) && !looksLikeLabel(next.text)) {
-      out.push({ kind: "kv", label: text, value: next.text });
-      i += 2;
-      continue;
-    }
     if (
       next?.kind === "cell"
       && !isLongParagraph(text)
       && !isLongParagraph(next.text)
       && text.length <= 80
       && next.text.length <= 240
-      && (looksLikeLabel(text) || text.length <= next.text.length)
+      && (looksLikeLabel(text) || looksLikeLabel(next.text))
     ) {
-      out.push({ kind: "kv", label: text, value: next.text });
+      const pair = resolveLabelValuePair(text, next.text);
+      out.push({ kind: "kv", ...pair });
       i += 2;
       continue;
     }
@@ -673,11 +729,6 @@ function pairTableRows(table) {
     if (next?.kind === "cell" && looksLikeLabel(next.text) && text.length <= 80 && !looksLikeLabel(text)) {
       out.push({ kind: "heading", text });
       i += 1;
-      continue;
-    }
-    if (looksLikeLabel(text) && next?.kind === "cell") {
-      out.push({ kind: "kv", label: text, value: next.text });
-      i += 2;
       continue;
     }
     out.push({ kind: "para", text });
@@ -694,24 +745,20 @@ function pairParagraphRows(paragraphs) {
     const text = String(items[i] || "").trim();
     const colon = text.split(/[:：]\s*/, 2);
     if (colon.length === 2 && colon[0].length < 48 && !isLongParagraph(colon[1])) {
-      out.push({ kind: "kv", label: colon[0], value: colon[1] });
+      out.push({ kind: "kv", ...resolveLabelValuePair(colon[0], colon[1]) });
       i += 1;
       continue;
     }
     const next = String(items[i + 1] || "").trim();
-    if (looksLikeLabel(text) && next && !looksLikeLabel(next)) {
-      out.push({ kind: "kv", label: text, value: next });
-      i += 2;
-      continue;
-    }
     if (
       next
       && !isLongParagraph(text)
       && !isLongParagraph(next)
       && text.length <= 80
       && next.length <= 240
+      && (looksLikeLabel(text) || looksLikeLabel(next))
     ) {
-      out.push({ kind: "kv", label: text, value: next });
+      out.push({ kind: "kv", ...resolveLabelValuePair(text, next) });
       i += 2;
       continue;
     }
@@ -800,50 +847,68 @@ function CaseSummaryView({ sections, clientName, fileNo }) {
   ]).join(" ");
   const rtl = isMostlyArabic(allText);
   const rows = buildCaseSummaryRows(sections, clientName, fileNo);
+  const { basic, narrative } = splitCaseSummaryRows(rows);
 
   return (
     <div className={`case-summary-pr${rtl ? " case-summary-pr--rtl" : ""}`} dir={rtl ? "rtl" : "ltr"}>
-      <div className="case-summary-pr__scroll">
-        <table className="case-summary-pr__table">
-          <tbody>
-            {rows.map((item, i) => {
-              if (item.kind === "section" || item.kind === "heading") {
+      {basic.length > 0 && (
+        <div className="case-summary-pr__scroll">
+          <table className="case-summary-pr__table case-summary-pr__table--basic">
+            <tbody>
+              {basic.map((item, i) => (
+                <tr key={item.key || `b-${i}`} className="case-summary-pr__kv-row">
+                  <th scope="row" className="case-summary-pr__label">{item.label}</th>
+                  <td className="case-summary-pr__value">
+                    <CaseSummaryValue value={item.value} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {narrative.length > 0 && (
+        <div className="case-summary-pr__body">
+          {narrative.map((item, i) => {
+            if (item.kind === "section" || item.kind === "heading") {
+              return (
+                <h4 key={item.key || `sec-${i}`} className="case-summary-pr__subtitle">
+                  {item.text}
+                </h4>
+              );
+            }
+            if (item.kind === "para") {
+              const colon = String(item.text || "").split(/[:：]\s*/, 2);
+              if (colon.length === 2 && colon[0].length < 56 && !isLongParagraph(colon[1])) {
+                const pair = resolveLabelValuePair(colon[0], colon[1]);
                 return (
-                  <tr key={item.key || `sec-${i}`} className="case-summary-pr__section-row">
-                    <td colSpan={2}>{item.text}</td>
-                  </tr>
-                );
-              }
-              if (item.kind === "para") {
-                const colon = String(item.text || "").split(/[:：]\s*/, 2);
-                if (colon.length === 2 && colon[0].length < 56 && !isLongParagraph(colon[1])) {
-                  return (
-                    <tr key={item.key || `p-${i}`} className="case-summary-pr__kv-row">
-                      <th scope="row" className="case-summary-pr__label">{colon[0]}</th>
-                      <td className="case-summary-pr__value">
-                        <CaseSummaryValue value={colon[1]} />
-                      </td>
-                    </tr>
-                  );
-                }
-                return (
-                  <tr key={item.key || `p-${i}`} className="case-summary-pr__para-row">
-                    <td colSpan={2}>{item.text}</td>
-                  </tr>
+                  <div key={item.key || `p-${i}`} className="case-summary-pr__block">
+                    <div className="case-summary-pr__subtitle">{pair.label}</div>
+                    <div className="case-summary-pr__content">
+                      <CaseSummaryValue value={pair.value} />
+                    </div>
+                  </div>
                 );
               }
               return (
-                <tr key={item.key || `kv-${i}`} className="case-summary-pr__kv-row">
-                  <th scope="row" className="case-summary-pr__label">{item.label}</th>
-                  <td className="case-summary-pr__value">
-                    <CaseSummaryValue value={item.value} bullets={item.bullets} />
-                  </td>
-                </tr>
+                <p key={item.key || `p-${i}`} className="case-summary-pr__para">
+                  {item.text}
+                </p>
               );
-            })}
-          </tbody>
-        </table>
-      </div>
+            }
+            return (
+              <div key={item.key || `kv-${i}`} className="case-summary-pr__block">
+                {item.label && item.label !== "•" && (
+                  <div className="case-summary-pr__subtitle">{item.label}</div>
+                )}
+                <div className="case-summary-pr__content">
+                  <CaseSummaryValue value={item.value} bullets={item.bullets} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
