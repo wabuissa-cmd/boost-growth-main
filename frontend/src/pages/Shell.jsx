@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, Suspense, useMemo } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData, isWalaaOps, showMyPortalNav, isJenan, canViewReports } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch, cachedGet } from "../dataCache";
@@ -487,12 +487,22 @@ function NavDropdown({ testid, label, icon, items, loc, onItemHover }) {
 }
 
 function ChangePasswordModal() {
-  const { changePassword } = useAuth();
+  const { changePassword, logout } = useAuth();
+  const navigate = useNavigate();
   const [oldPwd, setOldPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const backToLogin = async () => {
+    setBusy(true);
+    try {
+      await logout();
+      navigate("/login", { replace: true });
+    } finally {
+      setBusy(false);
+    }
+  };
   const submit = async (e) => {
     e.preventDefault();
     setErr("");
@@ -517,6 +527,10 @@ function ChangePasswordModal() {
         {err && <div className="text-sm text-red-700 bg-red-50 border border-red-200 p-2 rounded-lg mb-3">{err}</div>}
         <button data-testid="cpw-submit" disabled={busy} className="btn btn-primary w-full">
           {busy ? <span className="spinner"/> : "Update Password"}
+        </button>
+        <button data-testid="cpw-back-login" type="button" disabled={busy} onClick={backToLogin}
+                className="btn btn-ghost w-full mt-2 text-sm" style={{color: "#5C6853"}}>
+          Back to login
         </button>
       </form>
     </div>
