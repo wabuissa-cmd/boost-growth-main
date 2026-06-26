@@ -1,4 +1,5 @@
 import LocationLink from "./LocationLink";
+import { Flower, MapPin } from "@phosphor-icons/react";
 import { getChildColor, readable } from "../childColors";
 import { cardStatusMeta, prepTrackMeta } from "../attendanceUtils";
 import SsWeekStatusRow from "./SsWeekStatusRow";

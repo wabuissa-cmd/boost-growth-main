@@ -11,6 +11,7 @@ import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
+import LocationLink from "../components/LocationLink";
 import {
   enrichClientForCardView, resolveClientBillingMode, formatServiceTypeDisplay,
   resolveCycleAnchor, computeSsWeekSummary, groupSessionsBySchoolWeeks,
@@ -131,7 +132,13 @@ function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdi
       {show("hours") && <td className={`${cell} font-bold`}>{measureVal}</td>}
       {show("therapist") && <td className={cell}>{tNames || "—"}</td>}
       {show("service") && <td className={cell}>{s.service_type || "—"}</td>}
-      {show("location") && <td className={cell}>{s.location || "—"}</td>}
+      {show("location") && (
+        <td className={cell}>
+          {s.location ? (
+            <LocationLink address={s.location} className="underline" style={{ color: "#5C8A47" }} />
+          ) : "—"}
+        </td>
+      )}
       {show("note") && <td className={`${cell} italic`} style={{ color: "#5C6853" }}>{s.note || ""}</td>}
       {!locked && show("_action") && (
         <td className={`${cell} text-right whitespace-nowrap no-print`}>

@@ -20,8 +20,13 @@ export default function LocationLink({
       href={mapsHref}
       target="_blank"
       rel="noopener noreferrer"
-      className={className}
-      style={{ cursor: "pointer", touchAction: "manipulation", WebkitTapHighlightColor: "transparent", ...style }}
+      className={`location-link ${className}`.trim()}
+      style={{
+        cursor: "pointer",
+        touchAction: "manipulation",
+        WebkitTapHighlightColor: "transparent",
+        ...style,
+      }}
       onClick={onClick}
     >
       {label}

@@ -3,13 +3,12 @@ import { useNavigate } from "react-router-dom";
 import api from "../api";
 import { cachedGet, peekCache } from "../dataCache";
 import { useAuth, showAdminNav, hasOpsAccess, hasFullClientAccess, isJenan } from "../auth";
-import { Plus, MagnifyingGlass, MapPin, ArrowSquareOut, Trash, PencilSimple, UsersThree, EnvelopeSimple } from "@phosphor-icons/react";
+import { Plus, MagnifyingGlass, ArrowSquareOut, Trash, PencilSimple, UsersThree, EnvelopeSimple } from "@phosphor-icons/react";
 import ClientInfoLayout from "../components/ClientInfoLayout";
 import ClientPickerSheet from "../components/ClientPickerSheet";
 import "../clientInfoLayout.css";
 import { enrichClientForCardView } from "../attendanceUtils";
-import { getMapsHref, formatLocationLabel } from "../mapsUtils";
-import LocationLink from "../components/LocationLink";
+import LocationList from "../components/LocationList";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -382,43 +381,10 @@ export default function Clients() {
 }
 
 function LocationPanelModal({ client, onClose }) {
-  const locs = client.locations || [];
   return (
-    <ModalBase title="Location" subtitle={`${client.name} · File #${client.file_no || "—"}`} onClose={onClose} size="md"
+    <ModalBase title="Locations" subtitle={`${client.name} · File #${client.file_no || "—"}`} onClose={onClose} size="md"
       footer={<ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>}>
-      {locs.length === 0 ? (
-        <div className="text-sm py-8 text-center" style={{ color: "#8B9E7A" }}>No locations on file</div>
-      ) : (
-        <div className="space-y-3">
-          {locs.map((l, i) => (
-            <div key={i} className="p-3 rounded-xl border flex items-start gap-3" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
-              <span className="pill text-[10px] py-0.5 px-2 shrink-0" style={{ background: l.service === "SS" ? "#E5EBE1" : "#EAF0F3", color: l.service === "SS" ? "#3D4F35" : "#375568" }}>{l.service}</span>
-              <div className="flex-1 min-w-0">
-                <LocationLink
-                  address={l.address}
-                  className="text-sm font-medium underline inline-flex items-center gap-1"
-                  style={{ color: "#2C3625" }}
-                >
-                  {l.address ? (formatLocationLabel(l.address) || l.address) : "—"}
-                </LocationLink>
-                {l.address && (
-                  <div className="mt-1.5">
-                    <a
-                      href={getMapsHref(l.address)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs underline"
-                      style={{ color: "#5C8A47", touchAction: "manipulation" }}
-                    >
-                      <MapPin size={12} /> Open in Maps ↗
-                    </a>
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <LocationList locations={client.locations || []} />
     </ModalBase>
   );
 }

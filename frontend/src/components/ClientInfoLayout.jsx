@@ -3,6 +3,7 @@ import {
   MapPin, Paperclip, ClipboardText,
   Leaf, PencilSimple, Trash, CaretRight,
 } from "@phosphor-icons/react";
+import LocationList from "./LocationList";
 import { getChildColor, readable } from "../childColors";
 import { prepTrackMeta, cardStatusMeta } from "../attendanceUtils";
 import { getTherapistScheduleName } from "../scheduleConstants";
@@ -76,6 +77,7 @@ export default function ClientInfoLayout({
     ? getTherapistScheduleName(findTherapist(selected.main_therapist_id))
     : "";
   const driveLinkCount = selected ? (selected.drive_links?.length || 0) : 0;
+  const locationCount = selected ? (selected.locations?.length || 0) : 0;
   const avatarBg = selected ? (getChildColor(selected.name) || selected.color || "#E5EBE1") : "#E5EBE1";
   const canEditPhone = isAdmin || hasOps || Boolean(onPhoneSave);
   const [phoneDraft, setPhoneDraft] = useState("");
@@ -216,6 +218,11 @@ export default function ClientInfoLayout({
                 </div>
               )}
 
+              <div className="ci-locations-box">
+                <p className="ci-timeline-title">Locations</p>
+                <LocationList locations={selected.locations || []} />
+              </div>
+
               <div className="ci-timeline">
                 <p className="ci-timeline-title">Client records</p>
                 <div className="ci-section-grid">
@@ -223,7 +230,9 @@ export default function ClientInfoLayout({
                     const Icon = s.icon;
                     const desc = s.id === "attachments" && driveLinkCount > 0
                       ? `${driveLinkCount} file${driveLinkCount !== 1 ? "s" : ""}`
-                      : s.desc;
+                      : s.id === "location" && locationCount > 0
+                        ? `${locationCount} address${locationCount !== 1 ? "es" : ""} · tap to expand`
+                        : s.desc;
                     return (
                       <button key={s.id} type="button" className="ci-section-card" onClick={() => onOpenSection(s.id)}>
                         <span className="ci-section-card-icon"><Icon size={20} weight="duotone" /></span>
