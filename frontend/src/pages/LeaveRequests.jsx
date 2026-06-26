@@ -13,6 +13,7 @@ import {
 } from "../components/Modal";
 import {
   LEAVE_STATUS, LEAVE_TYPES, DOC_TYPES, documentBadge, leaveRequiresDocument,
+  ATTACHMENT_REQUIRED_MSG, isManagerReviewableLeave,
   diffDays, fmtDateRange, fmtLeaveSchedule, isActiveLeave, isHistoryLeave, exportLeavesCsv,
   scheduleImpactLabel, leavePayCategory, leaveStatusLabel, permissionPayLabel,
   isPendingLeaveStatus,
@@ -146,7 +147,8 @@ function LeaveRequestCard({
   const [marking, setMarking] = useState(false);
   const [impactOpen, setImpactOpen] = useState(false);
   const attachRef = useRef(null);
-  const pendingManager = leave.status === "pending" || leave.status === "pending_manager";
+  const pendingManager = isManagerReviewableLeave(leave);
+  const awaitingAttachment = leave.status === "pending_attachment";
   const pendingHr = leave.status === "pending_hr";
   const showAdminActions = leaveManager || hrReview || portalAdmin || isManager;
 
@@ -204,6 +206,12 @@ function LeaveRequestCard({
       </div>
 
       <DocumentSection leave={leave} isAdmin={leaveManager || portalAdmin} onRefresh={onRefresh} canUpload={canUpload} />
+
+      {awaitingAttachment && (
+        <div className="mt-3 rounded-xl p-3 text-xs font-semibold border" style={{ background: "#F8EBE7", borderColor: "#ECA6A6", color: "#8A3F27" }}>
+          {ATTACHMENT_REQUIRED_MSG}
+        </div>
+      )}
 
       {leave.notes && (
         <div className="mt-3 text-sm" style={{ color: "#5C6853" }}>
@@ -675,6 +683,10 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
 
   const save = async () => {
     if (!edit.therapist_id) { alert("Select a therapist"); return; }
+    if (!edit.id && leaveRequiresDocument(edit.leave_type) && !pendingDoc) {
+      alert(`Please upload a supporting document. ${ATTACHMENT_REQUIRED_MSG}`);
+      return;
+    }
     if (edit.id) {
       await api.put(`/leaves/${edit.id}`, edit);
     } else {
@@ -699,7 +711,7 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
       list = list.filter(l => l.therapist_id === therapistFilter);
     }
     if (isManager && !portalAdmin && !therapistFilter) {
-      list = list.filter(l => l.status === "pending" || l.status === "pending_manager");
+      list = list.filter(l => l.status === "pending" || l.status === "pending_manager" || l.status === "pending_attachment");
     } else if (hrReview && !portalAdmin && !leaveManager && !therapistFilter) {
       list = list.filter(l => l.status === "pending_hr");
     }
@@ -888,7 +900,16 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
                 onChange={e => setEdit({ ...edit, notes: e.target.value })} />
             </FormField>
             {!edit.id && (
-              <FormField label="Attachment" hint="Optional — medical report, sick note, etc.">
+              <FormField
+                label={leaveRequiresDocument(edit.leave_type) ? "Supporting document" : "Attachment"}
+                hint={leaveRequiresDocument(edit.leave_type) ? "Required — medical report, sick note, etc." : "Optional — medical report, sick note, etc."}
+                required={leaveRequiresDocument(edit.leave_type)}
+              >
+                {leaveRequiresDocument(edit.leave_type) && (
+                  <div className="rounded-xl p-3 mb-2 text-xs font-semibold border" style={{ background: "#F8EBE7", borderColor: "#ECA6A6", color: "#8A3F27" }}>
+                    {ATTACHMENT_REQUIRED_MSG}
+                  </div>
+                )}
                 <input ref={leaveFileRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" className="hidden"
                   onChange={e => setPendingDoc(e.target.files?.[0] || null)} />
                 <button type="button" onClick={() => leaveFileRef.current?.click()} className="btn btn-outline text-sm w-full justify-center">

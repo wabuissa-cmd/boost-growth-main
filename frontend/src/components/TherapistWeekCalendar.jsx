@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { CaretLeft, CaretRight, MapPin, VideoCamera, Plus } from "@phosphor-icons/react";
+import LocationLink from "./LocationLink";
 import { DAYS_SHORT, TIME_SLOTS, addDays, toISODate, formatDateRange } from "../api";
 import { getCellStyle } from "../scheduleUtils";
 import {
@@ -265,7 +266,7 @@ export default function TherapistWeekCalendar({
                       {loc && (
                         <div className="cal-event-loc">
                           <MapPin size={11} weight="fill" />
-                          <span>{loc}</span>
+                          <LocationLink address={loc} className="underline" />
                         </div>
                       )}
                     </div>

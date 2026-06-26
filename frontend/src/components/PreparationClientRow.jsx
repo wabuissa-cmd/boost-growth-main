@@ -1,4 +1,4 @@
-import { Plus, ClockCounterClockwise, MapPin, Flower } from "@phosphor-icons/react";
+import LocationLink from "./LocationLink";
 import { getChildColor, readable } from "../childColors";
 import { cardStatusMeta, prepTrackMeta } from "../attendanceUtils";
 import SsWeekStatusRow from "./SsWeekStatusRow";
@@ -72,10 +72,14 @@ export default function PreparationClientRow({
                 </span>
               )}
               {client.location && (
-                <span className="inline-flex items-center gap-0.5 max-w-[200px] truncate" style={{ color: C.textMid }}>
-                  <MapPin size={10} />
+                <LocationLink
+                  address={client.locationHref || client.location}
+                  className="inline-flex items-center gap-0.5 max-w-[200px] truncate underline"
+                  style={{ color: C.textMid }}
+                >
+                  <MapPin size={10} className="shrink-0" />
                   {client.location}
-                </span>
+                </LocationLink>
               )}
             </div>
           </div>

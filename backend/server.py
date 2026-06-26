@@ -292,6 +292,7 @@ HR_OPS_EMAIL = "hr@boostgrowthsa.com"
 HR_OPS_PASSWORD = "BoostHR@2026"
 JENAN_EMAIL = "jsalmuhaisin@boostgrowthsa.com"
 PENDING_MANAGER_STATUSES = frozenset({"pending", "pending_manager"})
+LEAVE_DOC_REQUIRED_TYPES = frozenset({"Sickleave", "Absence", "Permission"})
 PENDING_MANAGER_REQUEST_STATUSES = frozenset({"pending", "pending_manager"})
 MANAGER_ACTIVE_REQUEST_STATUSES = frozenset({"pending", "pending_manager", "in_progress"})
 
@@ -566,6 +567,7 @@ class RequestIn(BaseModel):
     date_to: Optional[str] = None
     reward_type: Optional[str] = None
     extra_notes: Optional[str] = None
+    requires_attachment: bool = False
 
 class RequestStatusUpdate(BaseModel):
     status: str
@@ -5579,8 +5581,11 @@ async def create_request(payload: RequestIn, user=Depends(get_current_user)):
     if user.get("role") != "therapist":
         raise HTTPException(status_code=403, detail="Therapist only")
     rid = str(uuid.uuid4())
+    initial_status = "pending_manager"
+    if payload.requires_attachment:
+        initial_status = "pending_attachment"
     doc = {"id": rid, "therapist_id": user["id"], "therapist_name": user.get("name"),
-           **payload.model_dump(), "status": "pending_manager", "admin_note": None,
+           **payload.model_dump(), "status": initial_status, "admin_note": None,
            "created_at": now_iso(), "updated_at": now_iso(),
            "timeline": [{"event": "submitted", "at": now_iso(), "by": user.get("name")}]}
     await db.requests.insert_one(doc)
@@ -5628,6 +5633,11 @@ async def add_request_attachment(
     }
     if report_date:
         patch["report_date"] = report_date
+    if req.get("status") == "pending_attachment" or (req.get("requires_attachment") and not req.get("attachment_file_path")):
+        patch["status"] = "pending_manager"
+        timeline = list(req.get("timeline") or [])
+        timeline.append({"event": "attachment_uploaded", "at": now_iso(), "by": user.get("name")})
+        patch["timeline"] = timeline
     await db.requests.update_one({"id": rid}, {"$set": patch})
     updated = {**req, **patch}
     return _enrich_request_attachment(updated)
@@ -6125,6 +6135,8 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
     elif is_jenan_mgr:
         if effective_prev not in MANAGER_ACTIVE_REQUEST_STATUSES:
             raise HTTPException(status_code=403, detail="Manager can only act on pending manager requests")
+        if _request_awaiting_attachment(req):
+            raise HTTPException(status_code=400, detail="Attachment required before manager review")
         if effective_prev == "in_progress":
             if new_status not in ("pending_hr", "rejected", "in_progress"):
                 raise HTTPException(status_code=400, detail="Manager must forward to HR or reject")
@@ -6971,6 +6983,26 @@ def _normalize_request_status(status: Optional[str]) -> str:
     return "pending_manager" if s == "pending" else s
 
 
+def _leave_requires_document(leave_type: Optional[str]) -> bool:
+    return (leave_type or "") in LEAVE_DOC_REQUIRED_TYPES
+
+
+def _leave_has_document(leave: dict) -> bool:
+    return bool(leave.get("document_file_path"))
+
+
+def _request_has_attachment(req: dict) -> bool:
+    return bool(req.get("attachment_file_path"))
+
+
+def _request_awaiting_attachment(req: dict) -> bool:
+    if req.get("status") == "pending_attachment":
+        return True
+    if req.get("requires_attachment") and not _request_has_attachment(req):
+        return True
+    return False
+
+
 def _append_leave_timeline(leave: dict, event: str, actor: str) -> list:
     timeline = list(leave.get("timeline") or [])
     timeline.append({"event": event, "at": now_iso(), "by": actor})
@@ -7131,7 +7163,10 @@ async def create_leave(payload: LeaveIn, user=Depends(get_current_user)):
     lid = str(uuid.uuid4())
     doc = {"id": lid, **payload.model_dump(), **_leave_default_fields(), "created_by": user["id"], "created_at": now_iso()}
     if user.get("role") != "admin":
-        doc["status"] = "pending_manager"
+        if _leave_requires_document(payload.leave_type) and not _leave_has_document(doc):
+            doc["status"] = "pending_attachment"
+        else:
+            doc["status"] = "pending_manager"
         doc["timeline"] = [{"event": "submitted", "at": now_iso(), "by": _actor_display(user)}]
     await db.leaves.insert_one(doc)
     doc.pop("_id", None)
@@ -7175,13 +7210,17 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
     if is_pa:
         pass
     elif is_jenan_mgr:
-        if effective_prev not in PENDING_MANAGER_STATUSES:
+        if effective_prev not in PENDING_MANAGER_STATUSES and effective_prev != "pending_attachment":
             raise HTTPException(status_code=403, detail="Manager can only act on pending manager requests")
+        if effective_prev == "pending_attachment" or (_leave_requires_document(leave.get("leave_type")) and not _leave_has_document(leave)):
+            raise HTTPException(status_code=400, detail="Document attachment required before review")
         if new_status not in ("pending_hr", "rejected"):
             raise HTTPException(status_code=400, detail="Manager must forward to HR or reject")
     elif is_hr:
         if effective_prev != "pending_hr":
             raise HTTPException(status_code=403, detail="HR can only act on HR-pending requests")
+        if _leave_requires_document(leave.get("leave_type")) and not _leave_has_document(leave):
+            raise HTTPException(status_code=400, detail="Document attachment required before approval")
         if new_status not in ("approved", "rejected"):
             raise HTTPException(status_code=400, detail="HR must approve or reject")
     else:
@@ -7380,6 +7419,13 @@ async def upload_leave_document(
         "document_verified": False,
         "document_uploaded_at": now_iso(),
     }})
+    if leave.get("status") == "pending_attachment":
+        timeline = _append_leave_timeline(leave, "document_uploaded", _actor_display(user))
+        await db.leaves.update_one({"id": lid}, {"$set": {
+            "status": "pending_manager",
+            "timeline": timeline,
+            "updated_at": now_iso(),
+        }})
     updated = await db.leaves.find_one({"id": lid}, {"_id": 0})
     return _enrich_leave_document_url(updated)
 

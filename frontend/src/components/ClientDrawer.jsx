@@ -1,4 +1,6 @@
 import { X, MapPin, Paperclip, ClipboardText, ChartLineUp, PencilSimple, ArrowSquareOut } from "@phosphor-icons/react";
+import LocationLink from "./LocationLink";
+import { formatLocationLabel } from "../mapsUtils";
 import { PackageStatusBadge } from "./PackageStatusBadge";
 import { useNavigate } from "react-router-dom";
 import { useAuth, hasOpsAccess } from "../auth";
@@ -63,7 +65,12 @@ export default function ClientDrawer({
             {client.locations?.[0] && (
               <div className="flex gap-1.5">
                 <MapPin size={14} className="shrink-0 mt-0.5" style={{ color: "#8B9E7A" }} />
-                <span>{client.locations[0].service} · {client.locations[0].address}</span>
+                <LocationLink
+                  address={client.locations[0].address}
+                  className="underline"
+                >
+                  {client.locations[0].service} · {formatLocationLabel(client.locations[0].address) || client.locations[0].address}
+                </LocationLink>
               </div>
             )}
           </div>

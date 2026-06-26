@@ -4,7 +4,7 @@ import { useAuth, isJenan } from "../auth";
 import {
   Plus, Package, Briefcase, ClockCounterClockwise, CalendarBlank,
   CheckCircle, XCircle, Hourglass, ChatCircleText, Clock, Lightning,
-  Paperclip, FileArrowDown,
+  Paperclip, FileArrowDown, UploadSimple,
 } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
@@ -18,11 +18,13 @@ import "../stepperLayout.css";
 import {
   LEAVE_STATUS, LEAVE_TYPES, diffDays, fmtDateRange, leaveStatusLabel, permissionPayLabel,
   permissionDaysFromTimes, addHoursToTime24, fmtLeaveSchedule,
+  leaveRequiresDocument, ATTACHMENT_REQUIRED_MSG,
 } from "../leaveUtils";
 
 const STATUS_MAP = {
   pending: { label: "Under Review", cls: "bg-[#FAF0D1] text-[#6B5218] border-[#E6C983]", icon: <Hourglass size={14} weight="duotone"/>, color: "#E6C983" },
   pending_manager: { label: "Direct Manager Review", cls: "bg-[#FAF0D1] text-[#6B5218] border-[#E6C983]", icon: <Hourglass size={14} weight="duotone"/>, color: "#E6C983" },
+  pending_attachment: { label: "Awaiting Attachment", cls: "bg-[#F8EBE7] text-[#8A3F27] border-[#ECA6A6]", icon: <Paperclip size={14} weight="duotone"/>, color: "#ECA6A6" },
   pending_hr: { label: "HR Review", cls: "bg-[#F5EBE3] text-[#965132] border-[#E6C983]", icon: <Hourglass size={14} weight="duotone"/>, color: "#C28E6A" },
   in_progress: { label: "In Progress", cls: "bg-[#EAF0F3] text-[#375568] border-[#A4BCCB]", icon: <Clock size={14} weight="duotone"/>, color: "#A4BCCB" },
   approved: { label: "Approved", cls: "bg-[#E5EBE1] text-[#3D4F35] border-[#B4C2A9]", icon: <CheckCircle size={14} weight="duotone"/>, color: "#B4C2A9" },
@@ -47,7 +49,21 @@ const PRIORITIES = [
 ];
 
 function emptyRequest() {
-  return { title: "", description: "", request_type: "general", priority: "normal", extra_notes: "", attachmentFile: null, reportDate: "" };
+  return { title: "", description: "", request_type: "general", priority: "normal", extra_notes: "", attachmentFile: null, reportDate: "", includesReport: false };
+}
+
+function AttachmentRequiredBanner() {
+  return (
+    <div className="rounded-xl p-3 text-xs font-semibold border" style={{ background: "#F8EBE7", borderColor: "#ECA6A6", color: "#8A3F27" }}>
+      {ATTACHMENT_REQUIRED_MSG}
+    </div>
+  );
+}
+
+function leaveDocumentType(leaveType) {
+  if (leaveType === "Sickleave") return "medical";
+  if (leaveType === "Permission") return "appointment";
+  return "other";
 }
 
 function emptyPermission(userId) {
@@ -116,7 +132,12 @@ export default function TherapistRequests() {
           setSubmitting(false);
           return;
         }
-        await api.post("/leaves", {
+        if (leaveRequiresDocument("Permission") && !edit.attachmentFile) {
+          alert(`Please upload a supporting document. ${ATTACHMENT_REQUIRED_MSG}`);
+          setSubmitting(false);
+          return;
+        }
+        const { data: created } = await api.post("/leaves", {
           therapist_id: user.id,
           start_date: edit.start_date,
           end_date: edit.end_date,
@@ -127,23 +148,51 @@ export default function TherapistRequests() {
           notes: edit.notes || edit.description || null,
           status: "pending",
         });
+        if (edit.attachmentFile && created?.id) {
+          const fd = new FormData();
+          fd.append("file", edit.attachmentFile);
+          fd.append("document_type", leaveDocumentType("Permission"));
+          await api.post(`/leaves/${created.id}/upload-document`, fd, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+        }
       } else if (edit.request_type === "leave") {
-        await api.post("/leaves", {
+        const leaveType = edit.leave_type || "Annual";
+        if (leaveRequiresDocument(leaveType) && !edit.attachmentFile) {
+          alert(`Please upload a supporting document. ${ATTACHMENT_REQUIRED_MSG}`);
+          setSubmitting(false);
+          return;
+        }
+        const { data: created } = await api.post("/leaves", {
           therapist_id: user.id,
           start_date: edit.start_date,
           end_date: edit.end_date,
           days: edit.days,
-          leave_type: edit.leave_type || "Annual",
+          leave_type: leaveType,
           notes: edit.notes || edit.description || null,
           status: "pending",
         });
+        if (edit.attachmentFile && created?.id) {
+          const fd = new FormData();
+          fd.append("file", edit.attachmentFile);
+          fd.append("document_type", leaveDocumentType(leaveType));
+          await api.post(`/leaves/${created.id}/upload-document`, fd, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+        }
       } else {
+        if (edit.includesReport && !edit.attachmentFile) {
+          alert(`Please upload a supporting document. ${ATTACHMENT_REQUIRED_MSG}`);
+          setSubmitting(false);
+          return;
+        }
         const res = await api.post("/requests", {
           title: edit.title,
           description: edit.description,
           request_type: edit.request_type,
           priority: edit.priority,
           extra_notes: edit.extra_notes,
+          requires_attachment: Boolean(edit.includesReport),
         });
         if (edit.attachmentFile && res.data?.id) {
           const fd = new FormData();
@@ -395,12 +444,15 @@ export default function TherapistRequests() {
             ) : step === 2 && !isLeaveFlow ? (
               <>
                 <ModalBtnSecondary type="button" onClick={() => setStep(1)}>← Back</ModalBtnSecondary>
-                <ModalBtnPrimary type="button" onClick={() => setStep(3)} disabled={!edit.title}>Review →</ModalBtnPrimary>
+                <ModalBtnPrimary type="button" onClick={() => setStep(3)} disabled={!edit.title || (edit.includesReport && !edit.attachmentFile)}>Review →</ModalBtnPrimary>
               </>
             ) : (
               <>
                 <ModalBtnSecondary type="button" onClick={() => setStep(1)}>← Back</ModalBtnSecondary>
-                <ModalBtnPrimary data-testid="req-submit-btn" type="button" onClick={submit} disabled={submitting}>
+                <ModalBtnPrimary data-testid="req-submit-btn" type="button" onClick={submit} disabled={submitting || (isLeaveFlow && (
+                  (edit.request_type === "permission" && !edit.attachmentFile) ||
+                  (edit.request_type === "leave" && leaveRequiresDocument(edit.leave_type || "Annual") && !edit.attachmentFile)
+                )) || (!isLeaveFlow && edit.includesReport && !edit.attachmentFile)}>
                   {submitting ? "Submitting…" : "Submit"}
                 </ModalBtnPrimary>
               </>
@@ -474,6 +526,18 @@ export default function TherapistRequests() {
               <FormField label="Note">
                 <textarea className="modal-input" rows={3} value={edit.notes || ""} onChange={e => setEdit({ ...edit, notes: e.target.value })} placeholder="Reason for permission…" />
               </FormField>
+              <AttachmentRequiredBanner />
+              <FormField label="Supporting document" hint="PDF or image — required for permission" required>
+                <input
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx"
+                  className="modal-input"
+                  onChange={e => setEdit({ ...edit, attachmentFile: e.target.files?.[0] || null })}
+                />
+                {edit.attachmentFile && (
+                  <div className="text-xs mt-1" style={{ color: "#5C6853" }}>{edit.attachmentFile.name}</div>
+                )}
+              </FormField>
             </FormSection>
           )}
 
@@ -502,6 +566,22 @@ export default function TherapistRequests() {
               <FormField label="Note">
                 <textarea className="modal-input" rows={3} value={edit.notes || ""} onChange={e => setEdit({ ...edit, notes: e.target.value })} placeholder="Additional notes…" />
               </FormField>
+              {leaveRequiresDocument(edit.leave_type || "Annual") && (
+                <>
+                  <AttachmentRequiredBanner />
+                  <FormField label="Supporting document" hint="Medical report or supporting file — required" required>
+                    <input
+                      type="file"
+                      accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx"
+                      className="modal-input"
+                      onChange={e => setEdit({ ...edit, attachmentFile: e.target.files?.[0] || null })}
+                    />
+                    {edit.attachmentFile && (
+                      <div className="text-xs mt-1" style={{ color: "#5C6853" }}>{edit.attachmentFile.name}</div>
+                    )}
+                  </FormField>
+                </>
+              )}
             </FormSection>
           )}
 
@@ -524,7 +604,23 @@ export default function TherapistRequests() {
                   ))}
                 </div>
               </FormField>
-              <FormField label="Attachment (optional)" hint="PDF, image, or Word document">
+              <FormField label="Includes report or document?">
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-1 w-4 h-4 accent-[#5C8A47]"
+                    checked={Boolean(edit.includesReport)}
+                    onChange={e => setEdit({ ...edit, includesReport: e.target.checked, attachmentFile: e.target.checked ? edit.attachmentFile : null })}
+                  />
+                  <span style={{ color: "#5C6853" }}>Yes — this request needs a supporting file</span>
+                </label>
+              </FormField>
+              {edit.includesReport && <AttachmentRequiredBanner />}
+              <FormField
+                label={edit.includesReport ? "Supporting document" : "Attachment (optional)"}
+                hint={edit.includesReport ? "PDF, image, or Word — required" : "PDF, image, or Word document"}
+                required={edit.includesReport}
+              >
                 <input
                   type="file"
                   accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx"

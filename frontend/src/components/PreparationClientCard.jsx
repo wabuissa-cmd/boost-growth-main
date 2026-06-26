@@ -2,7 +2,7 @@ import {
   Plus, ClockCounterClockwise, MapPin, Flower,
 } from "@phosphor-icons/react";
 import { getChildColor, readable } from "../childColors";
-import { getMapsHref, isMapsLink } from "../mapsUtils";
+import LocationLink from "./LocationLink";
 import SsWeekStatusRow from "./SsWeekStatusRow";
 
 function HoursBar({ progress, barColor }) {
@@ -104,13 +104,12 @@ export default function PreparationClientCard({
       {client.location && (
         <div className="flex items-start gap-1 mt-3 text-[10px] leading-snug" style={{ color: "#8B9E7A" }}>
           <MapPin size={12} className="shrink-0 mt-0.5" style={{ color: "#C97B5C" }} />
-          {isMapsLink(client.locationHref || client.location) ? (
-            <a href={getMapsHref(client.locationHref || client.location)} target="_blank" rel="noreferrer" className="line-clamp-2 underline">
-              {client.location}
-            </a>
-          ) : (
-            <span className="line-clamp-2">{client.location}</span>
-          )}
+          <LocationLink
+            address={client.locationHref || client.location}
+            className="line-clamp-2 underline"
+          >
+            {client.location}
+          </LocationLink>
         </div>
       )}
 

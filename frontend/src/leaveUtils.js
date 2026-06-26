@@ -3,6 +3,7 @@
 export const LEAVE_STATUS = {
   pending: { label: "Pending", therapistLabel: "Under Review", color: "#D4A64A", bg: "#FAF0D1", icon: "🟡" },
   pending_manager: { label: "Pending Manager", therapistLabel: "Direct Manager Review", color: "#D4A64A", bg: "#FAF0D1", icon: "🟡" },
+  pending_attachment: { label: "Awaiting Attachment", therapistLabel: "Awaiting Attachment", color: "#8A3F27", bg: "#F8EBE7", icon: "📎" },
   pending_hr: { label: "Pending HR", therapistLabel: "HR Review", color: "#C28E6A", bg: "#F5EBE3", icon: "🟠" },
   approved: { label: "Approved", color: "#3D4F35", bg: "#E5EBE1", icon: "🟢" },
   done: { label: "Done", color: "#5C6853", bg: "#EFEAE0", icon: "✓" },
@@ -28,6 +29,8 @@ export const DOC_TYPES = [
 ];
 
 const DOC_REQUIRED_TYPES = new Set(["Sickleave", "Absence", "Permission"]);
+
+export const ATTACHMENT_REQUIRED_MSG = "Request will NOT be reviewed until file is uploaded.";
 
 export function leavePayCategory(leaveType) {
   return leaveType === "Unpaid" ? "Unpaid" : "Paid";
@@ -163,7 +166,14 @@ export function fmtLeaveSchedule(leave) {
 }
 
 export function isPendingLeaveStatus(status) {
-  return status === "pending" || status === "pending_manager" || status === "pending_hr";
+  return status === "pending" || status === "pending_manager" || status === "pending_hr" || status === "pending_attachment";
+}
+
+export function isManagerReviewableLeave(leave) {
+  if (!leave) return false;
+  if (leave.status === "pending_attachment") return false;
+  if (leaveRequiresDocument(leave.leave_type) && !(leave.document_file_path || leave.document_url)) return false;
+  return leave.status === "pending" || leave.status === "pending_manager";
 }
 
 export function isActiveLeave(l) {

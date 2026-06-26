@@ -14,6 +14,7 @@ import "../clientInfoLayout.css";
 const STATUS_MAP = {
   pending:    { label: "Pending",     cls: "bg-[#FAF0D1] text-[#6B5218] border-[#E6C983]", icon: <Hourglass size={14} weight="duotone"/>, color: "#E6C983" },
   pending_manager: { label: "Pending Manager", cls: "bg-[#FAF0D1] text-[#6B5218] border-[#E6C983]", icon: <Hourglass size={14} weight="duotone"/>, color: "#E6C983" },
+  pending_attachment: { label: "Awaiting Attachment", cls: "bg-[#F8EBE7] text-[#8A3F27] border-[#ECA6A6]", icon: <Hourglass size={14} weight="duotone"/>, color: "#ECA6A6" },
   pending_hr: { label: "Pending HR", cls: "bg-[#F5EBE3] text-[#965132] border-[#E6C983]", icon: <Hourglass size={14} weight="duotone"/>, color: "#C28E6A" },
   in_progress:{ label: "In Progress", cls: "bg-[#EAF0F3] text-[#375568] border-[#A4BCCB]", icon: <Spinner size={14} weight="duotone"/>, color: "#A4BCCB" },
   approved:   { label: "Approved",    cls: "bg-[#E5EBE1] text-[#3D4F35] border-[#B4C2A9]", icon: <CheckCircle size={14} weight="duotone"/>, color: "#B4C2A9" },
@@ -74,6 +75,10 @@ function fmtShortDate(iso) {
   if (!iso) return "—";
   const d = new Date(`${String(iso).slice(0, 10)}T12:00:00`);
   return d.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function requestAwaitingAttachment(r) {
+  return r?.status === "pending_attachment" || (r?.requires_attachment && !r?.attachment_url);
 }
 
 const TYPES = [
@@ -190,6 +195,10 @@ export default function Requests({ personal = false, embedded = false, managerVi
 
   const handleManagerStatusSave = async () => {
     if (!statusEdit) return;
+    if (requestAwaitingAttachment(statusEdit)) {
+      alert("This request is awaiting an attachment from the therapist and cannot be reviewed yet.");
+      return;
+    }
     const finalStatus = (managerView && isManager && forwardToHr && managerCanForwardToHr(statusEdit.status))
       ? "pending_hr"
       : statusEdit.status;
@@ -813,6 +822,11 @@ export default function Requests({ personal = false, embedded = false, managerVi
                   Request details are read-only. Set status, add a note, and choose whether to forward to HR — then حفظ وإرسال.
                 </p>
               )}
+              {requestAwaitingAttachment(statusEdit) && (
+                <div className="rounded-xl p-3 mb-3 text-xs font-semibold border" style={{ background: "#F8EBE7", borderColor: "#ECA6A6", color: "#8A3F27" }}>
+                  Awaiting attachment — request will NOT be reviewed until the therapist uploads a file.
+                </div>
+              )}
 
               <FormSection title="Request Details">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm mb-3">
@@ -904,7 +918,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                 )}
               </FormSection>
 
-              {(!managerView || (isManager && (isPendingManagerStatus(statusEdit.status) || statusEdit.status === "in_progress"))) && (
+              {(!managerView || (isManager && (isPendingManagerStatus(statusEdit.status) || statusEdit.status === "in_progress"))) && !requestAwaitingAttachment(statusEdit) && (
                 <FormSection title="Status">
                   <div className="grid grid-cols-1 gap-2">
                     {allowedStatusOptions(user, statusEdit.status).map(k => {

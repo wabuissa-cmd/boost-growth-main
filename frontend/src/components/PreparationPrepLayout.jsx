@@ -3,7 +3,7 @@ import { ClipboardText, CheckCircle, Clock, Warning } from "@phosphor-icons/reac
 import { getChildColor, readable } from "../childColors";
 import { prepTrackMeta, cardStatusMeta } from "../attendanceUtils";
 import { getTherapistScheduleName } from "../scheduleConstants";
-import { getMapsHref, isMapsLink } from "../mapsUtils";
+import LocationLink from "./LocationLink";
 import SsWeekStatusRow from "./SsWeekStatusRow";
 import "../preparationLayout.css";
 
@@ -119,11 +119,7 @@ export default function PreparationPrepLayout({
                   <div className="prep-client-meta">
                     File #{c.file_no}
                     {c.location ? (
-                      isMapsLink(c.locationHref || c.location) ? (
-                        <> · <a href={getMapsHref(c.locationHref || c.location)} target="_blank" rel="noreferrer" className="underline" onClick={e => e.stopPropagation()}>{c.location}</a></>
-                      ) : (
-                        <> · {c.location}</>
-                      )
+                      <> · <LocationLink address={c.locationHref || c.location} className="underline" onClick={e => e.stopPropagation()}>{c.location}</LocationLink></>
                     ) : null}
                   </div>
                 </div>

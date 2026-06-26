@@ -1,4 +1,4 @@
-import { formatLocationLabel, isMapsLink } from "./mapsUtils";
+import { formatLocationLabel, getMapsHref } from "./mapsUtils";
 
 export const WEEK_ROW_BG = ["#FFFFFF", "#FAF8F3", "#F5F0E6", "#EDE1C9"];
 
@@ -897,7 +897,7 @@ export function enrichClientForCardView(client, packageRows) {
     hasSs: profileServices.includes("SS") && Boolean(ssRow?.status && ssRow.status !== "none"),
     hasHs: profileServices.includes("HS") && Boolean(hsRow?.status && hsRow.status !== "none"),
     location: formatLocationLabel(rawLocation) || rawLocation,
-    locationHref: isMapsLink(rawLocation) ? rawLocation : null,
+    locationHref: rawLocation ? getMapsHref(rawLocation) : null,
     locationService: locEntry?.service || "",
     initials: clientInitials(client.name),
     ssAlert: ssWeekAlertText(ssRow),
