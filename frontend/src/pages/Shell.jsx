@@ -131,7 +131,7 @@ export default function Shell() {
   if (jenanManager) {
     managerNavItems.push(
       { to: "/manager", label: "Manager Hub", testid: "nav-manager-hub", icon: <ListChecks size={17} weight="duotone"/> },
-      { to: "/purchases", label: "المدفوعات", testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> },
+      { to: "/purchases", label: "Payments", testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> },
     );
   } else if (staffRequestsAccess || leaveManager || hrLeaveReview) {
     requestsItems.push({ to: "/staff-leave", label: "Staff & Leave", testid: "nav-staff-leave" });

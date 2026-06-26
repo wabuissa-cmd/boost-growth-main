@@ -4,6 +4,7 @@ import api from "../api";
 import { useAuth, isJenan } from "../auth";
 import PageBanner from "../components/PageBanner";
 import Requests from "./Requests";
+import LeaveRequests from "./LeaveRequests";
 import LeaveBalance from "./LeaveBalance";
 import {
   MagnifyingGlass, Warning, UserCircle, FileText,
@@ -12,6 +13,7 @@ import { getTherapistScheduleName } from "../scheduleConstants";
 
 const MAIN_TABS = [
   { id: "staff", label: "Therapists' Requests", testid: "mgr-tab-staff" },
+  { id: "leave", label: "Leave Requests", testid: "mgr-tab-leave" },
   { id: "balance", label: "Leave Balance", testid: "mgr-tab-balance" },
   { id: "profiles", label: "Therapist Profiles", testid: "mgr-tab-profiles" },
 ];
@@ -241,6 +243,7 @@ export default function ManagerHub() {
       </div>
 
       {activeTab === "staff" && <Requests embedded managerView />}
+      {activeTab === "leave" && <LeaveRequests embedded />}
       {activeTab === "balance" && <LeaveBalance embedded staffScope />}
       {activeTab === "profiles" && <TherapistProfilesTab />}
     </div>

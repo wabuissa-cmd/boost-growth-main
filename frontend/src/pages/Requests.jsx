@@ -156,7 +156,9 @@ export default function Requests({ personal = false, embedded = false, managerVi
   };
   const loadLeaves = async () => {
     const yr = new Date().getFullYear();
-    const { data } = await api.get("/leaves", { params: { year: yr } });
+    const params = { year: yr };
+    if (leaveHr || managerView) params.scope = "staff";
+    const { data } = await api.get("/leaves", { params });
     const sorted = [...(data || [])].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
     setRecentLeaves(sorted.slice(0, 10));
   };

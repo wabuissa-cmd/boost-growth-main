@@ -647,10 +647,16 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
   const leaveFileRef = useRef(null);
 
   const load = async () => {
+    const leaveParams = { year };
+    const balanceParams = { year };
+    if (isManager) {
+      leaveParams.scope = "staff";
+      balanceParams.scope = "staff";
+    }
     const [l, t, b] = await Promise.all([
-      api.get(`/leaves?year=${year}`),
+      api.get("/leaves", { params: leaveParams }),
       api.get("/therapists").catch(() => ({ data: [] })),
-      api.get(`/leaves/balance?year=${year}`).catch(() => ({ data: [] })),
+      api.get("/leaves/balance", { params: balanceParams }).catch(() => ({ data: [] })),
     ]);
     setLeaves(l.data);
     setTherapists(t.data);

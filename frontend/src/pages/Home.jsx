@@ -85,6 +85,7 @@ export default function Home() {
   const [therapistRows, setTherapistRows] = useState([]);
   const [managerRequests, setManagerRequests] = useState([]);
   const [managerPendingTotal, setManagerPendingTotal] = useState(0);
+  const [managerPendingLeaves, setManagerPendingLeaves] = useState(0);
 
   useEffect(() => {
     setHeroImageId(loadHeroPreference(user));
@@ -124,9 +125,13 @@ export default function Home() {
           cachedGet("/clients/package-status").catch(() => []),
           api.get("/schedule/closures", { params: { from_date: weekISO, to_date: weekEndISO } }).catch(() => ({ data: [] })),
           api.get("/center-updates").catch(() => ({ data: [] })),
-          isPortalAdminUser || hrOps ? api.get("/notifications").catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+          isPortalAdminUser || hrOps || jenan ? api.get("/notifications").catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
           (isPortalAdminUser || hrOps) && opsAccess ? api.get("/billing/dashboard").catch(() => ({ data: null })) : Promise.resolve({ data: null }),
-          (isPortalAdminUser || hrOps) ? api.get("/leaves").catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+          (isPortalAdminUser || hrOps)
+            ? api.get("/leaves").catch(() => ({ data: [] }))
+            : jenan
+              ? api.get("/leaves", { params: { scope: "staff" } }).catch(() => ({ data: [] }))
+              : Promise.resolve({ data: [] }),
           (isPortalAdminUser || hrOps) ? api.get("/intake").catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
         ]);
 
@@ -181,7 +186,7 @@ export default function Home() {
         });
       } catch (_e) { /* ignore */ }
     })();
-  }, [user?.id, showOpsHome, user, weekISO, weekEndISO, opsAccess, hrOps]);
+  }, [user?.id, showOpsHome, user, weekISO, weekEndISO, opsAccess, hrOps, jenan]);
 
   const adminReminders = useMemo(
     () => buildAdminReminders({
@@ -202,20 +207,28 @@ export default function Home() {
     if (!jenan) {
       setManagerRequests([]);
       setManagerPendingTotal(0);
+      setManagerPendingLeaves(0);
       return;
     }
-    api.get("/requests", { params: { scope: "staff" } })
-      .then((r) => {
-        const rows = Array.isArray(r.data) ? r.data : [];
+    const pendingStatuses = ["pending", "pending_manager", "pending_hr", "pending_attachment"];
+    Promise.all([
+      api.get("/requests", { params: { scope: "staff" } }),
+      api.get("/leaves", { params: { scope: "staff" } }),
+    ])
+      .then(([reqRes, leaveRes]) => {
+        const rows = Array.isArray(reqRes.data) ? reqRes.data : [];
         const pending = rows.filter(x =>
           ["pending", "pending_manager", "in_progress"].includes(x.status)
         );
         setManagerPendingTotal(pending.length);
         setManagerRequests(pending.slice(0, 6));
+        const leaves = Array.isArray(leaveRes.data) ? leaveRes.data : [];
+        setManagerPendingLeaves(leaves.filter(l => pendingStatuses.includes(l.status)).length);
       })
       .catch(() => {
         setManagerRequests([]);
         setManagerPendingTotal(0);
+        setManagerPendingLeaves(0);
       });
   }, [jenan, user?.id]);
 
@@ -417,8 +430,11 @@ export default function Home() {
                 <div>
                   <div className="text-xs font-bold uppercase tracking-widest" style={{ color: "#8B9E7A" }}>Request updates</div>
                   <div className="font-bold text-sm mt-0.5" style={{ color: "#2C3625" }}>
-                    {managerPendingTotal > 0
-                      ? `${managerPendingTotal} therapist request${managerPendingTotal === 1 ? "" : "s"} need your review`
+                    {managerPendingTotal > 0 || managerPendingLeaves > 0
+                      ? [
+                          managerPendingTotal > 0 ? `${managerPendingTotal} staff request${managerPendingTotal === 1 ? "" : "s"}` : null,
+                          managerPendingLeaves > 0 ? `${managerPendingLeaves} leave request${managerPendingLeaves === 1 ? "" : "s"}` : null,
+                        ].filter(Boolean).join(" · ") + " need your review"
                       : "No pending therapist requests"}
                   </div>
                 </div>
@@ -426,6 +442,15 @@ export default function Home() {
                   Manager Hub <ArrowRight size={14}/>
                 </Link>
               </div>
+              {(managerPendingLeaves > 0 && managerRequests.length === 0) && (
+                <Link
+                  to="/manager?tab=leave"
+                  className="block mb-3 p-2.5 rounded-xl no-underline text-inherit text-xs font-semibold"
+                  style={{ background: "rgba(255,255,255,0.55)", border: "1px solid #EDE9E3", color: "#6B5218" }}
+                >
+                  {managerPendingLeaves} leave request{managerPendingLeaves === 1 ? "" : "s"} awaiting review — open Leave Requests tab
+                </Link>
+              )}
               {managerRequests.length > 0 ? (
                 <div className="space-y-2 max-h-48 overflow-y-auto">
                   {managerRequests.map((r) => (
