@@ -6,6 +6,7 @@ import {
   Database, SignOut, CaretDown, CaretUp, Users, Wrench, LinkSimple,
 } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
+import { getTherapistScheduleName } from "../scheduleConstants";
 
 function AdminSection({ id, title, subtitle, icon, defaultOpen = false, badge, children }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -264,14 +265,14 @@ export default function Admin() {
   };
 
   const filteredTherapists = therapists.filter(t =>
-    !therapistSearch.trim() || t.name?.toLowerCase().includes(therapistSearch.toLowerCase())
+    !therapistSearch.trim() || getTherapistScheduleName(t).toLowerCase().includes(therapistSearch.toLowerCase()) || t.name?.toLowerCase().includes(therapistSearch.toLowerCase())
   );
 
   const resetPassword = async (t) => {
-    if (!window.confirm(`Generate a new temporary password for ${t.name}?`)) return;
+    if (!window.confirm(`Generate a new temporary password for ${getTherapistScheduleName(t)}?`)) return;
     try {
       const { data } = await api.post(`/therapists/${t.id}/reset-password`);
-      setResetInfo({ ...data, name: t.name });
+      setResetInfo({ ...data, name: getTherapistScheduleName(t) });
     } catch (e) {
       alert("Reset failed: " + (e.response?.data?.detail || e.message));
     }
@@ -539,10 +540,10 @@ export default function Admin() {
           {filteredTherapists.map(t => (
             <div key={t.id} className="p-3 rounded-xl border flex items-center gap-3" style={{ borderColor: "#E2DDD4" }}>
               <div className="w-10 h-10 rounded-full text-white font-bold flex items-center justify-center shrink-0" style={{ background: t.color }}>
-                {t.name?.replace("Ms. ", "").charAt(0)}
+                {getTherapistScheduleName(t)?.replace(/^Ms\.?\s*/i, "").charAt(0)}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="font-bold text-sm truncate" style={{ color: "#2C3625" }}>{t.name}</div>
+                <div className="font-bold text-sm truncate" style={{ color: "#2C3625" }}>{getTherapistScheduleName(t)}</div>
                 <div className="text-xs truncate" style={{ color: "#8B9E7A" }}>{t.email || t.phone || "—"}</div>
               </div>
               <button onClick={() => setEdit({ ...t, pin: "" })} className="btn btn-ghost p-1.5"><PencilSimple size={15} /></button>

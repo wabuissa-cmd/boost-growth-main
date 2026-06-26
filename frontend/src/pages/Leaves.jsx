@@ -10,6 +10,7 @@ import {
 } from "../components/Modal";
 import PageBanner from "../components/PageBanner";
 import LeaveBalanceTable from "../components/LeaveBalanceTable";
+import { getTherapistScheduleName } from "../scheduleConstants";
 
 const STATUS = {
   pending: { label: "Approval Waiting", color: "#D4A64A", bg: "#FAF0D1", icon: <Clock size={14} weight="fill"/> },
@@ -145,7 +146,7 @@ export default function Leaves() {
           <div className="card p-3 mb-4 flex items-center gap-2 flex-wrap">
             <select className="select text-sm" value={filterTherapist} onChange={e => setFilterTherapist(e.target.value)}>
               <option value="">All therapists</option>
-              {therapists.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              {therapists.map(t => <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>)}
             </select>
             <select className="select text-sm" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
               <option value="">All statuses</option>
@@ -239,7 +240,7 @@ export default function Leaves() {
               <FormField label="Therapist">
                 <select data-testid="leave-therapist-select" className="modal-input" value={edit.therapist_id} onChange={e => setEdit({ ...edit, therapist_id: e.target.value })}>
                   <option value="">— Select —</option>
-                  {therapists.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  {therapists.map(t => <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>)}
                 </select>
               </FormField>
             )}

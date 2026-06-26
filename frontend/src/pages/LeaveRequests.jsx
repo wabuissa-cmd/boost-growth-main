@@ -18,6 +18,7 @@ import {
   scheduleImpactLabel, leavePayCategory, leaveStatusLabel, permissionPayLabel,
   isPendingLeaveStatus,
 } from "../leaveUtils";
+import { getTherapistScheduleName } from "../scheduleConstants";
 
 function emptyLeave(therapistId = "") {
   const today = new Date().toISOString().slice(0, 10);
@@ -396,7 +397,7 @@ function MarkAbsenceModal({ therapists, onClose, onDone }) {
         <FormField label="Therapist">
           <select className="modal-input" value={form.therapist_id} onChange={e => setForm({ ...form, therapist_id: e.target.value })}>
             <option value="">— Select —</option>
-            {therapists.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            {therapists.map(t => <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>)}
           </select>
         </FormField>
         <div className="grid grid-cols-2 gap-4">
@@ -457,7 +458,7 @@ function HistoryTab({ leaves, therapists, isAdmin, onRefresh }) {
       <div className="card p-3 mb-4 flex items-center gap-2 flex-wrap">
         <select className="select text-sm" value={filterTherapist} onChange={e => setFilterTherapist(e.target.value)}>
           <option value="">All Therapists</option>
-          {therapists.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          {therapists.map(t => <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>)}
         </select>
         <select className="select text-sm" value={filterType} onChange={e => setFilterType(e.target.value)}>
           <option value="">All Types</option>
@@ -728,11 +729,11 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
     <div>
       {!embedded && (
       <PageBanner
-        title={therapistProfileView ? filteredTherapist?.name || "Therapist Leaves" : (reviewerView ? "Leave Requests" : "My Leaves")}
+        title={therapistProfileView ? (filteredTherapist ? getTherapistScheduleName(filteredTherapist) : "Therapist Leaves") : (reviewerView ? "Leave Requests" : "My Leaves")}
         subtitle={therapistProfileView
           ? "Annual balance and full leave history"
           : reviewerView
-            ? (filteredTherapist ? `Leave records for ${filteredTherapist.name}` : "Approve requests · track documents · mark absences")
+            ? (filteredTherapist ? `Leave records for ${getTherapistScheduleName(filteredTherapist)}` : "Approve requests · track documents · mark absences")
             : "Annual balance · leave history · upload medical documents"}
         badge={(
           <>
@@ -762,7 +763,7 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
       {(personal || therapistFilter) && (
         <div className="card p-5 sm:p-6 mb-5" style={{ background: "linear-gradient(135deg, #6B8F71 0%, #3D5C44 55%, #2F4A35 100%)", borderColor: "transparent", color: "white" }}>
           <div className="text-xs tracking-[0.2em] font-bold opacity-90 mb-1">
-            LEAVE BALANCE{filteredTherapist && !personal ? ` · ${filteredTherapist.name}` : ""}
+            LEAVE BALANCE{filteredTherapist && !personal ? ` · ${getTherapistScheduleName(filteredTherapist)}` : ""}
           </div>
           {myBalance?.contract_period_start && (
             <div className="text-[10px] opacity-80 mb-2">
@@ -866,7 +867,7 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
                 <select data-testid="leave-therapist-select" className="modal-input" value={edit.therapist_id}
                   onChange={e => setEdit({ ...edit, therapist_id: e.target.value })}>
                   <option value="">— Select —</option>
-                  {therapists.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  {therapists.map(t => <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>)}
                 </select>
               </FormField>
             )}

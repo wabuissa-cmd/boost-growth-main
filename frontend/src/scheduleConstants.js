@@ -48,15 +48,33 @@ const THERAPIST_FIRST_NAME_OVERRIDES = {
 
 export function getTherapistScheduleName(t) {
   if (!t) return "";
-  let first = (t.name || "").replace(/^Ms\.?\s*/i, "").trim();
+  const raw = (t.name || "").replace(/^Ms\.?\s*/i, "").trim();
+  let first = raw.split(/\s+/)[0] || raw;
   const firstLower = first.toLowerCase();
   if (THERAPIST_FIRST_NAME_OVERRIDES[firstLower]) {
     first = THERAPIST_FIRST_NAME_OVERRIDES[firstLower];
   }
   if (firstLower === "najla") return "Najla Alhamad";
   const family = therapistFamilyName(t.key);
-  if (family) return `${first} ${family}`;
-  return first || t.name || "";
+  if (family) {
+    const parts = raw.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2 && parts[parts.length - 1].toLowerCase() === family.toLowerCase()) {
+      return parts.map((p, i) => (i === 0 && THERAPIST_FIRST_NAME_OVERRIDES[p.toLowerCase()]) || p).join(" ");
+    }
+    return `${first} ${family}`;
+  }
+  return raw || t.name || "";
+}
+
+/** Resolve schedule-format name from therapist row, id, or stored fallback. */
+export function resolveTherapistDisplayName(therapistOrId, therapists, fallback = "—") {
+  if (therapistOrId && typeof therapistOrId === "object") {
+    return getTherapistScheduleName(therapistOrId) || fallback;
+  }
+  const id = therapistOrId;
+  if (!id || !therapists?.length) return fallback;
+  const row = therapists.find(x => x.id === id);
+  return row ? getTherapistScheduleName(row) : fallback;
 }
 
 /** Full name for home banner greetings (first + family, with overrides). */

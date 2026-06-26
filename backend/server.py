@@ -475,6 +475,15 @@ class ScheduleCellIn(BaseModel):
     duration: Optional[float] = 1  # hours spanned (supports 1.5, 2.5, etc.)
     week_start: str
 
+class SchedulePreparationIn(BaseModel):
+    therapist_id: str
+    client_id: str
+    session_date: str  # ISO yyyy-mm-dd
+    time_slot: Optional[str] = None
+    schedule_cell_id: Optional[str] = None
+    week_start: Optional[str] = None
+    day: Optional[int] = None
+
 class LocationIn(BaseModel):
     service: str
     address: str
@@ -939,7 +948,7 @@ async def delete_therapist(tid: str, _=Depends(admin_only)):
 # ------------------- Full Database Backup (admin only) -------------------
 BACKUP_COLLECTIONS = [
     "users", "therapists", "clients", "sessions", "invoices",
-    "leaves", "requests", "progress_reports", "schedule_cells",
+    "leaves", "requests", "progress_reports", "schedule_cells", "schedule_preparations",
     "intake_pre", "intake_post", "notifications", "attendance_sheets",
     "email_settings", "email_queue",
 ]
@@ -1475,6 +1484,135 @@ async def list_schedule(week_start: Optional[str] = None, user=Depends(get_curre
             return []
     cells = await db.schedule_cells.find(q, {"_id": 0}).to_list(5000)
     return cells
+
+
+async def _upsert_schedule_preparation(
+    *,
+    therapist_id: str,
+    client_id: str,
+    session_date: str,
+    prepared_by: str,
+    time_slot: Optional[str] = None,
+    schedule_cell_id: Optional[str] = None,
+    week_start: Optional[str] = None,
+    day: Optional[int] = None,
+) -> dict:
+    """Mark a schedule slot as preparation-complete for therapist + client + date."""
+    slot = (time_slot or "").strip()
+    session_date = (session_date or "")[:10]
+    q = {
+        "therapist_id": therapist_id,
+        "client_id": client_id,
+        "session_date": session_date,
+        "time_slot": slot,
+    }
+    existing = await db.schedule_preparations.find_one(q, {"_id": 0})
+    doc = {
+        **q,
+        "schedule_cell_id": schedule_cell_id,
+        "week_start": week_start,
+        "day": day,
+        "prepared_by": prepared_by,
+        "prepared_at": now_iso(),
+    }
+    if existing:
+        await db.schedule_preparations.update_one({"id": existing["id"]}, {"$set": doc})
+        doc["id"] = existing["id"]
+    else:
+        doc["id"] = str(uuid.uuid4())
+        await db.schedule_preparations.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) -> None:
+    """When a session is logged, mark matching schedule cells as prepared."""
+    client_id = sess.get("client_id")
+    session_date = (sess.get("session_date") or "")[:10]
+    if not client_id or not session_date:
+        return
+    therapist_ids = sess.get("therapist_ids") or []
+    client = await db.clients.find_one({"id": client_id}, {"_id": 0, "name": 1})
+    if not client:
+        return
+    child_norm = _normalize_intake_name(client.get("name") or "")
+    cells = await db.schedule_cells.find(
+        {
+            "therapist_id": {"$in": therapist_ids},
+            "child_name": {"$exists": True, "$nin": ["", None]},
+            "state": {"$nin": ["cancel_therapist", "cancel_child"]},
+            "service_code": {"$nin": ["LEAVE", "BREAK", "AVC", ""]},
+        },
+        {"_id": 0},
+    ).to_list(500)
+    for cell in cells:
+        slot_date = _schedule_cell_date_iso(cell)
+        if slot_date != session_date:
+            continue
+        child = _normalize_intake_name((cell.get("child_name") or "").strip())
+        if child != child_norm:
+            continue
+        tid = cell.get("therapist_id")
+        if not tid:
+            continue
+        await _upsert_schedule_preparation(
+            therapist_id=tid,
+            client_id=client_id,
+            session_date=session_date,
+            prepared_by=user_id,
+            time_slot=cell.get("time_slot") or "",
+            schedule_cell_id=cell.get("id"),
+            week_start=cell.get("week_start"),
+            day=cell.get("day"),
+        )
+
+
+@api.get("/schedule/preparations")
+async def list_schedule_preparations(
+    week_start: str,
+    therapist_id: Optional[str] = None,
+    user=Depends(get_current_user),
+):
+    """Prep-complete markers for schedule slots in a week (Mon–Fri)."""
+    if not week_start:
+        raise HTTPException(status_code=400, detail="week_start required")
+    try:
+        base = datetime.fromisoformat(str(week_start)[:10])
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid week_start")
+    end = (base + timedelta(days=4)).strftime("%Y-%m-%d")
+    start = base.strftime("%Y-%m-%d")
+    q: dict = {"session_date": {"$gte": start, "$lte": end}}
+    tid = therapist_id
+    if user.get("role") == "therapist" and not _has_full_client_access(user):
+        tid = await _resolve_user_therapist_id(user) or user.get("id")
+    if tid:
+        q["therapist_id"] = tid
+    items = await db.schedule_preparations.find(q, {"_id": 0}).to_list(2000)
+    return items
+
+
+@api.post("/schedule/preparations")
+async def mark_schedule_preparation(payload: SchedulePreparationIn, user=Depends(get_current_user)):
+    """Mark preparation complete for a scheduled session slot."""
+    if user.get("role") == "therapist" and not _has_full_client_access(user):
+        uid = await _resolve_user_therapist_id(user) or user.get("id")
+        if payload.therapist_id != uid:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        if not await _therapist_assigned_to_client(uid, payload.client_id):
+            raise HTTPException(status_code=403, detail="Forbidden")
+    doc = await _upsert_schedule_preparation(
+        therapist_id=payload.therapist_id,
+        client_id=payload.client_id,
+        session_date=payload.session_date,
+        prepared_by=user["id"],
+        time_slot=payload.time_slot,
+        schedule_cell_id=payload.schedule_cell_id,
+        week_start=payload.week_start,
+        day=payload.day,
+    )
+    return doc
+
 
 async def _notification_user_ids(user: dict) -> List[str]:
     """IDs that may own in-app notifications for this login (admin user + linked therapist)."""
@@ -4946,6 +5084,10 @@ async def create_session(payload: SessionIn, user=Depends(get_current_user)):
     doc = _attach_open_invoice_to_session(doc, client or {}, invs)
     await db.sessions.insert_one(doc)
     doc.pop("_id", None)
+    try:
+        await _auto_mark_schedule_preparation_for_session(doc, user["id"])
+    except Exception:
+        logger.exception("Auto-mark schedule preparation failed")
     # Admin alerts
     cname = client.get("name") if client else "—"
     if user.get("role") == "therapist":
@@ -5705,7 +5847,15 @@ async def list_requests(scope: Optional[str] = None, user=Depends(get_current_us
     else:
         q = {"therapist_id": user["id"]}
     items = await db.requests.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
-    return [_enrich_request_attachment(it) for it in items]
+    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1}).to_list(500)
+    t_by_id = {t["id"]: t for t in therapists}
+    out = []
+    for it in items:
+        t = t_by_id.get(it.get("therapist_id"))
+        if t:
+            it["therapist_name"] = therapist_schedule_display_name(t)
+        out.append(_enrich_request_attachment(it))
+    return out
 
 @api.post("/requests")
 async def create_request(payload: RequestIn, user=Depends(get_current_user)):
@@ -5715,13 +5865,15 @@ async def create_request(payload: RequestIn, user=Depends(get_current_user)):
     initial_status = "pending_manager"
     if payload.requires_attachment:
         initial_status = "pending_attachment"
-    doc = {"id": rid, "therapist_id": user["id"], "therapist_name": user.get("name"),
+    th = await db.therapists.find_one({"id": user["id"]}, {"_id": 0, "id": 1, "name": 1, "key": 1})
+    display = therapist_schedule_display_name(th or user)
+    doc = {"id": rid, "therapist_id": user["id"], "therapist_name": display,
            **payload.model_dump(), "status": initial_status, "admin_note": None,
            "created_at": now_iso(), "updated_at": now_iso(),
            "timeline": [{"event": "submitted", "at": now_iso(), "by": user.get("name")}]}
     await db.requests.insert_one(doc)
     doc.pop("_id", None)
-    msg = f"{user.get('name')}: {payload.title} (priority: {payload.priority})"
+    msg = f"{display}: {payload.title} (priority: {payload.priority})"
     await _notify_request_submitted(
         f"New {payload.request_type} request",
         msg,
@@ -7224,12 +7376,12 @@ async def list_leaves(year: Optional[int] = None, scope: Optional[str] = None, u
     if not can_view_all:
         q["therapist_id"] = user["id"]
     items = await db.leaves.find(q, {"_id": 0}).sort("start_date", -1).to_list(2000)
-    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1, "color": 1}).to_list(100)
+    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1, "color": 1, "key": 1}).to_list(100)
     t_by_id = {t["id"]: t for t in therapists}
     for it in items:
         t = t_by_id.get(it.get("therapist_id"))
         if t:
-            it["therapist_name"] = t.get("name")
+            it["therapist_name"] = therapist_schedule_display_name(t)
             it["therapist_color"] = t.get("color")
             if can_view_all:
                 it["therapist_email"] = t.get("email")
@@ -7239,7 +7391,7 @@ async def list_leaves(year: Optional[int] = None, scope: Optional[str] = None, u
 async def leaves_balance(year: Optional[int] = None, scope: Optional[str] = None, user=Depends(get_current_user)):
     """Per-therapist balance for current contract year (anniversary from join_date)."""
     scope_norm = (scope or "").strip().lower()
-    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "color": 1, "email": 1, "annual_balance": 1, "leave_balance": 1, "join_date": 1, "contract_period_start": 1, "contract_period_end": 1}).to_list(100)
+    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "color": 1, "email": 1, "annual_balance": 1, "leave_balance": 1, "join_date": 1, "contract_period_start": 1, "contract_period_end": 1, "key": 1}).to_list(100)
     can_view_all = _is_portal_admin(user) or _is_hr_ops(user) or (scope_norm == "staff" and _is_jenan(user))
     if not can_view_all:
         therapists = [t for t in therapists if t["id"] == user["id"]]
@@ -7269,7 +7421,7 @@ async def leaves_balance(year: Optional[int] = None, scope: Optional[str] = None
         allocated = float(t.get("leave_balance") if t.get("leave_balance") is not None else (t.get("annual_balance") or DEFAULT_ANNUAL_BALANCE))
         remaining = max(0.0, allocated - used_annual - used_permission)
         out.append({
-            "therapist_id": t["id"], "name": t["name"], "color": t.get("color"), "email": t.get("email"),
+            "therapist_id": t["id"], "name": therapist_schedule_display_name(t), "color": t.get("color"), "email": t.get("email"),
             "join_date": t.get("join_date"),
             "contract_period_start": start,
             "contract_period_end": end,
@@ -8092,7 +8244,7 @@ async def reports_dashboard(_=Depends(manager_reports_access)):
     # Sessions per therapist
     per_t: dict = {}
     for t in therapists:
-        per_t[t["id"]] = {"name": t["name"], "color": t.get("color"),
+        per_t[t["id"]] = {"name": therapist_schedule_display_name(t), "color": t.get("color"),
                            "completed": 0, "cancelled": 0, "no_show": 0, "no_service": 0,
                            "hours": 0.0}
     for s in sessions:

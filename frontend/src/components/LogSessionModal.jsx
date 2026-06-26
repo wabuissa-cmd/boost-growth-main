@@ -8,6 +8,7 @@ import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "./Modal";
+import { getTherapistScheduleName } from "../scheduleConstants";
 
 const STATUS_OPTS = [
   { id: "Completed", label: "Completed", icon: CheckCircle, color: "#3D4F35", bg: "#E5EBE1" },
@@ -47,6 +48,7 @@ export function addHoursToTime(time24, hours) {
 
 export default function LogSessionModal({
   client, therapists, currentUser, onClose, onSaved, session, prefill,
+  scheduleSlot, onPrepMarked,
 }) {
   const defaultLoc = client?.locations?.[0];
   const initialSvc = prefill?.service_type || defaultLoc?.service || client?.service_type || "HS";
@@ -68,12 +70,28 @@ export default function LogSessionModal({
     };
   });
 
+  const [markingPrep, setMarkingPrep] = useState(false);
+
   const submit = async (e) => {
     e.preventDefault();
     const payload = { ...form, hours: computeHours(form.start_time, form.end_time) };
     if (session?.id) await api.put(`/sessions/${session.id}`, payload);
     else await api.post("/sessions", payload);
     onSaved();
+  };
+
+  const markPrepOnly = async () => {
+    if (!scheduleSlot) return;
+    setMarkingPrep(true);
+    try {
+      await api.post("/schedule/preparations", scheduleSlot);
+      onPrepMarked?.();
+      onClose();
+    } catch (err) {
+      alert(err.response?.data?.detail || err.message || "Could not mark preparation");
+    } finally {
+      setMarkingPrep(false);
+    }
   };
 
   const toggleT = (id) => {
@@ -95,6 +113,16 @@ export default function LogSessionModal({
       footer={(
         <>
           <ModalBtnSecondary type="button" onClick={onClose}>Cancel</ModalBtnSecondary>
+          {scheduleSlot && !session && (
+            <ModalBtnSecondary
+              type="button"
+              data-testid="mark-prep-complete"
+              onClick={markPrepOnly}
+              disabled={markingPrep}
+            >
+              {markingPrep ? "Saving…" : "Mark preparation complete"}
+            </ModalBtnSecondary>
+          )}
           <ModalBtnPrimary data-testid="sess-save" type="submit" form={formId}>
             {session ? "Save changes" : "Log Session"}
           </ModalBtnPrimary>
@@ -194,7 +222,7 @@ export default function LogSessionModal({
               if (!t) return null;
               return (
                 <span key={id} className="pill px-2.5 py-1 text-[11px]" style={{ background: t.color, color: "white" }}>
-                  {t.name?.replace("Ms. ", "")}
+                  {getTherapistScheduleName(t)}
                   <button type="button" onClick={() => toggleT(id)} className="ml-1 opacity-80">✕</button>
                 </span>
               );
@@ -203,7 +231,7 @@ export default function LogSessionModal({
           <select className="modal-input text-sm" value="" onChange={e => { if (e.target.value) toggleT(e.target.value); e.target.value = ""; }}>
             <option value="">+ Add co-therapist</option>
             {therapists.filter(t => !form.therapist_ids.includes(t.id)).map(t => (
-              <option key={t.id} value={t.id}>{t.name}</option>
+              <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>
             ))}
           </select>
         </FormSection>

@@ -8,6 +8,7 @@ import LeaveBalance from "./LeaveBalance";
 import {
   MagnifyingGlass, Warning, UserCircle, FileText,
 } from "@phosphor-icons/react";
+import { getTherapistScheduleName } from "../scheduleConstants";
 
 const MAIN_TABS = [
   { id: "staff", label: "Therapists' Requests", testid: "mgr-tab-staff" },
@@ -39,7 +40,7 @@ function TherapistProfilePanel({ therapistId, onClose }) {
     <div className="card p-4 rounded-[20px]">
       <div className="flex items-start justify-between gap-3 mb-4">
         <div>
-          <h3 className="font-bold text-lg m-0" style={{ color: "#2C3625" }}>{t.name}</h3>
+          <h3 className="font-bold text-lg m-0" style={{ color: "#2C3625" }}>{getTherapistScheduleName(t)}</h3>
           <p className="text-xs mt-1" style={{ color: "#8B9E7A" }}>{t.email || t.role || "Therapist"}</p>
         </div>
         {onClose && (
@@ -140,6 +141,7 @@ function TherapistProfilesTab() {
     const q = search.trim().toLowerCase();
     if (!q) return therapists;
     return therapists.filter(t =>
+      getTherapistScheduleName(t).toLowerCase().includes(q) ||
       (t.name || "").toLowerCase().includes(q) ||
       (t.email || "").toLowerCase().includes(q) ||
       (t.key || "").toLowerCase().includes(q)
@@ -172,7 +174,7 @@ function TherapistProfilesTab() {
                 color: "#2C3625",
               }}
             >
-              {t.name}
+              {getTherapistScheduleName(t)}
             </button>
           ))}
           {!filtered.length && (

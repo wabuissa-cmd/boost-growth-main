@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { X, FloppyDisk, BellRinging, WhatsappLogo } from "@phosphor-icons/react";
 import { DAYS_EN, TIME_SLOTS, SERVICE_CODES } from "../api";
-import { DURATION_OPTIONS } from "../scheduleConstants";
+import { DURATION_OPTIONS, getTherapistScheduleName } from "../scheduleConstants";
 import { SERVICE_CELL_COLORS, resolveClientScheduleColor, findClientForScheduleCell } from "../scheduleUtils";
 import { ModalBtnPrimary, ModalBtnSecondary } from "./Modal";
 import { buildTherapistCancellationMessage, buildWhatsAppUrl } from "../scheduleParentMessages";
@@ -286,7 +286,7 @@ export default function ScheduleCellPanel({
                               checked={(cancelNotify.recipient_ids || []).includes(t.id)}
                               onChange={() => toggleCancelRecipient(t.id)}
                             />
-                            {t.name}
+                            {getTherapistScheduleName(t)}
                           </label>
                         ))}
                       </div>

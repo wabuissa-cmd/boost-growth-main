@@ -8,6 +8,7 @@ import ClientInfoLayout from "../components/ClientInfoLayout";
 import ClientPickerSheet from "../components/ClientPickerSheet";
 import "../clientInfoLayout.css";
 import { enrichClientForCardView } from "../attendanceUtils";
+import { getTherapistScheduleName } from "../scheduleConstants";
 import LocationList from "../components/LocationList";
 import {
   ModalBase, FormSection, FormField,
@@ -334,7 +335,7 @@ export default function Clients() {
             <FormField label="Main therapist">
               <select className="modal-input" value={edit.main_therapist_id || ""} onChange={e => setEdit({ ...edit, main_therapist_id: e.target.value || null })}>
                 <option value="">— None —</option>
-                {therapists.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {therapists.map(t => <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>)}
               </select>
             </FormField>
             <FormField label="Co-therapists">
@@ -349,7 +350,7 @@ export default function Clients() {
                       className={`pill text-xs px-2 py-1 ${sel ? "bg-[#7A8A6A] text-white" : "bg-white border"}`}
                       style={!sel ? { borderColor: "#DDD8D0" } : undefined}
                     >
-                      {t.name}
+                      {getTherapistScheduleName(t)}
                     </button>
                   );
                 })}

@@ -10,6 +10,7 @@ import {
 import PageBanner from "../components/PageBanner";
 import { LEAVE_STATUS, LEAVE_TYPES, diffDays, fmtDateRange, permissionPayLabel, fmtLeaveSchedule, permissionDaysFromTimes, addHoursToTime24 } from "../leaveUtils";
 import "../clientInfoLayout.css";
+import { getTherapistScheduleName } from "../scheduleConstants";
 
 const STATUS_MAP = {
   pending:    { label: "Pending",     cls: "bg-[#FAF0D1] text-[#6B5218] border-[#E6C983]", icon: <Hourglass size={14} weight="duotone"/>, color: "#E6C983" },
@@ -574,7 +575,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
             <FormField label="Therapist" required>
               <select className="modal-input" value={leaveModal.therapist_id} onChange={e => setLeaveModal({ ...leaveModal, therapist_id: e.target.value })}>
                 <option value="">Select therapist...</option>
-                {therapists.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {therapists.map(t => <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>)}
               </select>
             </FormField>
             <FormField label="Type">
