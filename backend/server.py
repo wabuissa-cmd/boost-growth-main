@@ -194,6 +194,7 @@ CLIENT_LEAD_EMAILS = frozenset({
 })
 HR_OPS_EMAIL = "hr@boostgrowthsa.com"
 HR_OPS_PASSWORD = "BoostHR@2026"
+JENAN_EMAIL = "jsalmuhaisin@boostgrowthsa.com"
 PENDING_MANAGER_STATUSES = frozenset({"pending", "pending_manager"})
 PENDING_MANAGER_REQUEST_STATUSES = frozenset({"pending", "pending_manager"})
 MANAGER_ACTIVE_REQUEST_STATUSES = frozenset({"pending", "pending_manager", "in_progress"})
@@ -1257,12 +1258,70 @@ async def _notify_purchase_submitted(purchaser_name: str, item: str, category: s
     await _notify_hr_ops("purchase_new", title, message, **extra)
 
 
+def _urgent_email_subject(subject: str) -> str:
+    s = (subject or "").strip()
+    if s.startswith("[عاجل]") or s.startswith("[Urgent]"):
+        return s
+    return f"[عاجل] [Urgent] {s}"
+
+
+def _portal_base_url() -> str:
+    for key in ("PORTAL_URL", "FRONTEND_URL", "PUBLIC_URL", "RAILWAY_PUBLIC_DOMAIN"):
+        val = (os.environ.get(key) or "").strip().rstrip("/")
+        if not val:
+            continue
+        if key == "RAILWAY_PUBLIC_DOMAIN" and not val.startswith("http"):
+            return f"https://{val}"
+        return val
+    return ""
+
+
+async def _jenan_recipient_email() -> str:
+    t = await db.therapists.find_one(
+        {"email": {"$regex": rf"^{re.escape(JENAN_EMAIL)}$", "$options": "i"}},
+        {"_id": 0, "email": 1},
+    )
+    if t and t.get("email"):
+        return t["email"].strip()
+    return JENAN_EMAIL
+
+
+async def _hr_ops_recipient_emails() -> List[str]:
+    """HR inbox recipients — seeded HR account plus any is_hr_ops admin users."""
+    emails: set = set()
+    admins = await db.users.find({"role": "admin"}, {"_id": 0, "email": 1, "is_hr_ops": 1}).to_list(50)
+    for a in admins:
+        stub = {"role": "admin", "email": a.get("email"), "is_hr_ops": a.get("is_hr_ops")}
+        if _is_hr_ops(stub) and a.get("email"):
+            emails.add(a["email"].lower().strip())
+    if not emails:
+        emails.add(HR_OPS_EMAIL.lower())
+    return sorted(emails)
+
+
+async def _send_urgent_email(to: str, subject: str, body: str) -> dict:
+    return await _send_email_stub(to, _urgent_email_subject(subject), body)
+
+
+async def _email_hr_ops_urgent(subject: str, body: str) -> List[dict]:
+    results = []
+    for addr in await _hr_ops_recipient_emails():
+        results.append(await _send_urgent_email(addr, subject, body))
+    return results
+
+
 async def _notify_request_submitted(title: str, message: str):
-    """Jenan (manager) and HR both get new-request alerts."""
+    """Jenan (manager) gets in-app + urgent email; HR gets in-app only until manager forwards."""
     jenan_id = await _jenan_therapist_id()
     if jenan_id:
         await _notify(jenan_id, "request_new", title, message)
     await _notify_hr_ops("request_new", title, message)
+    body = f"{message}\n"
+    portal = _portal_base_url()
+    if portal:
+        body += f"\nReview in portal: {portal}/requests\n"
+    body += "\n— Boost Growth Portal"
+    await _send_urgent_email(await _jenan_recipient_email(), title, body)
 
 
 async def _walaa_notify_user_ids() -> List[str]:
@@ -5784,11 +5843,17 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
         "updated_at": now_iso(), "timeline": timeline,
     }})
     if new_status == "pending_hr" and effective_prev in MANAGER_ACTIVE_REQUEST_STATUSES:
-        await _notify_hr_ops(
-            "request",
-            "Staff request awaiting HR approval",
-            f"{req.get('therapist_name') or 'Staff'}: {req.get('title') or 'Request'}",
-        )
+        hr_title = "Staff request awaiting HR approval"
+        hr_msg = f"{req.get('therapist_name') or 'Staff'}: {req.get('title') or 'Request'}"
+        await _notify_hr_ops("request", hr_title, hr_msg)
+        hr_body = hr_msg
+        if payload.admin_note:
+            hr_body += f"\n\nManager note: {payload.admin_note}"
+        portal = _portal_base_url()
+        if portal:
+            hr_body += f"\n\nReview in portal: {portal}/requests"
+        hr_body += "\n\n— Boost Growth Portal"
+        await _email_hr_ops_urgent(hr_title, hr_body)
     status_map = {
         "pending": "Pending", "pending_manager": "Pending manager review",
         "pending_hr": "Pending HR review", "in_progress": "In Progress",
@@ -6233,25 +6298,17 @@ class EmailSettingsIn(BaseModel):
     email_provider: Optional[str] = None  # auto | mailgun | brevo | resend | smtp
 
 def _apply_email_settings(doc: dict) -> None:
-    """Load persisted email settings into process env."""
+    """Merge persisted email settings into process env (DB overrides; never clears Railway env)."""
     if not doc:
         return
     if doc.get("resend_api_key"):
         os.environ["RESEND_API_KEY"] = doc["resend_api_key"]
-    else:
-        os.environ.pop("RESEND_API_KEY", None)
     if doc.get("brevo_api_key"):
         os.environ["BREVO_API_KEY"] = doc["brevo_api_key"]
-    else:
-        os.environ.pop("BREVO_API_KEY", None)
     if doc.get("mailgun_api_key"):
         os.environ["MAILGUN_API_KEY"] = doc["mailgun_api_key"]
-    else:
-        os.environ.pop("MAILGUN_API_KEY", None)
     if doc.get("mailgun_domain"):
         os.environ["MAILGUN_DOMAIN"] = doc["mailgun_domain"]
-    else:
-        os.environ.pop("MAILGUN_DOMAIN", None)
     if doc.get("from_email"):
         os.environ["EMAIL_FROM"] = doc["from_email"]
     if doc.get("smtp_host"):
@@ -6841,12 +6898,20 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
     }})
     if new_status == "pending_hr" and effective_prev in PENDING_MANAGER_STATUSES:
         tname = leave.get("leave_type") or "Leave"
-        await _notify_hr_ops(
-            "leave_request",
-            "Leave awaiting HR approval",
+        hr_title = "Leave awaiting HR approval"
+        hr_msg = (
             f"{leave.get('therapist_name') or 'Therapist'}: {tname} {leave.get('days')}d "
-            f"({leave.get('start_date')} → {leave.get('end_date')})",
+            f"({leave.get('start_date')} → {leave.get('end_date')})"
         )
+        await _notify_hr_ops("leave_request", hr_title, hr_msg)
+        hr_body = hr_msg
+        if payload.admin_note:
+            hr_body += f"\n\nManager note: {payload.admin_note}"
+        portal = _portal_base_url()
+        if portal:
+            hr_body += f"\n\nReview in portal: {portal}/requests"
+        hr_body += "\n\n— Boost Growth Portal"
+        await _email_hr_ops_urgent(hr_title, hr_body)
     # Deduct balance when newly approved (skip unpaid / absence)
     if new_status == "approved" and prev_status != "approved" and leave.get("therapist_id"):
         lt = (leave.get("leave_type") or "").lower()
