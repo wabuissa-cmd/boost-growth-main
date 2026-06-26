@@ -541,6 +541,9 @@ class CenterUpdateIn(BaseModel):
     title: str
     body: Optional[str] = None
     date: Optional[str] = None  # ISO yyyy-mm-dd display date
+    is_important: bool = False
+    requires_ack: bool = False
+    send_to_specialists: bool = False
 
 class SessionIn(BaseModel):
     client_id: str
@@ -1182,24 +1185,117 @@ async def delete_schedule_closure(cid: str, _=Depends(ops_or_admin)):
     await db.schedule_closures.delete_one({"id": cid})
     return {"ok": True}
 
+def _center_update_flags(body: CenterUpdateIn) -> dict:
+    is_important = bool(body.is_important)
+    requires_ack = bool(body.requires_ack)
+    send_to_specialists = bool(body.send_to_specialists)
+    if requires_ack and not is_important:
+        is_important = True
+    if send_to_specialists and not is_important:
+        is_important = True
+    return {
+        "is_important": is_important,
+        "requires_ack": requires_ack,
+        "send_to_specialists": send_to_specialists,
+    }
+
+
+async def _therapist_recipient_rows() -> List[dict]:
+    return await db.therapists.find(
+        {"email": {"$exists": True, "$nin": [None, ""]}},
+        {"_id": 0, "id": 1, "email": 1, "name": 1},
+    ).to_list(300)
+
+
+async def _broadcast_important_center_update(doc: dict):
+    """Email + in-app alert for important / specialist-targeted center updates."""
+    title = doc.get("title") or "Center update"
+    body = (doc.get("body") or "").strip()
+    date = doc.get("date") or now_iso()[:10]
+    portal = _portal_base_url()
+    email_body = f"Dear team member,\n\nAn important update has been posted:\n\n{title}\n"
+    if body:
+        email_body += f"\n{body}\n"
+    email_body += f"\nDate: {date}\n"
+    if doc.get("requires_ack"):
+        email_body += "\nPlease open the portal Home page and confirm you have read this update.\n"
+    if portal:
+        email_body += f"\nOpen portal: {portal}/\n"
+    email_body += "\n— Boost Growth Portal"
+    msg = body[:240] if body else title
+    for t in await _therapist_recipient_rows():
+        tid = t.get("id")
+        if tid:
+            await _notify(
+                tid,
+                "center_update_important",
+                title,
+                msg,
+                link="/",
+                update_id=doc.get("id"),
+                requires_ack=bool(doc.get("requires_ack")),
+            )
+        email = (t.get("email") or "").strip()
+        if email:
+            await _send_urgent_email(email, title, email_body)
+
+
+def _enrich_center_updates(items: List[dict], user: dict, therapist_names: Optional[dict] = None) -> List[dict]:
+    tid = None
+    if user.get("role") == "therapist":
+        tid = user.get("id")
+    show_ack_admin = user.get("role") == "admin" or _is_walaa_ops(user)
+    for item in items:
+        acks = item.get("acknowledged_by") or []
+        if tid:
+            item["acked_by_me"] = any(a.get("therapist_id") == tid for a in acks)
+        if show_ack_admin and therapist_names is not None:
+            ack_ids = {a.get("therapist_id") for a in acks if a.get("therapist_id")}
+            item["ack_read"] = [
+                {
+                    "therapist_id": a.get("therapist_id"),
+                    "name": a.get("name") or therapist_names.get(a.get("therapist_id"), "Unknown"),
+                    "at": a.get("at"),
+                }
+                for a in acks
+            ]
+            item["ack_pending"] = [
+                {"therapist_id": t_id, "name": name}
+                for t_id, name in therapist_names.items()
+                if t_id not in ack_ids
+            ]
+    return items
+
+
 @api.get("/center-updates")
 async def list_center_updates(user=Depends(get_current_user)):
-    return await db.center_updates.find({}, {"_id": 0}).sort("date", -1).to_list(20)
+    items = await db.center_updates.find({}, {"_id": 0}).sort("date", -1).to_list(50)
+    therapist_names = None
+    if user.get("role") == "admin" or _is_walaa_ops(user):
+        therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
+        therapist_names = {t["id"]: t.get("name") or "Unknown" for t in therapists if t.get("id")}
+    return _enrich_center_updates(items, user, therapist_names)
+
 
 @api.post("/center-updates")
 async def create_center_update(body: CenterUpdateIn, _=Depends(admin_only)):
     title = (body.title or "").strip()
     if not title:
         raise HTTPException(status_code=400, detail="title required")
+    flags = _center_update_flags(body)
     doc = {
         "id": str(uuid.uuid4()),
         "title": title,
         "body": (body.body or "").strip(),
         "date": (body.date or now_iso()[:10]),
         "created_at": now_iso(),
+        "acknowledged_by": [],
+        **flags,
     }
     await db.center_updates.insert_one(doc)
     doc.pop("_id", None)
+    if flags["is_important"] or flags["send_to_specialists"]:
+        await _broadcast_important_center_update(doc)
     return doc
 
 @api.put("/center-updates/{uid}")
@@ -1207,17 +1303,40 @@ async def update_center_update(uid: str, body: CenterUpdateIn, _=Depends(admin_o
     title = (body.title or "").strip()
     if not title:
         raise HTTPException(status_code=400, detail="title required")
+    existing = await db.center_updates.find_one({"id": uid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Update not found")
+    flags = _center_update_flags(body)
     update = {
         "title": title,
         "body": (body.body or "").strip(),
         "date": (body.date or now_iso()[:10]),
         "updated_at": now_iso(),
+        **flags,
     }
-    res = await db.center_updates.update_one({"id": uid}, {"$set": update})
-    if not res.matched_count:
-        raise HTTPException(status_code=404, detail="Update not found")
+    was_important = bool(existing.get("is_important") or existing.get("send_to_specialists"))
+    await db.center_updates.update_one({"id": uid}, {"$set": update})
     doc = await db.center_updates.find_one({"id": uid}, {"_id": 0})
+    if (flags["is_important"] or flags["send_to_specialists"]) and not was_important:
+        await _broadcast_important_center_update(doc)
     return doc
+
+@api.post("/center-updates/{uid}/acknowledge")
+async def acknowledge_center_update(uid: str, user=Depends(get_current_user)):
+    tid = await _resolve_user_therapist_id(user) or user.get("id")
+    if not tid:
+        raise HTTPException(status_code=403, detail="Therapist profile required")
+    doc = await db.center_updates.find_one({"id": uid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Update not found")
+    if not doc.get("requires_ack"):
+        return {"ok": True, "skipped": True}
+    acks = doc.get("acknowledged_by") or []
+    if any(a.get("therapist_id") == tid for a in acks):
+        return {"ok": True, "already": True}
+    entry = {"therapist_id": tid, "at": now_iso(), "name": user.get("name") or ""}
+    await db.center_updates.update_one({"id": uid}, {"$push": {"acknowledged_by": entry}})
+    return {"ok": True}
 
 @api.delete("/center-updates/{uid}")
 async def delete_center_update(uid: str, _=Depends(admin_only)):
@@ -1226,7 +1345,7 @@ async def delete_center_update(uid: str, _=Depends(admin_only)):
         raise HTTPException(status_code=404, detail="Update not found")
     return {"ok": True}
 
-async def _push_center_update(title: str, body: str = ""):
+async def _push_center_update(title: str, body: str = "", *, is_important: bool = False, requires_ack: bool = False):
     """Broadcast a platform update visible on therapist home."""
     doc = {
         "id": str(uuid.uuid4()),
@@ -1234,9 +1353,15 @@ async def _push_center_update(title: str, body: str = ""):
         "body": (body or "").strip(),
         "date": now_iso()[:10],
         "created_at": now_iso(),
+        "is_important": is_important,
+        "requires_ack": requires_ack,
+        "send_to_specialists": is_important,
+        "acknowledged_by": [],
     }
     if doc["title"]:
         await db.center_updates.insert_one(doc)
+        if is_important:
+            await _broadcast_important_center_update(doc)
 
 @api.get("/calendar/personal")
 async def list_personal_events(from_date: str = "", to_date: str = "", user=Depends(get_current_user)):
@@ -9774,6 +9899,10 @@ async def _run_startup():
                     "id": str(uuid.uuid4()),
                     **item,
                     "created_at": now_iso(),
+                    "is_important": False,
+                    "requires_ack": False,
+                    "send_to_specialists": False,
+                    "acknowledged_by": [],
                 })
             logger.info(f"Seeded {len(CENTER_UPDATES_SEED)} center updates")
 

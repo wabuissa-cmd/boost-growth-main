@@ -914,6 +914,42 @@ a.dash-stat-card:hover {
   margin-top: 0.2rem;
   line-height: 1.45;
 }
+.update-item-important {
+  background: #FFFBF0;
+  margin: 0 -0.5rem;
+  padding: 0.65rem 0.5rem;
+  border-radius: 12px;
+  border-bottom: none;
+  border-left: 3px solid #D4A64A;
+}
+.updates-panel-alert {
+  animation: updates-pulse 2s ease-in-out infinite;
+  border-color: #E8C572;
+}
+@keyframes updates-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(212, 166, 74, 0); }
+  50% { box-shadow: 0 0 0 3px rgba(212, 166, 74, 0.25); }
+}
+.updates-urgent-badge {
+  margin-left: auto;
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: #FAF0D1;
+  color: #8B6918;
+}
+.update-acked-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.58rem;
+  font-weight: 700;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  background: rgba(107, 143, 113, 0.15);
+  color: #2F4A35;
+}
 
 /* Intake card list */
 .intake-hero {

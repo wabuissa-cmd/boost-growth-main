@@ -368,7 +368,7 @@ export default function Home() {
           </CreativeSection>
 
           <div className="home-admin-panels">
-            <PlatformUpdates items={updates} canPost={isPortalAdminUser} onPosted={loadUpdates} />
+            <PlatformUpdates items={updates} canPost={isPortalAdminUser} onPosted={loadUpdates} therapistMode={false} />
             {showHrInbox && <HrInboxPanel user={user} />}
             {showCoordinationInbox && <HrInboxPanel user={user} coordinationOnly />}
             {(walaaOps || technicalAdmin || hrOps) && (
@@ -467,7 +467,7 @@ export default function Home() {
           </div>
 
           <div className="grid lg:grid-cols-[1fr_260px] gap-4 mb-4">
-            <PlatformUpdates items={updates} canPost={false} onPosted={loadUpdates} />
+            <PlatformUpdates items={updates} canPost={false} onPosted={loadUpdates} therapistMode />
             <div className="card p-3 rounded-[18px]">
               <div className="text-xs font-bold mb-2 uppercase tracking-wide" style={{ color: "#8B9E7A" }}>Week at a glance</div>
               <TherapistWeekCalendar
