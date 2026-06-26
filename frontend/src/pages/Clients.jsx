@@ -555,6 +555,34 @@ function isLongParagraph(text) {
   return t.length > 90 || t.split(/\s+/).length > 16 || /[.!?؟]\s/.test(t);
 }
 
+const CHILD_NAME_LABEL_RE = /^(اسم\s*(?:الطفل|الطالب)|child(?:'s)?\s*name|student\s*name|name|الاسم)$/i;
+const FILE_NO_LABEL_RE = /^(?:رقم\s*الملف|file\s*#?|file\s*no\.?)$/i;
+const PARENT_NAME_LABEL_RE = /parent|guardian|ولي|الأم|الأب|mother|father/i;
+
+function isChildNameLabel(text) {
+  const t = String(text || "").trim();
+  if (!t || FILE_NO_LABEL_RE.test(t) || PARENT_NAME_LABEL_RE.test(t)) return false;
+  return CHILD_NAME_LABEL_RE.test(t);
+}
+
+function isFileNumberLike(text, fileNo) {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  if (fileNo && t.replace(/^#/, "") === String(fileNo).trim().replace(/^#/, "")) return true;
+  return /^#?\d{1,4}$/.test(t);
+}
+
+function resolveChildNameValue(label, value, clientName, fileNo) {
+  if (!isChildNameLabel(label)) return value;
+  const v = String(value || "").trim();
+  const canonical = String(clientName || "").trim();
+  if (!v || isFileNumberLike(v, fileNo)) return canonical || "—";
+  if (canonical && (isFileNumberLike(v, fileNo) || (v.length <= 4 && v.toLowerCase() !== canonical.toLowerCase()))) {
+    return canonical;
+  }
+  return v || canonical || "—";
+}
+
 function looksLikeLabel(text) {
   const t = String(text || "").trim();
   if (!t || isLongParagraph(t)) return false;
@@ -566,33 +594,58 @@ function looksLikeLabel(text) {
   return t.length <= 48 && !/[.!?؟]/.test(t);
 }
 
-function splitLabelValueCell(text) {
+function splitLabelValueCell(text, ctx = {}) {
   const t = String(text || "").trim();
   const parts = t.split(/[:：]\s*/, 2);
   if (parts.length === 2 && parts[0].length > 0 && parts[0].length <= 72 && !isLongParagraph(parts[1])) {
-    return resolveLabelValuePair(parts[0].trim(), parts[1].trim());
+    return resolveLabelValuePair(parts[0].trim(), parts[1].trim(), ctx);
   }
   return null;
 }
 
 /** Pick label vs value regardless of source order (fixes reversed Arabic sheet rows). */
-function resolveLabelValuePair(a, b) {
+function resolveLabelValuePair(a, b, ctx = {}) {
+  const { clientName, fileNo } = ctx;
   const left = String(a || "").trim();
   const right = String(b || "").trim();
+  const leftIsChildName = isChildNameLabel(left);
+  const rightIsChildName = isChildNameLabel(right);
+  const leftIsFileNo = FILE_NO_LABEL_RE.test(left) || isFileNumberLike(left, fileNo);
+  const rightIsFileNo = FILE_NO_LABEL_RE.test(right) || isFileNumberLike(right, fileNo);
+
+  if (leftIsChildName && rightIsFileNo) {
+    return { label: left, value: resolveChildNameValue(left, "", clientName, fileNo) };
+  }
+  if (rightIsChildName && leftIsFileNo) {
+    return { label: right, value: resolveChildNameValue(right, "", clientName, fileNo) };
+  }
+  if (rightIsChildName && !leftIsChildName && !looksLikeLabel(left)) {
+    return { label: right, value: resolveChildNameValue(right, left, clientName, fileNo) };
+  }
+  if (leftIsChildName && !rightIsChildName && !looksLikeLabel(right)) {
+    return { label: left, value: resolveChildNameValue(left, right, clientName, fileNo) };
+  }
+
   const leftIsLabel = looksLikeLabel(left);
   const rightIsLabel = looksLikeLabel(right);
-  if (leftIsLabel && !rightIsLabel) return { label: left, value: right };
-  if (rightIsLabel && !leftIsLabel) return { label: right, value: left };
-  if (leftIsLabel && rightIsLabel) return { label: left, value: right };
-  return { label: left, value: right };
+  let pair;
+  if (leftIsLabel && !rightIsLabel) pair = { label: left, value: right };
+  else if (rightIsLabel && !leftIsLabel) pair = { label: right, value: left };
+  else if (leftIsLabel && rightIsLabel) pair = { label: left, value: right };
+  else pair = { label: left, value: right };
+
+  if (isChildNameLabel(pair.label)) {
+    pair.value = resolveChildNameValue(pair.label, pair.value, clientName, fileNo);
+  }
+  return pair;
 }
 
-function resolveKvFromCells(cells) {
+function resolveKvFromCells(cells, ctx = {}) {
   const cleaned = (cells || []).map((c) => String(c ?? "").trim()).filter((c) => c && c !== "-");
   if (cleaned.length < 2) return null;
   const [first, second, ...rest] = cleaned;
   const tail = rest.length ? ` — ${rest.join(" — ")}` : "";
-  const pair = resolveLabelValuePair(first, second);
+  const pair = resolveLabelValuePair(first, second, ctx);
   return { label: pair.label, value: `${pair.value}${tail}`.trim() };
 }
 
@@ -641,7 +694,7 @@ function normalizeSectionTables(tables) {
 }
 
 /** Pair stacked single-column Excel rows into label | value rows. */
-function pairTableRows(table) {
+function pairTableRows(table, ctx = {}) {
   let rows = table || [];
   if (rows.length && typeof rows[0] === "string") rows = [rows];
 
@@ -652,10 +705,10 @@ function pairTableRows(table) {
       .filter((c) => c && c !== "-");
     if (!cells.length) continue;
     if (cells.length >= 2) {
-      const kv = resolveKvFromCells(cells);
+      const kv = resolveKvFromCells(cells, ctx);
       if (kv) flat.push({ kind: "kv", ...kv });
     } else {
-      const split = splitLabelValueCell(cells[0]);
+      const split = splitLabelValueCell(cells[0], ctx);
       if (split) flat.push({ kind: "kv", label: split.label, value: split.value });
       else flat.push({ kind: "cell", text: cells[0] });
     }
@@ -666,7 +719,7 @@ function pairTableRows(table) {
   while (i < flat.length) {
     const cur = flat[i];
     if (cur.kind === "kv") {
-      const fixed = resolveLabelValuePair(cur.label, cur.value);
+      const fixed = resolveLabelValuePair(cur.label, cur.value, ctx);
       out.push({ ...cur, ...fixed });
       i += 1;
       continue;
@@ -680,9 +733,9 @@ function pairTableRows(table) {
       && !isLongParagraph(next.text)
       && text.length <= 80
       && next.text.length <= 240
-      && (looksLikeLabel(text) || looksLikeLabel(next.text))
+      && (looksLikeLabel(text) || looksLikeLabel(next.text) || isChildNameLabel(text) || isChildNameLabel(next.text))
     ) {
-      const pair = resolveLabelValuePair(text, next.text);
+      const pair = resolveLabelValuePair(text, next.text, ctx);
       out.push({ kind: "kv", ...pair });
       i += 2;
       continue;
@@ -703,7 +756,7 @@ function pairTableRows(table) {
   return out;
 }
 
-function pairParagraphRows(paragraphs) {
+function pairParagraphRows(paragraphs, ctx = {}) {
   const out = [];
   const items = paragraphs || [];
   let i = 0;
@@ -711,7 +764,7 @@ function pairParagraphRows(paragraphs) {
     const text = String(items[i] || "").trim();
     const colon = text.split(/[:：]\s*/, 2);
     if (colon.length === 2 && colon[0].length < 48 && !isLongParagraph(colon[1])) {
-      out.push({ kind: "kv", ...resolveLabelValuePair(colon[0], colon[1]) });
+      out.push({ kind: "kv", ...resolveLabelValuePair(colon[0], colon[1], ctx) });
       i += 1;
       continue;
     }
@@ -722,9 +775,9 @@ function pairParagraphRows(paragraphs) {
       && !isLongParagraph(next)
       && text.length <= 80
       && next.length <= 240
-      && (looksLikeLabel(text) || looksLikeLabel(next))
+      && (looksLikeLabel(text) || looksLikeLabel(next) || isChildNameLabel(text) || isChildNameLabel(next))
     ) {
-      out.push({ kind: "kv", ...resolveLabelValuePair(text, next) });
+      out.push({ kind: "kv", ...resolveLabelValuePair(text, next, ctx) });
       i += 2;
       continue;
     }
@@ -774,7 +827,18 @@ function CaseSummaryValue({ value, bullets }) {
   return <>{"—"}</>;
 }
 
+function fixChildNameKvRows(rows, clientName, fileNo) {
+  return rows.map((item) => {
+    if (item.kind !== "kv" || !isChildNameLabel(item.label)) return item;
+    return {
+      ...item,
+      value: resolveChildNameValue(item.label, item.value, clientName, fileNo),
+    };
+  });
+}
+
 function buildCaseSummaryRows(sections, clientName, fileNo) {
+  const ctx = { clientName, fileNo };
   const rows = [];
   const clientLabel = isMostlyArabic(clientName) ? "العميل" : "Client";
   const fileLabel = isMostlyArabic(clientName) ? "رقم الملف" : "File #";
@@ -785,15 +849,15 @@ function buildCaseSummaryRows(sections, clientName, fileNo) {
     if (sec.heading) rows.push({ kind: "section", text: sec.heading, key: `sec-${si}` });
     const tableRows = normalizeSectionTables(sec.tables);
     if (tableRows.length) {
-      pairTableRows(tableRows).forEach((item, ri) => rows.push({ ...item, key: `t-${si}-${ri}` }));
+      pairTableRows(tableRows, ctx).forEach((item, ri) => rows.push({ ...item, key: `t-${si}-${ri}` }));
     }
-    pairParagraphRows(sec.paragraphs).forEach((item, ri) => rows.push({ ...item, key: `p-${si}-${ri}` }));
+    pairParagraphRows(sec.paragraphs, ctx).forEach((item, ri) => rows.push({ ...item, key: `p-${si}-${ri}` }));
     const bullets = (sec.bullets || []).map((b) => String(b || "").trim()).filter(Boolean);
     if (bullets.length) {
       rows.push({ kind: "kv", label: "•", bullets, key: `b-${si}` });
     }
   });
-  return rows;
+  return fixChildNameKvRows(rows, clientName, fileNo);
 }
 
 function CaseSummaryView({ sections, clientName, fileNo }) {
@@ -846,7 +910,7 @@ function CaseSummaryView({ sections, clientName, fileNo }) {
             if (item.kind === "para") {
               const colon = String(item.text || "").split(/[:：]\s*/, 2);
               if (colon.length === 2 && colon[0].length < 56 && !isLongParagraph(colon[1])) {
-                const pair = resolveLabelValuePair(colon[0], colon[1]);
+                const pair = resolveLabelValuePair(colon[0], colon[1], { clientName, fileNo });
                 return (
                   <div key={item.key || `p-${i}`} className="case-summary-pr__block">
                     <div className="case-summary-pr__subtitle">{pair.label}</div>

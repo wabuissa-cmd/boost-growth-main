@@ -95,6 +95,8 @@ export default function Admin() {
   const [deletedClients, setDeletedClients] = useState([]);
   const [intakeSeedResult, setIntakeSeedResult] = useState(null);
   const [intakeSeeding, setIntakeSeeding] = useState(false);
+  const [launchCreds, setLaunchCreds] = useState(null);
+  const [launchGenerating, setLaunchGenerating] = useState(false);
 
   const loadDeletedClients = async () => {
     try {
@@ -275,6 +277,39 @@ export default function Admin() {
     }
   };
 
+  const generateLaunchCredentials = async (force = false) => {
+    const msg = force
+      ? "Regenerate launch passwords for ALL therapists with email? Existing passwords will stop working."
+      : "Generate launch passwords for therapists who don't have them yet?\n\nPasswords stay valid until each therapist changes theirs (deploys won't reset them).";
+    if (!window.confirm(msg)) return;
+    setLaunchGenerating(true);
+    try {
+      const { data } = await api.post("/admin/generate-launch-credentials", { force });
+      setLaunchCreds(data);
+    } catch (e) {
+      alert("Failed: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setLaunchGenerating(false);
+    }
+  };
+
+  const downloadLaunchCsv = () => {
+    const rows = launchCreds?.generated || [];
+    if (!rows.length) return;
+    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const lines = [
+      "name,email,temp_password",
+      ...rows.map((r) => [esc(r.name), esc(r.email), esc(r.temp_password)].join(",")),
+    ];
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `boost-launch-credentials-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const runSeed = async () => {
     setSeeding(true);
     try {
@@ -431,6 +466,70 @@ export default function Admin() {
             {purging ? <span className="spinner" /> : "Remove Naja from DB"}
           </button>
         </div>
+        <ToolRow
+          title="Generate Launch Credentials"
+          desc="Set stable passwords (Firstname@Launch2026) for all specialists with email. Safe to run once before sending — deploys will NOT reset them. Re-run with Regenerate only if you need new passwords."
+        >
+          <div className="flex gap-2 flex-wrap">
+            <button
+              type="button"
+              data-testid="generate-launch-creds-btn"
+              onClick={() => generateLaunchCredentials(false)}
+              disabled={launchGenerating}
+              className="btn btn-gold text-sm"
+            >
+              {launchGenerating ? <span className="spinner" /> : <><Key size={14} className="inline mr-1" /> Generate</>}
+            </button>
+            <button
+              type="button"
+              onClick={() => generateLaunchCredentials(true)}
+              disabled={launchGenerating}
+              className="btn btn-outline text-sm"
+            >
+              Regenerate all
+            </button>
+          </div>
+        </ToolRow>
+        {launchCreds && (
+          <div className="text-xs p-3 rounded-lg mb-3 space-y-2" style={{ background: "#F0E9D8", color: "#5C4A1F" }}>
+            <div><strong>{launchCreds.message}</strong></div>
+            <div className="text-[11px]" style={{ color: "#6B5218" }}>
+              EN: Passwords work until each therapist changes theirs — not a 24h login expiry. Generate once, then send emails.
+              <br />
+              AR: كلمات المرور تبقى صالحة حتى يغيّرها الأخصائي — وليس انتهاء بعد 24 ساعة. أنشئها مرة واحدة ثم أرسل الإيميلات.
+            </div>
+            {launchCreds.generated?.length > 0 && (
+              <div className="flex gap-2 flex-wrap">
+                <button type="button" onClick={downloadLaunchCsv} className="btn btn-primary text-xs">
+                  Download CSV ({launchCreds.generated.length})
+                </button>
+                <button type="button" onClick={() => setLaunchCreds(null)} className="btn btn-outline text-xs">Dismiss</button>
+              </div>
+            )}
+            {launchCreds.generated?.length > 0 && (
+              <div className="max-h-48 overflow-y-auto border rounded-lg" style={{ borderColor: "#E2DDD4" }}>
+                <table className="w-full text-[11px]">
+                  <thead>
+                    <tr style={{ background: "#FAFAF7", color: "#8B9E7A" }}>
+                      <th className="text-left p-2">Name</th>
+                      <th className="text-left p-2">Email</th>
+                      <th className="text-left p-2">Password</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {launchCreds.generated.map((r) => (
+                      <tr key={r.id} className="border-t" style={{ borderColor: "#EDE9E3" }}>
+                        <td className="p-2">{r.name}</td>
+                        <td className="p-2">{r.email}</td>
+                        <td className="p-2 font-mono font-bold">{r.temp_password}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
         {purgeResult && (
           <div className="text-xs p-2 rounded-lg mb-3" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
             {purgeResult.message || `Removed ${purgeResult.therapists_deleted} therapist(s)`}

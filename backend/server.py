@@ -180,34 +180,37 @@ async def _dedupe_duplicate_therapists() -> dict:
     return {"removed": len(to_delete), "actions": actions}
 
 
-# Known therapist passwords for first-time email login (only applied when hash missing/wrong).
+# Known therapist passwords for first-time email login (only when password_hash is missing).
 THERAPIST_BOOTSTRAP_PASSWORDS = {
     "asma@boostgrowthsa.com": "Asma@123",
 }
 
+LAUNCH_PASSWORD_SUFFIX = "Launch2026"
+
 
 async def _migrate_bootstrap_therapist_passwords() -> int:
+    """Set bootstrap passwords only when a therapist has no password yet — never overwrite on deploy."""
     updated = 0
     for email, password in THERAPIST_BOOTSTRAP_PASSWORDS.items():
         t = await _find_therapist_by_email(email)
-        if not t:
-            continue
-        if t.get("password_hash") and verify_password(password, t["password_hash"]):
-            if t.get("must_change_password"):
-                await db.therapists.update_one(
-                    {"id": t["id"]}, {"$set": {"must_change_password": False}}
-                )
-                updated += 1
+        if not t or t.get("password_hash"):
             continue
         await db.therapists.update_one(
             {"id": t["id"]},
             {"$set": {
                 "password_hash": hash_password(password),
-                "must_change_password": False,
+                "must_change_password": True,
+                "temp_password_set_at": now_iso(),
             }},
         )
         updated += 1
     return updated
+
+
+def _launch_temp_password(name: str) -> str:
+    """Predictable launch password: Firstname@Launch2026 (from Ms. Asma → Asma@Launch2026)."""
+    first = re.sub(r"^Ms\.?\s*", "", (name or "").strip(), flags=re.I).split()[0] or "User"
+    return f"{first[0].upper()}{first[1:]}@{LAUNCH_PASSWORD_SUFFIX}" if first else f"User@{LAUNCH_PASSWORD_SUFFIX}"
 
 
 async def _apply_inactive_client_status() -> int:
@@ -440,6 +443,9 @@ class TherapistEmailLogin(BaseModel):
 class ChangePasswordIn(BaseModel):
     old_password: str
     new_password: str
+
+class LaunchCredentialsIn(BaseModel):
+    force: bool = False
 
 class TherapistIn(BaseModel):
     name: str
@@ -790,23 +796,72 @@ async def change_password(payload: ChangePasswordIn, user=Depends(get_current_us
             raise HTTPException(status_code=401, detail="Current password is incorrect")
         await db.therapists.update_one({"id": user["id"]},
                                        {"$set": {"password_hash": hash_password(payload.new_password),
-                                                 "must_change_password": False}})
+                                                 "must_change_password": False,
+                                                 "temp_password_set_at": None}})
     return {"ok": True}
 
 @api.post("/therapists/{tid}/reset-password")
 async def reset_therapist_password(tid: str, _=Depends(admin_only)):
-    """Admin generates a temporary 8-character password for a therapist.
-    Therapist must change it on next login."""
+    """Admin generates a temporary password for a therapist.
+    Therapist must change it on next login. Password stays until changed or admin resets again."""
     import secrets
     t = await db.therapists.find_one({"id": tid})
     if not t:
         raise HTTPException(status_code=404, detail="Therapist not found")
     temp = secrets.token_urlsafe(6)[:8]
+    ts = now_iso()
     await db.therapists.update_one({"id": tid}, {"$set": {
         "password_hash": hash_password(temp),
         "must_change_password": True,
+        "temp_password_set_at": ts,
     }})
-    return {"ok": True, "therapist_id": tid, "email": t.get("email"), "temp_password": temp}
+    return {"ok": True, "therapist_id": tid, "email": t.get("email"), "temp_password": temp, "temp_password_set_at": ts}
+
+@api.post("/admin/generate-launch-credentials")
+async def generate_launch_credentials(body: LaunchCredentialsIn, _=Depends(admin_only)):
+    """Bulk-set stable launch passwords for all therapists with email.
+    Skips therapists who already have launch credentials unless force=true.
+    Passwords remain valid until the therapist changes them or admin regenerates."""
+    therapists = await db.therapists.find({}, {"_id": 0}).sort("name", 1).to_list(500)
+    generated = []
+    skipped = []
+    no_email = []
+    ts = now_iso()
+
+    for t in therapists:
+        email = (t.get("email") or "").strip()
+        if not email:
+            no_email.append({"id": t["id"], "name": t.get("name")})
+            continue
+        if not body.force and t.get("temp_password_set_at") and t.get("password_hash"):
+            skipped.append({
+                "id": t["id"], "name": t.get("name"), "email": email,
+                "temp_password_set_at": t.get("temp_password_set_at"),
+            })
+            continue
+        temp = _launch_temp_password(t.get("name") or "")
+        await db.therapists.update_one({"id": t["id"]}, {"$set": {
+            "password_hash": hash_password(temp),
+            "must_change_password": True,
+            "temp_password_set_at": ts,
+        }})
+        generated.append({
+            "id": t["id"], "name": t.get("name"), "email": email,
+            "temp_password": temp, "temp_password_set_at": ts,
+        })
+
+    return {
+        "ok": True,
+        "generated_at": ts,
+        "generated": generated,
+        "skipped": skipped,
+        "no_email": no_email,
+        "message": (
+            f"Generated {len(generated)} credential(s). "
+            f"Skipped {len(skipped)} with existing launch passwords (use force to regenerate). "
+            f"{len(no_email)} without email."
+        ),
+    }
 
 @api.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
@@ -1275,7 +1330,7 @@ async def list_center_updates(user=Depends(get_current_user)):
     therapist_names = None
     if user.get("role") == "admin" or _is_walaa_ops(user):
         therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
-        therapist_names = {t["id"]: t.get("name") or "Unknown" for t in therapists if t.get("id")}
+        therapist_names = {t["id"]: therapist_schedule_display_name(t) or "Unknown" for t in therapists if t.get("id")}
     return _enrich_center_updates(items, user, therapist_names)
 
 
@@ -1779,7 +1834,7 @@ async def schedule_notification_receipts(cid: str, _=Depends(schedule_edit_or_ad
         tid = n.get("user_id")
         out.append({
             **n,
-            "therapist_name": therapists.get(tid, {}).get("name") if tid in therapists else None,
+            "therapist_name": therapist_schedule_display_name(therapists.get(tid)) if tid in therapists else None,
         })
     return out
 
@@ -3967,22 +4022,89 @@ THERAPIST_DISPLAY_NAMES = {
     "msShrooq": "Ms. Shroug",
     "msWaad": "Ms. Waad",
     "msNaja": "Ms. Najla",
+    "msNajla": "Ms. Najla",
     "msAsma": "Ms. Asma",
+    "msWalaa": "Ms. Walaa",
+}
+
+# Schedule column headers: first name + family (matches frontend scheduleConstants.js).
+THERAPIST_FAMILY_NAMES = {
+    "msMaha": "Althunayan",
+    "msFahda": "Alghadeeb",
+    "msRazan": "Alshatery",
+    "msManal": "Aldosery",
+    "msAsma": "Asma",
+    "msHajer": "Alfulaij",
+    "msRahaf": "Aljuhani",
+    "msShatha": "Alhammami",
+    "msAlhanouf": "Alromman",
+    "msWaad": "Alhamed",
+    "msNajla": "Alhamad",
+    "msNaja": "Alhamad",
+    "msBodoor": "Alkhlifah",
+    "msFatimah": "Alkhater",
+    "msShrooq": "Alamri",
+    "msAbeer": "Alshareef",
+    "msJenan": "Almuhaisin",
+    "msWalaa": "Althunayan",
+}
+
+THERAPIST_FIRST_NAME_OVERRIDES = {
+    "shrooq": "Shroug",
+    "shroug": "Shroug",
+    "bodoor": "Bodour",
+    "hajer": "Hajar",
 }
 
 
+def therapist_schedule_display_name(t: Optional[dict]) -> str:
+    """Full schedule header name (e.g. Maha Althunayan) — source of truth for UI labels."""
+    if not t:
+        return ""
+    raw = re.sub(r"^Ms\.?\s*", "", (t.get("name") or ""), flags=re.I).strip()
+    first = (raw.split()[0] if raw.split() else raw) or raw
+    first_lower = first.lower()
+    if first_lower in THERAPIST_FIRST_NAME_OVERRIDES:
+        first = THERAPIST_FIRST_NAME_OVERRIDES[first_lower]
+    if first_lower == "najla":
+        return "Najla Alhamad"
+    key = t.get("key") or ""
+    family = None
+    for k, v in THERAPIST_FAMILY_NAMES.items():
+        if k.lower() == key.lower():
+            family = v
+            break
+    if family:
+        parts = raw.split()
+        if len(parts) >= 2 and parts[-1].lower() == family.lower():
+            head = THERAPIST_FIRST_NAME_OVERRIDES.get(parts[0].lower(), parts[0])
+            return " ".join([head] + parts[1:])
+        return f"{first} {family}"
+    return raw or (t.get("name") or "")
+
+
 async def _migrate_therapist_display_names() -> int:
-    """Align therapist display names with client-info spelling (e.g. Shroug, Hajar, Bodour)."""
+    """Align therapist DB names with client-info spelling; sync schedule-format labels in related records."""
     updated = 0
     therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1}).to_list(500)
     for t in therapists:
         key = t.get("key") or ""
         canonical = THERAPIST_DISPLAY_NAMES.get(key)
-        if not canonical or (t.get("name") or "") == canonical:
+        if canonical and (t.get("name") or "") != canonical:
+            await db.therapists.update_one({"id": t["id"]}, {"$set": {"name": canonical}})
+            await db.users.update_many({"therapist_id": t["id"]}, {"$set": {"name": canonical}})
+            t["name"] = canonical
+            updated += 1
+    for t in therapists:
+        tid = t.get("id")
+        if not tid:
             continue
-        await db.therapists.update_one({"id": t["id"]}, {"$set": {"name": canonical}})
-        await db.users.update_many({"therapist_id": t["id"]}, {"$set": {"name": canonical}})
-        updated += 1
+        display = therapist_schedule_display_name(t)
+        if not display:
+            continue
+        for coll, field in (("requests", "therapist_name"), ("leaves", "therapist_name"), ("staff_purchases", "therapist_name")):
+            res = await db[coll].update_many({"therapist_id": tid, field: {"$ne": display}}, {"$set": {field: display}})
+            updated += res.modified_count
     return updated
 
 
@@ -5457,6 +5579,12 @@ async def list_purchases(
     if month:
         q["purchase_month"] = month
     items = await db.staff_purchases.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1}).to_list(500)
+    t_by_id = {t["id"]: t for t in therapists}
+    for it in items:
+        t = t_by_id.get(it.get("therapist_id"))
+        if t:
+            it["therapist_name"] = therapist_schedule_display_name(t)
     return items
 
 
@@ -5465,18 +5593,21 @@ async def create_purchase(payload: PurchaseIn, user=Depends(get_current_user)):
     own_tid = await _resolve_user_therapist_id(user) or user.get("id")
     requested_tid = (payload.therapist_id or "").strip() or None
     if requested_tid and _can_view_all_purchases(user):
-        th = await db.therapists.find_one({"id": requested_tid}, {"_id": 0, "id": 1, "name": 1})
+        th = await db.therapists.find_one({"id": requested_tid}, {"_id": 0, "id": 1, "name": 1, "key": 1})
         if not th:
             raise HTTPException(status_code=400, detail="Therapist not found")
         tid = th["id"]
-        purchaser_name = th.get("name")
-        therapist_name = th.get("name")
+        display = therapist_schedule_display_name(th)
+        purchaser_name = display
+        therapist_name = display
     else:
         tid = own_tid
         if not tid:
             raise HTTPException(status_code=403, detail="Therapist profile required")
-        purchaser_name = user.get("name")
-        therapist_name = user.get("name")
+        th = await db.therapists.find_one({"id": tid}, {"_id": 0, "id": 1, "name": 1, "key": 1})
+        display = therapist_schedule_display_name(th or user)
+        purchaser_name = display
+        therapist_name = display
     item = (payload.item or "").strip()
     category = (payload.category or "").strip()
     if not item or not category:
