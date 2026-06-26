@@ -6,7 +6,7 @@ import { FloppyDisk, PencilSimple, CaretDown, CaretRight } from "@phosphor-icons
 import { balanceHealthStatus, fmtDateRange, LEAVE_STATUS, LEAVE_TYPES, leavePayCategory, leaveStatusLabel } from "../leaveUtils";
 
 /** HR leave balance table with expandable history per therapist. */
-export default function LeaveBalanceTable({ year, onYearChange, showYearSelect = true, leaves = [], onRefresh }) {
+export default function LeaveBalanceTable({ year, onYearChange, showYearSelect = true, leaves = [], onRefresh, staffScope = false }) {
   const { user } = useAuth();
   const currentYear = new Date().getFullYear();
   const [rows, setRows] = useState([]);
@@ -15,7 +15,9 @@ export default function LeaveBalanceTable({ year, onYearChange, showYearSelect =
   const [expanded, setExpanded] = useState(null);
 
   const load = async () => {
-    const { data } = await api.get(`/leaves/balance?year=${year}`);
+    const params = { year };
+    if (staffScope) params.scope = "staff";
+    const { data } = await api.get("/leaves/balance", { params });
     setRows(data);
     onRefresh && onRefresh();
   };

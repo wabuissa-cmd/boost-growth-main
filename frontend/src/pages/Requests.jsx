@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef } from "react";
-import api from "../api";
+import api, { API } from "../api";
 import { useAuth, showAdminNav, canEditStaffRequests, canManageLeaves, canHrReviewLeaves, isJenan } from "../auth";
 import { Navigate } from "react-router-dom";
-import { Plus, PencilSimple, Trash, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Calendar, Package, UploadSimple } from "@phosphor-icons/react";
+import { Plus, PencilSimple, Trash, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Calendar, Package, UploadSimple, Eye, FileArrowDown, ArrowRight } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -44,6 +44,29 @@ function allowedStatusOptions(user, currentStatus) {
     return ["approved", "rejected", "in_progress", "done"];
   }
   return Object.keys(STATUS_MAP);
+}
+
+function managerWorkflowLabel(r) {
+  if (r.status === "pending_hr") {
+    return { label: "Forwarded to HR", cls: "bg-[#F5EBE3] text-[#965132] border-[#E6C983]" };
+  }
+  if (r.status === "rejected") {
+    return { label: "Rejected", cls: "bg-[#F8EBE7] text-[#8A3F27] border-[#ECA6A6]" };
+  }
+  const timeline = r.timeline || [];
+  const managerTouched = timeline.some(ev =>
+    ev.event === "pending_hr" || (ev.note && ev.event !== "submitted")
+  );
+  if (r.admin_note || managerTouched) {
+    return { label: "Edited", cls: "bg-[#EAF0F3] text-[#375568] border-[#A4BCCB]" };
+  }
+  return null;
+}
+
+function fmtShortDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(`${String(iso).slice(0, 10)}T12:00:00`);
+  return d.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
 }
 
 const TYPES = [
@@ -92,6 +115,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
   const [filter, setFilter] = useState("all");
   const [edit, setEdit] = useState(null);
   const [statusEdit, setStatusEdit] = useState(null);
+  const [managerStep, setManagerStep] = useState("review");
   const [step, setStep] = useState(1);
   const [therapists, setTherapists] = useState([]);
   const [recentLeaves, setRecentLeaves] = useState([]);
@@ -100,7 +124,14 @@ export default function Requests({ personal = false, embedded = false, managerVi
   const [leaveSubmitting, setLeaveSubmitting] = useState(false);
   const leaveFileRef = useRef(null);
 
-  const load = async () => { const { data } = await api.get("/requests"); setItems(data); };
+  const useStaffScope = managerView || (canManageReq && !personal);
+
+  const load = async () => {
+    const { data } = await api.get("/requests", {
+      params: useStaffScope ? { scope: "staff" } : {},
+    });
+    setItems(data);
+  };
   const loadLeaves = async () => {
     const yr = new Date().getFullYear();
     const { data } = await api.get("/leaves", { params: { year: yr } });
@@ -125,7 +156,39 @@ export default function Requests({ personal = false, embedded = false, managerVi
   };
   const updateStatusFromModal = async () => {
     await api.put(`/requests/${statusEdit.id}/status`, { status: statusEdit.status, admin_note: statusEdit.admin_note });
-    setStatusEdit(null); load();
+    setStatusEdit(null);
+    setManagerStep("review");
+    load();
+  };
+
+  const openManagerReview = (r) => {
+    const opts = allowedStatusOptions(user, r.status);
+    const defaultStatus = opts.includes(r.status) ? r.status : opts[0];
+    setStatusEdit({ ...r, status: defaultStatus || r.status });
+    setManagerStep("review");
+  };
+
+  const closeStatusModal = () => {
+    setStatusEdit(null);
+    setManagerStep("review");
+  };
+
+  const handleManagerStatusSave = () => {
+    if (!statusEdit) return;
+    if (statusEdit.status === "pending_hr") {
+      setManagerStep("forward_hr");
+      return;
+    }
+    updateStatusFromModal();
+  };
+
+  const confirmForwardToHr = async (send) => {
+    if (!statusEdit) return;
+    if (!send) {
+      setManagerStep("review");
+      return;
+    }
+    await updateStatusFromModal();
   };
   const remove = async (id) => { if (!window.confirm("Delete this request?")) return; await api.delete(`/requests/${id}`); load(); };
   const removeLeave = async (id) => { if (!window.confirm("Delete this leave request?")) return; await api.delete(`/leaves/${id}`); loadLeaves(); };
@@ -220,8 +283,8 @@ export default function Requests({ personal = false, embedded = false, managerVi
       />
       )}
 
-      <div className="req-split">
-        <section className="req-panel-left">
+      <div className={managerView ? "" : "req-split"}>
+        <section className={managerView ? "card rounded-[20px] overflow-hidden" : "req-panel-left"}>
           <div className="req-leave-balance mx-3 mt-3">
             <div className="text-[10px] tracking-[0.2em] font-bold opacity-90 mb-2">REQUEST OVERVIEW</div>
             <div className="req-leave-stat-grid">
@@ -246,7 +309,9 @@ export default function Requests({ personal = false, embedded = false, managerVi
 
           <div className="req-panel-head">
             <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>{staffLabel}</h2>
-            <p className="text-xs mt-1 mb-2" style={{ color: "#8B9E7A" }}>Supplies · schedule changes · rewards · general</p>
+            <p className="text-xs mt-1 mb-2" style={{ color: "#8B9E7A" }}>
+              {managerView ? "Review therapist submissions — status & HR forwarding only" : "Supplies · schedule changes · rewards · general"}
+            </p>
             <div className="flex gap-1.5 flex-wrap">
               <button onClick={() => setFilter("all")} className={`pill text-[10px] ${filter==="all" ? "bg-[#7A8A6A] text-white" : "bg-[#F0E9D8]"}`}>All ({items.length})</button>
               <button onClick={() => setFilter("pending_manager")} className={`pill text-[10px] border ${filter==="pending_manager" ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : STATUS_MAP.pending_manager.cls}`}>
@@ -263,6 +328,68 @@ export default function Requests({ personal = false, embedded = false, managerVi
             </div>
           </div>
 
+          {managerView ? (
+            <div className="overflow-x-auto">
+              <table className="mgr-req-table w-full text-sm">
+                <thead>
+                  <tr>
+                    <th>Therapist</th>
+                    <th>Type</th>
+                    <th>Request</th>
+                    <th>Submitted</th>
+                    <th>Status</th>
+                    <th>Workflow</th>
+                    <th className="text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="text-center py-10 text-sm" style={{ color: "#8B9E7A" }}>No requests yet</td>
+                    </tr>
+                  )}
+                  {filtered.map(r => {
+                    const st = STATUS_MAP[r.status] || STATUS_MAP.pending;
+                    const tp = TYPES.find(t => t.id === r.request_type) || TYPES[4];
+                    const wf = managerWorkflowLabel(r);
+                    return (
+                      <tr key={r.id}>
+                        <td className="font-semibold" style={{ color: "#2C3625" }}>{r.therapist_name || "—"}</td>
+                        <td>
+                          <span className="pill text-[10px]" style={{ background: `${tp.color}20`, color: tp.color }}>{tp.label}</span>
+                        </td>
+                        <td>
+                          <div className="font-semibold" style={{ color: "#2C3625" }}>{r.title}</div>
+                          {r.description && <div className="text-xs mt-0.5 line-clamp-1" style={{ color: "#8B9E7A" }}>{r.description}</div>}
+                        </td>
+                        <td className="text-xs whitespace-nowrap" style={{ color: "#8B9E7A" }}>{fmtShortDate(r.created_at)}</td>
+                        <td>
+                          <span className={`pill border text-[10px] ${st.cls}`}>{st.icon} {st.label}</span>
+                        </td>
+                        <td>
+                          {wf ? (
+                            <span className={`pill border text-[10px] ${wf.cls}`}>{wf.label}</span>
+                          ) : (
+                            <span className="text-xs" style={{ color: "#C5CEBC" }}>—</span>
+                          )}
+                        </td>
+                        <td className="text-right">
+                          <button
+                            type="button"
+                            data-testid={`review-request-${r.id}`}
+                            onClick={() => openManagerReview(r)}
+                            className="btn btn-primary text-[11px] py-1.5 px-3"
+                          >
+                            <Eye size={13}/> Review
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
           <div className="req-panel-list">
             {filtered.length === 0 && <div className="p-8 text-center text-sm" style={{color: "#8B9E7A"}}>No requests yet</div>}
             {filtered.map(r => {
@@ -291,16 +418,6 @@ export default function Requests({ personal = false, embedded = false, managerVi
                       {r.admin_note && (
                         <div className="mt-2 p-2 rounded-lg text-xs bg-[#E5EBE1]" style={{color: "#3D4F35"}}>{r.admin_note}</div>
                       )}
-                      {canManageReq && isPendingManagerStatus(r.status) && isManager && (
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          <button type="button" onClick={() => updateStatus(r, "pending_hr")} className="btn btn-primary text-[10px] py-1 px-2">
-                            <CheckCircle size={12}/> Forward to HR
-                          </button>
-                          <button type="button" onClick={() => updateStatus(r, "rejected")} className="btn btn-outline text-[10px] py-1 px-2" style={{ color: "#8A3F27" }}>
-                            <XCircle size={12}/> Reject
-                          </button>
-                        </div>
-                      )}
                       {canManageReq && r.status === PENDING_HR_STATUS && hrReview && !isPortalAdminUser && (
                         <div className="flex flex-wrap gap-1 mt-2">
                           <button type="button" onClick={() => updateStatus(r, "approved")} className="btn btn-primary text-[10px] py-1 px-2">
@@ -323,8 +440,10 @@ export default function Requests({ personal = false, embedded = false, managerVi
               );
             })}
           </div>
+          )}
         </section>
 
+        {!managerView && (
         <aside className="req-panel-sidebar">
           <div className="req-panel-head">
             <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Request Types</h2>
@@ -392,6 +511,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
             </>
           )}
         </aside>
+        )}
       </div>
 
       {/* Submit Leave Request Modal */}
@@ -571,62 +691,195 @@ export default function Requests({ personal = false, embedded = false, managerVi
         </ModalBase>
       )}
 
-      {/* Update status (admin) */}
+      {/* Update status / manager review */}
       {statusEdit && (
         <ModalBase
-          title={statusEdit.title || "Update Request"}
-          subtitle={`${STATUS_MAP[statusEdit.status]?.label || statusEdit.status} · ${statusEdit.created_at ? new Date(statusEdit.created_at).toLocaleDateString("en-US") : ""}`}
-          onClose={() => setStatusEdit(null)}
+          title={managerView ? "Review Request" : (statusEdit.title || "Update Request")}
+          subtitle={
+            managerView
+              ? `${statusEdit.therapist_name || "Therapist"} · ${TYPES.find(t => t.id === statusEdit.request_type)?.label || statusEdit.request_type}`
+              : `${STATUS_MAP[statusEdit.status]?.label || statusEdit.status} · ${statusEdit.created_at ? new Date(statusEdit.created_at).toLocaleDateString("en-US") : ""}`
+          }
+          onClose={closeStatusModal}
           size="md"
           footer={
-            <>
-              <ModalBtnSecondary type="button" onClick={() => setStatusEdit(null)}>Cancel</ModalBtnSecondary>
-              <ModalBtnPrimary data-testid="status-save-btn" type="button" onClick={updateStatusFromModal}>Save & Notify</ModalBtnPrimary>
-            </>
+            managerView && managerStep === "forward_hr" ? (
+              <>
+                <ModalBtnSecondary type="button" onClick={() => confirmForwardToHr(false)}>Not yet</ModalBtnSecondary>
+                <ModalBtnPrimary data-testid="forward-hr-yes-btn" type="button" onClick={() => confirmForwardToHr(true)}>
+                  <ArrowRight size={14}/> Yes, send to HR
+                </ModalBtnPrimary>
+              </>
+            ) : managerView && isManager && isPendingManagerStatus(statusEdit.status) ? (
+              <>
+                <ModalBtnSecondary type="button" onClick={closeStatusModal}>Cancel</ModalBtnSecondary>
+                <ModalBtnPrimary data-testid="status-save-btn" type="button" onClick={handleManagerStatusSave}>
+                  {statusEdit.status === "pending_hr" ? "Continue" : "Save & Notify"}
+                </ModalBtnPrimary>
+              </>
+            ) : (
+              <>
+                <ModalBtnSecondary type="button" onClick={closeStatusModal}>{managerView ? "Close" : "Cancel"}</ModalBtnSecondary>
+                {!managerView && (
+                  <ModalBtnPrimary data-testid="status-save-btn" type="button" onClick={updateStatusFromModal}>Save & Notify</ModalBtnPrimary>
+                )}
+              </>
+            )
           }
         >
-          <p className="text-sm -mt-2 mb-2" style={{ color: "#5C6853" }}>The therapist will be auto-notified.</p>
-
-          <FormSection title="Request Details">
-            {statusEdit.description && (
-              <div className="text-sm rounded-xl p-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
-                <div className="text-xs font-semibold mb-1" style={{ color: "#9CA3AF" }}>Description</div>
-                <div style={{ color: "#1C2617" }}>{statusEdit.description}</div>
+          {managerView && managerStep === "forward_hr" ? (
+            <div className="text-center py-4">
+              <div className="w-14 h-14 rounded-full mx-auto mb-4 flex items-center justify-center" style={{ background: "#E5EBE1", color: "#5C8A47" }}>
+                <ArrowRight size={28} weight="bold"/>
               </div>
-            )}
-            {statusEdit.timeline?.length > 0 && (
-              <div className="space-y-2">
-                <div className="text-xs font-bold uppercase tracking-widest" style={{ color: "#5C6853" }}>History</div>
-                {statusEdit.timeline.map((ev, i) => (
-                  <div key={i} className="text-xs py-2 border-b last:border-0" style={{ borderColor: "#EDE9E3" }}>
-                    <span className="font-bold" style={{ color: "#1C2617" }}>{ev.event}</span>
-                    <span style={{ color: "#9CA3AF" }}> · {ev.by} · {new Date(ev.at).toLocaleString("en-US")}</span>
-                    {ev.note && <div className="italic mt-0.5" style={{ color: "#5C6853" }}>"{ev.note}"</div>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </FormSection>
-
-          <FormSection title="Status">
-            <div className="grid grid-cols-1 gap-2">
-              {allowedStatusOptions(user, statusEdit.status).map(k => {
-                const v = STATUS_MAP[k] || STATUS_MAP.pending;
-                return (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => setStatusEdit({ ...statusEdit, status: k })}
-                  className={`pill border-2 justify-start py-2 ${statusEdit.status === k ? "ring-2 ring-[#5C8A47]" : ""} ${v.cls}`}
-                >
-                  {v.icon} {v.label}
-                </button>
-              );})}
+              <h3 className="font-bold text-lg m-0 mb-2" style={{ color: "#2C3625" }}>Send to HR?</h3>
+              <p className="text-sm m-0" style={{ color: "#5C6853" }}>
+                This will forward <strong>{statusEdit.title}</strong> from {statusEdit.therapist_name} to HR for final review.
+              </p>
+              {statusEdit.admin_note && (
+                <div className="mt-4 text-left text-sm rounded-xl p-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
+                  <div className="text-xs font-semibold mb-1" style={{ color: "#8B9E7A" }}>Your note</div>
+                  <div style={{ color: "#2C3625" }}>{statusEdit.admin_note}</div>
+                </div>
+              )}
             </div>
-            <FormField label="Response / note" hint="Optional">
-              <textarea className="modal-input" rows={3} value={statusEdit.admin_note || ""} onChange={e => setStatusEdit({ ...statusEdit, admin_note: e.target.value })} />
-            </FormField>
-          </FormSection>
+          ) : (
+            <>
+              {!managerView && (
+                <p className="text-sm -mt-2 mb-2" style={{ color: "#5C6853" }}>The therapist will be auto-notified.</p>
+              )}
+              {managerView && (
+                <p className="text-sm -mt-2 mb-2" style={{ color: "#5C6853" }}>
+                  Request details are read-only. Update status and optionally add a manager note.
+                </p>
+              )}
+
+              <FormSection title="Request Details">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm mb-3">
+                  {statusEdit.therapist_name && (
+                    <div className="rounded-xl p-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
+                      <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#8B9E7A" }}>Therapist</div>
+                      <div className="font-semibold" style={{ color: "#2C3625" }}>{statusEdit.therapist_name}</div>
+                    </div>
+                  )}
+                  <div className="rounded-xl p-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
+                    <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#8B9E7A" }}>Type</div>
+                    <div className="font-semibold" style={{ color: "#2C3625" }}>{TYPES.find(t => t.id === statusEdit.request_type)?.label || statusEdit.request_type}</div>
+                  </div>
+                  <div className="rounded-xl p-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
+                    <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#8B9E7A" }}>Submitted</div>
+                    <div className="font-semibold" style={{ color: "#2C3625" }}>{fmtShortDate(statusEdit.created_at)}</div>
+                  </div>
+                  {statusEdit.priority && (
+                    <div className="rounded-xl p-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
+                      <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#8B9E7A" }}>Priority</div>
+                      <div className="font-semibold" style={{ color: "#2C3625" }}>{PRIORITIES.find(p => p.id === statusEdit.priority)?.label || statusEdit.priority}</div>
+                    </div>
+                  )}
+                  {(statusEdit.date_from || statusEdit.date_to) && (
+                    <div className="rounded-xl p-3 sm:col-span-2" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
+                      <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#8B9E7A" }}>Dates</div>
+                      <div className="font-semibold" style={{ color: "#2C3625" }}>
+                        {statusEdit.date_from || "—"}{statusEdit.date_to ? ` → ${statusEdit.date_to}` : ""}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-sm rounded-xl p-3 mb-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
+                  <div className="text-xs font-semibold mb-1" style={{ color: "#9CA3AF" }}>Subject</div>
+                  <div className="font-semibold" style={{ color: "#1C2617" }}>{statusEdit.title}</div>
+                </div>
+
+                {statusEdit.description && (
+                  <div className="text-sm rounded-xl p-3 mb-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
+                    <div className="text-xs font-semibold mb-1" style={{ color: "#9CA3AF" }}>Description</div>
+                    <div style={{ color: "#1C2617" }}>{statusEdit.description}</div>
+                  </div>
+                )}
+
+                {statusEdit.extra_notes && (
+                  <div className="text-sm rounded-xl p-3 mb-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
+                    <div className="text-xs font-semibold mb-1" style={{ color: "#9CA3AF" }}>Additional notes</div>
+                    <div style={{ color: "#1C2617" }}>{statusEdit.extra_notes}</div>
+                  </div>
+                )}
+
+                {statusEdit.reward_type && (
+                  <div className="text-sm rounded-xl p-3 mb-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
+                    <div className="text-xs font-semibold mb-1" style={{ color: "#9CA3AF" }}>Reward type</div>
+                    <div style={{ color: "#1C2617" }}>{REWARD_TYPES.find(r => r.id === statusEdit.reward_type)?.label || statusEdit.reward_type}</div>
+                  </div>
+                )}
+
+                {statusEdit.attachment_url && (
+                  <div className="text-sm rounded-xl p-3 mb-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
+                    <div className="text-xs font-semibold mb-1" style={{ color: "#9CA3AF" }}>Attachment</div>
+                    {statusEdit.report_date && (
+                      <div className="text-xs mb-1" style={{ color: "#8B9E7A" }}>Report date: {fmtShortDate(statusEdit.report_date)}</div>
+                    )}
+                    <a
+                      href={`${API}/requests/${statusEdit.id}/attachment`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-semibold underline"
+                      style={{ color: "#5C8A47" }}
+                    >
+                      <FileArrowDown size={14}/> View attachment (read-only)
+                    </a>
+                  </div>
+                )}
+
+                {statusEdit.timeline?.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-xs font-bold uppercase tracking-widest" style={{ color: "#5C6853" }}>History</div>
+                    {statusEdit.timeline.map((ev, i) => (
+                      <div key={i} className="text-xs py-2 border-b last:border-0" style={{ borderColor: "#EDE9E3" }}>
+                        <span className="font-bold" style={{ color: "#1C2617" }}>{ev.event}</span>
+                        <span style={{ color: "#9CA3AF" }}> · {ev.by} · {new Date(ev.at).toLocaleString("en-US")}</span>
+                        {ev.note && <div className="italic mt-0.5" style={{ color: "#5C6853" }}>"{ev.note}"</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </FormSection>
+
+              {(!managerView || (isManager && isPendingManagerStatus(statusEdit.status))) && (
+                <FormSection title="Status">
+                  <div className="grid grid-cols-1 gap-2">
+                    {allowedStatusOptions(user, statusEdit.status).map(k => {
+                      const v = STATUS_MAP[k] || STATUS_MAP.pending;
+                      return (
+                        <button
+                          key={k}
+                          type="button"
+                          onClick={() => setStatusEdit({ ...statusEdit, status: k })}
+                          className={`pill border-2 justify-start py-2 ${statusEdit.status === k ? "ring-2 ring-[#5C8A47]" : ""} ${v.cls}`}
+                        >
+                          {v.icon} {v.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <FormField label={managerView ? "Manager note" : "Response / note"} hint="Optional">
+                    <textarea
+                      className="modal-input"
+                      rows={3}
+                      value={statusEdit.admin_note || ""}
+                      onChange={e => setStatusEdit({ ...statusEdit, admin_note: e.target.value })}
+                      readOnly={managerView && !isPendingManagerStatus(statusEdit.status)}
+                    />
+                  </FormField>
+                </FormSection>
+              )}
+
+              {managerView && !isPendingManagerStatus(statusEdit.status) && (
+                <div className="text-sm rounded-xl p-3" style={{ background: "#FAF0D1", color: "#6B5218" }}>
+                  This request has already left manager review. Status changes are handled by HR.
+                </div>
+              )}
+            </>
+          )}
         </ModalBase>
       )}
     </div>

@@ -4,26 +4,15 @@ import api from "../api";
 import { useAuth, isJenan } from "../auth";
 import PageBanner from "../components/PageBanner";
 import Requests from "./Requests";
-import LeaveRequests from "./LeaveRequests";
 import LeaveBalance from "./LeaveBalance";
-import Purchases from "./Purchases";
-import Reports from "./Reports";
 import {
   MagnifyingGlass, Warning, UserCircle, FileText,
 } from "@phosphor-icons/react";
 
 const MAIN_TABS = [
   { id: "staff", label: "Therapists' Requests", testid: "mgr-tab-staff" },
-  { id: "meet", label: "Employees' Meet", testid: "mgr-tab-meet" },
   { id: "balance", label: "Leave Balance", testid: "mgr-tab-balance" },
   { id: "profiles", label: "Therapist Profiles", testid: "mgr-tab-profiles" },
-  { id: "reports", label: "Reports", testid: "mgr-tab-reports" },
-];
-
-const MEET_TABS = [
-  { id: "payments", label: "Payment Requests" },
-  { id: "leave", label: "Leave Grievances" },
-  { id: "permission", label: "Absence / Permission" },
 ];
 
 function TherapistProfilePanel({ therapistId, onClose }) {
@@ -193,32 +182,9 @@ function TherapistProfilesTab() {
   );
 }
 
-function EmployeesMeetTab({ meetTab, setMeetTab }) {
-  return (
-    <div>
-      <div className="flex gap-1 flex-wrap mb-4">
-        {MEET_TABS.map(t => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setMeetTab(t.id)}
-            className={`pill text-xs ${meetTab === t.id ? "bg-[#7A8A6A] text-white" : "bg-[#F0E9D8]"}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-      {meetTab === "payments" && <Purchases embedded />}
-      {meetTab === "leave" && <LeaveRequests embedded grievanceTypes={["Annual", "Sickleave", "Unpaid"]} />}
-      {meetTab === "permission" && <LeaveRequests embedded grievanceTypes={["Permission", "Absence"]} />}
-    </div>
-  );
-}
-
 export default function ManagerHub() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [meetTab, setMeetTab] = useState("payments");
 
   if (!isJenan(user)) {
     return <Navigate to="/home" replace />;
@@ -238,7 +204,7 @@ export default function ManagerHub() {
     <div className="page-enter">
       <PageBanner
         title="Manager Hub"
-        subtitle="Therapists' requests · employee grievances · profiles & reports"
+        subtitle="Review therapists' requests · leave balances · profiles"
         badge={(
           <Link to="/my-requests" className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0">
             <FileText size={13}/> My Requests
@@ -261,10 +227,8 @@ export default function ManagerHub() {
       </div>
 
       {activeTab === "staff" && <Requests embedded managerView />}
-      {activeTab === "meet" && <EmployeesMeetTab meetTab={meetTab} setMeetTab={setMeetTab} />}
-      {activeTab === "balance" && <LeaveBalance embedded />}
+      {activeTab === "balance" && <LeaveBalance embedded staffScope />}
       {activeTab === "profiles" && <TherapistProfilesTab />}
-      {activeTab === "reports" && <Reports embedded />}
     </div>
   );
 }

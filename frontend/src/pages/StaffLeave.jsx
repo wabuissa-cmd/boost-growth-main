@@ -68,7 +68,7 @@ export default function StaffLeave() {
 
       {activeTab === "staff" && showStaff && <Requests embedded />}
       {activeTab === "leave-requests" && showLeave && <LeaveRequests embedded />}
-      {activeTab === "balance" && showLeaveManager && <LeaveBalance embedded />}
+      {activeTab === "balance" && showLeaveManager && <LeaveBalance embedded staffScope />}
     </div>
   );
 }

@@ -5169,9 +5169,15 @@ def _enrich_request_attachment(req: dict) -> dict:
 
 
 @api.get("/requests")
-async def list_requests(user=Depends(get_current_user)):
-    if _is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user):
-        q = {}
+async def list_requests(scope: Optional[str] = None, user=Depends(get_current_user)):
+    """List requests. Default: caller's own. scope=staff: manager/HR staff queue (not own rows for Jenan)."""
+    scope_norm = (scope or "").strip().lower()
+    if scope_norm == "staff":
+        if not (_is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user)):
+            raise HTTPException(status_code=403, detail="Staff request access required")
+        q: dict = {}
+        if _is_jenan(user) and not _is_portal_admin(user) and not _is_hr_ops(user):
+            q = {"therapist_id": {"$ne": user["id"]}}
     else:
         q = {"therapist_id": user["id"]}
     items = await db.requests.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
@@ -6404,9 +6410,10 @@ def _enrich_leave_document_url(leave: dict) -> dict:
     return leave
 
 @api.get("/leaves")
-async def list_leaves(year: Optional[int] = None, user=Depends(get_current_user)):
+async def list_leaves(year: Optional[int] = None, scope: Optional[str] = None, user=Depends(get_current_user)):
     q: dict = {}
-    can_view_all = _is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user)
+    scope_norm = (scope or "").strip().lower()
+    can_view_all = _is_portal_admin(user) or _is_hr_ops(user) or (scope_norm == "staff" and _is_jenan(user))
     if not can_view_all:
         therapist = await db.therapists.find_one({"id": user["id"]}, {"_id": 0})
         if therapist:
@@ -6435,10 +6442,12 @@ async def list_leaves(year: Optional[int] = None, user=Depends(get_current_user)
     return [_enrich_leave_document_url(it) for it in items]
 
 @api.get("/leaves/balance")
-async def leaves_balance(year: Optional[int] = None, user=Depends(get_current_user)):
+async def leaves_balance(year: Optional[int] = None, scope: Optional[str] = None, user=Depends(get_current_user)):
     """Per-therapist balance for current contract year (anniversary from join_date)."""
+    scope_norm = (scope or "").strip().lower()
     therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "color": 1, "email": 1, "annual_balance": 1, "leave_balance": 1, "join_date": 1, "contract_period_start": 1, "contract_period_end": 1}).to_list(100)
-    if not _is_portal_admin(user):
+    can_view_all = _is_portal_admin(user) or _is_hr_ops(user) or (scope_norm == "staff" and _is_jenan(user))
+    if not can_view_all:
         therapists = [t for t in therapists if t["id"] == user["id"]]
     out = []
     for t in therapists:

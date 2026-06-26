@@ -840,6 +840,39 @@
   background: #FAFAF7;
 }
 
+.mgr-req-table {
+  border-collapse: collapse;
+}
+
+.mgr-req-table thead tr {
+  background: linear-gradient(135deg, #F5F0E6 0%, #fff 100%);
+  border-bottom: 1px solid #E2DDD4;
+}
+
+.mgr-req-table th {
+  text-align: left;
+  padding: 0.75rem 1rem;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #8B9E7A;
+}
+
+.mgr-req-table td {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid #EDE9E3;
+  vertical-align: middle;
+}
+
+.mgr-req-table tbody tr:hover {
+  background: #FAFAF7;
+}
+
+.mgr-req-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
 .req-leave-balance {
   background: linear-gradient(135deg, #6B8F71 0%, #3D5C44 55%, #2F4A35 100%);
   color: #fff;
