@@ -1217,8 +1217,17 @@
   table-layout: fixed;
   font-size: 0.8rem;
   line-height: 1.55;
+  display: table;
 }
+.case-summary-pr__table tbody {
+  display: table-row-group;
+}
+.case-summary-pr__table tr {
+  display: table-row;
+}
+.case-summary-pr__table th,
 .case-summary-pr__table td {
+  display: table-cell;
   border: 1px solid #4A5D42;
   padding: 0.55rem 0.7rem;
   vertical-align: middle;
@@ -1231,13 +1240,13 @@
   text-align: center;
   background: #E8ECE4;
   color: #2C5035;
-  white-space: pre-wrap;
+  white-space: normal;
 }
 .case-summary-pr__value {
   width: 64%;
   background: #fff;
   text-align: start;
-  white-space: pre-wrap;
+  white-space: normal;
 }
 .case-summary-pr__section-row td {
   background: linear-gradient(180deg, #C8D8B8 0%, #B5C9A5 100%);
@@ -1288,6 +1297,11 @@
   .case-summary-pr__table {
     min-width: 360px;
     font-size: 0.76rem;
+  }
+  .case-summary-pr__table th,
+  .case-summary-pr__table td {
+    display: table-cell;
+    width: auto;
   }
   .case-summary-pr__label {
     min-width: 6.5rem;

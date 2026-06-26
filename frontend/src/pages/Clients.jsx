@@ -597,11 +597,23 @@ function splitLabelValueCell(text) {
   return null;
 }
 
+/** Normalize Doc vs Sheet table shapes into [[cell, ...], ...]. */
+function normalizeSectionTables(tables) {
+  if (!tables?.length) return [];
+  if (Array.isArray(tables[0]?.[0])) return tables.flat();
+  return tables;
+}
+
 /** Pair stacked single-column Excel rows into label | value rows. */
 function pairTableRows(table) {
+  let rows = table || [];
+  if (rows.length && typeof rows[0] === "string") rows = [rows];
+
   const flat = [];
-  for (const row of table || []) {
-    const cells = (row || []).map((c) => String(c ?? "").trim()).filter((c) => c && c !== "-");
+  for (const row of rows) {
+    const cells = (Array.isArray(row) ? row : [row])
+      .map((c) => String(c ?? "").trim())
+      .filter((c) => c && c !== "-");
     if (!cells.length) continue;
     if (cells.length >= 2) {
       flat.push({ kind: "kv", label: cells[0], value: cells.slice(1).join(" — ") });
@@ -680,6 +692,17 @@ function pairParagraphRows(paragraphs) {
       i += 2;
       continue;
     }
+    if (
+      next
+      && !isLongParagraph(text)
+      && !isLongParagraph(next)
+      && text.length <= 80
+      && next.length <= 240
+    ) {
+      out.push({ kind: "kv", label: text, value: next });
+      i += 2;
+      continue;
+    }
     if (isLongParagraph(text)) {
       out.push({ kind: "para", text });
     } else if (text) {
@@ -735,9 +758,10 @@ function buildCaseSummaryRows(sections, clientName, fileNo) {
 
   sections.forEach((sec, si) => {
     if (sec.heading) rows.push({ kind: "section", text: sec.heading, key: `sec-${si}` });
-    (sec.tables || []).forEach((table) => {
-      pairTableRows(table).forEach((item, ri) => rows.push({ ...item, key: `t-${si}-${ri}` }));
-    });
+    const tableRows = normalizeSectionTables(sec.tables);
+    if (tableRows.length) {
+      pairTableRows(tableRows).forEach((item, ri) => rows.push({ ...item, key: `t-${si}-${ri}` }));
+    }
     pairParagraphRows(sec.paragraphs).forEach((item, ri) => rows.push({ ...item, key: `p-${si}-${ri}` }));
     const bullets = (sec.bullets || []).map((b) => String(b || "").trim()).filter(Boolean);
     if (bullets.length) {
@@ -782,8 +806,8 @@ function CaseSummaryView({ sections, clientName, fileNo }) {
                 const colon = String(item.text || "").split(/[:：]\s*/, 2);
                 if (colon.length === 2 && colon[0].length < 56 && !isLongParagraph(colon[1])) {
                   return (
-                    <tr key={item.key || `p-${i}`}>
-                      <td className="case-summary-pr__label">{colon[0]}</td>
+                    <tr key={item.key || `p-${i}`} className="case-summary-pr__kv-row">
+                      <th scope="row" className="case-summary-pr__label">{colon[0]}</th>
                       <td className="case-summary-pr__value">
                         <CaseSummaryValue value={colon[1]} />
                       </td>
@@ -797,8 +821,8 @@ function CaseSummaryView({ sections, clientName, fileNo }) {
                 );
               }
               return (
-                <tr key={item.key || `kv-${i}`}>
-                  <td className="case-summary-pr__label">{item.label}</td>
+                <tr key={item.key || `kv-${i}`} className="case-summary-pr__kv-row">
+                  <th scope="row" className="case-summary-pr__label">{item.label}</th>
                   <td className="case-summary-pr__value">
                     <CaseSummaryValue value={item.value} bullets={item.bullets} />
                   </td>
