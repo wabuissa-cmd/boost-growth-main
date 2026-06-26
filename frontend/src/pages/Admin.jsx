@@ -98,6 +98,8 @@ export default function Admin() {
   const [intakeSeeding, setIntakeSeeding] = useState(false);
   const [launchCreds, setLaunchCreds] = useState(null);
   const [launchGenerating, setLaunchGenerating] = useState(false);
+  const [unifiedLaunchResult, setUnifiedLaunchResult] = useState(null);
+  const [unifiedLaunchSetting, setUnifiedLaunchSetting] = useState(false);
 
   const loadDeletedClients = async () => {
     try {
@@ -275,6 +277,23 @@ export default function Admin() {
       setResetInfo({ ...data, name: getTherapistScheduleName(t) });
     } catch (e) {
       alert("Reset failed: " + (e.response?.data?.detail || e.message));
+    }
+  };
+
+  const setUnifiedLaunchPassword = async () => {
+    if (!window.confirm(
+      "Set password Boost@2026 for ALL therapists with email?\n\n" +
+      "Everyone must change it on first login. Existing passwords will stop working."
+    )) return;
+    setUnifiedLaunchSetting(true);
+    setUnifiedLaunchResult(null);
+    try {
+      const { data } = await api.post("/admin/set-unified-launch-password");
+      setUnifiedLaunchResult(data);
+    } catch (e) {
+      alert("Failed: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setUnifiedLaunchSetting(false);
     }
   };
 
@@ -468,8 +487,33 @@ export default function Admin() {
           </button>
         </div>
         <ToolRow
-          title="Generate Launch Credentials"
-          desc="Set stable passwords (Firstname@Launch2026) for all specialists with email. Safe to run once before sending — deploys will NOT reset them. Re-run with Regenerate only if you need new passwords."
+          title="Set unified launch password"
+          desc="Set Boost@2026 for every specialist with email. They must choose a new password on first login. Deploys will NOT reset this — run only when you are ready to send credentials."
+        >
+          <button
+            type="button"
+            data-testid="set-unified-launch-password-btn"
+            onClick={setUnifiedLaunchPassword}
+            disabled={unifiedLaunchSetting}
+            className="btn btn-gold text-sm"
+          >
+            {unifiedLaunchSetting ? <span className="spinner" /> : <><Key size={14} className="inline mr-1" /> Set unified launch password</>}
+          </button>
+        </ToolRow>
+        {unifiedLaunchResult && (
+          <div className="text-xs p-3 rounded-lg mb-3 space-y-1" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+            <div><strong>{unifiedLaunchResult.message}</strong></div>
+            {unifiedLaunchResult.no_email?.length > 0 && (
+              <div className="text-[11px]" style={{ color: "#6B7A5E" }}>
+                {unifiedLaunchResult.no_email.length} therapist(s) skipped (no email).
+              </div>
+            )}
+            <button type="button" onClick={() => setUnifiedLaunchResult(null)} className="btn btn-outline text-xs mt-1">Dismiss</button>
+          </div>
+        )}
+        <ToolRow
+          title="Generate Launch Credentials (per-name)"
+          desc="Legacy: individual passwords (Firstname@Launch2026). Prefer unified launch password above for tomorrow's rollout."
         >
           <div className="flex gap-2 flex-wrap">
             <button
@@ -477,7 +521,7 @@ export default function Admin() {
               data-testid="generate-launch-creds-btn"
               onClick={() => generateLaunchCredentials(false)}
               disabled={launchGenerating}
-              className="btn btn-gold text-sm"
+              className="btn btn-outline text-sm"
             >
               {launchGenerating ? <span className="spinner" /> : <><Key size={14} className="inline mr-1" /> Generate</>}
             </button>

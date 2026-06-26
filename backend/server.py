@@ -186,6 +186,7 @@ THERAPIST_BOOTSTRAP_PASSWORDS = {
 }
 
 LAUNCH_PASSWORD_SUFFIX = "Launch2026"
+UNIFIED_LAUNCH_PASSWORD = "Boost@2026"
 
 
 async def _migrate_bootstrap_therapist_passwords() -> int:
@@ -193,7 +194,7 @@ async def _migrate_bootstrap_therapist_passwords() -> int:
     updated = 0
     for email, password in THERAPIST_BOOTSTRAP_PASSWORDS.items():
         t = await _find_therapist_by_email(email)
-        if not t or t.get("password_hash"):
+        if not t or t.get("password_hash") or t.get("launch_credentials_generated_at"):
             continue
         await db.therapists.update_one(
             {"id": t["id"]},
@@ -875,6 +876,41 @@ async def generate_launch_credentials(body: LaunchCredentialsIn, _=Depends(admin
             f"Generated {len(generated)} credential(s). "
             f"Skipped {len(skipped)} with existing launch passwords (use force to regenerate). "
             f"{len(no_email)} without email."
+        ),
+    }
+
+@api.post("/admin/set-unified-launch-password")
+async def set_unified_launch_password(_=Depends(admin_only)):
+    """Set the same launch password for every therapist with email. Admin-triggered only — never on deploy."""
+    therapists = await db.therapists.find({}, {"_id": 0}).sort("name", 1).to_list(500)
+    ts = now_iso()
+    updated = []
+    no_email = []
+    pw_hash = hash_password(UNIFIED_LAUNCH_PASSWORD)
+
+    for t in therapists:
+        email = (t.get("email") or "").strip()
+        if not email:
+            no_email.append({"id": t["id"], "name": t.get("name")})
+            continue
+        await db.therapists.update_one({"id": t["id"]}, {"$set": {
+            "password_hash": pw_hash,
+            "must_change_password": True,
+            "launch_credentials_generated_at": ts,
+            "temp_password_set_at": ts,
+        }})
+        updated.append({"id": t["id"], "name": t.get("name"), "email": email})
+
+    return {
+        "ok": True,
+        "password": UNIFIED_LAUNCH_PASSWORD,
+        "generated_at": ts,
+        "updated_count": len(updated),
+        "updated": updated,
+        "no_email": no_email,
+        "message": (
+            f"{len(updated)} therapists updated. "
+            f"Password: {UNIFIED_LAUNCH_PASSWORD} until they change it."
         ),
     }
 
@@ -1902,6 +1938,21 @@ async def _notify_request_submitted(title: str, message: str, *, email_subject: 
     subj = email_subject or title
     await _send_urgent_email(await _jenan_recipient_email(), subj, body)
     await _email_hr_ops_urgent(subj, body)
+
+
+async def _notify_leave_submitted(title: str, message: str):
+    """Jenan gets in-app + urgent email on new leave (HR notified only after manager forwards)."""
+    jenan_id = await _jenan_therapist_id()
+    if jenan_id:
+        await _notify(jenan_id, "leave_request", title, message)
+    else:
+        await _notify_admins("leave_request", title, message)
+    body = f"{message}\n"
+    portal = _portal_base_url()
+    if portal:
+        body += f"\nReview in portal: {portal}/manager?tab=leave\n"
+    body += "\n— Boost Growth Portal"
+    await _send_urgent_email(await _jenan_recipient_email(), title, body)
 
 
 async def _walaa_notify_user_ids() -> List[str]:
@@ -7677,11 +7728,7 @@ async def create_leave(payload: LeaveIn, user=Depends(get_current_user)):
             if payload.end_time:
                 time_part += f"–{payload.end_time}"
         msg = f"{user.get('name')}: {payload.leave_type} {payload.days}d ({payload.start_date}{time_part} → {payload.end_date})"
-        jenan_id = await _jenan_therapist_id()
-        if jenan_id:
-            await _notify(jenan_id, "leave_request", "New leave request", msg)
-        else:
-            await _notify_admins("leave_request", "New leave request", msg)
+        await _notify_leave_submitted("New leave request", msg)
     return doc
 
 @api.put("/leaves/{lid}")
