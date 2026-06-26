@@ -152,9 +152,13 @@ export function isSlotSelectable(therapistId, day, timeSlot, cellMap, coveredSet
 /** Therapists excluded from schedule grid (still in admin/clients). */
 export const SCHEDULE_HIDDEN_NAME_TOKENS = ["jenan", "walaa", "bodoor", "bodour", "diora", "asma"];
 
-export function isHiddenFromSchedule(name) {
-  const n = (name || "").toLowerCase();
-  return SCHEDULE_HIDDEN_NAME_TOKENS.some(t => n.includes(t));
+export function isHiddenFromSchedule(therapistOrName) {
+  const t = typeof therapistOrName === "object" && therapistOrName !== null ? therapistOrName : null;
+  if (t?.show_on_schedule === true) return false;
+  if (t?.show_on_schedule === false) return true;
+  const name = t ? (t.name || "") : String(therapistOrName || "");
+  const n = name.toLowerCase();
+  return SCHEDULE_HIDDEN_NAME_TOKENS.some(tok => n.includes(tok));
 }
 
 function therapistFirstName(name) {

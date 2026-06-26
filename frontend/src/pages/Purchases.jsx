@@ -9,7 +9,6 @@ import {
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
 import { getTherapistScheduleName } from "../scheduleConstants";
-import { yearMonthTabs, formatMonthValue } from "../monthTabs";
 import { canAccessPurchases, canManagePurchaseStatus, isJenan, isWalaaOps, showAdminNav, showSystemAdmin, useAuth } from "../auth";
 import "../clientInfoLayout.css";
 
@@ -47,6 +46,13 @@ function emptyPurchaseForm() {
   };
 }
 
+function fmtMonthLabel(monthKey) {
+  if (!monthKey) return "—";
+  const [y, m] = monthKey.split("-");
+  const d = new Date(Number(y), Number(m) - 1, 1);
+  return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+
 export default function Purchases({ embedded = false }) {
   const { user } = useAuth();
   const canManageStatus = canManagePurchaseStatus(user);
@@ -61,11 +67,6 @@ export default function Purchases({ embedded = false }) {
   const [form, setForm] = useState(emptyPurchaseForm);
   const [submitting, setSubmitting] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
-  const [filterMonth, setFilterMonth] = useState(() => {
-    const tabs = yearMonthTabs();
-    const now = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
-    return tabs.some((m) => m.value === now) ? now : tabs[0]?.value || "";
-  });
   const [settings, setSettings] = useState({ day_of_month: 25, enabled: true, therapist_ids: [] });
   const [savingSettings, setSavingSettings] = useState(false);
   const [sending, setSending] = useState(false);
@@ -74,7 +75,6 @@ export default function Purchases({ embedded = false }) {
   const load = async () => {
     const params = {};
     if (filterStatus) params.status = filterStatus;
-    if (filterMonth) params.month = filterMonth;
     const [listRes, pendingRes] = await Promise.all([
       api.get("/purchases", { params }),
       canManageStatus ? api.get("/purchases", { params: { status: "pending" } }) : Promise.resolve({ data: [] }),
@@ -85,7 +85,7 @@ export default function Purchases({ embedded = false }) {
 
   useEffect(() => {
     load();
-  }, [filterStatus, filterMonth]);
+  }, [filterStatus]);
 
   useEffect(() => {
     Promise.all([
@@ -224,7 +224,6 @@ export default function Purchases({ embedded = false }) {
     }
   };
 
-  const monthTabs = useMemo(() => yearMonthTabs(), []);
   const selected = useMemo(
     () => items.find(p => p.id === selectedId) || pendingQueue.find(p => p.id === selectedId) || null,
     [items, pendingQueue, selectedId]
@@ -255,79 +254,44 @@ export default function Purchases({ embedded = false }) {
       />
       )}
 
-      <div className={`grid gap-4 ${canManageStatus ? "lg:grid-cols-[300px_1fr]" : ""}`}>
-        {canManageStatus && (
-          <div className="card p-3 rounded-[20px] h-fit lg:sticky lg:top-20">
-            <div className="text-xs font-bold tracking-wider mb-2 flex items-center gap-2" style={{ color: "#5C6853" }}>
-              <Hourglass size={16} weight="duotone"/> Incoming queue
-            </div>
-            <p className="text-[11px] mb-3 m-0" style={{ color: "#8B9E7A" }}>
-              Pending submissions from therapists & supervisors
-            </p>
-            <div className="space-y-2 max-h-[70vh] overflow-y-auto">
-              {pendingQueue.length === 0 && (
-                <div className="text-center py-6 text-xs" style={{ color: "#8B9E7A" }}>No pending requests</div>
-              )}
-              {pendingQueue.map(p => {
-                const active = selectedId === p.id;
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => setSelectedId(p.id)}
-                    className={`w-full text-left p-3 rounded-xl border transition ${active ? "border-[#7A8A6A] bg-[#E5EBE1]" : "border-[#EDE9E3] bg-[#FAFAF7]"}`}
-                  >
-                    <div className="font-semibold text-sm truncate" style={{ color: "#2C3625" }}>{p.item}</div>
-                    <div className="text-[10px] mt-0.5" style={{ color: "#8B9E7A" }}>
-                      {p.purchaser_name || p.therapist_name || "—"} · {formatMonthValue(p.purchase_month)}
-                    </div>
-                    <div className="text-[10px] font-bold mt-1" style={{ color: "#6B5218" }}>{fmtMoney(p)}</div>
-                  </button>
-                );
-              })}
-            </div>
-            {selected && (
-              <div className="mt-3 pt-3 border-t space-y-2" style={{ borderColor: "#EDE9E3" }}>
-                <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "#8B9E7A" }}>Quick actions</div>
-                <div className="flex flex-wrap gap-2">
-                  {selected.status !== "approved" && (
-                    <button type="button" className="btn btn-secondary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "approved")}>Approve</button>
-                  )}
-                  {selected.status !== "reimbursed" && (
-                    <button type="button" className="btn btn-primary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "reimbursed")}>Reimburse</button>
-                  )}
-                </div>
-              </div>
-            )}
+      {canManageStatus && pendingQueue.length > 0 && (
+        <div className="card p-3 rounded-[20px] mb-4">
+          <div className="text-xs font-bold tracking-wider mb-2 flex items-center gap-2" style={{ color: "#8A3F27" }}>
+            <Hourglass size={16} weight="duotone"/> Needs attention · {pendingQueue.length} pending
           </div>
-        )}
+          <p className="text-[11px] mb-3 m-0" style={{ color: "#8B9E7A" }}>
+            Submissions awaiting review & reimbursement
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {pendingQueue.map(p => {
+              const active = selectedId === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setSelectedId(p.id)}
+                  className={`text-left p-3 rounded-xl border transition min-w-[10rem] flex-1 max-w-[14rem] ${active ? "border-[#7A8A6A] bg-[#E5EBE1]" : "border-[#EDE9E3] bg-[#FAFAF7]"}`}
+                >
+                  <div className="font-semibold text-sm truncate" style={{ color: "#2C3625" }}>{p.item}</div>
+                  <div className="text-[10px] mt-0.5" style={{ color: "#8B9E7A" }}>
+                    {p.purchaser_name || p.therapist_name || "—"} · {fmtMonthLabel(p.purchase_month)}
+                  </div>
+                  <div className="text-[10px] font-bold mt-1" style={{ color: "#6B5218" }}>{fmtMoney(p)}</div>
+                </button>
+              );
+            })}
+          </div>
+          {selected && selected.status === "pending" && (
+            <div className="mt-3 pt-3 border-t flex flex-wrap gap-2" style={{ borderColor: "#EDE9E3" }}>
+              <button type="button" className="btn btn-secondary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "approved")}>Approve</button>
+              <button type="button" className="btn btn-primary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "reimbursed")}>Reimburse</button>
+            </div>
+          )}
+        </div>
+      )}
 
-        <div className="min-w-0">
+      <div className="min-w-0">
       <div className="card overflow-hidden mb-4">
-        <div className="px-3 py-2 border-b text-[10px] font-bold tracking-wider" style={{ borderColor: "#E2DDD4", background: "#FAFAF7", color: "#5C6853" }}>
-          CALENDAR MONTHS · JAN – JUL {new Date().getFullYear()}
-        </div>
-        <div className="flex gap-0 overflow-x-auto border-b" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
-          {monthTabs.map((m) => {
-            const active = filterMonth === m.value;
-            const count = items.filter((p) => p.purchase_month === m.value).length;
-            return (
-              <button
-                key={m.value}
-                type="button"
-                onClick={() => setFilterMonth(m.value)}
-                className={`shrink-0 px-4 py-3 text-xs font-bold border-b-2 transition min-h-[48px] min-w-[5.5rem] ${
-                  active ? "border-[#7A8A6A] text-[#2C3625] bg-white" : "border-transparent text-[#8B9E7A] hover:text-[#5C6853]"
-                }`}
-              >
-                <span className="block text-[11px] leading-tight">{m.label}</span>
-                <span className="block text-[9px] font-semibold opacity-70 mt-0.5">{m.short}</span>
-                {count > 0 && <span className="block text-[9px] mt-0.5 opacity-80">({count})</span>}
-              </button>
-            );
-          })}
-        </div>
-
         <div className="p-3 flex flex-wrap gap-2 items-center border-b" style={{ borderColor: "#EDE9E3" }}>
           <ShoppingBag size={18} style={{ color: "#7A8A6A" }}/>
           <select className="input text-sm w-auto" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
@@ -376,12 +340,7 @@ export default function Purchases({ embedded = false }) {
                     <td>{p.unit_price || "—"}</td>
                     <td>{fmtMoney(p)}</td>
                     <td className="text-xs whitespace-nowrap" title={p.purchase_month || ""}>
-                      {formatMonthValue(p.purchase_month)}
-                      {filterMonth && p.purchase_month && p.purchase_month !== filterMonth && (
-                        <span className="block text-[9px] font-semibold mt-0.5" style={{ color: "#C97B5C" }}>
-                          ≠ selected tab
-                        </span>
-                      )}
+                      {fmtMonthLabel(p.purchase_month)}
                     </td>
                     <td><span className={`pill text-[10px] ${st.cls}`}>{st.icon} {st.label}</span></td>
                     <td>{fmtDate(p.reimbursement_date)}</td>
@@ -478,7 +437,6 @@ export default function Purchases({ embedded = false }) {
         </div>
       </div>
       )}
-        </div>
       </div>
 
       {addOpen && (

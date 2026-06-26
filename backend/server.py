@@ -453,6 +453,7 @@ class TherapistUpdate(BaseModel):
     phone: Optional[str] = None
     color: Optional[str] = None
     pin: Optional[str] = None
+    show_on_schedule: Optional[bool] = None
 
 class ScheduleCellIn(BaseModel):
     therapist_id: str

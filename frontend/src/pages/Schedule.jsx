@@ -11,7 +11,7 @@ import { MAX_SCHEDULE_MERGE_SLOTS } from "../scheduleConstants";
 import { useAuth, showAdminNav, isClientLead, canParentCancellationOps } from "../auth";
 import {
   CaretLeft, CaretRight, CaretDown, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
-  CopySimple, Table, CalendarBlank, CheckCircle, PencilSimple, GridFour, Printer, WhatsappLogo,
+  CopySimple, Table, CalendarBlank, CheckCircle, PencilSimple, GridFour, Printer, WhatsappLogo, UserPlus,
 } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
@@ -173,6 +173,8 @@ export default function Schedule() {
   const longPressTimer = useRef(null);
   const touchStartPos = useRef(null);
   const [adminEditsOpen, setAdminEditsOpen] = useState(false);
+  const [addTherapistId, setAddTherapistId] = useState("");
+  const [scheduleTherapistBusy, setScheduleTherapistBusy] = useState(false);
   const adminEditsRef = useRef(null);
   const [showHolidays, setShowHolidays] = useState(false);
   const [closures, setClosures] = useState([]);
@@ -455,10 +457,49 @@ export default function Schedule() {
   );
 
   const visibleTherapists = useMemo(() => {
-    let list = therapists.filter(t => !isHiddenFromSchedule(t.name));
+    let list = therapists.filter(t => !isHiddenFromSchedule(t));
     if (search) list = list.filter(t => t.name.toLowerCase().includes(search.toLowerCase()));
     return sortTherapistsForSchedule(list);
   }, [therapists, search]);
+
+  const addableScheduleTherapists = useMemo(
+    () => sortTherapistsForSchedule(
+      therapists.filter((t) => isHiddenFromSchedule({ ...t, show_on_schedule: false }))
+    ),
+    [therapists],
+  );
+
+  const manuallyShownTherapists = useMemo(
+    () => sortTherapistsForSchedule(therapists.filter((t) => t.show_on_schedule === true)),
+    [therapists],
+  );
+
+  const addTherapistToSchedule = async () => {
+    if (!addTherapistId) return;
+    setScheduleTherapistBusy(true);
+    try {
+      const { data } = await api.put(`/therapists/${addTherapistId}`, { show_on_schedule: true });
+      setTherapists((prev) => prev.map((t) => (t.id === data.id ? { ...t, ...data } : t)));
+      setAddTherapistId("");
+      setAdminEditsOpen(false);
+    } catch (e) {
+      alert(e.response?.data?.detail || "Could not add therapist to schedule");
+    } finally {
+      setScheduleTherapistBusy(false);
+    }
+  };
+
+  const removeTherapistFromSchedule = async (tid) => {
+    setScheduleTherapistBusy(true);
+    try {
+      const { data } = await api.put(`/therapists/${tid}`, { show_on_schedule: false });
+      setTherapists((prev) => prev.map((t) => (t.id === data.id ? { ...t, ...data } : t)));
+    } catch (e) {
+      alert(e.response?.data?.detail || "Could not remove therapist from schedule");
+    } finally {
+      setScheduleTherapistBusy(false);
+    }
+  };
 
   const selfTherapist = useMemo(
     () => resolveSelfTherapist(user, therapists),
@@ -1196,6 +1237,49 @@ export default function Schedule() {
                 </button>
                 {adminEditsOpen && (
                   <div className="schedule-admin-edits-menu absolute right-0 top-[calc(100%+6px)] z-[200] card p-2.5 min-w-[228px] shadow-lg border border-[#E2DDD4] flex flex-col gap-2 bg-white">
+                    <div className="border-b pb-2 mb-1" style={{ borderColor: "#EDE9E3" }}>
+                      <div className="text-[10px] font-bold tracking-wider mb-1.5 flex items-center gap-1" style={{ color: "#5C6853" }}>
+                        <UserPlus size={12} /> Add therapist column
+                      </div>
+                      <select
+                        className="input text-xs w-full mb-1.5"
+                        value={addTherapistId}
+                        onChange={(e) => setAddTherapistId(e.target.value)}
+                        data-testid="schedule-add-therapist-select"
+                      >
+                        <option value="">Choose therapist…</option>
+                        {addableScheduleTherapists.map((t) => (
+                          <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        data-testid="schedule-add-therapist-btn"
+                        onClick={addTherapistToSchedule}
+                        disabled={!addTherapistId || scheduleTherapistBusy}
+                        className="btn btn-primary text-xs w-full justify-center min-h-[32px]"
+                      >
+                        {scheduleTherapistBusy ? "Adding…" : "Add to schedule"}
+                      </button>
+                      {manuallyShownTherapists.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "#8B9E7A" }}>Added columns</div>
+                          {manuallyShownTherapists.map((t) => (
+                            <div key={t.id} className="flex items-center justify-between gap-1 text-[10px]">
+                              <span className="truncate" style={{ color: "#2C3625" }}>{getTherapistScheduleName(t)}</span>
+                              <button
+                                type="button"
+                                className="text-[9px] underline shrink-0"
+                                disabled={scheduleTherapistBusy}
+                                onClick={() => removeTherapistFromSchedule(t.id)}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <button type="button" onClick={() => { setShowHolidays(true); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start min-h-[36px]">Official holidays</button>
                     <button type="button" onClick={() => { setDraft(); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start min-h-[36px]">Save as Draft</button>
                     <button type="button" onClick={() => { openPublishModal(); setAdminEditsOpen(false); }} className="btn btn-primary text-xs w-full justify-start min-h-[36px]">Publish Week</button>
@@ -1527,7 +1611,7 @@ export default function Schedule() {
         <ScheduleHolidaysModal
           weekStartISO={weekStartISO}
           weekEndISO={weekEndISO}
-          therapists={therapists.filter(t => !isHiddenFromSchedule(t.name))}
+          therapists={therapists.filter(t => !isHiddenFromSchedule(t))}
           onClose={() => setShowHolidays(false)}
           onChanged={loadClosures}
         />

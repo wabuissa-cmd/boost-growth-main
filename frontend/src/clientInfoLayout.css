@@ -1214,6 +1214,7 @@
 .case-summary-form__table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
   font-size: 0.82rem;
   color: #2C3625;
 }
@@ -1257,14 +1258,14 @@
   border-bottom: 1px solid #C4D4B8;
 }
 @media (max-width: 640px) {
-  .case-summary-form__label,
-  .case-summary-form__value {
-    display: block;
-    width: 100%;
-  }
   .case-summary-form__label {
-    border-right: none;
-    border-bottom: 1px solid #E8EDE3;
-    padding-bottom: 0.35rem;
+    width: 38%;
+    min-width: 5.5rem;
+    font-size: 0.75rem;
+    padding: 0.5rem 0.55rem;
+  }
+  .case-summary-form__value {
+    padding: 0.5rem 0.55rem;
+    font-size: 0.78rem;
   }
 }
