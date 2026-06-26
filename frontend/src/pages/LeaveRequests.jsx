@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import api, { API } from "../api";
+import api, { API, openAuthenticatedFile } from "../api";
 import { useAuth, showAdminNav, canManageLeaves, canHrReviewLeaves, isJenan } from "../auth";
 import {
   Plus, X, CheckCircle, XCircle, FilePdf, UploadSimple, Eye, Trash,
@@ -68,16 +68,9 @@ function DocumentSection({ leave, isAdmin, onRefresh, canUpload }) {
 
   const viewDoc = async () => {
     try {
-      const token = localStorage.getItem("bg_token");
-      const r = await fetch(downloadUrl, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: "include",
-      });
-      if (!r.ok) throw new Error("Download failed");
-      const blob = await r.blob();
-      window.open(URL.createObjectURL(blob), "_blank");
+      await openAuthenticatedFile(downloadUrl, { errorMessage: "Could not open document" });
     } catch (e) {
-      alert("Could not open document");
+      alert(e?.message || "Could not open document");
     }
   };
 

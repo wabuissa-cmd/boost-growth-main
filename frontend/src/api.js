@@ -31,6 +31,25 @@ api.interceptors.request.use((config) => {
 
 export default api;
 
+/** Open a protected file URL in a new tab (sends stored auth token). */
+export async function openAuthenticatedFile(url, { errorMessage = "Could not open file" } = {}) {
+  const token = localStorage.getItem("bg_token");
+  const r = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: "include",
+  });
+  if (!r.ok) {
+    let detail = errorMessage;
+    try {
+      const body = await r.json();
+      if (body?.detail) detail = typeof body.detail === "string" ? body.detail : errorMessage;
+    } catch { /* ignore */ }
+    throw new Error(detail);
+  }
+  const blob = await r.blob();
+  window.open(URL.createObjectURL(blob), "_blank");
+}
+
 export function formatErr(detail) {
   if (!detail) return "Something went wrong, please try again.";
   if (typeof detail === "string") return detail;

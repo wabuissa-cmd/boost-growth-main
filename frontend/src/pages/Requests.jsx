@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from "react";
-import api, { API } from "../api";
+import api, { API, openAuthenticatedFile } from "../api";
 import { useAuth, showAdminNav, canEditStaffRequests, canManageLeaves, canHrReviewLeaves, isJenan } from "../auth";
 import { Navigate } from "react-router-dom";
 import { Plus, PencilSimple, Trash, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Calendar, Package, UploadSimple, Eye, FileArrowDown } from "@phosphor-icons/react";
@@ -76,6 +76,14 @@ function fmtShortDate(iso) {
   if (!iso) return "—";
   const d = new Date(`${String(iso).slice(0, 10)}T12:00:00`);
   return d.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+}
+
+async function viewProtectedFile(url) {
+  try {
+    await openAuthenticatedFile(url, { errorMessage: "Could not open attachment" });
+  } catch (e) {
+    alert(e?.message || "Could not open attachment");
+  }
 }
 
 function requestAwaitingAttachment(r) {
@@ -988,15 +996,14 @@ export default function Requests({ personal = false, embedded = false, managerVi
                 {statusEdit._leave?.document_file_path && (
                   <div className="text-sm rounded-xl p-3 mb-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
                     <div className="text-xs font-semibold mb-1" style={{ color: "#9CA3AF" }}>Attachment</div>
-                    <a
-                      href={`${API}/leaves/${statusEdit.leaveId}/document`}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      type="button"
+                      onClick={() => viewProtectedFile(`${API}/leaves/${statusEdit.leaveId}/document`)}
                       className="inline-flex items-center gap-1 font-semibold underline"
-                      style={{ color: "#5C8A47" }}
+                      style={{ color: "#5C8A47", background: "none", border: "none", padding: 0, cursor: "pointer" }}
                     >
                       <FileArrowDown size={14}/> View attachment (read-only)
-                    </a>
+                    </button>
                   </div>
                 )}
 
@@ -1006,15 +1013,14 @@ export default function Requests({ personal = false, embedded = false, managerVi
                     {statusEdit.report_date && (
                       <div className="text-xs mb-1" style={{ color: "#8B9E7A" }}>Report date: {fmtShortDate(statusEdit.report_date)}</div>
                     )}
-                    <a
-                      href={`${API}/requests/${statusEdit.id}/attachment`}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      type="button"
+                      onClick={() => viewProtectedFile(`${API}/requests/${statusEdit.id}/attachment`)}
                       className="inline-flex items-center gap-1 font-semibold underline"
-                      style={{ color: "#5C8A47" }}
+                      style={{ color: "#5C8A47", background: "none", border: "none", padding: 0, cursor: "pointer" }}
                     >
                       <FileArrowDown size={14}/> View attachment (read-only)
-                    </a>
+                    </button>
                   </div>
                 )}
 

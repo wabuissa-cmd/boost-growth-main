@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import api, { API } from "../api";
+import api, { API, openAuthenticatedFile } from "../api";
 import { useAuth, isJenan } from "../auth";
 import {
   Plus, Package, Briefcase, ClockCounterClockwise, CalendarBlank,
@@ -384,15 +384,20 @@ export default function TherapistRequests() {
                       <div>Report date: <strong>{fmtShortDate(r.report_date)}</strong></div>
                       <div>Uploaded: {new Date(r.created_at).toLocaleString("en-US")}</div>
                       {r.attachment_url && (
-                        <a
-                          href={`${API}/requests/${r.id}/attachment`}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              await openAuthenticatedFile(`${API}/requests/${r.id}/attachment`);
+                            } catch (e) {
+                              alert(e?.message || "Could not open attachment");
+                            }
+                          }}
                           className="inline-flex items-center gap-1 mt-1 font-semibold underline"
-                          style={{ color: "#5C8A47" }}
+                          style={{ color: "#5C8A47", background: "none", border: "none", padding: 0, cursor: "pointer" }}
                         >
                           <FileArrowDown size={12}/> View attachment
-                        </a>
+                        </button>
                       )}
                     </div>
                   )}
@@ -402,15 +407,20 @@ export default function TherapistRequests() {
                   {!isAttachment && r.attachment_url && (
                     <div className="text-xs mt-1" style={{ color: "#5C6853" }}>
                       {r.report_date && <div>Report date: <strong>{fmtShortDate(r.report_date)}</strong></div>}
-                      <a
-                        href={`${API}/requests/${r.id}/attachment`}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await openAuthenticatedFile(`${API}/requests/${r.id}/attachment`);
+                          } catch (e) {
+                            alert(e?.message || "Could not open attachment");
+                          }
+                        }}
                         className="inline-flex items-center gap-1 mt-1 font-semibold underline"
-                        style={{ color: "#5C8A47" }}
+                        style={{ color: "#5C8A47", background: "none", border: "none", padding: 0, cursor: "pointer" }}
                       >
                         <FileArrowDown size={12}/> View attachment
-                      </a>
+                      </button>
                     </div>
                   )}
                   {r.admin_note && (

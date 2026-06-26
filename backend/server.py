@@ -7982,8 +7982,9 @@ async def download_leave_document(lid: str, user=Depends(get_current_user)):
     leave = await db.leaves.find_one({"id": lid}, {"_id": 0})
     if not leave or not leave.get("document_file_path"):
         raise HTTPException(status_code=404, detail="No document")
-    if user.get("role") != "admin" and leave.get("therapist_id") != user["id"]:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    if not (_is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user)):
+        if leave.get("therapist_id") != user["id"]:
+            raise HTTPException(status_code=403, detail="Forbidden")
     fp = UPLOAD_DIR / leave["document_file_path"]
     if not fp.exists():
         raise HTTPException(status_code=404, detail="File missing")
