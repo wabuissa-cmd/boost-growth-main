@@ -4990,8 +4990,10 @@ async def _fix_walaa_purchase_month_mismatch():
     walaa = await db.therapists.find_one(
         {
             "$or": [
-                {"email": {"$regex": r"^walaa@boostgrowthsa\.com$", "$options": "i"}},
+                {"email": {"$regex": r"walaa@boostgrowthsa\.com$", "$options": "i"}},
+                {"email": {"$regex": r"wabuissa@boostgrowthsa\.com$", "$options": "i"}},
                 {"key": "mswalaa"},
+                {"name": {"$regex": r"^ms\.?\s*walaa\b", "$options": "i"}},
             ]
         },
         {"_id": 0, "id": 1},
