@@ -4905,6 +4905,32 @@ def _parse_purchase_total(val) -> tuple:
     return None, s
 
 
+def _is_emergent_website_item(item: str) -> bool:
+    """Emergent / emergency website subscription — always filed under May in the official sheet."""
+    s = (item or "").lower()
+    if "emergent" in s and "website" in s:
+        return True
+    if "emergency" in s and "website" in s:
+        return True
+    return False
+
+
+def _is_walaa_purchaser_name(name: str) -> bool:
+    return bool(re.match(r"^walaa\b", (name or "").strip(), re.I))
+
+
+def _walaa_emergent_website_month(purchase_date: str, item: str, purchaser_name: str) -> tuple:
+    """Official sheet lists Walaa's Emergent Website under May — never June."""
+    if not _is_emergent_website_item(item):
+        return purchase_date[:10], purchase_date[:7]
+    if not _is_walaa_purchaser_name(purchaser_name) and "walaa" not in (purchaser_name or "").lower():
+        return purchase_date[:10], purchase_date[:7]
+    year = purchase_date[:4] if len(purchase_date) >= 4 else str(datetime.now(timezone.utc).year)
+    month_key = f"{year}-05"
+    day = purchase_date[8:10] if len(purchase_date) >= 10 else "01"
+    return f"{month_key}-{day}", month_key
+
+
 def _read_purchases_xlsx(content: bytes, months: Optional[List[str]] = None) -> tuple:
     import io
     import openpyxl
@@ -4927,8 +4953,8 @@ def _read_purchases_xlsx(content: bytes, months: Optional[List[str]] = None) -> 
             category = str(ws.cell(r, 3).value or "").strip()
             if not category:
                 continue
-            # Emergent subscription is May-only — skip if duplicated on June tab
-            if purchase_month and purchase_month.endswith("-06") and "emergent" in item_str.lower():
+            # Emergent/emergency website is May-only — skip if duplicated on June tab
+            if purchase_month and purchase_month.endswith("-06") and _is_emergent_website_item(item_str):
                 continue
             total, total_display = _parse_purchase_total(ws.cell(r, 7).value)
             if total is None and not str(ws.cell(r, 7).value or "").strip():
@@ -4960,7 +4986,7 @@ def _read_purchases_xlsx(content: bytes, months: Optional[List[str]] = None) -> 
 
 
 async def _fix_walaa_purchase_month_mismatch():
-    """Walaa's Emergent/subscription purchase was filed under June — belongs in May."""
+    """Walaa's Emergent/emergency website payment belongs in May (month 5), not June."""
     walaa = await db.therapists.find_one(
         {
             "$or": [
@@ -4970,17 +4996,41 @@ async def _fix_walaa_purchase_month_mismatch():
         },
         {"_id": 0, "id": 1},
     )
-    if not walaa:
-        return
+    walaa_id = walaa.get("id") if walaa else None
+    owner_filter: List[dict] = [
+        {"purchaser_name": {"$regex": r"^walaa\b", "$options": "i"}},
+        {"therapist_name": {"$regex": r"walaa", "$options": "i"}},
+    ]
+    if walaa_id:
+        owner_filter.insert(0, {"therapist_id": walaa_id})
+
     items = await db.staff_purchases.find(
-        {"therapist_id": walaa["id"], "purchase_month": {"$regex": r"-06$"}},
+        {
+            "$and": [
+                {"$or": owner_filter},
+                {"item": {"$regex": r"emergent|emergency", "$options": "i"}},
+            ]
+        },
         {"_id": 0, "id": 1, "purchase_date": 1, "purchase_month": 1, "item": 1},
-    ).to_list(50)
+    ).to_list(20)
+    items = [d for d in items if _is_emergent_website_item(d.get("item"))]
+
+    has_may_row = any((d.get("purchase_month") or "").endswith("-05") for d in items)
     for doc in items:
         old_month = doc.get("purchase_month") or ""
+        if old_month.endswith("-05"):
+            continue
+        if old_month.endswith("-06") and has_may_row:
+            await db.staff_purchases.delete_one({"id": doc["id"]})
+            logger.info(
+                "Removed duplicate Walaa Emergent Website in %s (May row kept)",
+                old_month,
+            )
+            continue
         if not old_month.endswith("-06"):
             continue
-        new_month = f"{old_month[:4]}-05"
+        year = old_month[:4] if len(old_month) >= 4 else str(datetime.now(timezone.utc).year)
+        new_month = f"{year}-05"
         pd = (doc.get("purchase_date") or f"{old_month}-01")[:10]
         new_date = f"{new_month}{pd[7:]}" if len(pd) >= 10 else f"{new_month}-01"
         await db.staff_purchases.update_one(
@@ -4988,7 +5038,7 @@ async def _fix_walaa_purchase_month_mismatch():
             {"$set": {"purchase_month": new_month, "purchase_date": new_date, "updated_at": now_iso()}},
         )
         logger.info(
-            "Fixed Walaa purchase month %s → %s (%s)",
+            "Fixed Walaa Emergent Website month %s → %s (%s)",
             old_month,
             new_month,
             doc.get("item"),
@@ -5003,10 +5053,13 @@ async def _upsert_purchases_from_sheet(records: List[dict]) -> dict:
             "$or": [{"sync_source": "google_sheet"}, {"imported": True}],
         })
     # Remove known duplicates that should not appear in June
-    await db.staff_purchases.delete_many({
-        "purchase_month": {"$regex": "-06$"},
-        "item": {"$regex": "emergent", "$options": "i"},
-    })
+    june_dupes = await db.staff_purchases.find(
+        {"purchase_month": {"$regex": "-06$"}, "item": {"$regex": "emergent|emergency", "$options": "i"}},
+        {"_id": 0, "id": 1, "item": 1},
+    ).to_list(50)
+    for doc in june_dupes:
+        if _is_emergent_website_item(doc.get("item")):
+            await db.staff_purchases.delete_one({"id": doc["id"]})
     inserted = 0
     skipped = 0
     for rec in records:
@@ -5206,6 +5259,7 @@ async def import_purchases_google(body: dict = None, user=Depends(get_current_us
         logger.exception("Purchases Google Sheet parse failed")
         raise HTTPException(status_code=400, detail=f"Could not parse purchases sheet: {e}")
     result = await _upsert_purchases_from_sheet(records)
+    await _fix_walaa_purchase_month_mismatch()
     result["tabs_found"] = tabs_used
     result["message"] = (
         f"Imported {result['inserted']} purchases ({result.get('skipped', 0)} skipped — unknown purchaser)"
@@ -5291,6 +5345,7 @@ async def create_purchase(payload: PurchaseIn, user=Depends(get_current_user)):
     if not item or not category:
         raise HTTPException(status_code=400, detail="item and category required")
     purchase_date = (payload.purchase_date or now_iso()[:10])[:10]
+    purchase_date, purchase_month = _walaa_emergent_website_month(purchase_date, item, purchaser_name or "")
     doc = {
         "id": str(uuid.uuid4()),
         "therapist_id": tid,
@@ -5306,7 +5361,7 @@ async def create_purchase(payload: PurchaseIn, user=Depends(get_current_user)):
         "status": "pending",
         "reimbursement_date": None,
         "purchase_date": purchase_date,
-        "purchase_month": purchase_date[:7],
+        "purchase_month": purchase_month,
         "notes": (payload.notes or "").strip() or None,
         "created_at": now_iso(),
         "updated_at": now_iso(),
@@ -5334,8 +5389,11 @@ async def update_purchase(pid: str, payload: PurchaseUpdate, user=Depends(get_cu
             raise HTTPException(status_code=403, detail="Only Jenan can update purchase status")
         patch["status"] = _normalize_purchase_status(patch["status"])
     if "purchase_date" in patch:
-        patch["purchase_date"] = patch["purchase_date"][:10]
-        patch["purchase_month"] = patch["purchase_date"][:7]
+        item_name = patch.get("item") or existing.get("item") or ""
+        purchaser = existing.get("purchaser_name") or existing.get("therapist_name") or ""
+        pd, pm = _walaa_emergent_website_month(patch["purchase_date"][:10], item_name, purchaser)
+        patch["purchase_date"] = pd
+        patch["purchase_month"] = pm
     patch["updated_at"] = now_iso()
     await db.staff_purchases.update_one({"id": pid}, {"$set": patch})
     updated = await db.staff_purchases.find_one({"id": pid}, {"_id": 0})
