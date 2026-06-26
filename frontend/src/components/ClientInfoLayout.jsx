@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import {
-  MapPin, Paperclip, ClipboardText,
+  Paperclip, ClipboardText,
   Leaf, PencilSimple, Trash, CaretRight,
 } from "@phosphor-icons/react";
 import LocationList from "./LocationList";
@@ -40,7 +40,6 @@ function MiniPkgBar({ row }) {
 }
 
 const SECTIONS = [
-  { id: "location", icon: MapPin, title: "Locations", desc: "Home, school & clinic addresses" },
   { id: "attachments", icon: Paperclip, title: "Records & files", desc: "Drive links, intake & case documents" },
   { id: "details", icon: ClipboardText, title: "Case summary", desc: "Diagnosis, goals & clinical notes" },
 ];
@@ -77,7 +76,6 @@ export default function ClientInfoLayout({
     ? getTherapistScheduleName(findTherapist(selected.main_therapist_id))
     : "";
   const driveLinkCount = selected ? (selected.drive_links?.length || 0) : 0;
-  const locationCount = selected ? (selected.locations?.length || 0) : 0;
   const avatarBg = selected ? (getChildColor(selected.name) || selected.color || "#E5EBE1") : "#E5EBE1";
   const canEditPhone = isAdmin || hasOps || Boolean(onPhoneSave);
   const [phoneDraft, setPhoneDraft] = useState("");
@@ -230,9 +228,7 @@ export default function ClientInfoLayout({
                     const Icon = s.icon;
                     const desc = s.id === "attachments" && driveLinkCount > 0
                       ? `${driveLinkCount} file${driveLinkCount !== 1 ? "s" : ""}`
-                      : s.id === "location" && locationCount > 0
-                        ? `${locationCount} address${locationCount !== 1 ? "es" : ""} · tap to expand`
-                        : s.desc;
+                      : s.desc;
                     return (
                       <button key={s.id} type="button" className="ci-section-card" onClick={() => onOpenSection(s.id)}>
                         <span className="ci-section-card-icon"><Icon size={20} weight="duotone" /></span>

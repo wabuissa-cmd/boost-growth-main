@@ -9,7 +9,6 @@ import ClientPickerSheet from "../components/ClientPickerSheet";
 import "../clientInfoLayout.css";
 import { enrichClientForCardView } from "../attendanceUtils";
 import { getTherapistScheduleName } from "../scheduleConstants";
-import LocationList from "../components/LocationList";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -238,9 +237,6 @@ export default function Clients() {
         findTherapist={findT}
       />
 
-      {panelClient?.section === "location" && (
-        <LocationPanelModal client={panelClient.client} onClose={closePanel} />
-      )}
       {panelClient?.section === "attachments" && (
         <AttachmentsPanelModal client={panelClient.client} canSyncDrive={hasFullClientAccess(user)} onClose={closePanel} onRefresh={load} onSaved={() => { closePanel(); load(); }} />
       )}
@@ -378,15 +374,6 @@ export default function Clients() {
         </ModalBase>
       )}
     </div>
-  );
-}
-
-function LocationPanelModal({ client, onClose }) {
-  return (
-    <ModalBase title="Locations" subtitle={`${client.name} · File #${client.file_no || "—"}`} onClose={onClose} size="md"
-      footer={<ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>}>
-      <LocationList locations={client.locations || []} />
-    </ModalBase>
   );
 }
 
