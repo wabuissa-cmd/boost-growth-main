@@ -732,87 +732,65 @@ function CaseSummaryView({ sections, clientName, fileNo }) {
   ]).join(" ");
   const rtl = isMostlyArabic(allText);
 
-  const renderTable = (table, key) => {
-    if (!table?.length) return null;
-    const headerRow = table[0] || [];
-    const bodyRows = table.slice(1);
-    const multiCol = headerRow.filter((c) => String(c).trim()).length > 1
-      && bodyRows.some((r) => (r || []).filter((c) => String(c).trim()).length > 1);
+  const rows = [];
+  rows.push({ kind: "kv", label: "Client", value: clientName || "—" });
+  rows.push({ kind: "kv", label: "File #", value: fileNo || "—" });
 
-    if (multiCol) {
-      return (
-        <div key={key} className="case-summary-sheet__table-wrap">
-          <table className="case-summary-sheet__table">
-            <thead>
-              <tr>
-                {headerRow.map((cell, ci) => (
-                  <th key={ci}>{cell}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {bodyRows.map((row, ri) => (
-                <tr key={ri}>
-                  {row.map((cell, ci) => <td key={ci}>{cell}</td>)}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
-    }
-
-    const paired = pairTableRows(table);
-    if (!paired.length) return null;
-    return (
-      <div key={key} className="case-summary-sheet__table-wrap">
-        <table className="case-summary-sheet__table case-summary-sheet__table--kv">
-          <tbody>{renderPairedRows(paired, key)}</tbody>
-        </table>
-      </div>
-    );
-  };
+  sections.forEach((sec, si) => {
+    if (sec.heading) rows.push({ kind: "section", text: sec.heading });
+    (sec.tables || []).forEach((table) => {
+      pairTableRows(table).forEach((item, ri) => rows.push({ ...item, key: `t-${si}-${ri}` }));
+    });
+    pairParagraphRows(sec.paragraphs).forEach((item, ri) => rows.push({ ...item, key: `p-${si}-${ri}` }));
+    (sec.bullets || []).forEach((b, bi) => {
+      rows.push({ kind: "kv", label: "•", value: b, key: `b-${si}-${bi}` });
+    });
+  });
 
   return (
-    <div className={`case-summary-sheet${rtl ? " case-summary-sheet--rtl" : ""}`} dir={rtl ? "rtl" : "ltr"}>
-      <div className="case-summary-sheet__masthead">
-        <div className="case-summary-sheet__brand">
-          <img src="/bg-logo.png" alt="" className="case-summary-sheet__logo" />
-          <div>
-            <div className="case-summary-sheet__brand-title">Boost Growth</div>
-            <div className="case-summary-sheet__brand-sub">Case Summary</div>
-          </div>
-        </div>
-        <div className="case-summary-sheet__meta">
-          <div><span>Client</span><strong>{clientName || "—"}</strong></div>
-          <div><span>File #</span><strong>{fileNo || "—"}</strong></div>
-        </div>
-      </div>
-
-      {sections.map((sec, i) => (
-        <div key={i} className="case-summary-sheet__section">
-          {sec.heading && (
-            <div className="case-summary-sheet__section-title">{sec.heading}</div>
-          )}
-          <div className="case-summary-sheet__section-body">
-            {(sec.tables || []).map((table, ti) => renderTable(table, `${i}-${ti}`))}
-            {(sec.paragraphs?.length > 0 || sec.bullets?.length > 0) && (
-              <div className="case-summary-sheet__table-wrap">
-                <table className="case-summary-sheet__table case-summary-sheet__table--kv">
-                  <tbody>
-                    {renderPairedRows(pairParagraphRows(sec.paragraphs), `p-${i}`)}
-                    {(sec.bullets || []).map((b, j) => (
-                      <tr key={`b-${j}`} className="case-summary-sheet__para-row">
-                        <td colSpan={2}><span className="case-summary-sheet__bullet">•</span> {b}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      ))}
+    <div className={`case-summary-form${rtl ? " case-summary-form--rtl" : ""}`} dir={rtl ? "rtl" : "ltr"}>
+      <table className="case-summary-form__table">
+        <tbody>
+          {rows.map((item, i) => {
+            if (item.kind === "section") {
+              return (
+                <tr key={`sec-${i}`} className="case-summary-form__section">
+                  <td colSpan={2}>{item.text}</td>
+                </tr>
+              );
+            }
+            if (item.kind === "heading") {
+              return (
+                <tr key={item.key || `h-${i}`} className="case-summary-form__section">
+                  <td colSpan={2}>{item.text}</td>
+                </tr>
+              );
+            }
+            if (item.kind === "para") {
+              const colon = String(item.text || "").split(/[:：]\s*/, 2);
+              if (colon.length === 2 && colon[0].length < 56) {
+                return (
+                  <tr key={item.key || `p-${i}`}>
+                    <th className="case-summary-form__label">{colon[0]}</th>
+                    <td className="case-summary-form__value">{colon[1]}</td>
+                  </tr>
+                );
+              }
+              return (
+                <tr key={item.key || `p-${i}`}>
+                  <td colSpan={2} className="case-summary-form__value case-summary-form__value--full">{item.text}</td>
+                </tr>
+              );
+            }
+            return (
+              <tr key={item.key || `kv-${i}`}>
+                <th className="case-summary-form__label">{item.label}</th>
+                <td className="case-summary-form__value">{item.value}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

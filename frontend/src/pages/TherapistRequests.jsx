@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import api, { API } from "../api";
-import { useAuth } from "../auth";
+import { useAuth, isJenan } from "../auth";
 import {
   Plus, Package, Briefcase, ClockCounterClockwise, CalendarBlank,
   CheckCircle, XCircle, Hourglass, ChatCircleText, Clock, Lightning,
@@ -76,6 +76,7 @@ function fmtShortDate(iso) {
 
 export default function TherapistRequests() {
   const { user } = useAuth();
+  const hidePurchases = isJenan(user);
   const [requests, setRequests] = useState([]);
   const [leaves, setLeaves] = useState([]);
   const [balance, setBalance] = useState(null);
@@ -336,7 +337,7 @@ export default function TherapistRequests() {
             })}
           </div>
         </section>
-        <PurchasesPanel compact />
+        {!hidePurchases && <PurchasesPanel compact />}
         </div>
       </div>
 

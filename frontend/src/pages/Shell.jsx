@@ -120,17 +120,16 @@ export default function Shell() {
 
   // Personal portal dropdown (therapists + ops team; hidden for admin login)
   const myPortalItems = showMyPortal ? [
-    { to: "/my-requests", label: "Request", testid: "nav-my-requests" },
+    { to: "/my-requests", label: jenanManager ? "My Requests" : "Request", testid: "nav-my-requests" },
     { to: "/my-reports", label: "My Report", testid: "nav-my-reports" },
   ] : [];
 
-  // HR — staff requests & leave tools (single page with tabs)
+  // HR — Jenan: Manager Hub only; others: Staff & Leave
   const requestsItems = [];
   if (jenanManager) {
     requestsItems.push({ to: "/manager", label: "Manager Hub", testid: "nav-manager-hub" });
-  }
-  if (staffRequestsAccess || leaveManager || hrLeaveReview) {
-    requestsItems.push({ to: "/staff-leave", label: jenanManager ? "Staff & Leave (legacy)" : "Staff & Leave", testid: "nav-staff-leave" });
+  } else if (staffRequestsAccess || leaveManager || hrLeaveReview) {
+    requestsItems.push({ to: "/staff-leave", label: "Staff & Leave", testid: "nav-staff-leave" });
   }
 
   const financeItems = [];
@@ -138,19 +137,19 @@ export default function Shell() {
     financeItems.push({ to: "/purchases", label: "Purchases", testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> });
   }
 
-  // Admin tools — Import for client-lead team + HR; full admin suite for portal admin only
+  // Admin tools — Reports always last (Jenan + portal admin); Import/Admin before Reports for admins
   const adminTools = [
     ...(canImportData(user)
       ? [{ to: "/import", label: "Import", testid: "nav-import", icon: <UploadSimple size={17} weight="duotone"/> }]
       : []),
-    ...(showSystemAdmin(user) || canViewReports(user)
-      ? [
-          { to: "/reports", label: "Reports", testid: "nav-reports", icon: <ChartBar size={17} weight="duotone"/> },
-        ]
-      : []),
     ...(showSystemAdmin(user)
       ? [
           { to: "/admin", label: "Admin", testid: "nav-admin", icon: <Gear size={17} weight="duotone"/> },
+        ]
+      : []),
+    ...(canViewReports(user)
+      ? [
+          { to: "/reports", label: "Reports", testid: "nav-reports", icon: <ChartBar size={17} weight="duotone"/> },
         ]
       : []),
   ];

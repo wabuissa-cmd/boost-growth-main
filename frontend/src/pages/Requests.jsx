@@ -37,8 +37,11 @@ function allowedStatusOptions(user, currentStatus) {
   if (portalAdmin) {
     return Object.keys(STATUS_MAP);
   }
+  if (manager && effective === "in_progress") {
+    return ["in_progress", "pending_hr", "rejected"];
+  }
   if (manager && isPendingManagerStatus(effective)) {
-    return ["pending_hr", "rejected"];
+    return ["pending_manager", "in_progress", "pending_hr", "rejected"];
   }
   if (hr && effective === PENDING_HR_STATUS) {
     return ["approved", "rejected", "in_progress", "done"];
@@ -162,9 +165,8 @@ export default function Requests({ personal = false, embedded = false, managerVi
   };
 
   const openManagerReview = (r) => {
-    const opts = allowedStatusOptions(user, r.status);
-    const defaultStatus = opts.includes(r.status) ? r.status : opts[0];
-    setStatusEdit({ ...r, status: defaultStatus || r.status });
+    const keepStatus = isPendingManagerStatus(r.status) ? "pending_manager" : r.status;
+    setStatusEdit({ ...r, status: keepStatus });
     setManagerStep("review");
   };
 
@@ -710,7 +712,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                   <ArrowRight size={14}/> Yes, send to HR
                 </ModalBtnPrimary>
               </>
-            ) : managerView && isManager && isPendingManagerStatus(statusEdit.status) ? (
+            ) : managerView && isManager && (isPendingManagerStatus(statusEdit.status) || statusEdit.status === "in_progress") ? (
               <>
                 <ModalBtnSecondary type="button" onClick={closeStatusModal}>Cancel</ModalBtnSecondary>
                 <ModalBtnPrimary data-testid="status-save-btn" type="button" onClick={handleManagerStatusSave}>
@@ -844,7 +846,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                 )}
               </FormSection>
 
-              {(!managerView || (isManager && isPendingManagerStatus(statusEdit.status))) && (
+              {(!managerView || (isManager && (isPendingManagerStatus(statusEdit.status) || statusEdit.status === "in_progress"))) && (
                 <FormSection title="Status">
                   <div className="grid grid-cols-1 gap-2">
                     {allowedStatusOptions(user, statusEdit.status).map(k => {
@@ -873,9 +875,9 @@ export default function Requests({ personal = false, embedded = false, managerVi
                 </FormSection>
               )}
 
-              {managerView && !isPendingManagerStatus(statusEdit.status) && (
+              {managerView && isManager && !isPendingManagerStatus(statusEdit.status) && statusEdit.status !== "in_progress" && (
                 <div className="text-sm rounded-xl p-3" style={{ background: "#FAF0D1", color: "#6B5218" }}>
-                  This request has already left manager review. Status changes are handled by HR.
+                  This request has been forwarded to HR. Further status changes are handled by HR.
                 </div>
               )}
             </>

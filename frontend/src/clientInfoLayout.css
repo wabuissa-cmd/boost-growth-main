@@ -1200,3 +1200,71 @@
 .case-summary-sheet:not(.case-summary-sheet--rtl) .case-summary-sheet__table--kv .case-summary-sheet__label {
   border-right: 2px solid #C4D4B8;
 }
+
+/* Case Summary — label | value form rows */
+.case-summary-form {
+  border: 1px solid #D8E0D0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+.case-summary-form--rtl .case-summary-form__label {
+  text-align: right;
+}
+.case-summary-form__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  color: #2C3625;
+}
+.case-summary-form__table tr {
+  border-bottom: 1px solid #E8EDE3;
+}
+.case-summary-form__table tr:last-child {
+  border-bottom: none;
+}
+.case-summary-form__label {
+  width: 34%;
+  min-width: 7.5rem;
+  padding: 0.65rem 0.85rem;
+  font-weight: 700;
+  vertical-align: top;
+  background: #F5F8F2;
+  border-right: 1px solid #E8EDE3;
+  color: #5C6853;
+}
+.case-summary-form--rtl .case-summary-form__label {
+  border-right: none;
+  border-left: 1px solid #E8EDE3;
+}
+.case-summary-form__value {
+  padding: 0.65rem 0.85rem;
+  vertical-align: top;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.case-summary-form__value--full {
+  background: #FAFAF7;
+}
+.case-summary-form__section td {
+  padding: 0.5rem 0.85rem;
+  background: #EDF4E8;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #2C5035;
+  border-bottom: 1px solid #C4D4B8;
+}
+@media (max-width: 640px) {
+  .case-summary-form__label,
+  .case-summary-form__value {
+    display: block;
+    width: 100%;
+  }
+  .case-summary-form__label {
+    border-right: none;
+    border-bottom: 1px solid #E8EDE3;
+    padding-bottom: 0.35rem;
+  }
+}

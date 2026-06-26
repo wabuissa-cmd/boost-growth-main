@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import api, { formatErr } from "../api";
 import {
-  ShoppingBag, Bell, CheckCircle, Hourglass, Clock, FloppyDisk, PaperPlaneTilt, ArrowsClockwise, Plus,
+  ShoppingBag, Bell, CheckCircle, Hourglass, Clock, FloppyDisk, PaperPlaneTilt, ArrowsClockwise, Plus, Trash,
 } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
 import {
@@ -10,7 +10,7 @@ import {
 } from "../components/Modal";
 import { getTherapistScheduleName } from "../scheduleConstants";
 import { yearMonthTabs, formatMonthValue } from "../monthTabs";
-import { canAccessPurchases, canManagePurchaseStatus, isJenan, isWalaaOps, showAdminNav, useAuth } from "../auth";
+import { canAccessPurchases, canManagePurchaseStatus, isJenan, isWalaaOps, showAdminNav, showSystemAdmin, useAuth } from "../auth";
 import "../clientInfoLayout.css";
 
 const PURCHASES_SHEET_URL = "https://docs.google.com/spreadsheets/d/10ZGq3ABQ1t-w32jrGZIu6Gxa2wevIJU2GLe9YWGdkIQ/edit";
@@ -50,8 +50,11 @@ function emptyPurchaseForm() {
 export default function Purchases({ embedded = false }) {
   const { user } = useAuth();
   const canManageStatus = canManagePurchaseStatus(user);
+  const canDelete = showSystemAdmin(user);
   const canSyncSheet = isJenan(user) || isWalaaOps(user) || showAdminNav(user);
   const [items, setItems] = useState([]);
+  const [pendingQueue, setPendingQueue] = useState([]);
+  const [selectedId, setSelectedId] = useState("");
   const [therapists, setTherapists] = useState([]);
   const [categories, setCategories] = useState([]);
   const [addOpen, setAddOpen] = useState(false);
@@ -72,8 +75,12 @@ export default function Purchases({ embedded = false }) {
     const params = {};
     if (filterStatus) params.status = filterStatus;
     if (filterMonth) params.month = filterMonth;
-    const { data } = await api.get("/purchases", { params });
-    setItems(Array.isArray(data) ? data : []);
+    const [listRes, pendingRes] = await Promise.all([
+      api.get("/purchases", { params }),
+      canManageStatus ? api.get("/purchases", { params: { status: "pending" } }) : Promise.resolve({ data: [] }),
+    ]);
+    setItems(Array.isArray(listRes.data) ? listRes.data : []);
+    setPendingQueue(Array.isArray(pendingRes.data) ? pendingRes.data : []);
   };
 
   useEffect(() => {
@@ -173,6 +180,17 @@ export default function Purchases({ embedded = false }) {
     }
   };
 
+  const deletePurchase = async (id) => {
+    if (!window.confirm("Delete this purchase record permanently?")) return;
+    try {
+      await api.delete(`/purchases/${id}`);
+      if (selectedId === id) setSelectedId("");
+      load();
+    } catch (e) {
+      alert(formatErr(e.response?.data?.detail) || e.message);
+    }
+  };
+
   const submitPurchase = async () => {
     if (!form.therapist_id) {
       alert("Select who made the purchase");
@@ -207,13 +225,17 @@ export default function Purchases({ embedded = false }) {
   };
 
   const monthTabs = useMemo(() => yearMonthTabs(), []);
+  const selected = useMemo(
+    () => items.find(p => p.id === selectedId) || pendingQueue.find(p => p.id === selectedId) || null,
+    [items, pendingQueue, selectedId]
+  );
 
   return (
     <div className="page-enter">
       {!embedded && (
       <PageBanner
         title="Purchases"
-        subtitle="Staff reimbursements · Jan – Jul"
+        subtitle="Payment requests from therapists & supervisors · review & reimburse"
         className="editorial-banner--compact-mobile"
         toolbar={(
           <div className="flex flex-wrap gap-2">
@@ -233,6 +255,54 @@ export default function Purchases({ embedded = false }) {
       />
       )}
 
+      <div className={`grid gap-4 ${canManageStatus ? "lg:grid-cols-[300px_1fr]" : ""}`}>
+        {canManageStatus && (
+          <div className="card p-3 rounded-[20px] h-fit lg:sticky lg:top-20">
+            <div className="text-xs font-bold tracking-wider mb-2 flex items-center gap-2" style={{ color: "#5C6853" }}>
+              <Hourglass size={16} weight="duotone"/> Incoming queue
+            </div>
+            <p className="text-[11px] mb-3 m-0" style={{ color: "#8B9E7A" }}>
+              Pending submissions from therapists & supervisors
+            </p>
+            <div className="space-y-2 max-h-[70vh] overflow-y-auto">
+              {pendingQueue.length === 0 && (
+                <div className="text-center py-6 text-xs" style={{ color: "#8B9E7A" }}>No pending requests</div>
+              )}
+              {pendingQueue.map(p => {
+                const active = selectedId === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setSelectedId(p.id)}
+                    className={`w-full text-left p-3 rounded-xl border transition ${active ? "border-[#7A8A6A] bg-[#E5EBE1]" : "border-[#EDE9E3] bg-[#FAFAF7]"}`}
+                  >
+                    <div className="font-semibold text-sm truncate" style={{ color: "#2C3625" }}>{p.item}</div>
+                    <div className="text-[10px] mt-0.5" style={{ color: "#8B9E7A" }}>
+                      {p.purchaser_name || p.therapist_name || "—"} · {formatMonthValue(p.purchase_month)}
+                    </div>
+                    <div className="text-[10px] font-bold mt-1" style={{ color: "#6B5218" }}>{fmtMoney(p)}</div>
+                  </button>
+                );
+              })}
+            </div>
+            {selected && (
+              <div className="mt-3 pt-3 border-t space-y-2" style={{ borderColor: "#EDE9E3" }}>
+                <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "#8B9E7A" }}>Quick actions</div>
+                <div className="flex flex-wrap gap-2">
+                  {selected.status !== "approved" && (
+                    <button type="button" className="btn btn-secondary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "approved")}>Approve</button>
+                  )}
+                  {selected.status !== "reimbursed" && (
+                    <button type="button" className="btn btn-primary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "reimbursed")}>Reimburse</button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="min-w-0">
       <div className="card overflow-hidden mb-4">
         <div className="px-3 py-2 border-b text-[10px] font-bold tracking-wider" style={{ borderColor: "#E2DDD4", background: "#FAFAF7", color: "#5C6853" }}>
           CALENDAR MONTHS · JAN – JUL {new Date().getFullYear()}
@@ -322,6 +392,11 @@ export default function Purchases({ embedded = false }) {
                       {canManageStatus && p.status !== "reimbursed" && (
                         <button type="button" className="text-[10px] underline" onClick={() => updateStatus(p.id, "reimbursed")}>Reimburse</button>
                       )}
+                      {canDelete && (
+                        <button type="button" className="text-[10px] text-red-700 underline ml-2" onClick={() => deletePurchase(p.id)} title="Delete">
+                          <Trash size={12} className="inline"/> Delete
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -403,6 +478,8 @@ export default function Purchases({ embedded = false }) {
         </div>
       </div>
       )}
+        </div>
+      </div>
 
       {addOpen && (
         <ModalBase

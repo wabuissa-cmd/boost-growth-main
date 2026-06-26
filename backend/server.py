@@ -196,6 +196,7 @@ HR_OPS_EMAIL = "hr@boostgrowthsa.com"
 HR_OPS_PASSWORD = "BoostHR@2026"
 PENDING_MANAGER_STATUSES = frozenset({"pending", "pending_manager"})
 PENDING_MANAGER_REQUEST_STATUSES = frozenset({"pending", "pending_manager"})
+MANAGER_ACTIVE_REQUEST_STATUSES = frozenset({"pending", "pending_manager", "in_progress"})
 
 
 def _is_client_lead(user: dict) -> bool:
@@ -4797,6 +4798,42 @@ def _read_purchases_xlsx(content: bytes, months: Optional[List[str]] = None) -> 
     return records, tabs_used
 
 
+async def _fix_walaa_purchase_month_mismatch():
+    """Walaa's Emergent/subscription purchase was filed under June — belongs in May."""
+    walaa = await db.therapists.find_one(
+        {
+            "$or": [
+                {"email": {"$regex": r"^walaa@boostgrowthsa\.com$", "$options": "i"}},
+                {"key": "mswalaa"},
+            ]
+        },
+        {"_id": 0, "id": 1},
+    )
+    if not walaa:
+        return
+    items = await db.staff_purchases.find(
+        {"therapist_id": walaa["id"], "purchase_month": {"$regex": r"-06$"}},
+        {"_id": 0, "id": 1, "purchase_date": 1, "purchase_month": 1, "item": 1},
+    ).to_list(50)
+    for doc in items:
+        old_month = doc.get("purchase_month") or ""
+        if not old_month.endswith("-06"):
+            continue
+        new_month = f"{old_month[:4]}-05"
+        pd = (doc.get("purchase_date") or f"{old_month}-01")[:10]
+        new_date = f"{new_month}{pd[7:]}" if len(pd) >= 10 else f"{new_month}-01"
+        await db.staff_purchases.update_one(
+            {"id": doc["id"]},
+            {"$set": {"purchase_month": new_month, "purchase_date": new_date, "updated_at": now_iso()}},
+        )
+        logger.info(
+            "Fixed Walaa purchase month %s → %s (%s)",
+            old_month,
+            new_month,
+            doc.get("item"),
+        )
+
+
 async def _upsert_purchases_from_sheet(records: List[dict]) -> dict:
     months = sorted({r["purchase_month"] for r in records if r.get("purchase_month")})
     if months:
@@ -5493,10 +5530,13 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
     if is_pa:
         pass
     elif is_jenan_mgr:
-        if effective_prev not in PENDING_MANAGER_REQUEST_STATUSES:
+        if effective_prev not in MANAGER_ACTIVE_REQUEST_STATUSES:
             raise HTTPException(status_code=403, detail="Manager can only act on pending manager requests")
-        if new_status not in ("pending_hr", "rejected"):
-            raise HTTPException(status_code=400, detail="Manager must forward to HR or reject")
+        if effective_prev == "in_progress":
+            if new_status not in ("pending_hr", "rejected", "in_progress"):
+                raise HTTPException(status_code=400, detail="Manager must forward to HR or reject")
+        elif new_status not in ("pending_hr", "rejected", "in_progress", "pending_manager"):
+            raise HTTPException(status_code=400, detail="Manager must review, forward to HR, or reject")
     elif is_hr:
         if effective_prev != "pending_hr":
             raise HTTPException(status_code=403, detail="HR can only act on HR-pending requests")
@@ -5512,7 +5552,7 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
         "status": new_status, "admin_note": payload.admin_note,
         "updated_at": now_iso(), "timeline": timeline,
     }})
-    if new_status == "pending_hr" and effective_prev in PENDING_MANAGER_REQUEST_STATUSES:
+    if new_status == "pending_hr" and effective_prev in MANAGER_ACTIVE_REQUEST_STATUSES:
         await _notify_hr_ops(
             "request",
             "Staff request awaiting HR approval",
@@ -9315,6 +9355,8 @@ async def _run_startup():
             await _send_purchase_reminders(force=False)
         except Exception:
             logger.exception("Purchase reminder check failed")
+
+        await _fix_walaa_purchase_month_mismatch()
     except Exception:
         logger.exception(
             "Background startup/seed failed — check MONGO_URL and MongoDB Atlas network access (0.0.0.0/0)"

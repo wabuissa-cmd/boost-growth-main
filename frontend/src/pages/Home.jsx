@@ -60,7 +60,7 @@ export default function Home() {
   const parentCancelOps = canParentCancellationOps(user);
   const showOpsHome = isPortalAdminUser || hrOps || walaaOps;
   const technicalAdmin = isPortalAdminUser && !walaaOps;
-  const showHrInbox = (hrOps || jenan) && !walaaOps && !technicalAdmin;
+  const showHrInbox = hrOps && !walaaOps && !technicalAdmin;
   const showCoordinationInbox = walaaOps;
   const showInbox = showHrInbox || showCoordinationInbox || (parentCancelOps && !walaaOps);
   const opsAccess = hasOpsAccess(user);
@@ -388,7 +388,7 @@ export default function Home() {
             </Link>
           )}
 
-          {showInbox && (
+          {showInbox && !jenan && (
             <div className="mb-4">
               <HrInboxPanel user={user} />
             </div>

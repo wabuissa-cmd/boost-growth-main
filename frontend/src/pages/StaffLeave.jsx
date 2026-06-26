@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
-import { useAuth, canEditStaffRequests, canManageLeaves, canHrReviewLeaves } from "../auth";
+import { useAuth, canEditStaffRequests, canManageLeaves, canHrReviewLeaves, isJenan, showAdminNav } from "../auth";
 import PageBanner from "../components/PageBanner";
 import Requests from "./Requests";
 import LeaveRequests from "./LeaveRequests";
@@ -28,6 +28,10 @@ export default function StaffLeave() {
     }),
     [showStaff, showLeave, showLeaveManager]
   );
+
+  if (isJenan(user) && !showAdminNav(user)) {
+    return <Navigate to="/manager" replace />;
+  }
 
   if (!showStaff && !showLeave) {
     return <Navigate to="/home" replace />;
