@@ -4,17 +4,20 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 import asyncio
+import base64
+import mimetypes
 import os
 import re
 import uuid
 import logging
+from urllib.parse import quote
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 
 import bcrypt
 import jwt
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Form
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -227,6 +230,65 @@ async def _apply_inactive_client_status() -> int:
 
 UPLOAD_DIR = ROOT_DIR / 'uploads'
 UPLOAD_DIR.mkdir(exist_ok=True)
+
+# Binary payloads stored in MongoDB so uploads survive Railway ephemeral disk.
+FILE_DATA_FIELDS = frozenset({
+    "attachment_file_data", "document_file_data", "file_data",
+})
+
+
+def _b64_encode(data: bytes) -> str:
+    return base64.b64encode(data).decode("ascii")
+
+
+def _b64_decode(data_b64: str) -> bytes:
+    return base64.b64decode(data_b64)
+
+
+def _persist_upload(stored: str, content: bytes) -> str:
+    """Best-effort disk write; always return base64 for MongoDB."""
+    try:
+        (UPLOAD_DIR / stored).write_bytes(content)
+    except OSError:
+        pass
+    return _b64_encode(content)
+
+
+def _load_upload(stored: Optional[str], file_data_b64: Optional[str] = None) -> Optional[bytes]:
+    if stored:
+        fp = UPLOAD_DIR / stored
+        if fp.exists():
+            return fp.read_bytes()
+    if file_data_b64:
+        try:
+            return _b64_decode(file_data_b64)
+        except Exception:
+            pass
+    return None
+
+
+def _strip_file_data(doc: Optional[dict]) -> Optional[dict]:
+    if not doc:
+        return doc
+    for key in FILE_DATA_FIELDS:
+        doc.pop(key, None)
+    return doc
+
+
+def _bytes_file_response(content: bytes, filename: str) -> Response:
+    media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    safe = quote(filename)
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{safe}"; filename*=UTF-8\'\'{safe}'},
+    )
+
+
+FILE_UNAVAILABLE_DETAIL = (
+    "Attachment unavailable on server — please ask the therapist to upload the file again"
+)
+
 
 app = FastAPI(title="Boost Growth Portal API")
 api = APIRouter(prefix="/api")
@@ -2422,7 +2484,7 @@ async def list_progress_reports(cid: str, user=Depends(get_current_user)):
         supervisor = bool(fn and _is_supervisor_for_file(user, fn))
         if not assigned and not supervisor:
             raise HTTPException(status_code=403, detail="Forbidden")
-    return await db.progress_reports.find({"client_id": cid}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return await db.progress_reports.find({"client_id": cid}, {"_id": 0, "file_data": 0}).sort("created_at", -1).to_list(200)
 
 @api.post("/clients/{cid}/progress-reports")
 async def create_progress_report(cid: str, payload: ProgressReportIn, user=Depends(get_current_user)):
@@ -2568,18 +2630,20 @@ async def upload_progress_report_file(rid: str, file: UploadFile = File(...), us
         raise HTTPException(status_code=400, detail="File required")
     ext = Path(file.filename).suffix or ".pdf"
     stored = f"pr_{rid}{ext}"
-    save_path = UPLOAD_DIR / stored
     if report.get("file_path"):
         old = UPLOAD_DIR / report["file_path"]
         if old.exists() and old.name != stored:
             old.unlink()
-    save_path.write_bytes(await file.read())
+    content = await file.read()
+    file_data = _persist_upload(stored, content)
     await db.progress_reports.update_one({"id": rid}, {"$set": {
         "file_path": stored,
         "file_name": file.filename,
+        "file_data": file_data,
         "file_uploaded_at": now_iso(),
     }})
-    return await db.progress_reports.find_one({"id": rid}, {"_id": 0})
+    doc = await db.progress_reports.find_one({"id": rid}, {"_id": 0})
+    return _strip_file_data(doc) or {}
 
 
 @api.get("/progress-reports/{rid}/file")
@@ -2589,10 +2653,10 @@ async def download_progress_report_file(rid: str, user=Depends(get_current_user)
         raise HTTPException(status_code=404, detail="No file")
     if not await _can_access_progress_report(user, report):
         raise HTTPException(status_code=403, detail="Forbidden")
-    fp = UPLOAD_DIR / report["file_path"]
-    if not fp.exists():
-        raise HTTPException(status_code=404, detail="File missing")
-    return FileResponse(str(fp), filename=report.get("file_name") or report["file_path"])
+    content = _load_upload(report.get("file_path"), report.get("file_data"))
+    if not content:
+        raise HTTPException(status_code=404, detail=FILE_UNAVAILABLE_DETAIL)
+    return _bytes_file_response(content, report.get("file_name") or report["file_path"])
 
 
 @api.delete("/progress-reports/{rid}/file")
@@ -2604,10 +2668,10 @@ async def delete_progress_report_file(rid: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Forbidden")
     if report.get("file_path"):
         fp = UPLOAD_DIR / report["file_path"]
-        if fp.exists():
-            fp.unlink()
+    if fp.exists():
+        fp.unlink()
     await db.progress_reports.update_one({"id": rid}, {"$set": {
-        "file_path": None, "file_name": None, "file_uploaded_at": None,
+        "file_path": None, "file_name": None, "file_data": None, "file_uploaded_at": None,
     }})
     return {"ok": True}
 
@@ -5429,17 +5493,18 @@ async def upload_sheet(cid: str,
     sid = str(uuid.uuid4())
     file_path = None
     file_name = None
+    file_data = None
     if file:
         ext = Path(file.filename).suffix
         file_name = file.filename
-        save_path = UPLOAD_DIR / f"{sid}{ext}"
-        save_path.write_bytes(await file.read())
+        content = await file.read()
         file_path = f"{sid}{ext}"
+        file_data = _persist_upload(file_path, content)
     last = await db.attendance_sheets.find_one({"client_id": cid}, sort=[("page_number", -1)])
     page_number = (last.get("page_number", 0) + 1) if last else 1
     doc = {"id": sid, "client_id": cid, "title": title, "session_date": session_date,
            "therapist_id": therapist_id, "notes": notes, "page_number": page_number,
-           "file_name": file_name, "file_path": file_path, "created_at": now_iso()}
+           "file_name": file_name, "file_path": file_path, "file_data": file_data, "created_at": now_iso()}
     await db.attendance_sheets.insert_one(doc)
     doc.pop("_id", None)
     return doc
@@ -5459,8 +5524,10 @@ async def download_sheet(sid: str, user=Depends(get_current_user)):
     sheet = await db.attendance_sheets.find_one({"id": sid}, {"_id": 0})
     if not sheet or not sheet.get("file_path"):
         raise HTTPException(status_code=404, detail="No file")
-    fp = UPLOAD_DIR / sheet["file_path"]
-    return FileResponse(str(fp), filename=sheet.get("file_name") or sheet["file_path"])
+    content = _load_upload(sheet.get("file_path"), sheet.get("file_data"))
+    if not content:
+        raise HTTPException(status_code=404, detail=FILE_UNAVAILABLE_DETAIL)
+    return _bytes_file_response(content, sheet.get("file_name") or sheet["file_path"])
 
 # ------------------- Staff Purchases -------------------
 async def _resolve_therapist_by_purchaser(purchaser: str) -> Optional[dict]:
@@ -6099,7 +6166,7 @@ def _enrich_request_attachment(req: dict) -> dict:
         req["attachment_url"] = f"/api/requests/{req['id']}/attachment"
     else:
         req.setdefault("attachment_url", None)
-    return req
+    return _strip_file_data(req)
 
 
 @api.get("/requests")
@@ -6114,7 +6181,7 @@ async def list_requests(scope: Optional[str] = None, user=Depends(get_current_us
             q = {"therapist_id": {"$ne": user["id"]}}
     else:
         q = {"therapist_id": user["id"]}
-    items = await db.requests.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    items = await db.requests.find(q, {"_id": 0, "attachment_file_data": 0}).sort("created_at", -1).to_list(500)
     therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1}).to_list(500)
     t_by_id = {t["id"]: t for t in therapists}
     out = []
@@ -6174,12 +6241,12 @@ async def add_request_attachment(
     if ext not in (".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".doc", ".docx"):
         raise HTTPException(status_code=400, detail="PDF, image, or Word document only")
     stored = f"req_{rid}{ext}"
-    save_path = UPLOAD_DIR / stored
-    save_path.write_bytes(content)
+    file_data = _persist_upload(stored, content)
     report_date = (report_date or "").strip()[:10] or None
     patch = {
         "attachment_file_path": stored,
         "attachment_file_name": file.filename,
+        "attachment_file_data": file_data,
         "updated_at": now_iso(),
     }
     if report_date:
@@ -6216,8 +6283,7 @@ async def upload_request_attachment(
         raise HTTPException(status_code=400, detail="PDF, image, or Word document only")
     rid = str(uuid.uuid4())
     stored = f"req_{rid}{ext}"
-    save_path = UPLOAD_DIR / stored
-    save_path.write_bytes(content)
+    file_data = _persist_upload(stored, content)
     doc = {
         "id": rid,
         "therapist_id": user["id"],
@@ -6228,6 +6294,7 @@ async def upload_request_attachment(
         "report_date": report_date,
         "attachment_file_path": stored,
         "attachment_file_name": file.filename,
+        "attachment_file_data": file_data,
         "priority": "normal",
         "status": "pending_manager",
         "admin_note": None,
@@ -6663,10 +6730,10 @@ async def download_request_attachment(rid: str, user=Depends(get_current_user)):
     if not (_is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user)):
         if req.get("therapist_id") != user["id"]:
             raise HTTPException(status_code=403, detail="Forbidden")
-    fp = UPLOAD_DIR / req["attachment_file_path"]
-    if not fp.exists():
-        raise HTTPException(status_code=404, detail="File missing")
-    return FileResponse(str(fp), filename=req.get("attachment_file_name") or req["attachment_file_path"])
+    content = _load_upload(req.get("attachment_file_path"), req.get("attachment_file_data"))
+    if not content:
+        raise HTTPException(status_code=404, detail=FILE_UNAVAILABLE_DETAIL)
+    return _bytes_file_response(content, req.get("attachment_file_name") or req["attachment_file_path"])
 
 
 @api.put("/requests/{rid}/status")
@@ -7621,7 +7688,7 @@ def _enrich_leave_document_url(leave: dict) -> dict:
         leave.setdefault("document_url", None)
     leave.setdefault("document_verified", False)
     leave.setdefault("schedule_impact", leave.get("schedule_impact") or [])
-    return leave
+    return _strip_file_data(leave)
 
 @api.get("/leaves")
 async def list_leaves(year: Optional[int] = None, scope: Optional[str] = None, user=Depends(get_current_user)):
@@ -7643,7 +7710,7 @@ async def list_leaves(year: Optional[int] = None, scope: Optional[str] = None, u
         q["start_date"] = {"$gte": f"{yr}-01-01", "$lte": f"{yr}-12-31"}
     if not can_view_all:
         q["therapist_id"] = user["id"]
-    items = await db.leaves.find(q, {"_id": 0}).sort("start_date", -1).to_list(2000)
+    items = await db.leaves.find(q, {"_id": 0, "document_file_data": 0}).sort("start_date", -1).to_list(2000)
     therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1, "color": 1, "key": 1}).to_list(100)
     t_by_id = {t["id"]: t for t in therapists}
     for it in items:
@@ -7950,18 +8017,18 @@ async def upload_leave_document(
     if ext not in (".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif"):
         raise HTTPException(status_code=400, detail="PDF or image only")
     stored = f"leave_{lid}{ext}"
-    save_path = UPLOAD_DIR / stored
     if leave.get("document_file_path"):
         old = UPLOAD_DIR / leave["document_file_path"]
         if old.exists() and old.name != stored:
             old.unlink()
-    save_path.write_bytes(content)
+    file_data = _persist_upload(stored, content)
     dtype = (document_type or "other").lower()
     if dtype not in LEAVE_DOC_TYPES:
         dtype = "other"
     await db.leaves.update_one({"id": lid}, {"$set": {
         "document_file_path": stored,
         "document_file_name": file.filename,
+        "document_file_data": file_data,
         "document_type": dtype,
         "document_verified": False,
         "document_uploaded_at": now_iso(),
@@ -7985,10 +8052,10 @@ async def download_leave_document(lid: str, user=Depends(get_current_user)):
     if not (_is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user)):
         if leave.get("therapist_id") != user["id"]:
             raise HTTPException(status_code=403, detail="Forbidden")
-    fp = UPLOAD_DIR / leave["document_file_path"]
-    if not fp.exists():
-        raise HTTPException(status_code=404, detail="File missing")
-    return FileResponse(str(fp), filename=leave.get("document_file_name") or leave["document_file_path"])
+    content = _load_upload(leave.get("document_file_path"), leave.get("document_file_data"))
+    if not content:
+        raise HTTPException(status_code=404, detail=FILE_UNAVAILABLE_DETAIL)
+    return _bytes_file_response(content, leave.get("document_file_name") or leave["document_file_path"])
 
 
 @api.delete("/leaves/{lid}/document")
@@ -8005,6 +8072,7 @@ async def delete_leave_document(lid: str, user=Depends(get_current_user)):
     await db.leaves.update_one({"id": lid}, {"$set": {
         "document_file_path": None,
         "document_file_name": None,
+        "document_file_data": None,
         "document_type": None,
         "document_verified": False,
         "document_uploaded_at": None,

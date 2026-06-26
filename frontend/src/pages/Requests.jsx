@@ -80,9 +80,11 @@ function fmtShortDate(iso) {
 
 async function viewProtectedFile(url) {
   try {
-    await openAuthenticatedFile(url, { errorMessage: "Could not open attachment" });
+    await openAuthenticatedFile(url, {
+      errorMessage: "تعذّر فتح المرفق — اطلبي من المعالجة إعادة رفعه / Could not open attachment",
+    });
   } catch (e) {
-    alert(e?.message || "Could not open attachment");
+    alert(e?.message || "تعذّر فتح المرفق — اطلبي من المعالجة إعادة رفعه");
   }
 }
 

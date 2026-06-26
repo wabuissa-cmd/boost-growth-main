@@ -68,9 +68,11 @@ function DocumentSection({ leave, isAdmin, onRefresh, canUpload }) {
 
   const viewDoc = async () => {
     try {
-      await openAuthenticatedFile(downloadUrl, { errorMessage: "Could not open document" });
+      await openAuthenticatedFile(downloadUrl, {
+        errorMessage: "تعذّر فتح المستند — اطلبي من المعالجة إعادة رفعه / Could not open document",
+      });
     } catch (e) {
-      alert(e?.message || "Could not open document");
+      alert(e?.message || "تعذّر فتح المستند — اطلبي من المعالجة إعادة رفعه");
     }
   };
 

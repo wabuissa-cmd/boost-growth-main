@@ -388,9 +388,11 @@ export default function TherapistRequests() {
                           type="button"
                           onClick={async () => {
                             try {
-                              await openAuthenticatedFile(`${API}/requests/${r.id}/attachment`);
+                              await openAuthenticatedFile(`${API}/requests/${r.id}/attachment`, {
+                                errorMessage: "تعذّر فتح المرفق — اطلبي من المعالجة إعادة رفعه",
+                              });
                             } catch (e) {
-                              alert(e?.message || "Could not open attachment");
+                              alert(e?.message || "تعذّر فتح المرفق — اطلبي من المعالجة إعادة رفعه");
                             }
                           }}
                           className="inline-flex items-center gap-1 mt-1 font-semibold underline"
@@ -411,9 +413,11 @@ export default function TherapistRequests() {
                         type="button"
                         onClick={async () => {
                           try {
-                            await openAuthenticatedFile(`${API}/requests/${r.id}/attachment`);
+                            await openAuthenticatedFile(`${API}/requests/${r.id}/attachment`, {
+                              errorMessage: "تعذّر فتح المرفق — اطلبي من المعالجة إعادة رفعه",
+                            });
                           } catch (e) {
-                            alert(e?.message || "Could not open attachment");
+                            alert(e?.message || "تعذّر فتح المرفق — اطلبي من المعالجة إعادة رفعه");
                           }
                         }}
                         className="inline-flex items-center gap-1 mt-1 font-semibold underline"
