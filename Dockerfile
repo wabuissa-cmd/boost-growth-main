@@ -14,7 +14,7 @@ RUN npm run build
 FROM python:3.11-slim
 WORKDIR /app/backend
 
-ARG DEPLOY_REV=20260625-prep-prepTrackMeta-fix
+ARG DEPLOY_REV=20260627-d4f47c1-redeploy
 RUN echo "deploy ${DEPLOY_REV}" > /dev/null
 
 COPY backend/requirements.txt .
