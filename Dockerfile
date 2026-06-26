@@ -9,12 +9,13 @@ ENV CI=true \
     DISABLE_ESLINT_PLUGIN=true \
     SKIP_PREFLIGHT_CHECK=true \
     NODE_OPTIONS=--max-old-space-size=2048
+ENV RAILWAY_DEPLOY_REV=f42419b-force-docker-rebuild
 RUN npm run build
 
 FROM python:3.11-slim
 WORKDIR /app/backend
 
-ARG DEPLOY_REV=20260627-d4f47c1-redeploy
+ARG DEPLOY_REV=20260627-f42419b-force-rebuild
 RUN echo "deploy ${DEPLOY_REV}" > /dev/null
 
 COPY backend/requirements.txt .
