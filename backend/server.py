@@ -114,6 +114,102 @@ async def _dedupe_duplicate_clients() -> dict:
     return {"removed": len(to_delete), "actions": actions}
 
 
+def _therapist_record_score(t: dict) -> int:
+    """Higher = canonical therapist row; prefer keyed records with passwords."""
+    score = 0
+    if t.get("key"):
+        score += 100
+    if t.get("password_hash"):
+        score += 50
+    if t.get("role"):
+        score += 10
+    if t.get("email"):
+        score += 5
+    return score
+
+
+async def _find_therapist_by_email(email: str) -> Optional[dict]:
+    """Resolve therapist by email; when duplicates exist, keep the richest record."""
+    email_l = email.lower().strip()
+    matches = await db.therapists.find(
+        {"email": {"$regex": f"^{re.escape(email_l)}$", "$options": "i"}},
+        {"_id": 0},
+    ).to_list(20)
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0]
+    scored = [(_therapist_record_score(m), m.get("created_at") or "", m) for m in matches]
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    return scored[0][2]
+
+
+async def _dedupe_duplicate_therapists() -> dict:
+    """Delete duplicate therapist rows that share the same email; keep keyed/passworded record."""
+    therapists = await db.therapists.find({}, {"_id": 0}).to_list(500)
+    by_email: dict = {}
+    for t in therapists:
+        em = (t.get("email") or "").strip().lower()
+        if em:
+            by_email.setdefault(em, []).append(t)
+
+    to_delete: List[str] = []
+    actions: List[dict] = []
+    for em, group in by_email.items():
+        if len(group) < 2:
+            continue
+        scored = [(_therapist_record_score(t), t.get("created_at") or "", t) for t in group]
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        winner = scored[0][2]
+        for _, _, loser in scored[1:]:
+            if loser["id"] == winner["id"] or loser["id"] in to_delete:
+                continue
+            to_delete.append(loser["id"])
+            actions.append({
+                "email": em,
+                "kept_id": winner["id"],
+                "kept_name": winner.get("name"),
+                "removed_id": loser["id"],
+                "removed_name": loser.get("name"),
+            })
+
+    for tid in to_delete:
+        await db.schedule_cells.delete_many({"therapist_id": tid})
+        await db.users.delete_many({"therapist_id": tid})
+        await db.therapists.delete_one({"id": tid})
+    return {"removed": len(to_delete), "actions": actions}
+
+
+# Known therapist passwords for first-time email login (only applied when hash missing/wrong).
+THERAPIST_BOOTSTRAP_PASSWORDS = {
+    "asma@boostgrowthsa.com": "Asma@123",
+}
+
+
+async def _migrate_bootstrap_therapist_passwords() -> int:
+    updated = 0
+    for email, password in THERAPIST_BOOTSTRAP_PASSWORDS.items():
+        t = await _find_therapist_by_email(email)
+        if not t:
+            continue
+        if t.get("password_hash") and verify_password(password, t["password_hash"]):
+            if t.get("must_change_password"):
+                await db.therapists.update_one(
+                    {"id": t["id"]}, {"$set": {"must_change_password": False}}
+                )
+                updated += 1
+            continue
+        await db.therapists.update_one(
+            {"id": t["id"]},
+            {"$set": {
+                "password_hash": hash_password(password),
+                "must_change_password": False,
+            }},
+        )
+        updated += 1
+    return updated
+
+
 async def _apply_inactive_client_status() -> int:
     """Ensure known inactive clients stay out of active billing/prep lists."""
     n = 0
@@ -620,7 +716,7 @@ async def admin_login(payload: LoginIn, response: Response):
         return {"id": user["id"], "email": email, "name": user.get("name"), "role": "admin", "token": token}
 
     # Secondary: allow ops/supervisors to sign in from the same form using therapist email+password
-    t = await db.therapists.find_one({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}})
+    t = await _find_therapist_by_email(email)
     if t and t.get("password_hash") and verify_password(payload.password, t["password_hash"]):
         token = create_token({"sub": t["id"], "role": "therapist", "name": t["name"], "email": t.get("email")})
         set_auth_cookie(response, token)
@@ -651,7 +747,7 @@ async def therapist_email_login(payload: TherapistEmailLogin, response: Response
     # Ops / supervisors / HR should use the Admin & Supervisor login entry
     if email in CLIENT_LEAD_EMAILS or email == HR_OPS_EMAIL:
         raise HTTPException(status_code=403, detail="Please use Admin / Supervisor login for this account")
-    t = await db.therapists.find_one({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}})
+    t = await _find_therapist_by_email(email)
     if not t or not t.get("password_hash") or not verify_password(payload.password, t["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     token = create_token({"sub": t["id"], "role": "therapist", "name": t["name"]})
@@ -9426,18 +9522,25 @@ async def _run_startup():
                 })
             logger.info(f"First-time seed: {len(THERAPIST_SEED)} therapists with PIN=0000")
         else:
-            # Add any new seed therapists that don't exist yet (by name) — preserves existing UUIDs
+            # Add any new seed therapists that don't exist yet (by name or email) — preserves existing UUIDs
             existing_names = {t["name"] async for t in db.therapists.find({}, {"_id": 0, "name": 1})}
+            existing_emails = {
+                (t.get("email") or "").lower()
+                async for t in db.therapists.find({}, {"_id": 0, "email": 1})
+                if t.get("email")
+            }
             added = 0
             for s in THERAPIST_SEED:
-                if s["name"] not in existing_names:
-                    await db.therapists.insert_one({
-                        "id": str(uuid.uuid4()), "name": s["name"], "color": s["color"],
-                        "email": s.get("email"), "phone": None,
-                        "pin_hash": hash_password("0000"),
-                        "created_at": now_iso(),
-                    })
-                    added += 1
+                seed_email = (s.get("email") or "").lower()
+                if s["name"] in existing_names or (seed_email and seed_email in existing_emails):
+                    continue
+                await db.therapists.insert_one({
+                    "id": str(uuid.uuid4()), "name": s["name"], "color": s["color"],
+                    "email": s.get("email"), "phone": None,
+                    "pin_hash": hash_password("0000"),
+                    "created_at": now_iso(),
+                })
+                added += 1
             if added:
                 logger.info(f"Added {added} new therapist(s) without disturbing existing data")
 
@@ -9499,6 +9602,20 @@ async def _run_startup():
                 logger.info(f"Client dedupe: removed {dedupe['removed']} duplicate(s)")
         except Exception as e:
             logger.warning(f"Client dedupe skipped: {e}")
+
+        try:
+            th_dedupe = await _dedupe_duplicate_therapists()
+            if th_dedupe.get("removed"):
+                logger.info(f"Therapist dedupe: removed {th_dedupe['removed']} duplicate(s)")
+        except Exception as e:
+            logger.warning(f"Therapist dedupe skipped: {e}")
+
+        try:
+            pw_n = await _migrate_bootstrap_therapist_passwords()
+            if pw_n:
+                logger.info(f"Therapist bootstrap passwords: updated {pw_n} record(s)")
+        except Exception as e:
+            logger.warning(f"Therapist bootstrap passwords skipped: {e}")
 
         try:
             inv_clean = await _cleanup_orphan_invoices()
