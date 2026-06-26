@@ -35,6 +35,7 @@ import SsWeekStatusRow, { SsWeekLegend } from "../components/SsWeekStatusRow";
 import ExportColumnsModal, { buildInvoiceSheetColumns, EXPORT_COLUMN_DEFS, EXPORT_EXTRA_COLUMN_DEFS } from "../components/ExportColumnsModal";
 import InvoiceEditModal from "../components/InvoiceEditModal";
 import { effectivePaymentStatus, paymentStatusLabel } from "../billingUtils";
+import { getTherapistScheduleName } from "../scheduleConstants";
 import { cachedGet, peekCache } from "../dataCache";
 
 const EXPORT_COLS_KEY = "bg_export_columns";
@@ -403,6 +404,7 @@ export default function Attendance() {
 function PrepOnlyRow({ rec, findT, bordered = false }) {
   const cell = bordered ? "p-2 border border-[#E0E8DC]" : "p-2";
   const t = findT(rec.therapist_id);
+  const therapistLabel = rec.therapist_name || (t ? getTherapistScheduleName(t) : "—");
   return (
     <tr className={bordered ? "" : "border-t border-[#E2DDD4]"} style={{ background: "#F6FAF3" }}>
       <td className={`${cell} font-bold`}>{dayNameFromDate(rec.session_date)}</td>
@@ -414,7 +416,7 @@ function PrepOnlyRow({ rec, findT, bordered = false }) {
       </td>
       <td className={cell}>{rec.time_slot || "—"}</td>
       <td className={cell}>—</td>
-      <td className={cell}>{t?.name?.replace("Ms. ", "") || "—"}</td>
+      <td className={cell}>{therapistLabel}</td>
       <td className={cell}>—</td>
       <td className={cell}>—</td>
       <td className={`${cell} italic`} style={{ color: "#5C6853" }}>{rec.notes || ""}</td>

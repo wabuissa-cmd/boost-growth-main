@@ -749,7 +749,7 @@ async def admin_login(payload: LoginIn, response: Response):
         token = create_token({"sub": t["id"], "role": "therapist", "name": t["name"], "email": t.get("email")})
         set_auth_cookie(response, token)
         return {"id": t["id"], "name": t["name"], "color": t.get("color"), "email": t.get("email"),
-                "role": "therapist", "token": token,
+                "key": t.get("key"), "role": "therapist", "token": token,
                 "must_change_password": bool(t.get("must_change_password"))}
 
     raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -765,7 +765,8 @@ async def therapist_login(payload: TherapistPinLogin, response: Response):
         raise HTTPException(status_code=401, detail="Incorrect PIN")
     token = create_token({"sub": t["id"], "role": "therapist", "name": t["name"]})
     set_auth_cookie(response, token)
-    return {"id": t["id"], "name": t["name"], "color": t.get("color"), "role": "therapist", "token": token,
+    return {"id": t["id"], "name": t["name"], "color": t.get("color"), "key": t.get("key"),
+            "role": "therapist", "token": token,
             "must_change_password": bool(t.get("must_change_password"))}
 
 @api.post("/auth/therapist-email-login")
@@ -780,8 +781,8 @@ async def therapist_email_login(payload: TherapistEmailLogin, response: Response
         raise HTTPException(status_code=401, detail="Invalid email or password")
     token = create_token({"sub": t["id"], "role": "therapist", "name": t["name"]})
     set_auth_cookie(response, token)
-    return {"id": t["id"], "name": t["name"], "color": t.get("color"), "email": t.get("email"),
-            "role": "therapist", "token": token,
+    return {"id": t["id"], "name": t["name"], "color": t.get("color"), "key": t.get("key"),
+            "email": t.get("email"), "role": "therapist", "token": token,
             "must_change_password": bool(t.get("must_change_password"))}
 
 @api.post("/auth/change-password")
@@ -1521,9 +1522,12 @@ async def _upsert_prep_history(
         client = await db.clients.find_one({"id": client_id}, {"_id": 0, "name": 1})
         client_name = (client or {}).get("name") or ""
     existing = await db.prep_history.find_one(q, {"_id": 0})
+    therapist = await db.therapists.find_one({"id": therapist_id}, {"_id": 0, "name": 1, "key": 1})
+    therapist_name = therapist_schedule_display_name(therapist) if therapist else ""
     doc = {
         **q,
         "client_name": client_name,
+        "therapist_name": therapist_name,
         "prepared_by": prepared_by,
         "prepared_at": now_iso(),
         "notes": notes or "",
@@ -1567,6 +1571,9 @@ async def _sync_schedule_preparations_to_prep_history(client_id: Optional[str] =
             **key,
             "id": str(uuid.uuid4()),
             "client_name": (client or {}).get("name") or "",
+            "therapist_name": therapist_schedule_display_name(
+                await db.therapists.find_one({"id": tid}, {"_id": 0, "name": 1, "key": 1})
+            ),
             "prepared_by": rec.get("prepared_by") or "",
             "prepared_at": rec.get("prepared_at") or now_iso(),
             "notes": "",
@@ -1729,6 +1736,15 @@ async def list_client_prep_history(cid: str, user=Depends(get_current_user)):
     items = await db.prep_history.find({"client_id": cid}, {"_id": 0}).sort(
         [("session_date", -1), ("prepared_at", -1)]
     ).to_list(500)
+    therapists = {
+        t["id"]: t
+        async for t in db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1})
+    }
+    for item in items:
+        if not item.get("therapist_name"):
+            item["therapist_name"] = therapist_schedule_display_name(
+                therapists.get(item.get("therapist_id"))
+            )
     return items
 
 
@@ -4313,7 +4329,7 @@ THERAPIST_FAMILY_NAMES = {
     "msFahda": "Alghadeeb",
     "msRazan": "Alshatery",
     "msManal": "Aldosery",
-    "msAsma": "Asma",
+    "msAsma": "Ahmed",
     "msHajer": "Alfulaij",
     "msRahaf": "Aljuhani",
     "msShatha": "Alhammami",
@@ -4361,6 +4377,48 @@ def therapist_schedule_display_name(t: Optional[dict]) -> str:
             return " ".join([head] + parts[1:])
         return f"{first} {family}"
     return raw or (t.get("name") or "")
+
+
+async def _migrate_personal_therapist_accounts() -> dict:
+    """Ensure personal specialist logins resolve to the correct keyed therapist (e.g. Asma not Ahmed)."""
+    actions: List[str] = []
+    personal = {
+        "asma@boostgrowthsa.com": ("msAsma", "Ms. Asma"),
+    }
+    for email, (key, canonical) in personal.items():
+        removed = await db.users.delete_many({"email": email})
+        if removed.deleted_count:
+            actions.append(f"removed {removed.deleted_count} admin user row(s) for {email}")
+        t = await _find_therapist_by_email(email)
+        if not t:
+            continue
+        patch: dict = {}
+        if (t.get("key") or "") != key:
+            patch["key"] = key
+        if (t.get("name") or "") != canonical:
+            patch["name"] = canonical
+        if not t.get("role"):
+            patch["role"] = "therapist"
+        if patch:
+            await db.therapists.update_one({"id": t["id"]}, {"$set": patch})
+            actions.append(f"updated {email} -> {canonical} ({key})")
+    # Drop duplicate rows that kept a placeholder surname on the same email.
+    for em, group in (
+        (e, [x async for x in db.therapists.find(
+            {"email": {"$regex": f"^{re.escape(e)}$", "$options": "i"}}, {"_id": 0}
+        )])
+        for e in personal
+    ):
+        if len(group) <= 1:
+            continue
+        scored = [(_therapist_record_score(t), t.get("created_at") or "", t) for t in group]
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        for _, _, loser in scored[1:]:
+            await db.schedule_cells.delete_many({"therapist_id": loser["id"]})
+            await db.users.delete_many({"therapist_id": loser["id"]})
+            await db.therapists.delete_one({"id": loser["id"]})
+            actions.append(f"deduped {em}: removed {loser.get('name')} ({loser['id'][:8]})")
+    return {"actions": actions}
 
 
 async def _migrate_therapist_display_names() -> int:
@@ -10255,6 +10313,13 @@ async def _run_startup():
                 logger.info(f"Therapist email migration: updated {n} record(s)")
         except Exception as e:
             logger.warning(f"Therapist email migration skipped: {e}")
+
+        try:
+            personal = await _migrate_personal_therapist_accounts()
+            if personal.get("actions"):
+                logger.info(f"Personal therapist accounts: {personal['actions']}")
+        except Exception as e:
+            logger.warning(f"Personal therapist account migration skipped: {e}")
 
         try:
             n = await _migrate_therapist_display_names()

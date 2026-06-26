@@ -243,6 +243,125 @@ def fix_lulu_062(api: Api):
     put_client(api, c, service_type="HS/SS", package_hours=24)
 
 
+def reopen_current_hs(api: Api, file_no: str, inv_num: str, close_stale: bool = True):
+    """Reopen a specific HS invoice; optionally close other open HS invoices."""
+    c = api.client_by_file(file_no)
+    invs = api.invoices(c["id"])
+    if close_stale:
+        for o in invs:
+            if o.get("is_closed") or o.get("invoice_number") == inv_num:
+                continue
+            ost = (o.get("service_type") or "HS").upper()
+            if ost == "HS" or float(o.get("package_size") or 0) > 8:
+                put_invoice(api, o, is_closed=True, close_date=o.get("close_date"))
+    target = next((i for i in invs if i.get("invoice_number") == inv_num), None)
+    if target:
+        reopen_invoice(api, target, "HS")
+        print(f"  {inv_num} open, {len(api.sessions(c['id'], target['id']))} sessions")
+    else:
+        print(f"  WARN: {inv_num} not found for {file_no}")
+
+
+def reopen_current_ss(api: Api, file_no: str, inv_num: str | None = None):
+    """Reopen latest or named SS invoice; create one if none exist."""
+    c = api.client_by_file(file_no)
+    invs = api.invoices(c["id"])
+    ss = [i for i in invs if (i.get("service_type") or "") == "SS"]
+    if inv_num:
+        target = next((i for i in ss if i.get("invoice_number") == inv_num), None)
+    else:
+        target = sorted(ss, key=lambda x: x.get("invoice_number") or "", reverse=True)[0] if ss else None
+    if target:
+        reopen_invoice(api, target, "SS")
+        print(f"  SS {target['invoice_number']} open")
+        return
+    num = inv_num or f"INV05{int(file_no):02d}"
+    api.send("POST", f"/clients/{c['id']}/invoices", {
+        "invoice_number": num,
+        "service_type": "SS",
+        "package_size": 4,
+        "start_date": "2026-06-25",
+        "is_closed": False,
+        "payment_status": "pending",
+    })
+    print(f"  created open SS {num}")
+
+
+def fix_alrasheed_024(api: Api):
+    print("\n[024 Abdulaziz Alrasheed] reopen current HS")
+    reopen_current_hs(api, "024", "INV0488")
+
+
+def fix_alabdulwahab_040(api: Api):
+    print("\n[040 Abdulaziz AlAbdulwahab] reopen current HS")
+    reopen_current_hs(api, "040", "INV0499")
+
+
+def fix_aldamer_042(api: Api):
+    print("\n[042 Sultan Aldamer] HS/SS open cycles")
+    reopen_current_hs(api, "042", "INV0493", close_stale=False)
+    reopen_current_ss(api, "042", "INV0496")
+
+
+def fix_alkhurashi_052(api: Api):
+    print("\n[052 Sulaiman Alkhurashi] reopen current HS")
+    reopen_current_hs(api, "052", "INV0504")
+
+
+def fix_alshalfan_053(api: Api):
+    print("\n[053 Ahmad Alshalfan] HS/SS open cycles")
+    reopen_current_hs(api, "053", "INV0500", close_stale=False)
+    reopen_current_ss(api, "053", "INV0369")
+
+
+def fix_omar_054(api: Api):
+    print("\n[054 Omar Alkhurashi] close stale, reopen current HS")
+    c = api.client_by_file("054")
+    for inv in api.invoices(c["id"]):
+        if inv.get("invoice_number") == "INV0397" and not inv.get("is_closed"):
+            put_invoice(api, inv, is_closed=True, close_date=inv.get("close_date"))
+    reopen_current_hs(api, "054", "INV0509", close_stale=False)
+
+
+def fix_albedayea_060(api: Api):
+    print("\n[060 Mohammed Albedayea] HS rebuild scheduled")
+    reopen_current_hs(api, "060", "INV0508")
+
+
+def fix_alharbi_065(api: Api):
+    print("\n[065 Aser Alharbi] HS rebuild scheduled")
+    reopen_current_hs(api, "065", "INV0501")
+
+
+def fix_alshawi_068(api: Api):
+    print("\n[068 Abdulrahman Alshawi] HS/SS open cycles")
+    reopen_current_hs(api, "068", "INV0511")
+    ss = [i for i in api.invoices(api.client_by_file("068")["id"]) if (i.get("service_type") or "") == "SS"]
+    if ss:
+        reopen_current_ss(api, "068", ss[0]["invoice_number"])
+    else:
+        reopen_current_ss(api, "068", "INV0519")
+
+
+def fix_binshuael_072(api: Api):
+    print("\n[072 Khalid Bin Shuael] reopen current HS")
+    c = api.client_by_file("072")
+    for inv in api.invoices(c["id"]):
+        if inv.get("invoice_number") == "INV0466" and not inv.get("is_closed"):
+            put_invoice(api, inv, is_closed=True, close_date=inv.get("close_date"))
+    reopen_current_hs(api, "072", "INV0494", close_stale=False)
+
+
+def fix_suliman_079(api: Api):
+    print("\n[079 Fahad Suliman] reopen current HS (Excel tab empty)")
+    reopen_current_hs(api, "079", "INV0512")
+
+
+def fix_alzughaibi_080(api: Api):
+    print("\n[080 Faisal Alzughaibi] HS rebuild scheduled")
+    reopen_current_hs(api, "080", "INV0469")
+
+
 def fix_abdulelah_070(api: Api):
     print("\n[070 Abdulelah] SS only, remove wrong HS")
     c = api.client_by_file("070")
@@ -296,6 +415,36 @@ def audit(api: Api, file_no: str):
         )
 
 
+def fix_mohammed_experiment_000(api: Api):
+    """Experiment client — main therapist should be Asma."""
+    print("\n[000 Mohammed experiment] main therapist -> Ms. Asma")
+    c = api.client_by_file("000")
+    therapists = api.get("/therapists")
+    asma = next(t for t in therapists if (t.get("email") or "").lower() == "asma@boostgrowthsa.com")
+    co = [x for x in (c.get("co_therapist_ids") or []) if x != asma["id"]]
+    old_main = c.get("main_therapist_id")
+    if old_main and old_main != asma["id"] and old_main not in co:
+        co.append(old_main)
+    put_client(api, c, main_therapist_id=asma["id"], co_therapist_ids=co)
+    print(f"  main={asma.get('name')} co={len(co)}")
+
+
+def fix_asma_account(api: Api):
+    """Ensure Asma therapist identity is canonical on production."""
+    print("\n[Asma account] verify therapist record")
+    therapists = api.get("/therapists")
+    matches = [t for t in therapists if (t.get("email") or "").lower() == "asma@boostgrowthsa.com"]
+    if not matches:
+        print("  WARN: no asma@ therapist found")
+        return
+    asma = matches[0]
+    if asma.get("name") != "Ms. Asma":
+        api.send("PUT", f"/therapists/{asma['id']}", {"name": "Ms. Asma"})
+        print("  patched name")
+    else:
+        print(f"  ok: {asma.get('name')} ({asma.get('key')})")
+
+
 def main():
     import argparse
     p = argparse.ArgumentParser()
@@ -303,38 +452,59 @@ def main():
     p.add_argument("--rebuild-only", action="store_true")
     args = p.parse_args()
 
+    ALL = (
+        "009", "011", "024", "027", "034", "038", "040", "041", "042",
+        "052", "053", "054", "060", "061", "062", "065", "068", "070", "072", "079", "080",
+    )
+    HS_REBUILD = ("038", "009", "024", "040", "052", "054", "060", "061", "065", "068", "072", "080")
+    SS_REBUILD = ("042", "062")
+
     api = Api()
+    fix_asma_account(api)
+    fix_mohammed_experiment_000(api)
     if not args.rebuild_only:
         fix_salman_038(api)
         fix_saleh_009(api)
         fix_fahad_011(api)
+        fix_alrasheed_024(api)
         fix_alaqel_027(api)
         fix_aljouhrah_034(api)
+        fix_alabdulwahab_040(api)
         fix_ameerah_041(api)
+        fix_aldamer_042(api)
+        fix_alkhurashi_052(api)
+        fix_alshalfan_053(api)
+        fix_omar_054(api)
+        fix_albedayea_060(api)
         fix_ibrahim_061(api)
         fix_lulu_062(api)
+        fix_alharbi_065(api)
+        fix_alshawi_068(api)
         fix_abdulelah_070(api)
+        fix_binshuael_072(api)
+        fix_suliman_079(api)
+        fix_alzughaibi_080(api)
 
     if args.api_only:
         print("\n=== API FIXES DONE ===")
-        for fn in ("038", "009", "011", "027", "034", "041", "061", "062", "070"):
+        for fn in ALL:
             audit(api, fn)
         return
 
     print("\n=== Running HS rebuilds ===", flush=True)
     script = Path(__file__).resolve().parent / "rebuild_hs_from_excel.py"
-    for fn in ("038", "009", "061"):
+    for fn in HS_REBUILD:
         print(f"\n>> rebuild_hs {fn}", flush=True)
-        subprocess.check_call([sys.executable, str(script), "--file-no", fn, "--from-date", "2026-01-01"])
+        subprocess.check_call([sys.executable, str(script), "--file-no", fn, "--from-date", "2026-05-01"])
 
     print("\n=== Running SS rebuilds ===", flush=True)
     ss_script = Path(__file__).resolve().parent / "rebuild_ss_from_excel.py"
-    for fn in ("062",):
+    for fn in SS_REBUILD:
         print(f"\n>> rebuild_ss {fn}", flush=True)
         subprocess.check_call([sys.executable, str(ss_script), "--file-no", fn])
 
     print("\n=== POST-FIX AUDIT ===", flush=True)
-    for fn in ("038", "009", "011", "027", "034", "041", "061", "062", "070"):
+    for fn in ALL:
         audit(api, fn)
 
 

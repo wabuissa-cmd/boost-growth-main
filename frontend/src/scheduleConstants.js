@@ -11,7 +11,7 @@ export const THERAPIST_FAMILY_NAMES = {
   msFahda: "Alghadeeb",
   msRazan: "Alshatery",
   msManal: "Aldosery",
-  msAsma: "Asma",
+  msAsma: "Ahmed",
   msHajer: "Alfulaij",
   msRahaf: "Aljuhani",
   msShatha: "Alhammami",
@@ -83,6 +83,7 @@ const PORTAL_GREETING_OVERRIDES = {
   msmaha: "Maha Althunayan",
   msfahda: "Fahda Alghadeeb",
   msjenan: "Jenan Almuhaisin",
+  msasma: "Asma Ahmed",
 };
 
 export function getPortalDisplayName(user, therapistRow = null) {

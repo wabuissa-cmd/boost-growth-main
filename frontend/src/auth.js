@@ -19,19 +19,19 @@ export function AuthProvider({ children }) {
   const loginAdmin = async (email, password) => {
     const { data } = await api.post("/auth/login", { email, password });
     if (data.token) localStorage.setItem("bg_token", data.token);
-    setUser(data);
+    await refresh();
     return data;
   };
   const loginTherapist = async (therapist_id, pin) => {
     const { data } = await api.post("/auth/therapist-login", { therapist_id, pin });
     if (data.token) localStorage.setItem("bg_token", data.token);
-    setUser(data);
+    await refresh();
     return data;
   };
   const loginTherapistEmail = async (email, password) => {
     const { data } = await api.post("/auth/therapist-email-login", { email, password });
     if (data.token) localStorage.setItem("bg_token", data.token);
-    setUser(data);
+    await refresh();
     return data;
   };
   const changePassword = async (old_password, new_password) => {
