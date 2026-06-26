@@ -23,6 +23,8 @@ const HERO_OPTIONS = [
   { id: "olive", src: null, label: "Green", style: "olive" },
   { id: "blocks", src: "/service-outdoor.jpg", label: "Building blocks", style: "image" },
   { id: "reading", src: "/service-home.jpg", label: "Reading story", style: "image" },
+  { id: "sensory", src: "/hero-sensory.png", label: "Sensory play", style: "image" },
+  { id: "play", src: "/hero-play.png", label: "Therapy play", style: "image" },
 ];
 
 const LEGACY_HERO_MAP = {
