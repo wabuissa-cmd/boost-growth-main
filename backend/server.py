@@ -147,6 +147,58 @@ async def _find_therapist_by_email(email: str) -> Optional[dict]:
     return scored[0][2]
 
 
+def _therapist_has_nationality(t: dict) -> bool:
+    """True when therapist has a family/nationality label (DB field, key map, or multi-word name)."""
+    nat = (t.get("nationality") or "").strip()
+    if nat:
+        return True
+    key = (t.get("key") or "").strip()
+    if key and key in THERAPIST_FAMILY_NAMES:
+        return True
+    raw = re.sub(r"^Ms\.?\s*", "", (t.get("name") or ""), flags=re.I).strip()
+    parts = [p for p in raw.split() if p]
+    return len(parts) >= 2
+
+
+async def _remove_therapists_without_nationality() -> dict:
+    """Delete duplicate therapist rows missing nationality/family (e.g. Ms. Hajer vs Ms. Hajar)."""
+    therapists = await db.therapists.find({}, {"_id": 0}).to_list(500)
+    to_delete: List[str] = []
+    actions: List[dict] = []
+
+    canonical_hajar = next(
+        (t for t in therapists
+         if (t.get("email") or "").lower() == "halfulaij@boostgrowthsa.com"
+         or (t.get("key") or "").lower() == "mshajer"),
+        None,
+    )
+    for t in therapists:
+        if canonical_hajar and t["id"] == canonical_hajar["id"]:
+            continue
+        em = (t.get("email") or "").lower().strip()
+        name = (t.get("name") or "").strip()
+        if not canonical_hajar:
+            continue
+        if em == "hajer@boostgrowthsa.com" or (
+            name.lower() == "ms. hajer" and not _therapist_has_nationality(t)
+        ):
+            to_delete.append(t["id"])
+            actions.append({
+                "removed_id": t["id"],
+                "removed_name": name,
+                "removed_email": em,
+                "kept_id": canonical_hajar["id"],
+                "kept_name": canonical_hajar.get("name"),
+                "reason": "duplicate without nationality",
+            })
+
+    for tid in set(to_delete):
+        await db.schedule_cells.delete_many({"therapist_id": tid})
+        await db.users.delete_many({"therapist_id": tid})
+        await db.therapists.delete_one({"id": tid})
+    return {"removed": len(set(to_delete)), "actions": actions}
+
+
 async def _dedupe_duplicate_therapists() -> dict:
     """Delete duplicate therapist rows that share the same email; keep keyed/passworded record."""
     therapists = await db.therapists.find({}, {"_id": 0}).to_list(500)
@@ -215,6 +267,27 @@ def _launch_temp_password(name: str) -> str:
     """Predictable launch password: Firstname@Launch2026 (from Ms. Asma → Asma@Launch2026)."""
     first = re.sub(r"^Ms\.?\s*", "", (name or "").strip(), flags=re.I).split()[0] or "User"
     return f"{first[0].upper()}{first[1:]}@{LAUNCH_PASSWORD_SUFFIX}" if first else f"User@{LAUNCH_PASSWORD_SUFFIX}"
+
+
+async def _migrate_hr_password_once() -> bool:
+    """One-time: set HR password to Boost@2026 without re-applying on future deploys."""
+    meta_key = "hr_password_boost2026"
+    if await db.meta.find_one({"key": meta_key, "done": True}):
+        return False
+    hr = await db.users.find_one({"email": HR_OPS_EMAIL})
+    if not hr:
+        return False
+    await db.users.update_one({"email": HR_OPS_EMAIL}, {"$set": {
+        "password_hash": hash_password(UNIFIED_LAUNCH_PASSWORD),
+        "must_change_password": False,
+        "is_hr_ops": True,
+    }})
+    await db.meta.update_one(
+        {"key": meta_key},
+        {"$set": {"done": True, "updated_at": now_iso()}},
+        upsert=True,
+    )
+    return True
 
 
 async def _apply_inactive_client_status() -> int:
@@ -355,7 +428,7 @@ CLIENT_LEAD_EMAILS = frozenset({
     "jsalmuhaisin@boostgrowthsa.com",
 })
 HR_OPS_EMAIL = "hr@boostgrowthsa.com"
-HR_OPS_PASSWORD = "BoostHR@2026"
+HR_OPS_PASSWORD = UNIFIED_LAUNCH_PASSWORD  # Boost@2026 — set on first seed only; never overwritten on deploy
 JENAN_EMAIL = "jsalmuhaisin@boostgrowthsa.com"
 PENDING_MANAGER_STATUSES = frozenset({"pending", "pending_manager"})
 LEAVE_DOC_REQUIRED_TYPES = frozenset({"Sickleave", "Absence", "Permission"})
@@ -982,6 +1055,26 @@ async def set_unified_launch_password(_=Depends(admin_only)):
             f"{len(updated)} therapists updated. "
             f"Password: {UNIFIED_LAUNCH_PASSWORD} until they change it."
         ),
+    }
+
+
+@api.post("/admin/reset-hr-password")
+async def admin_reset_hr_password(_=Depends(admin_only)):
+    """Reset HR ops login to Boost@2026 (admin-triggered; not applied on every deploy)."""
+    hr = await db.users.find_one({"email": HR_OPS_EMAIL})
+    if not hr:
+        raise HTTPException(status_code=404, detail=f"HR user not found: {HR_OPS_EMAIL}")
+    await db.users.update_one({"email": HR_OPS_EMAIL}, {"$set": {
+        "password_hash": hash_password(UNIFIED_LAUNCH_PASSWORD),
+        "must_change_password": False,
+        "is_hr_ops": True,
+    }})
+    return {
+        "ok": True,
+        "email": HR_OPS_EMAIL,
+        "password": UNIFIED_LAUNCH_PASSWORD,
+        "must_change_password": False,
+        "message": f"HR password reset for {HR_OPS_EMAIL}",
     }
 
 @api.get("/auth/me")
@@ -10165,7 +10258,7 @@ THERAPIST_SEED = [
     {"name": "Ms. Fahda", "color": "#D4A64A", "email": "fahda@boostgrowthsa.com"},
     {"name": "Ms. Razan", "color": "#8FA481", "email": "razan@boostgrowthsa.com"},
     {"name": "Ms. Manal", "color": "#A4BCCB", "email": "manal@boostgrowthsa.com"},
-    {"name": "Ms. Hajer", "color": "#C97B5C", "email": "hajer@boostgrowthsa.com"},
+    {"name": "Ms. Hajar", "color": "#C97B5C", "email": "halfulaij@boostgrowthsa.com"},
     {"name": "Ms. Rahaf", "color": "#9B7BAB", "email": "rahaf@boostgrowthsa.com"},
     {"name": "Ms. Shatha", "color": "#5C8B7E", "email": "shatha@boostgrowthsa.com"},
     {"name": "Ms. Alhanouf", "color": "#B89968", "email": "alhanouf@boostgrowthsa.com"},
@@ -10378,10 +10471,7 @@ async def _run_startup():
             })
             logger.info(f"HR ops user seeded: {hr_email}")
         else:
-            patch = {"is_hr_ops": True}
-            if not verify_password(HR_OPS_PASSWORD, hr_existing["password_hash"]):
-                patch["password_hash"] = hash_password(HR_OPS_PASSWORD)
-            await db.users.update_one({"email": hr_email}, {"$set": patch})
+            await db.users.update_one({"email": hr_email}, {"$set": {"is_hr_ops": True}})
 
         # Seed therapists ONLY on first-time setup (count==0). NEVER overwrite existing data.
         th_count = await db.therapists.count_documents({})
@@ -10489,6 +10579,19 @@ async def _run_startup():
                 logger.info(f"Therapist dedupe: removed {th_dedupe['removed']} duplicate(s)")
         except Exception as e:
             logger.warning(f"Therapist dedupe skipped: {e}")
+
+        try:
+            nat_clean = await _remove_therapists_without_nationality()
+            if nat_clean.get("removed"):
+                logger.info(f"Therapist nationality cleanup: removed {nat_clean['removed']}")
+        except Exception as e:
+            logger.warning(f"Therapist nationality cleanup skipped: {e}")
+
+        try:
+            if await _migrate_hr_password_once():
+                logger.info("HR password migrated to Boost@2026 (one-time)")
+        except Exception as e:
+            logger.warning(f"HR password migration skipped: {e}")
 
         try:
             pw_n = await _migrate_bootstrap_therapist_passwords()
