@@ -361,6 +361,14 @@ PENDING_MANAGER_STATUSES = frozenset({"pending", "pending_manager"})
 LEAVE_DOC_REQUIRED_TYPES = frozenset({"Sickleave", "Absence", "Permission"})
 PENDING_MANAGER_REQUEST_STATUSES = frozenset({"pending", "pending_manager"})
 MANAGER_ACTIVE_REQUEST_STATUSES = frozenset({"pending", "pending_manager", "in_progress"})
+MANAGER_FORWARD_HR_LEAVE_SOURCES = PENDING_MANAGER_STATUSES | frozenset({"pending_attachment"})
+
+
+def _coerce_manager_approve_to_hr(status: str) -> str:
+    """Manager 'approve' always means pending_hr — HR must review before final approval."""
+    if status in ("approved", "manager_approve"):
+        return "pending_hr"
+    return status
 
 
 def _is_client_lead(user: dict) -> bool:
@@ -6744,7 +6752,7 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
         raise HTTPException(status_code=404, detail="Not found")
     prev_status = req.get("status")
     effective_prev = _normalize_request_status(prev_status)
-    new_status = payload.status
+    new_status = _coerce_manager_approve_to_hr(payload.status)
     is_pa = _is_portal_admin(user)
     is_hr = _is_hr_ops(user)
     is_jenan_mgr = _is_jenan(user) and not is_pa
@@ -6758,9 +6766,9 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
             raise HTTPException(status_code=400, detail="Attachment required before manager review")
         if effective_prev == "in_progress":
             if new_status not in ("pending_hr", "rejected", "in_progress"):
-                raise HTTPException(status_code=400, detail="Manager must forward to HR or reject")
+                raise HTTPException(status_code=400, detail="Manager must approve (forward to HR) or reject")
         elif new_status not in ("pending_hr", "rejected", "in_progress", "pending_manager"):
-            raise HTTPException(status_code=400, detail="Manager must review, forward to HR, or reject")
+            raise HTTPException(status_code=400, detail="Manager must keep pending, approve (forward to HR), or reject")
     elif is_hr:
         if effective_prev != "pending_hr":
             raise HTTPException(status_code=403, detail="HR can only act on HR-pending requests")
@@ -7817,7 +7825,7 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
         raise HTTPException(status_code=404, detail="Not found")
     prev_status = leave.get("status")
     effective_prev = _normalize_leave_status(prev_status)
-    new_status = payload.status
+    new_status = _coerce_manager_approve_to_hr(payload.status)
     is_pa = _is_portal_admin(user)
     is_hr = _is_hr_ops(user)
     is_jenan_mgr = _is_jenan(user) and not is_pa
@@ -7829,8 +7837,8 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
             raise HTTPException(status_code=403, detail="Manager can only act on pending manager requests")
         if effective_prev == "pending_attachment" or (_leave_requires_document(leave.get("leave_type")) and not _leave_has_document(leave)):
             raise HTTPException(status_code=400, detail="Document attachment required before review")
-        if new_status not in ("pending_hr", "rejected"):
-            raise HTTPException(status_code=400, detail="Manager must forward to HR or reject")
+        if new_status not in ("pending_hr", "rejected", "pending_manager"):
+            raise HTTPException(status_code=400, detail="Manager must keep pending, approve (forward to HR), or reject")
     elif is_hr:
         if effective_prev != "pending_hr":
             raise HTTPException(status_code=403, detail="HR can only act on HR-pending requests")
@@ -7858,7 +7866,7 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
         "is_paid": is_paid,
         "timeline": timeline,
     }})
-    if new_status == "pending_hr" and effective_prev in PENDING_MANAGER_STATUSES:
+    if new_status == "pending_hr" and effective_prev in MANAGER_FORWARD_HR_LEAVE_SOURCES:
         tname = leave.get("leave_type") or "Leave"
         hr_title = "Leave awaiting HR approval"
         hr_msg = (
