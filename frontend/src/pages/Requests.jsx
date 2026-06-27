@@ -888,7 +888,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
               <>
                 <ModalBtnSecondary type="button" onClick={closeStatusModal}>Cancel</ModalBtnSecondary>
                 <ModalBtnPrimary data-testid="status-save-btn" type="button" onClick={handleManagerStatusSave}>
-                  حفظ وإرسال
+                  Save & submit
                 </ModalBtnPrimary>
               </>
             ) : (
@@ -907,7 +907,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
               )}
               {managerView && (
                 <p className="text-sm -mt-2 mb-2" style={{ color: "#5C6853" }}>
-                  Request details are read-only. Set status, add a note, and choose whether to forward to HR — then حفظ وإرسال.
+                  Request details are read-only. Set status, add a note, and choose whether to forward to HR — then Save & submit.
                 </p>
               )}
               {queueItemAwaitingAttachment(statusEdit) && (
@@ -1077,7 +1077,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                   {managerView && isManager && managerCanForwardToHr(statusEdit.status) && (
                     <div className="mt-4 pt-4 border-t" style={{ borderColor: "#EDE9E3" }}>
                       <div className="text-xs font-bold uppercase tracking-widest mb-2" style={{ color: "#5C6853" }}>
-                        إرسال للـ HR
+                        Forward to HR
                       </div>
                       <label className="flex items-start gap-3 cursor-pointer text-sm rounded-xl p-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
                         <input
@@ -1088,7 +1088,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                           onChange={e => setForwardToHr(e.target.checked)}
                         />
                         <span style={{ color: "#2C3625" }}>
-                          نعم — إرسال الطلب لقسم الموارد البشرية بعد الحفظ
+                          Yes — forward this request to HR after saving
                           <span className="block text-xs mt-1" style={{ color: "#8B9E7A" }}>
                             Optional — leave unchecked to save status only
                           </span>

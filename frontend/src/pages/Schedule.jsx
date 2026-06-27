@@ -1264,7 +1264,7 @@ export default function Schedule() {
                 className="btn btn-outline text-[11px] flex items-center gap-1 px-2 py-1 min-h-0 shrink-0"
               >
                 <UserPlus size={13} />
-                Add specialist · إضافة أخصائية
+                Add specialist
               </button>
               <div className="relative ml-auto shrink-0" ref={adminEditsRef}>
                 <button
@@ -1327,7 +1327,7 @@ export default function Schedule() {
 
       {addSpecialistOpen && (
         <ModalBase
-          title="Add specialist · إضافة أخصائية"
+          title="Add specialist"
           subtitle="Choose a therapist to show as a column on the weekly schedule"
           onClose={() => setAddSpecialistOpen(false)}
           size="sm"

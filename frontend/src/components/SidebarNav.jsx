@@ -138,7 +138,7 @@ export default function SidebarNav({
       <SidebarSection title="Waiting" items={waitingItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
       {managerItems?.length > 0 && (
         <SidebarSection
-          title={managerSectionTitle || "المدير المباشر"}
+          title={managerSectionTitle || "Direct Manager"}
           items={managerItems}
           loc={loc}
           defaultOpen

@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, Suspense, useMemo } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData, isWalaaOps, showMyPortalNav, showMyReportsNav, isJenan, canViewReports } from "../auth";
+import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData, isWalaaOps, showMyPortalNav, showMyReportsNav, isJenan, canViewReports, directManagerLabel } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch, cachedGet } from "../dataCache";
 import { getPortalDisplayName } from "../scheduleConstants";
@@ -246,7 +246,7 @@ export default function Shell() {
               waitingItems={waitingNavItems}
               hrItems={hrNavItems}
               managerItems={jenanManager ? managerNavItems : []}
-              managerSectionTitle="المدير المباشر"
+              managerSectionTitle={directManagerLabel()}
               financeItems={financeItems}
               adminItems={adminTools}
               therapistOnly={therapistOnly}
@@ -328,7 +328,7 @@ export default function Shell() {
                              items={operationsItems} loc={loc} onItemHover={warmRoute}/>
               )}
               {hrDropdownItems.length > 0 && (
-                <NavDropdown testid={jenanManager ? "nav-direct-manager" : "nav-hr"} label={jenanManager ? "المدير المباشر" : "HR"} icon={<UsersThree size={18} weight="duotone"/>}
+                <NavDropdown testid={jenanManager ? "nav-direct-manager" : "nav-hr"} label={jenanManager ? directManagerLabel() : "HR"} icon={<UsersThree size={18} weight="duotone"/>}
                              items={hrDropdownItems} loc={loc} onItemHover={warmRoute}/>
               )}
               {financeDropdownItems.length > 0 && (
@@ -459,7 +459,7 @@ export default function Shell() {
                 waitingItems={waitingNavItems}
                 hrItems={hrNavItems}
                 managerItems={jenanManager ? managerNavItems : []}
-                managerSectionTitle="المدير المباشر"
+                managerSectionTitle={directManagerLabel()}
                 financeItems={financeItems}
                 adminItems={adminTools}
                 therapistOnly={therapistOnly}
