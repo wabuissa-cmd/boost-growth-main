@@ -57,14 +57,14 @@ function LocationSectionCard({ locations = [] }) {
 
   const inner = (
     <>
-      <span className="ci-section-card-icon"><MapPin size={20} weight="duotone" /></span>
+      <span className="ci-section-card-icon"><MapPin size={16} weight="duotone" /></span>
       <div className="ci-section-card-body">
         <h3>Location</h3>
         <p>{desc}</p>
         {items.length > 0 && (
           items.length === 1 ? (
             <span className="ci-section-card-maps">
-              <MapPin size={14} weight="duotone" />
+              <MapPin size={12} weight="duotone" />
               Open in Maps
             </span>
           ) : (
@@ -73,7 +73,7 @@ function LocationSectionCard({ locations = [] }) {
                 const addrLabel = formatLocationLabel(l.address) || l.address;
                 return (
                   <LocationLink key={`${l.service || "loc"}-${i}`} address={l.address} className="ci-section-card-maps">
-                    <MapPin size={14} weight="duotone" />
+                    <MapPin size={12} weight="duotone" />
                     {l.service ? `${l.service} · ` : ""}{addrLabel}
                   </LocationLink>
                 );
@@ -283,7 +283,7 @@ export default function ClientInfoLayout({
                       : s.desc;
                     return (
                       <button key={s.id} type="button" className="ci-section-card" onClick={() => onOpenSection(s.id)}>
-                        <span className="ci-section-card-icon"><Icon size={20} weight="duotone" /></span>
+                        <span className="ci-section-card-icon"><Icon size={16} weight="duotone" /></span>
                         <div className="ci-section-card-body">
                           <h3>{s.title}</h3>
                           <p>{desc}</p>
