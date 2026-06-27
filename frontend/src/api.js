@@ -1,5 +1,6 @@
 import axios from "axios";
 import { invalidateForMutation } from "./dataCache";
+import { showAuthenticatedFile } from "./fileViewer";
 
 // Production (single Railway service): leave REACT_APP_BACKEND_URL unset → use /api on same host.
 // Local dev: set REACT_APP_BACKEND_URL=http://localhost:8000 in frontend/.env
@@ -31,23 +32,9 @@ api.interceptors.request.use((config) => {
 
 export default api;
 
-/** Open a protected file URL in a new tab (sends stored auth token). */
-export async function openAuthenticatedFile(url, { errorMessage = "Could not open file" } = {}) {
-  const token = localStorage.getItem("bg_token");
-  const r = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    credentials: "include",
-  });
-  if (!r.ok) {
-    let detail = errorMessage;
-    try {
-      const body = await r.json();
-      if (body?.detail) detail = typeof body.detail === "string" ? body.detail : errorMessage;
-    } catch { /* ignore */ }
-    throw new Error(detail);
-  }
-  const blob = await r.blob();
-  window.open(URL.createObjectURL(blob), "_blank");
+/** Open a protected file (modal viewer on desktop/mobile; no popup blocker). */
+export function openAuthenticatedFile(url, options = {}) {
+  return showAuthenticatedFile(url, options);
 }
 
 export function formatErr(detail) {

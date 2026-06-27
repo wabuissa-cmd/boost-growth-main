@@ -6162,7 +6162,7 @@ async def delete_purchase(pid: str, _=Depends(ops_or_admin)):
 
 # ------------------- Requests -------------------
 def _enrich_request_attachment(req: dict) -> dict:
-    if req.get("attachment_file_path"):
+    if _request_has_attachment(req):
         req["attachment_url"] = f"/api/requests/{req['id']}/attachment"
     else:
         req.setdefault("attachment_url", None)
@@ -6725,7 +6725,7 @@ async def list_parent_cancellations(user=Depends(get_current_user)):
 @api.get("/requests/{rid}/attachment")
 async def download_request_attachment(rid: str, user=Depends(get_current_user)):
     req = await db.requests.find_one({"id": rid}, {"_id": 0})
-    if not req or not req.get("attachment_file_path"):
+    if not req or not _request_has_attachment(req):
         raise HTTPException(status_code=404, detail="No attachment")
     if not (_is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user)):
         if req.get("therapist_id") != user["id"]:
@@ -6733,7 +6733,8 @@ async def download_request_attachment(rid: str, user=Depends(get_current_user)):
     content = _load_upload(req.get("attachment_file_path"), req.get("attachment_file_data"))
     if not content:
         raise HTTPException(status_code=404, detail=FILE_UNAVAILABLE_DETAIL)
-    return _bytes_file_response(content, req.get("attachment_file_name") or req["attachment_file_path"])
+    fname = req.get("attachment_file_name") or req.get("attachment_file_path") or "attachment"
+    return _bytes_file_response(content, fname)
 
 
 @api.put("/requests/{rid}/status")
@@ -7606,11 +7607,11 @@ def _leave_requires_document(leave_type: Optional[str]) -> bool:
 
 
 def _leave_has_document(leave: dict) -> bool:
-    return bool(leave.get("document_file_path"))
+    return bool(leave.get("document_file_path") or leave.get("document_file_data"))
 
 
 def _request_has_attachment(req: dict) -> bool:
-    return bool(req.get("attachment_file_path"))
+    return bool(req.get("attachment_file_path") or req.get("attachment_file_data"))
 
 
 def _request_awaiting_attachment(req: dict) -> bool:
@@ -7682,7 +7683,7 @@ async def _cancel_schedule_for_therapist(therapist_id: str, start_date: str, end
 
 
 def _enrich_leave_document_url(leave: dict) -> dict:
-    if leave.get("document_file_path"):
+    if _leave_has_document(leave):
         leave["document_url"] = f"/api/leaves/{leave['id']}/document"
     else:
         leave.setdefault("document_url", None)
@@ -8047,7 +8048,7 @@ async def upload_leave_document(
 @api.get("/leaves/{lid}/document")
 async def download_leave_document(lid: str, user=Depends(get_current_user)):
     leave = await db.leaves.find_one({"id": lid}, {"_id": 0})
-    if not leave or not leave.get("document_file_path"):
+    if not leave or not _leave_has_document(leave):
         raise HTTPException(status_code=404, detail="No document")
     if not (_is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user)):
         if leave.get("therapist_id") != user["id"]:
@@ -8055,7 +8056,8 @@ async def download_leave_document(lid: str, user=Depends(get_current_user)):
     content = _load_upload(leave.get("document_file_path"), leave.get("document_file_data"))
     if not content:
         raise HTTPException(status_code=404, detail=FILE_UNAVAILABLE_DETAIL)
-    return _bytes_file_response(content, leave.get("document_file_name") or leave["document_file_path"])
+    fname = leave.get("document_file_name") or leave.get("document_file_path") or "document"
+    return _bytes_file_response(content, fname)
 
 
 @api.delete("/leaves/{lid}/document")

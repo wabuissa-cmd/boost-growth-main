@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth, isJenan, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, hasFullClientAccess, showSystemAdmin, canImportData, canViewReports, showMyReportsNav } from "./auth";
 import Login from "./pages/Login";
 import Shell from "./pages/Shell";
+import AuthenticatedFileViewer from "./components/AuthenticatedFileViewer";
 import "./App.css";
 
 const Home = lazy(() => import("./pages/Home"));
@@ -203,6 +204,7 @@ export default function App() {
       <AuthProvider>
         <BrowserRouter>
           <AppRoutes/>
+          <AuthenticatedFileViewer/>
         </BrowserRouter>
       </AuthProvider>
     </ErrorBoundary>
