@@ -24,7 +24,7 @@ import ParentWhatsAppModal from "../components/ParentWhatsAppModal";
 import ParentCancellationModal from "../components/ParentCancellationModal";
 import LogSessionModal, { slotToTime24, addHoursToTime } from "../components/LogSessionModal";
 import SchedulePrepBadge from "../components/SchedulePrepBadge";
-import { buildPrepLookup, isCellPrepComplete, scheduleSlotFromCell } from "../schedulePrepUtils";
+import { buildPrepLookup, isCellPrepComplete } from "../schedulePrepUtils";
 import { buildParentMessages } from "../scheduleParentMessages";
 import { sortTherapistsForSchedule, getTherapistScheduleName, scheduleOwnBlockOnly, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
 import { cachedGet } from "../dataCache";
@@ -721,7 +721,6 @@ export default function Schedule() {
     setQuickLog({
       client,
       cell,
-      scheduleSlot: scheduleSlotFromCell(cell, therapist_id, day, weekStartISO, client.id),
       prefill: {
         session_date: sessionDate,
         start_time: start,
@@ -1683,10 +1682,8 @@ export default function Schedule() {
           therapists={therapists}
           currentUser={user}
           prefill={quickLog.prefill}
-          scheduleSlot={quickLog.scheduleSlot}
           onClose={() => setQuickLog(null)}
           onSaved={() => { setQuickLog(null); loadPreparations(); }}
-          onPrepMarked={loadPreparations}
         />
       )}
 

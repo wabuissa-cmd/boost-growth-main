@@ -48,7 +48,6 @@ export function addHoursToTime(time24, hours) {
 
 export default function LogSessionModal({
   client, therapists, currentUser, onClose, onSaved, session, prefill,
-  scheduleSlot, onPrepMarked,
 }) {
   const defaultLoc = client?.locations?.[0];
   const initialSvc = prefill?.service_type || defaultLoc?.service || client?.service_type || "HS";
@@ -70,28 +69,12 @@ export default function LogSessionModal({
     };
   });
 
-  const [markingPrep, setMarkingPrep] = useState(false);
-
   const submit = async (e) => {
     e.preventDefault();
     const payload = { ...form, hours: computeHours(form.start_time, form.end_time) };
     if (session?.id) await api.put(`/sessions/${session.id}`, payload);
     else await api.post("/sessions", payload);
     onSaved();
-  };
-
-  const markPrepOnly = async () => {
-    if (!scheduleSlot) return;
-    setMarkingPrep(true);
-    try {
-      await api.post("/schedule/preparations", scheduleSlot);
-      onPrepMarked?.();
-      onClose();
-    } catch (err) {
-      alert(err.response?.data?.detail || err.message || "Could not mark preparation");
-    } finally {
-      setMarkingPrep(false);
-    }
   };
 
   const toggleT = (id) => {
@@ -113,16 +96,6 @@ export default function LogSessionModal({
       footer={(
         <>
           <ModalBtnSecondary type="button" onClick={onClose}>Cancel</ModalBtnSecondary>
-          {scheduleSlot && !session && (
-            <ModalBtnSecondary
-              type="button"
-              data-testid="mark-prep-complete"
-              onClick={markPrepOnly}
-              disabled={markingPrep}
-            >
-              {markingPrep ? "Saving…" : "Mark preparation complete"}
-            </ModalBtnSecondary>
-          )}
           <ModalBtnPrimary data-testid="sess-save" type="submit" form={formId}>
             {session ? "Save changes" : "Log Session"}
           </ModalBtnPrimary>
