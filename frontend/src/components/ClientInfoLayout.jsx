@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import {
-  Paperclip, ClipboardText,
+  Paperclip, ClipboardText, MapPin,
   Leaf, PencilSimple, Trash, CaretRight,
 } from "@phosphor-icons/react";
-import LocationList from "./LocationList";
+import LocationLink from "./LocationLink";
+import { formatLocationLabel, getMapsHref } from "../mapsUtils";
 import { getChildColor, readable } from "../childColors";
 import { prepTrackMeta, cardStatusMeta } from "../attendanceUtils";
 import { getTherapistScheduleName } from "../scheduleConstants";
@@ -39,10 +40,65 @@ function MiniPkgBar({ row }) {
   );
 }
 
-const SECTIONS = [
+const RECORD_SECTIONS = [
   { id: "attachments", icon: Paperclip, title: "Records & files", desc: "Drive links, intake & case documents" },
   { id: "details", icon: ClipboardText, title: "Case summary", desc: "Diagnosis, goals & clinical notes" },
 ];
+
+function LocationSectionCard({ locations = [] }) {
+  const items = locations.filter(l => (l.address || "").trim());
+  const primary = items[0];
+  const label = primary ? (formatLocationLabel(primary.address) || primary.address) : "";
+  const desc = items.length === 0
+    ? "No locations on file"
+    : items.length === 1
+      ? (primary.service ? `${primary.service} · ${label}` : label)
+      : `${items.length} saved addresses`;
+
+  const inner = (
+    <>
+      <span className="ci-section-card-icon"><MapPin size={20} weight="duotone" /></span>
+      <div className="ci-section-card-body">
+        <h3>Location</h3>
+        <p>{desc}</p>
+        {items.length > 0 && (
+          items.length === 1 ? (
+            <span className="ci-section-card-maps">
+              <MapPin size={14} weight="duotone" />
+              Open in Maps
+            </span>
+          ) : (
+            <div className="ci-section-card-maps-list">
+              {items.map((l, i) => {
+                const addrLabel = formatLocationLabel(l.address) || l.address;
+                return (
+                  <LocationLink key={`${l.service || "loc"}-${i}`} address={l.address} className="ci-section-card-maps">
+                    <MapPin size={14} weight="duotone" />
+                    {l.service ? `${l.service} · ` : ""}{addrLabel}
+                  </LocationLink>
+                );
+              })}
+            </div>
+          )
+        )}
+      </div>
+    </>
+  );
+
+  if (items.length === 1 && getMapsHref(primary.address)) {
+    return (
+      <LocationLink address={primary.address} className="ci-section-card">
+        {inner}
+      </LocationLink>
+    );
+  }
+
+  return (
+    <div className="ci-section-card ci-section-card--static">
+      {inner}
+    </div>
+  );
+}
 
 export default function ClientInfoLayout({
   clients, selectedId, onSelect, pkgByClient, findTherapist, counts,
@@ -216,15 +272,11 @@ export default function ClientInfoLayout({
                 </div>
               )}
 
-              <div className="ci-locations-box">
-                <p className="ci-timeline-title">Locations</p>
-                <LocationList locations={selected.locations || []} />
-              </div>
-
               <div className="ci-timeline">
                 <p className="ci-timeline-title">Client records</p>
                 <div className="ci-section-grid">
-                  {SECTIONS.map((s) => {
+                  <LocationSectionCard locations={selected.locations || []} />
+                  {RECORD_SECTIONS.map((s) => {
                     const Icon = s.icon;
                     const desc = s.id === "attachments" && driveLinkCount > 0
                       ? `${driveLinkCount} file${driveLinkCount !== 1 ? "s" : ""}`
