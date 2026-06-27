@@ -259,7 +259,7 @@ function LeaveRequestCard({
           {isManager && pendingManager && !portalAdmin && (
             <>
               <button onClick={() => setStatus("pending_hr")} className="btn btn-primary text-xs" data-testid={`forward-hr-${leave.id}`}>
-                <CheckCircle size={14} /> Forward to HR
+                <CheckCircle size={14} /> Approve
               </button>
               <button onClick={() => setStatus("rejected")} className="btn btn-outline text-xs" data-testid={`reject-${leave.id}`}>
                 <XCircle size={14} /> Reject

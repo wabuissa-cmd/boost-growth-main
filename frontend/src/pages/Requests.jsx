@@ -25,9 +25,42 @@ const STATUS_MAP = {
 
 const PENDING_MANAGER_STATUSES = new Set(["pending", "pending_manager"]);
 const PENDING_HR_STATUS = "pending_hr";
+/** UI-only key for Jinan manager review — saved as pending_hr */
+const MANAGER_APPROVE_KEY = "manager_approve";
+
+const MANAGER_REVIEW_STATUS_MAP = {
+  pending_manager: STATUS_MAP.pending_manager,
+  [MANAGER_APPROVE_KEY]: {
+    label: "Approve",
+    cls: "bg-[#E5EBE1] text-[#3D4F35] border-[#B4C2A9]",
+    icon: <CheckCircle size={14} weight="duotone"/>,
+    color: "#B4C2A9",
+  },
+  rejected: STATUS_MAP.rejected,
+};
 
 function isPendingManagerStatus(status) {
   return PENDING_MANAGER_STATUSES.has(status);
+}
+
+function managerReviewStatusOptions(currentStatus) {
+  if (isPendingManagerStatus(currentStatus)) {
+    return ["pending_manager", MANAGER_APPROVE_KEY, "rejected"];
+  }
+  if (currentStatus === "in_progress") {
+    return ["in_progress", MANAGER_APPROVE_KEY, "rejected"];
+  }
+  return ["pending_manager", MANAGER_APPROVE_KEY, "rejected"];
+}
+
+function resolveManagerSaveStatus(status, forwardToHr) {
+  if (status === MANAGER_APPROVE_KEY || status === PENDING_HR_STATUS) {
+    return PENDING_HR_STATUS;
+  }
+  if (forwardToHr && managerCanForwardToHr(status)) {
+    return PENDING_HR_STATUS;
+  }
+  return status;
 }
 
 function allowedStatusOptions(user, currentStatus) {
@@ -39,11 +72,8 @@ function allowedStatusOptions(user, currentStatus) {
   if (portalAdmin) {
     return Object.keys(STATUS_MAP);
   }
-  if (manager && effective === "in_progress") {
-    return ["in_progress", "rejected"];
-  }
-  if (manager && isPendingManagerStatus(effective)) {
-    return ["pending_manager", "in_progress", "rejected"];
+  if (manager && (effective === "in_progress" || isPendingManagerStatus(effective))) {
+    return managerReviewStatusOptions(effective);
   }
   if (hr && effective === PENDING_HR_STATUS) {
     return ["approved", "rejected", "in_progress", "done"];
@@ -252,13 +282,15 @@ export default function Requests({ personal = false, embedded = false, managerVi
       return;
     }
     if (statusEdit._queueKind === "leave") {
-      let finalStatus;
-      if (managerView && isManager && forwardToHr && managerCanForwardToHr(statusEdit.status)) {
-        finalStatus = "pending_hr";
-      } else if (statusEdit.status === "rejected") {
-        finalStatus = "rejected";
-      } else {
-        alert("Forward to HR or reject this leave request.");
+      const finalStatus = isManager
+        ? resolveManagerSaveStatus(statusEdit.status, forwardToHr)
+        : statusEdit.status;
+      if (isManager && finalStatus === "pending_manager") {
+        alert("Choose Approve to forward to HR, or Reject this leave request.");
+        return;
+      }
+      if (isManager && finalStatus !== "pending_hr" && finalStatus !== "rejected") {
+        alert("Choose Approve to forward to HR, or Reject this leave request.");
         return;
       }
       await api.put(`/leaves/${statusEdit.leaveId}/status`, {
@@ -270,9 +302,13 @@ export default function Requests({ personal = false, embedded = false, managerVi
       loadLeaves();
       return;
     }
-    const finalStatus = (managerView && isManager && forwardToHr && managerCanForwardToHr(statusEdit.status))
-      ? "pending_hr"
+    const finalStatus = isManager
+      ? resolveManagerSaveStatus(statusEdit.status, forwardToHr)
       : statusEdit.status;
+    if (isManager && finalStatus === "pending_manager") {
+      alert("Choose Approve to forward to HR, or Reject this request.");
+      return;
+    }
     await api.put(`/requests/${statusEdit.id}/status`, { status: finalStatus, admin_note: statusEdit.admin_note });
     setStatusEdit(null);
     setForwardToHr(false);
@@ -907,7 +943,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
               )}
               {managerView && (
                 <p className="text-sm -mt-2 mb-2" style={{ color: "#5C6853" }}>
-                  Request details are read-only. Set status, add a note, and choose whether to forward to HR — then Save & submit.
+                  Request details are read-only. Choose Pending, Approve (forwards to HR), or Reject — add an optional note, then Save & submit.
                 </p>
               )}
               {queueItemAwaitingAttachment(statusEdit) && (
@@ -1047,11 +1083,11 @@ export default function Requests({ personal = false, embedded = false, managerVi
               ))) && !queueItemAwaitingAttachment(statusEdit) && (
                 <FormSection title="Status">
                   <div className="grid grid-cols-1 gap-2">
-                    {(statusEdit._queueKind === "leave"
-                      ? ["pending_manager", "rejected"]
+                    {(managerView && isManager
+                      ? managerReviewStatusOptions(statusEdit.status)
                       : allowedStatusOptions(user, statusEdit.status)
                     ).map(k => {
-                      const v = STATUS_MAP[k] || STATUS_MAP.pending;
+                      const v = MANAGER_REVIEW_STATUS_MAP[k] || STATUS_MAP[k] || STATUS_MAP.pending;
                       return (
                         <button
                           key={k}
@@ -1074,27 +1110,10 @@ export default function Requests({ personal = false, embedded = false, managerVi
                     />
                   </FormField>
 
-                  {managerView && isManager && managerCanForwardToHr(statusEdit.status) && (
-                    <div className="mt-4 pt-4 border-t" style={{ borderColor: "#EDE9E3" }}>
-                      <div className="text-xs font-bold uppercase tracking-widest mb-2" style={{ color: "#5C6853" }}>
-                        Forward to HR
-                      </div>
-                      <label className="flex items-start gap-3 cursor-pointer text-sm rounded-xl p-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
-                        <input
-                          type="checkbox"
-                          data-testid="forward-to-hr-checkbox"
-                          className="mt-0.5 w-4 h-4 accent-[#5C8A47]"
-                          checked={forwardToHr}
-                          onChange={e => setForwardToHr(e.target.checked)}
-                        />
-                        <span style={{ color: "#2C3625" }}>
-                          Yes — forward this request to HR after saving
-                          <span className="block text-xs mt-1" style={{ color: "#8B9E7A" }}>
-                            Optional — leave unchecked to save status only
-                          </span>
-                        </span>
-                      </label>
-                    </div>
+                  {managerView && isManager && statusEdit.status === MANAGER_APPROVE_KEY && (
+                    <p className="text-xs mt-2" style={{ color: "#5C6853" }}>
+                      Approve sends this request to HR for final approval. The therapist will be notified.
+                    </p>
                   )}
                 </FormSection>
               )}
