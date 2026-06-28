@@ -100,6 +100,11 @@ export function hasFullClientAccess(user) {
   return isClientLead(user);
 }
 
+/** Supervision caseload page — ops leads + admin + HR */
+export function canViewSupervisionCaseload(user) {
+  return hasFullClientAccess(user);
+}
+
 /** Email admin login — technical portal admin only (excludes HR ops) */
 export function isPortalAdmin(user) {
   if (!user) return false;

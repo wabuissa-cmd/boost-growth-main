@@ -1,6 +1,6 @@
 import { Component, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth, isJenan, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, hasFullClientAccess, showSystemAdmin, canImportData, canViewReports, showMyReportsNav } from "./auth";
+import { AuthProvider, useAuth, isJenan, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, hasFullClientAccess, showSystemAdmin, canImportData, canViewReports, showMyReportsNav, canViewSupervisionCaseload } from "./auth";
 import Login from "./pages/Login";
 import Shell from "./pages/Shell";
 import AuthenticatedFileViewer from "./components/AuthenticatedFileViewer";
@@ -27,6 +27,7 @@ const Billing = lazy(() => import("./pages/Billing"));
 const TherapistMyReports = lazy(() => import("./pages/TherapistMyReports"));
 const ManagerHub = lazy(() => import("./pages/ManagerHub"));
 const Purchases = lazy(() => import("./pages/Purchases"));
+const SupervisionCaseload = lazy(() => import("./pages/SupervisionCaseload"));
 const DesignPreview = lazy(() => import("./pages/DesignPreview"));
 
 function Loading() {
@@ -125,6 +126,14 @@ function MyReportsAccess({ children }) {
   return children;
 }
 
+function SupervisionAccess({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <Loading/>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!canViewSupervisionCaseload(user)) return <Navigate to="/home" replace />;
+  return children;
+}
+
 function ImportAccess({ children }) {
   const { user } = useAuth();
   if (user === null) return <Loading/>;
@@ -150,6 +159,7 @@ function AppRoutes() {
         <Route path="/attendance" element={<Attendance/>}/>
         <Route path="/billing" element={<OpsOnly><Billing/></OpsOnly>}/>
         <Route path="/clients" element={<Clients/>}/>
+        <Route path="/supervision" element={<SupervisionAccess><SupervisionCaseload/></SupervisionAccess>}/>
         <Route path="/intake" element={<IntakeAccess><Intake/></IntakeAccess>}/>
         <Route path="/waiting/intake" element={<IntakeAccess><IntakeWaiting/></IntakeAccess>}/>
         <Route path="/waiting/school" element={<IntakeAccess><SchoolWaiting/></IntakeAccess>}/>

@@ -2417,6 +2417,57 @@ async def list_clients(user=Depends(get_current_user)):
     uid = user["id"]
     return [c for c in items if c.get("main_therapist_id") == uid or uid in (c.get("co_therapist_ids") or [])]
 
+
+@api.get("/clients/supervision-caseload")
+async def supervision_caseload(user=Depends(get_current_user)):
+    """Caseload split by clinical supervisor (Ms. Fahda / Ms. Maha) for ops leads."""
+    if not _has_full_client_access(user):
+        raise HTTPException(status_code=403, detail="Access denied")
+    clients = await db.clients.find(_active_client_filter(), {"_id": 0}).sort("file_no", 1).to_list(500)
+    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
+    t_by_id = {t["id"]: t.get("name") for t in therapists}
+    buckets: dict = {"fahda": [], "maha": [], "other": []}
+
+    def _service_label(c: dict) -> Optional[str]:
+        st = c.get("service_type")
+        if st:
+            return _normalize_service_type(st) or str(st).strip()
+        locs = c.get("locations") or []
+        types = sorted({l.get("service_type") for l in locs if l.get("service_type")})
+        if types:
+            return " / ".join(types)
+        return None
+
+    for c in clients:
+        bucket = _supervisor_bucket(c.get("supervisor"))
+        main_name = t_by_id.get(c.get("main_therapist_id"))
+        row = {
+            "id": c.get("id"),
+            "file_no": str(c.get("file_no") or "").zfill(3) if c.get("file_no") else None,
+            "name": c.get("name"),
+            "supervisor": c.get("supervisor"),
+            "service": _service_label(c),
+            "status": c.get("status") or "Active",
+            "main_therapist": main_name,
+        }
+        if bucket in ("fahda", "maha"):
+            buckets[bucket].append(row)
+        else:
+            buckets["other"].append(row)
+
+    return {
+        "fahda": buckets["fahda"],
+        "maha": buckets["maha"],
+        "other": buckets["other"],
+        "counts": {
+            "fahda": len(buckets["fahda"]),
+            "maha": len(buckets["maha"]),
+            "other": len(buckets["other"]),
+            "active_fahda": sum(1 for r in buckets["fahda"] if (r.get("status") or "Active") != "Inactive"),
+            "active_maha": sum(1 for r in buckets["maha"] if (r.get("status") or "Active") != "Inactive"),
+        },
+    }
+
 async def _resolve_user_therapist_id(user: dict) -> Optional[str]:
     """Map logged-in user to therapist id (handles client-lead admin logins)."""
     uid = user.get("id")
@@ -2567,6 +2618,36 @@ SUPERVISOR_CLIENT_FILES = {
     "msMaha": ["035", "037", "038", "040", "041", "042", "047", "052", "054", "060", "063", "065", "070"],
     "msFahda": ["009", "011", "018", "023", "024", "027", "030", "034", "061", "062", "068", "072", "079"],
 }
+
+_SUPERVISOR_BUCKET_LABELS = {"fahda": "Ms. Fahda", "maha": "Ms. Maha", "jenan": "Ms. Jenan"}
+
+
+def _supervisor_bucket(supervisor: Optional[str]) -> Optional[str]:
+    """Map free-text supervisor labels to canonical buckets: fahda, maha, jenan."""
+    if not supervisor:
+        return None
+    s = str(supervisor).strip().lower()
+    s = re.sub(r"^ms\.?\s*", "", s)
+    if s.startswith("fahd"):
+        return "fahda"
+    if s.startswith("maha"):
+        return "maha"
+    if s.startswith("jenan"):
+        return "jenan"
+    return None
+
+
+def _normalize_supervisor_value(val) -> Optional[str]:
+    """Normalize Excel/portal supervisor spellings (Fahdah, Fahdh, Maha, …) to display names."""
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s or s.lower() in ("nan", "none"):
+        return None
+    bucket = _supervisor_bucket(s)
+    if bucket:
+        return _SUPERVISOR_BUCKET_LABELS[bucket]
+    return s
 
 async def _client_file_no(client_id: str) -> Optional[str]:
     c = await db.clients.find_one(_active_client_filter({"id": client_id}), {"_id": 0, "file_no": 1})
@@ -9331,11 +9412,11 @@ async def import_clients(
     therapists = await db.therapists.find({}, {"_id": 0}).to_list(100)
     t_by_name = {t["name"].lower(): t["id"] for t in therapists}
     for r in rows:
-        name = r.get("name") or r.get("child_name") or r.get("full_name")
+        name = r.get("name") or r.get("child_name") or r.get("client_name") or r.get("full_name")
         if not name:
             skipped += 1
             continue
-        file_no_raw = str(r.get("file_no") or r.get("id") or r.get("file") or "").strip()
+        file_no_raw = str(r.get("file_no") or r.get("file_number") or r.get("id") or r.get("file") or "").strip()
         if not file_no_raw or not file_no_raw.replace("0", "").isdigit():
             skipped += 1
             continue
@@ -9343,11 +9424,13 @@ async def import_clients(
         file_nos_in_file.add(file_no)
         main_name = (r.get("main_therapist") or r.get("main") or "").strip().lower() if r.get("main_therapist") or r.get("main") else None
         main_id = t_by_name.get(main_name) if main_name else None
+        svc_raw = r.get("service") or r.get("service_type")
         doc = {
             "name": str(name).strip(),
             "file_no": file_no,
             "package_hours": float(r.get("package_hours") or r.get("pkg") or 24),
-            "supervisor": r.get("supervisor"),
+            "supervisor": _normalize_supervisor_value(r.get("supervisor")),
+            "service_type": str(svc_raw).strip() if svc_raw else None,
             "main_therapist_id": main_id,
             "co_therapist_ids": [],
             "color": r.get("color") or "#A2C4C9",

@@ -1,13 +1,13 @@
 import { useEffect, useState, useRef, Suspense, useMemo } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData, isWalaaOps, showMyPortalNav, showMyReportsNav, isJenan, canViewReports, directManagerLabel } from "../auth";
+import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData, isWalaaOps, showMyPortalNav, showMyReportsNav, isJenan, canViewReports, directManagerLabel, canViewSupervisionCaseload } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch, cachedGet } from "../dataCache";
 import { getPortalDisplayName } from "../scheduleConstants";
 import {
   House, CalendarBlank,   ClipboardText, UsersThree, Receipt,
   Bell, SignOut,   ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, CaretDown, Folder, UserCircle,
-  SidebarSimple, Rows, ShoppingBag, FileText, Buildings, Hourglass,
+  SidebarSimple, Rows, ShoppingBag, FileText, Buildings, Hourglass, Eye,
 } from "@phosphor-icons/react";
 
 import SidebarNav from "../components/SidebarNav";
@@ -39,6 +39,9 @@ const ROUTE_PREFETCH = {
     prefetch("/clients");
     prefetch("/therapists");
     prefetch("/clients/package-status");
+  },
+  "/supervision": () => {
+    prefetch("/clients/supervision-caseload");
   },
   "/waiting/intake": () => { prefetch("/intake"); },
   "/waiting/school": () => { prefetch("/intake"); },
@@ -107,6 +110,9 @@ export default function Shell() {
     { to: "/attendance", label: "Session Preparation", testid: "nav-attendance", icon: <ClipboardText size={18} weight="duotone"/> },
     ...(showBilling ? [{ to: "/billing", label: "Billing & Payments", testid: "nav-billing", icon: <Receipt size={18} weight="duotone"/> }] : []),
     { to: "/clients", label: "Client Info", testid: "nav-clients", icon: <UsersThree size={18} weight="duotone"/> },
+    ...(canViewSupervisionCaseload(user)
+      ? [{ to: "/supervision", label: "Supervision", testid: "nav-supervision", icon: <Eye size={18} weight="duotone"/> }]
+      : []),
   ];
 
   const baseLinks = [
