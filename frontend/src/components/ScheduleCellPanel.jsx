@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { X, FloppyDisk, BellRinging, WhatsappLogo } from "@phosphor-icons/react";
 import { DAYS_EN, TIME_SLOTS, SERVICE_CODES } from "../api";
 import { DURATION_OPTIONS, getTherapistScheduleName } from "../scheduleConstants";
-import { SERVICE_CELL_COLORS, resolveClientScheduleColor, findClientForScheduleCell } from "../scheduleUtils";
+import { SERVICE_CELL_COLORS, resolveClientScheduleColor, findClientForScheduleCell, scheduleCellDisplayLabel } from "../scheduleUtils";
 import { ModalBtnPrimary, ModalBtnSecondary } from "./Modal";
 import { buildTherapistCancellationMessage, buildWhatsAppUrl } from "../scheduleParentMessages";
 
@@ -47,6 +47,7 @@ export default function ScheduleCellPanel({
   saving,
   canParentCancellationOps = false,
   weekStart,
+  mergedSlotCount = 0,
 }) {
   const [clientOpen, setClientOpen] = useState(false);
   const [cancelNotify, setCancelNotify] = useState(null);
@@ -82,6 +83,11 @@ export default function ScheduleCellPanel({
   const previewColor = form.service_code === "AVAILABLE" || form.state === "available"
     ? "#FFFFFF"
     : clientColor || SERVICE_CELL_COLORS[form.service_code]?.background || "#E5EBE1";
+  const serviceShort = SERVICE_CODES.find(s => s.id === form.service_code)?.short;
+  const previewLabel = form.state === "available" || form.service_code === "AVAILABLE"
+    ? "Available"
+    : scheduleCellDisplayLabel(form, serviceShort);
+  const effectiveDuration = Math.max(parseFloat(form.duration) || 1, mergedSlotCount || 0);
 
   const pickService = (code) => {
     if (code === "AVAILABLE") {
@@ -141,11 +147,7 @@ export default function ScheduleCellPanel({
             <div className="w-10 h-10 rounded-lg border flex-shrink-0" style={{ background: previewColor, borderColor: "#DDD8D0" }} />
             <div className="text-xs flex items-center gap-1.5 min-w-0" style={{ color: "#5C6853" }}>
               {form.child_name && clientColor && <ClientColorDot color={clientColor} size={10} />}
-              <span className="truncate">
-                {form.state === "available" || form.service_code === "AVAILABLE"
-                  ? "Available"
-                  : form.child_name || form.note || SERVICE_CODES.find(s => s.id === form.service_code)?.short || "Session"}
-              </span>
+              <span className="truncate">{previewLabel || "Session"}</span>
             </div>
           </div>
         </div>
@@ -171,21 +173,43 @@ export default function ScheduleCellPanel({
             {!META_CODES.has(form.service_code) && form.state !== "available" && (
               <div>
                 <label className="block text-xs font-semibold mb-1.5" style={{ color: "#374151" }}>Client name</label>
-                <div className="relative">
+                <div className="relative flex gap-1.5">
+                  <div className="relative flex-1 flex items-center gap-2 min-w-0">
+                    {clientColor ? <ClientColorDot color={clientColor} /> : <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: "#E5E7EB" }} />}
+                    <input
+                      type="text"
+                      data-testid="cell-child-input"
+                      list="schedule-client-suggestions"
+                      className="modal-input flex-1 min-w-0"
+                      placeholder="Type client name…"
+                      value={form.child_name || ""}
+                      onChange={(e) => {
+                        const name = e.target.value;
+                        const color = name.trim() ? resolveClientScheduleColor(name, clients) : null;
+                        setForm(f => ({ ...f, child_name: name || null, color: color || null }));
+                      }}
+                    />
+                    <datalist id="schedule-client-suggestions">
+                      {clients.map(c => (
+                        <option key={c.id} value={c.name} />
+                      ))}
+                    </datalist>
+                  </div>
                   <button
                     type="button"
-                    data-testid="cell-child-input"
-                    className="modal-input w-full text-left flex items-center gap-2"
+                    className="modal-input px-2.5 shrink-0 text-xs font-semibold"
+                    style={{ color: "#5C6853", minWidth: 44 }}
                     onClick={() => setClientOpen(o => !o)}
+                    title="Pick from client list"
+                    aria-label="Pick from client list"
                   >
-                    {clientColor ? <ClientColorDot color={clientColor} /> : <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: "#E5E7EB" }} />}
-                    <span className="flex-1 truncate">{form.child_name || "Select client..."}</span>
+                    List
                   </button>
                   {clientOpen && (
                     <>
                       <div className="fixed inset-0 z-[60]" onClick={() => setClientOpen(false)} aria-hidden />
                       <div
-                        className="absolute left-0 right-0 top-full mt-1 z-[61] max-h-48 overflow-y-auto rounded-lg border shadow-lg bg-white py-1"
+                        className="absolute right-0 left-0 top-full mt-1 z-[61] max-h-48 overflow-y-auto rounded-lg border shadow-lg bg-white py-1"
                         style={{ borderColor: "#E2DDD4" }}
                       >
                         {clients.map(c => {
@@ -224,7 +248,14 @@ export default function ScheduleCellPanel({
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold mb-1.5" style={{ color: "#374151" }}>Duration (hours)</label>
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <label className="text-xs font-semibold" style={{ color: "#374151" }}>Duration (hours)</label>
+                  {effectiveDuration > 1 && (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+                      Merged: {effectiveDuration} hour{effectiveDuration === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </div>
                 <select
                   className="modal-input"
                   value={form.duration || 1}
@@ -238,8 +269,16 @@ export default function ScheduleCellPanel({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold mb-1.5" style={{ color: "#374151" }}>Note</label>
-              <input className="modal-input" value={form.note || ""} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} />
+              <label className="block text-xs font-semibold mb-1.5" style={{ color: "#374151" }}>
+                Cell label (shown in grid)
+              </label>
+              <input
+                className="modal-input"
+                data-testid="cell-label-input"
+                placeholder="e.g. SS | Mohammed — overrides default display"
+                value={form.note || ""}
+                onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
+              />
             </div>
 
             {form.id && form.state !== "available" && form.service_code !== "AVAILABLE" && (

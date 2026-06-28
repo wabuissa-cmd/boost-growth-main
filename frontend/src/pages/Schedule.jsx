@@ -101,6 +101,7 @@ function cellClassName(cell, isAdmin, leaveInfo, selected, copied, prepDone = fa
   if (cell) {
     parts.push("has-event");
     if (cell.state === "available" || cell.service_code === "AVAILABLE") parts.push("cell-available");
+    if (prepDone) parts.push("has-prep-badge");
   } else {
     parts.push("cell-empty");
   }
@@ -592,11 +593,20 @@ export default function Schedule() {
   };
 
   const openPanel = (therapist_id, day, time_slot, existing) => {
+    const selectionDuration = selection?.therapist_id === therapist_id
+      && selection?.day === day
+      && selection?.slots?.length > 1
+      && selection.slots.includes(time_slot)
+      ? clampMergeSlotCount(selection.slots.length)
+      : null;
     const form = existing ? { ...existing } : {
       therapist_id, day, time_slot,
       service_code: "SS", child_name: "", state: "normal",
       week_start: weekStartISO, color: null, duration: 1,
     };
+    if (selectionDuration != null) {
+      form.duration = selectionDuration;
+    }
     setPanelForm(form);
     setSelection({ therapist_id, day, slots: [time_slot] });
     setSelectAnchor({ therapist_id, day, time_slot });
@@ -758,7 +768,13 @@ export default function Schedule() {
       const valid = range
         .filter(ts => isSlotSelectable(therapist_id, day, ts, cellMap, coveredSet))
         .slice(0, MAX_SCHEDULE_MERGE_SLOTS);
-      if (valid.length) setSelection({ therapist_id, day, slots: valid });
+      if (valid.length) {
+        const duration = clampMergeSlotCount(valid.length);
+        setSelection({ therapist_id, day, slots: valid });
+        if (panelOpen && panelForm) {
+          setPanelForm(f => ({ ...f, duration }));
+        }
+      }
       return;
     }
     openPanel(therapist_id, day, time_slot, existing);
@@ -1045,12 +1061,14 @@ export default function Schedule() {
                     const colSpan = scheduleDisplaySpan(cell);
                     const baseStyle = getSheetCellStyle(cell, clients);
                     const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
+                    const showPrepBadge = opsCanSeeAllPreps && isScheduleClientLogCell(cell)
+                      && isCellPrepComplete(prepLookup, cell, t.id, di, weekStartISO, clients);
                     return (
                       <td
                         key={ts}
                         colSpan={colSpan}
                         data-testid={`sheet-cell-${t.id}-${di}-${ts}`}
-                        className={cellClassName(cell, canEditRow(t.id), leaveInfo, isSelected(t.id, di, ts), isCopied(t.id, di, ts))}
+                        className={cellClassName(cell, canEditRow(t.id), leaveInfo, isSelected(t.id, di, ts), isCopied(t.id, di, ts), showPrepBadge)}
                         style={cellStyle}
                         onClick={(e) => handleCellClick(e, t.id, di, ts, cell)}
                         onContextMenu={canNotifySchedule ? (e) => onCtx(e, cell, t.id, di, ts) : undefined}
@@ -1059,6 +1077,7 @@ export default function Schedule() {
                         onTouchEnd={onCellTouchEnd}
                       >
                         {renderCellMenuBtn(cell, t.id, di, ts)}
+                        {showPrepBadge && <SchedulePrepBadge />}
                         {cell && <CellContent cell={cell} sc={sc} />}
                       </td>
                     );
@@ -1139,7 +1158,7 @@ export default function Schedule() {
                   const colSpan = scheduleDisplaySpan(cell);
                   const baseStyle = getSheetCellStyle(cell, clients);
                   const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
-                  const showPrepBadge = isScheduleClientLogCell(cell)
+                  const showPrepBadge = opsCanSeeAllPreps && isScheduleClientLogCell(cell)
                     && isCellPrepComplete(prepLookup, cell, therapist.id, di, weekStartISO, clients);
                   return (
                     <td key={ts} className={cellClassNameBlock(cell, canEditRow(therapist.id), leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts), canQuickLog && therapist.id === selfTherapist?.id, showPrepBadge)}
@@ -1177,7 +1196,9 @@ export default function Schedule() {
         subtitle={isAdmin
           ? "Right-click any cell for actions · Click to edit · Drag to select multiple slots"
           : scheduleLead && view === "sheet"
-            ? "Team schedule — right-click or click therapist name or any cell to edit"
+            ? opsCanSeeAllPreps
+              ? "Team schedule — green ✓ = session prepared"
+              : "Team schedule — right-click or click therapist name or any cell to edit"
             : view === "blocks"
               ? opsCanSeeAllPreps
                 ? "Per therapist — green ✓ = session prepared"
@@ -1426,6 +1447,11 @@ export default function Schedule() {
           saving={panelSaving}
           canParentCancellationOps={parentCancelOps}
           weekStart={weekStartISO}
+          mergedSlotCount={
+            selection?.therapist_id === panelForm.therapist_id && selection?.day === panelForm.day
+              ? selection.slots?.length || 0
+              : 0
+          }
         />
       )}
 

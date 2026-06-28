@@ -300,7 +300,7 @@ export function scheduleCellChildName(cell) {
   if (META_SERVICE_CODES.has(cell.service_code)) return null;
 
   if (note.includes("|")) {
-    const part = note.split("|", 1)[1]?.trim();
+    const part = note.split("|").slice(1).join("|").trim();
     if (part) return part.replace(/\s*\([^)]*\)\s*$/, "").trim() || null;
   }
 

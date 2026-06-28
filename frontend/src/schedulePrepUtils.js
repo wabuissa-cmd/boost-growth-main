@@ -39,6 +39,8 @@ export function prepKeysForCell(cell, therapistId, day, weekStart, clientId) {
 }
 
 export function isCellPrepComplete(prepLookup, cell, therapistId, day, weekStart, clients) {
+  if (!cell) return false;
+  if (cell.id && prepLookup.has(`cell:${cell.id}`)) return true;
   if (!isScheduleClientLogCell(cell)) return false;
   const client = findClientForScheduleCell(scheduleCellChildName(cell), clients);
   if (!client) return false;
