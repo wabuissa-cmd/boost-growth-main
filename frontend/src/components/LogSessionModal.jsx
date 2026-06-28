@@ -1,6 +1,7 @@
 import { useState } from "react";
 import api, { toISODate } from "../api";
 import { resolveSessionTherapistIds } from "../attendanceUtils";
+import { hasFullClientAccess, isHrOps } from "../auth";
 import {
   CheckCircle, Warning, XCircle, Clock, MapPin,
 } from "@phosphor-icons/react";
@@ -52,6 +53,8 @@ export default function LogSessionModal({
   const defaultLoc = client?.locations?.[0];
   const initialSvc = prefill?.service_type || defaultLoc?.service || client?.service_type || "HS";
   const selfTherapistId = resolveSelfTherapist(currentUser, therapists)?.id;
+  const canPickAnyDate = hasFullClientAccess(currentUser) || isHrOps(currentUser);
+  const todayISO = toISODate(new Date());
   const [form, setForm] = useState(() => {
     if (session) return { ...session };
     const start = prefill?.start_time || "14:00";
@@ -72,6 +75,14 @@ export default function LogSessionModal({
 
   const submit = async (e) => {
     e.preventDefault();
+    if (!canPickAnyDate && (form.session_date || "").slice(0, 10) !== todayISO) {
+      alert("التحضير مسموح فقط في يوم الجلسة.\nPreparation is only allowed on the session day.");
+      return;
+    }
+    if (form.status === "No Service") {
+      alert("No Service is no longer available. Choose Completed, Cancelled, or No Show.");
+      return;
+    }
     const payload = { ...form, hours: computeHours(form.start_time, form.end_time) };
     if (session?.id) await api.put(`/sessions/${session.id}`, payload);
     else await api.post("/sessions", payload);
@@ -133,7 +144,7 @@ export default function LogSessionModal({
         )}
         <FormSection title="Status">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {STATUS_OPTS.map(s => {
+            {STATUS_OPTS.filter(s => s.id !== "No Service").map(s => {
               const Icon = s.icon;
               const active = form.status === s.id;
               return (
@@ -189,8 +200,17 @@ export default function LogSessionModal({
           )}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <FormField label="Date" required>
-              <input data-testid="sess-date" type="date" className="modal-input" required value={form.session_date}
-                onChange={e => setForm({ ...form, session_date: e.target.value })} />
+              <input
+                data-testid="sess-date"
+                type="date"
+                className="modal-input"
+                required
+                value={form.session_date}
+                min={canPickAnyDate ? undefined : todayISO}
+                max={canPickAnyDate ? undefined : todayISO}
+                readOnly={!canPickAnyDate && !session}
+                onChange={e => setForm({ ...form, session_date: e.target.value })}
+              />
             </FormField>
             <FormField label="From">
               <input type="time" className="modal-input" value={form.start_time}

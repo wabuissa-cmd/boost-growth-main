@@ -72,6 +72,9 @@ html, body {
 .login-page {
     min-height: 100vh;
     min-height: 100dvh;
+    height: 100dvh;
+    overflow: hidden;
+    overscroll-behavior: none;
 }
 /* Ensure inner page content can't force the layout wider than the viewport */
 main, .page-enter { min-width: 0; }
@@ -427,12 +430,17 @@ main, .page-enter { min-width: 0; }
     bottom: -50px;
     left: -30px;
     width: 280px;
-    animation: leaf-float 8s ease-in-out infinite;
+}
+@media (min-width: 768px) {
+    .login-watermark {
+        animation: leaf-float 8s ease-in-out infinite;
+    }
 }
 .login-form-card {
     border-radius: var(--radius-card);
     border: 1px solid rgba(255, 255, 255, 0.35);
     box-shadow: 0 20px 50px rgba(44, 54, 37, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.1);
+    transform: translateZ(0);
 }
 @media (min-width: 768px) {
     .login-mobile-bg {

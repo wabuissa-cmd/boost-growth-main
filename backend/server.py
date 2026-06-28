@@ -639,6 +639,8 @@ class SchedulePreparationClearIn(BaseModel):
     suppress_badge: bool = True
     """When true, also remove matching rows from Session Preparation history."""
     delete_prep_history: bool = False
+    """When true, delete logged sessions for this therapist + client + date."""
+    delete_sessions: bool = False
 
 class PrepHistoryInvoiceLinkIn(BaseModel):
     invoice_id: Optional[str] = None
@@ -2005,7 +2007,20 @@ async def _sync_prep_history_to_schedule_markers(start: str, end: str) -> None:
             logger.exception("sync prep_history to schedule marker %s", row.get("id"))
 
 
-_LOGGED_PREP_SESSION_STATUSES = {"Completed", "Cancelled", "No Show", "No Service"}
+_LOGGED_PREP_SESSION_STATUSES = {"Completed"}
+
+
+def _require_same_day_session(user: dict, session_date: str) -> None:
+    """Therapists may only log/prepare sessions on the session day (not future days)."""
+    if _has_full_client_access(user) or _is_hr_ops(user):
+        return
+    sd = (session_date or "")[:10]
+    today = now_iso()[:10]
+    if sd != today:
+        raise HTTPException(
+            status_code=400,
+            detail="Preparation is only allowed on the session day (today).",
+        )
 
 
 async def _computed_schedule_preparation_markers(
@@ -2141,6 +2156,26 @@ async def _list_prep_suppressions(start: str, end: str, therapist_id: Optional[s
     return await db.schedule_prep_suppressions.find(q, {"_id": 0}).to_list(2000)
 
 
+async def _delete_sessions_for_prep_slot(
+    therapist_id: str,
+    client_id: str,
+    session_date: str,
+) -> int:
+    """Delete logged sessions that drove a green prep badge for this slot."""
+    sd = (session_date or "")[:10]
+    deleted = 0
+    sessions = await db.sessions.find(
+        {"client_id": client_id, "session_date": sd},
+        {"_id": 0, "id": 1, "therapist_ids": 1},
+    ).to_list(200)
+    for sess in sessions:
+        if therapist_id not in (sess.get("therapist_ids") or []):
+            continue
+        await db.sessions.delete_one({"id": sess["id"]})
+        deleted += 1
+    return deleted
+
+
 async def _clear_schedule_preparation_marker(
     *,
     therapist_id: str,
@@ -2150,11 +2185,13 @@ async def _clear_schedule_preparation_marker(
     time_slot: Optional[str] = None,
     suppress_badge: bool = True,
     delete_prep_history: bool = False,
+    delete_sessions: bool = False,
     suppressed_by: str = "",
 ) -> dict:
     """Remove prep markers and optionally suppress the green schedule badge."""
     sd = (session_date or "")[:10]
     slot = (time_slot or "").strip()
+    sessions_deleted = 0
     if schedule_cell_id:
         await db.schedule_preparations.delete_many({
             "therapist_id": therapist_id,
@@ -2173,6 +2210,8 @@ async def _clear_schedule_preparation_marker(
         if slot:
             hist_q["time_slot"] = slot
         await db.prep_history.delete_many(hist_q)
+    if delete_sessions:
+        sessions_deleted = await _delete_sessions_for_prep_slot(therapist_id, client_id, sd)
     if suppress_badge:
         doc = {
             "id": str(uuid.uuid4()),
@@ -2194,7 +2233,7 @@ async def _clear_schedule_preparation_marker(
         )
         if not existing:
             await db.schedule_prep_suppressions.insert_one(doc)
-    return {"ok": True}
+    return {"ok": True, "sessions_deleted": sessions_deleted}
 
 
 async def _cleanup_prep_for_deleted_session(sess: dict) -> None:
@@ -2258,10 +2297,9 @@ async def list_schedule_preparations(
     db_items = await db.schedule_preparations.find(q, {"_id": 0}).to_list(2000)
     computed = await _computed_schedule_preparation_markers(start, end, tid)
     suppressions = await _list_prep_suppressions(start, end, tid)
-    items = _filter_suppressed_markers(
-        _merge_schedule_preparation_markers(db_items, computed),
-        suppressions,
-    )
+    merged = _merge_schedule_preparation_markers(db_items, computed)
+    items = _filter_suppressed_markers(merged, suppressions)
+    # Also drop computed session markers blocked by suppression (frontend uses week sessions too).
     return {"items": items, "suppressions": suppressions}
 
 
@@ -2282,6 +2320,7 @@ async def clear_schedule_preparation(payload: SchedulePreparationClearIn, user=D
         time_slot=payload.time_slot,
         suppress_badge=payload.suppress_badge,
         delete_prep_history=payload.delete_prep_history,
+        delete_sessions=payload.delete_sessions,
         suppressed_by=user["id"],
     )
 
@@ -2289,6 +2328,7 @@ async def clear_schedule_preparation(payload: SchedulePreparationClearIn, user=D
 @api.post("/schedule/preparations")
 async def mark_schedule_preparation(payload: SchedulePreparationIn, user=Depends(get_current_user)):
     """Mark preparation complete for a scheduled session slot."""
+    _require_same_day_session(user, payload.session_date)
     if user.get("role") == "therapist" and not _has_full_client_access(user):
         uid = await _resolve_user_therapist_id(user) or user.get("id")
         if payload.therapist_id != uid:
@@ -2352,6 +2392,7 @@ async def delete_prep_history(hid: str, user=Depends(get_current_user)):
         time_slot=rec.get("time_slot"),
         suppress_badge=True,
         delete_prep_history=False,
+        delete_sessions=True,
         suppressed_by=user["id"],
     )
     return {"ok": True}
@@ -6051,6 +6092,9 @@ def _attach_open_invoice_to_session(doc: dict, client: dict, invoices: list) -> 
 
 @api.post("/sessions")
 async def create_session(payload: SessionIn, user=Depends(get_current_user)):
+    if (payload.status or "").strip() == "No Service":
+        raise HTTPException(status_code=400, detail="No Service is no longer available")
+    _require_same_day_session(user, payload.session_date)
     sid = str(uuid.uuid4())
     therapist_ids = payload.therapist_ids or []
     if user.get("role") == "therapist":
@@ -6130,6 +6174,9 @@ async def update_session(sid: str, payload: SessionIn, user=Depends(get_current_
         raise HTTPException(status_code=403, detail="Forbidden")
     if not _session_editable_by_user(user, sess):
         raise HTTPException(status_code=403, detail="Sessions can only be edited on the same day. Contact admin for changes.")
+    if (payload.status or "").strip() == "No Service":
+        raise HTTPException(status_code=400, detail="No Service is no longer available")
+    _require_same_day_session(user, payload.session_date)
     await db.sessions.update_one({"id": sid}, {"$set": payload.model_dump()})
     return await db.sessions.find_one({"id": sid}, {"_id": 0})
 

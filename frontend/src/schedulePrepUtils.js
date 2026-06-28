@@ -1,7 +1,8 @@
 import { addDays, toISODate } from "./api";
 import { findClientForScheduleCell, isScheduleClientLogCell, normScheduleName, scheduleCellChildName } from "./scheduleUtils";
 
-const LOGGED_PREP_STATUSES = new Set(["Completed", "Cancelled", "No Show", "No Service"]);
+/** Only completed sessions count as prepared (green checkmark). */
+const LOGGED_PREP_STATUSES = new Set(["Completed"]);
 
 /** Build lookup keys for a prep record returned by the API. */
 export function prepRecordKeys(rec) {
@@ -52,8 +53,9 @@ export function buildSuppressionLookup(suppressions) {
 }
 
 function isPrepSuppressed(suppressionLookup, therapistId, sessionDate, clientId, cell) {
-  if (!suppressionLookup?.size || !clientId) return false;
+  if (!suppressionLookup?.size) return false;
   if (cell?.id && suppressionLookup.has(`suppress:cell:${cell.id}`)) return true;
+  if (!clientId) return false;
   if (cell?.id && suppressionLookup.has(`suppress:${therapistId}|${clientId}|${sessionDate}|${cell.id}`)) return true;
   if (suppressionLookup.has(`suppress:${therapistId}|${clientId}|${sessionDate}`)) return true;
   return false;
@@ -78,7 +80,13 @@ function addPrepMarkKeys(set, tid, cid, date, idAliases) {
 }
 
 /** Logged sessions → therapist + client + date keys (primary source of truth). */
-export function buildSessionPrepLookup(sessions, weekStartISO, weekEndISO, idAliases = null) {
+export function buildSessionPrepLookup(
+  sessions,
+  weekStartISO,
+  weekEndISO,
+  idAliases = null,
+  suppressionLookup = null,
+) {
   const set = new Set();
   for (const s of sessions || []) {
     const date = (s.session_date || "").slice(0, 10);
@@ -87,6 +95,7 @@ export function buildSessionPrepLookup(sessions, weekStartISO, weekEndISO, idAli
     const cid = s.client_id;
     if (!cid) continue;
     for (const tid of s.therapist_ids || []) {
+      if (suppressionLookup?.has(`suppress:${tid}|${cid}|${date}`)) continue;
       addPrepMarkKeys(set, tid, cid, date, idAliases);
     }
   }
@@ -176,7 +185,7 @@ export function isCellPrepComplete(
   const childName = scheduleCellChildName(cell);
   const client = childName ? findClientForScheduleCell(childName, clients) : null;
 
-  if (client && isPrepSuppressed(suppressionLookup, therapistId, sessionDate, client.id, cell)) {
+  if (isPrepSuppressed(suppressionLookup, therapistId, sessionDate, client?.id, cell)) {
     return false;
   }
 

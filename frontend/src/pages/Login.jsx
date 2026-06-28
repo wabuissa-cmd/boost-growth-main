@@ -33,7 +33,7 @@ function ChooseButtons({ onAdmin, onTherapist }) {
       <button
         data-testid="login-as-admin-btn"
         onClick={onAdmin}
-        className="w-full mb-3 p-4 rounded-2xl text-white flex items-center gap-3 transition-all active:scale-[0.99] shadow-md min-h-[52px]"
+        className="w-full mb-3 p-4 rounded-2xl text-white flex items-center gap-3 transition shadow-md min-h-[52px]"
         style={{ background: "#6B8F71" }}
       >
         <ShieldCheck size={28} weight="duotone" />
@@ -46,7 +46,7 @@ function ChooseButtons({ onAdmin, onTherapist }) {
       <button
         data-testid="login-as-therapist-btn"
         onClick={onTherapist}
-        className="w-full p-4 rounded-2xl flex items-center gap-3 transition-all active:scale-[0.99] min-h-[52px]"
+        className="w-full p-4 rounded-2xl flex items-center gap-3 transition min-h-[52px]"
         style={{ background: "#EDE1C9", color: "#2F4A35" }}
       >
         <UserCircle size={28} weight="duotone" color="#6B8F71" />
@@ -157,15 +157,15 @@ export default function Login() {
       </div>
 
       {/* Login area */}
-      <div className="flex-1 flex flex-col min-h-[100dvh] overflow-y-auto login-mobile-bg md:bg-organic md:justify-center md:py-10">
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden login-mobile-bg md:bg-organic md:justify-center md:py-10 md:overflow-y-auto">
         {/* Mobile: branded hero + form card */}
-        <div className="md:hidden flex flex-col min-h-[100dvh] relative overflow-hidden">
+        <div className="md:hidden flex flex-col h-full min-h-0 relative overflow-hidden">
           <img src="/bg-logo.png" alt="" className="login-watermark absolute opacity-[0.08] pointer-events-none" />
-          <div className="relative pt-8 pb-4 px-6 shrink-0">
+          <div className="relative pt-6 pb-3 px-6 shrink-0">
             <LoginHero />
           </div>
-          <div className="relative flex-1 px-6 pb-8 flex flex-col justify-end">
-            <div className="login-form-card bg-white rounded-2xl p-6 shadow-xl w-full max-w-md mx-auto">
+          <div className="relative flex-1 min-h-0 px-6 pb-6 flex flex-col justify-end overflow-y-auto overscroll-y-contain">
+            <div className="login-form-card bg-white rounded-2xl p-6 shadow-xl w-full max-w-md mx-auto mb-safe">
               {formContent}
             </div>
           </div>

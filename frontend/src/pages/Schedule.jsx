@@ -309,15 +309,16 @@ export default function Schedule() {
       const rows = Array.isArray(data) ? data : (data?.items ?? []);
       const sups = Array.isArray(data) ? [] : (data?.suppressions ?? []);
       setPreparations(rows);
-      setSuppressionLookup(buildSuppressionLookup(sups));
+      const supLookup = buildSuppressionLookup(sups);
+      setSuppressionLookup(supLookup);
       const idAliases = therapistPrepIdAliases(ownTherapist, user);
-      const sessionKeys = buildSessionPrepLookup(weekSessions, weekStartISO, weekEndISO, idAliases);
+      const sessionKeys = buildSessionPrepLookup(weekSessions, weekStartISO, weekEndISO, idAliases, supLookup);
       setPrepLookup(mergePrepLookups(buildPrepLookup(rows), sessionKeys));
     } catch {
       setPreparations([]);
       setSuppressionLookup(new Set());
       const idAliases = therapistPrepIdAliases(ownTherapist, user);
-      setPrepLookup(buildSessionPrepLookup(weekSessions, weekStartISO, weekEndISO, idAliases));
+      setPrepLookup(buildSessionPrepLookup(weekSessions, weekStartISO, weekEndISO, idAliases, new Set()));
     }
   }, [weekStartISO, weekEndISO, weekSessions, canSeePrepBadges, user, therapists, opsCanSeeAllPreps]);
 
@@ -743,6 +744,12 @@ export default function Schedule() {
 
   const openQuickLogFromCell = async (cell, therapist_id, day, time_slot) => {
     if (!isScheduleClientLogCell(cell)) return;
+    const sessionDate = toISODate(addDays(weekStart, day));
+    const today = toISODate(new Date());
+    if (sessionDate !== today) {
+      alert("التحضير مسموح فقط في يوم الجلسة.\nPreparation is only allowed on the session day.");
+      return;
+    }
     const childName = scheduleCellChildName(cell);
     if (!childName) return;
     let client = findClientForScheduleCell(childName, clients);
@@ -758,7 +765,6 @@ export default function Schedule() {
       }
     }
     if (!client) return;
-    const sessionDate = toISODate(addDays(weekStart, day));
     const start = slotToTime24(time_slot);
     const dur = parseFloat(cell.duration) || 1;
     setQuickLog({
@@ -867,7 +873,7 @@ export default function Schedule() {
     setPanelForm(f => ({ ...f, duration: 1 }));
   };
 
-  const clearPrepFromCell = async (therapist_id, day, cell, deletePrepHistory = false) => {
+  const clearPrepFromCell = async (therapist_id, day, cell, deletePrepHistory = true) => {
     if (!cell || !canManagePrep) return;
     const childName = scheduleCellChildName(cell);
     const client = childName ? findClientForScheduleCell(childName, clients) : null;
@@ -876,9 +882,7 @@ export default function Schedule() {
       return;
     }
     const sessionDate = toISODate(addDays(weekStart, day));
-    const msg = deletePrepHistory
-      ? "Remove preparation for this cell and delete it from Session Preparation history?"
-      : "Remove the green prep checkmark from this cell? The logged session (if any) stays in Session Preparation.";
+    const msg = "Remove preparation for this cell? The green checkmark and any logged session for this day will be cleared.";
     if (!window.confirm(msg)) return;
     try {
       await api.post("/schedule/preparations/clear", {
@@ -889,8 +893,9 @@ export default function Schedule() {
         time_slot: cell.time_slot || "",
         suppress_badge: true,
         delete_prep_history: deletePrepHistory,
+        delete_sessions: true,
       });
-      await loadPreparations();
+      await load(true);
     } catch (err) {
       alert(err?.response?.data?.detail || "Could not remove preparation marker.");
     }
@@ -1560,7 +1565,7 @@ export default function Schedule() {
               className="w-full text-left px-3 py-2 hover:bg-[#FCE0E8]"
               style={{ color: "#8A3F27" }}
               onClick={ctxAction(async () => {
-                await clearPrepFromCell(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.cell, false);
+                await clearPrepFromCell(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.cell, true);
                 setCtxMenu(null);
               })}
             >

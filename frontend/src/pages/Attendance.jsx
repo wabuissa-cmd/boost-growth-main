@@ -1019,7 +1019,6 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
   const used = hsTotals.hoursUsed;
   const rem = hsTotals.hoursRemaining;
   const hoursDelivered = hsTotals.hoursDelivered;
-  const noServiceCount = hsTotals.noServiceCount;
   const completed = hsTotals.completedCount;
   const noShows = hsTotals.noShowCount;
 
@@ -1855,10 +1854,6 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
                 <div>
                   <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>TOTAL HOURS DELIVERED</div>
                   <div className="font-display text-2xl" style={{color: "#3D4F35"}}>{hoursDelivered.toFixed(1)}h</div>
-                </div>
-                <div>
-                  <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>TOTAL NO SERVICE DAYS</div>
-                  <div className="font-display text-2xl" style={{color: "#5C6853"}}>{noServiceCount}</div>
                 </div>
                 <div>
                   <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>HOURS REMAINING</div>
