@@ -5,8 +5,16 @@ import { findClientForScheduleCell, isScheduleClientLogCell, scheduleCellChildNa
 export function prepRecordKeys(rec) {
   const keys = [];
   if (rec.schedule_cell_id) keys.push(`cell:${rec.schedule_cell_id}`);
+  const tid = rec.therapist_id;
+  const cid = rec.client_id;
+  const date = (rec.session_date || "").slice(0, 10);
+  if (tid && cid && date) {
+    keys.push(`mark:${tid}|${cid}|${date}`);
+  }
   const slot = (rec.time_slot || "").trim();
-  keys.push(`slot:${rec.therapist_id}|${rec.client_id}|${rec.session_date}|${slot}`);
+  if (tid && cid && date) {
+    keys.push(`slot:${tid}|${cid}|${date}|${slot}`);
+  }
   return keys;
 }
 
@@ -24,6 +32,7 @@ export function prepKeysForCell(cell, therapistId, day, weekStart, clientId) {
   const sessionDate = toISODate(addDays(new Date(weekStart + "T12:00:00"), day));
   const keys = [];
   if (cell.id) keys.push(`cell:${cell.id}`);
+  keys.push(`mark:${therapistId}|${clientId}|${sessionDate}`);
   const slot = (cell.time_slot || "").trim();
   keys.push(`slot:${therapistId}|${clientId}|${sessionDate}|${slot}`);
   return keys;

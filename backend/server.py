@@ -1831,6 +1831,27 @@ async def _upsert_schedule_preparation(
     return doc
 
 
+def _schedule_cell_child_label(cell: dict) -> str:
+    """Effective child label on a schedule cell (child_name or parsed note)."""
+    direct = (cell.get("child_name") or "").strip()
+    if direct:
+        return direct
+    note = (cell.get("note") or "").strip()
+    if not note:
+        return ""
+    if "|" in note:
+        part = note.split("|", 1)[1].strip()
+        if part:
+            return re.sub(r"\s*\([^)]*\)\s*$", "", part).strip()
+    upper = note.upper()
+    for prefix in ("HS", "SS", "OS"):
+        if upper.startswith(prefix):
+            rest = re.sub(rf"^{prefix}[\s\-|:]+", "", note, flags=re.I).strip()
+            if rest:
+                return re.sub(r"\s*\([^)]*\)\s*$", "", rest).strip()
+    return re.sub(r"\s*\([^)]*\)\s*$", "", note).strip()
+
+
 async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) -> None:
     """When a session is logged, mark matching schedule cells as prepared."""
     client_id = sess.get("client_id")
@@ -1838,39 +1859,60 @@ async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) 
     if not client_id or not session_date:
         return
     therapist_ids = sess.get("therapist_ids") or []
-    client = await db.clients.find_one({"id": client_id}, {"_id": 0, "name": 1})
-    if not client:
-        return
-    child_norm = _normalize_intake_name(client.get("name") or "")
     cells = await db.schedule_cells.find(
         {
             "therapist_id": {"$in": therapist_ids},
-            "child_name": {"$exists": True, "$nin": ["", None]},
             "state": {"$nin": ["cancel_therapist", "cancel_child"]},
             "service_code": {"$nin": ["LEAVE", "BREAK", "AVC", ""]},
         },
         {"_id": 0},
-    ).to_list(500)
+    ).to_list(800)
+    marked = set()
     for cell in cells:
         slot_date = _schedule_cell_date_iso(cell)
         if slot_date != session_date:
             continue
-        child = _normalize_intake_name((cell.get("child_name") or "").strip())
-        if child != child_norm:
+        label = _schedule_cell_child_label(cell)
+        if not label:
+            continue
+        matched = await _find_client_by_schedule_child_name(label)
+        if not matched or matched.get("id") != client_id:
             continue
         tid = cell.get("therapist_id")
         if not tid:
             continue
+        key = (tid, client_id, session_date, cell.get("time_slot") or "", cell.get("id"))
+        if key in marked:
+            continue
+        marked.add(key)
         await _upsert_schedule_preparation(
             therapist_id=tid,
             client_id=client_id,
             session_date=session_date,
-            prepared_by=user_id,
+            prepared_by=user_id or sess.get("created_by") or "",
             time_slot=cell.get("time_slot") or "",
             schedule_cell_id=cell.get("id"),
             week_start=cell.get("week_start"),
             day=cell.get("day"),
         )
+
+
+async def _sync_schedule_preparations_for_week(start: str, end: str) -> None:
+    """Backfill schedule prep markers from completed sessions (idempotent)."""
+    sessions = await db.sessions.find(
+        {
+            "session_date": {"$gte": start, "$lte": end},
+            "status": {"$in": ["Completed", "Cancelled", "No Show", "No Service"]},
+        },
+        {"_id": 0},
+    ).to_list(5000)
+    for sess in sessions:
+        try:
+            await _auto_mark_schedule_preparation_for_session(
+                sess, sess.get("created_by") or ""
+            )
+        except Exception:
+            logger.exception("sync schedule preparation for session %s", sess.get("id"))
 
 
 @api.get("/schedule/preparations")
@@ -1894,6 +1936,7 @@ async def list_schedule_preparations(
         tid = await _resolve_user_therapist_id(user) or user.get("id")
     if tid:
         q["therapist_id"] = tid
+    await _sync_schedule_preparations_for_week(start, end)
     items = await db.schedule_preparations.find(q, {"_id": 0}).to_list(2000)
     return items
 
@@ -2192,6 +2235,12 @@ SCHEDULE_CHILD_NAME_ALIASES = {
     "ameerah": "ameirah",
 }
 
+# Schedule grid abbreviations (e.g. "Abdulaziz A" on Shatha's row)
+SCHEDULE_SHORT_LABEL_FILES = {
+    "abdulaziz a": "024",
+    "abdulaziz w": "040",
+}
+
 
 def _apply_schedule_child_name_aliases(name: str) -> str:
     """Fix common Excel/schedule typos before client lookup."""
@@ -2216,6 +2265,13 @@ async def _find_client_by_schedule_child_name(child_name: str) -> Optional[dict]
         "main_therapist_id": 1, "co_therapist_ids": 1,
         "schedule_color": 1, "color": 1,
     }
+    short_key = _normalize_intake_name(name)
+    if short_key in SCHEDULE_SHORT_LABEL_FILES:
+        by_file = await _find_client_by_file_no(SCHEDULE_SHORT_LABEL_FILES[short_key])
+        if by_file:
+            client = await db.clients.find_one(_active_client_filter({"id": by_file["id"]}), fields)
+            if client:
+                return client
 
     async def _lookup(label: str) -> Optional[dict]:
         label = (label or "").strip()

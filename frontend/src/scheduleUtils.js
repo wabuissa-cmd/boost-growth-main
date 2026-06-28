@@ -211,9 +211,21 @@ function applyScheduleChildNameAliases(name) {
   return raw;
 }
 
+const SCHEDULE_SHORT_LABEL_FILES = {
+  "abdulaziz a": "024",
+  "abdulaziz w": "040",
+};
+
 function lookupClientByLabel(label, clients = []) {
   const name = (label || "").trim();
   if (!name || !clients.length) return null;
+
+  const shortKey = normScheduleName(name);
+  if (SCHEDULE_SHORT_LABEL_FILES[shortKey]) {
+    const fn = SCHEDULE_SHORT_LABEL_FILES[shortKey].padStart(3, "0");
+    const byFile = clients.find(c => String(c.file_no || "").padStart(3, "0") === fn);
+    if (byFile) return byFile;
+  }
 
   let client = clients.find(c => (c.name || "").trim() === name);
   if (client) return client;

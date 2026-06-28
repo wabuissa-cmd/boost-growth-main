@@ -96,11 +96,12 @@ function CellContent({ cell, sc }) {
   );
 }
 
-function cellClassName(cell, isAdmin, leaveInfo, selected, copied) {
+function cellClassName(cell, isAdmin, leaveInfo, selected, copied, prepDone = false) {
   const parts = ["sheet-td sheet-slot"];
   if (cell) {
     parts.push("has-event");
     if (cell.state === "available" || cell.service_code === "AVAILABLE") parts.push("cell-available");
+    if (prepDone) parts.push("has-prep-badge");
   } else {
     parts.push("cell-empty");
   }
@@ -721,6 +722,13 @@ export default function Schedule() {
     setQuickLog({
       client,
       cell,
+      scheduleContext: {
+        therapist_id: therapist_id,
+        time_slot: cell?.time_slot || time_slot || "",
+        schedule_cell_id: cell?.id || null,
+        week_start: weekStartISO,
+        day,
+      },
       prefill: {
         session_date: sessionDate,
         start_time: start,
@@ -1039,12 +1047,14 @@ export default function Schedule() {
                     const colSpan = scheduleDisplaySpan(cell);
                     const baseStyle = getSheetCellStyle(cell, clients);
                     const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
+                    const showPrepBadge = isScheduleClientLogCell(cell)
+                      && isCellPrepComplete(prepLookup, cell, t.id, di, weekStartISO, clients);
                     return (
                       <td
                         key={ts}
                         colSpan={colSpan}
                         data-testid={`sheet-cell-${t.id}-${di}-${ts}`}
-                        className={cellClassName(cell, canEditRow(t.id), leaveInfo, isSelected(t.id, di, ts), isCopied(t.id, di, ts))}
+                        className={cellClassName(cell, canEditRow(t.id), leaveInfo, isSelected(t.id, di, ts), isCopied(t.id, di, ts), showPrepBadge)}
                         style={cellStyle}
                         onClick={(e) => handleCellClick(e, t.id, di, ts, cell)}
                         onContextMenu={canNotifySchedule ? (e) => onCtx(e, cell, t.id, di, ts) : undefined}
@@ -1053,6 +1063,7 @@ export default function Schedule() {
                         onTouchEnd={onCellTouchEnd}
                       >
                         {renderCellMenuBtn(cell, t.id, di, ts)}
+                        {showPrepBadge && <SchedulePrepBadge />}
                         {cell && <CellContent cell={cell} sc={sc} />}
                       </td>
                     );
@@ -1133,9 +1144,7 @@ export default function Schedule() {
                   const colSpan = scheduleDisplaySpan(cell);
                   const baseStyle = getSheetCellStyle(cell, clients);
                   const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
-                  const showPrepBadge = view === "blocks"
-                    && canQuickLog
-                    && therapist.id === selfTherapist?.id
+                  const showPrepBadge = isScheduleClientLogCell(cell)
                     && isCellPrepComplete(prepLookup, cell, therapist.id, di, weekStartISO, clients);
                   return (
                     <td key={ts} className={cellClassNameBlock(cell, canEditRow(therapist.id), leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts), canQuickLog && therapist.id === selfTherapist?.id, showPrepBadge)}
@@ -1682,6 +1691,7 @@ export default function Schedule() {
           therapists={therapists}
           currentUser={user}
           prefill={quickLog.prefill}
+          scheduleContext={quickLog.scheduleContext}
           onClose={() => setQuickLog(null)}
           onSaved={() => { setQuickLog(null); loadPreparations(); }}
         />

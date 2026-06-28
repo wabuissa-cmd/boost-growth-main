@@ -210,12 +210,12 @@ main, .page-enter { min-width: 0; }
     position: absolute;
     top: 2px;
     right: 2px;
-    z-index: 4;
+    z-index: 6;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
     border-radius: 9999px;
     background: #5C8A47;
     color: #fff;
@@ -578,8 +578,14 @@ main, .page-enter { min-width: 0; }
       font-size: 10px !important;
     }
 
-    /* Prevent fixed badge from covering bottom buttons on phones */
-    #emergent-badge { bottom: 8px !important; right: 8px !important; transform: scale(0.85); transform-origin: bottom right; }
+    /* Hide third-party builder badges on mobile */
+    #emergent-badge,
+    [id*="emergent"],
+    a[href*="emergent.sh"] {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+    }
 
     /* Full-screen modals on mobile */
     .modal-mobile-full .modal-shell {
@@ -590,15 +596,26 @@ main, .page-enter { min-width: 0; }
         border-radius: 0 !important;
         margin: 0 !important;
     }
+    .modal-mobile-compact .modal-shell {
+        max-height: min(92dvh, calc(100dvh - 16px)) !important;
+        height: auto !important;
+        border-radius: 1rem !important;
+        margin: 8px auto !important;
+    }
     .modal-mobile-full .modal-center-wrap {
         padding: 0 !important;
         align-items: stretch !important;
+    }
+    .modal-mobile-compact .modal-center-wrap {
+        padding: 8px !important;
+        align-items: center !important;
     }
     .modal-mobile-full .modal-footer-sticky {
         position: sticky;
         bottom: 0;
         z-index: 2;
         box-shadow: 0 -4px 12px rgba(0,0,0,0.06);
+        padding-bottom: max(1rem, env(safe-area-inset-bottom)) !important;
     }
     .modal-input, .input, .select, .textarea {
         font-size: 16px !important;

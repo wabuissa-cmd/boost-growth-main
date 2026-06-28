@@ -47,7 +47,7 @@ export function addHoursToTime(time24, hours) {
 }
 
 export default function LogSessionModal({
-  client, therapists, currentUser, onClose, onSaved, session, prefill,
+  client, therapists, currentUser, onClose, onSaved, session, prefill, scheduleContext,
 }) {
   const defaultLoc = client?.locations?.[0];
   const initialSvc = prefill?.service_type || defaultLoc?.service || client?.service_type || "HS";
@@ -74,6 +74,21 @@ export default function LogSessionModal({
     const payload = { ...form, hours: computeHours(form.start_time, form.end_time) };
     if (session?.id) await api.put(`/sessions/${session.id}`, payload);
     else await api.post("/sessions", payload);
+    if (scheduleContext?.therapist_id && client?.id && form.session_date) {
+      try {
+        await api.post("/schedule/preparations", {
+          therapist_id: scheduleContext.therapist_id,
+          client_id: client.id,
+          session_date: form.session_date,
+          time_slot: scheduleContext.time_slot || "",
+          schedule_cell_id: scheduleContext.schedule_cell_id || null,
+          week_start: scheduleContext.week_start || null,
+          day: scheduleContext.day,
+        });
+      } catch {
+        /* session save succeeded; schedule marker may still sync from backend */
+      }
+    }
     onSaved();
   };
 
@@ -93,6 +108,7 @@ export default function LogSessionModal({
       subtitle={session ? "Update session details" : "Record attendance for this session"}
       onClose={onClose}
       size="lg"
+      mobileCompact
       footer={(
         <>
           <ModalBtnSecondary type="button" onClick={onClose}>Cancel</ModalBtnSecondary>

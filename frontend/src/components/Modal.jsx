@@ -4,7 +4,7 @@ import { X } from "@phosphor-icons/react";
 const SIZE_MAX = { sm: 480, md: 600, lg: 760, xl: 900 };
 
 /** ModalBase — unified shell for every modal in the app */
-export function ModalBase({ title, subtitle, onClose, children, footer, size = "md", elevated = false }) {
+export function ModalBase({ title, subtitle, onClose, children, footer, size = "md", elevated = false, mobileCompact = false }) {
   const maxWidth = SIZE_MAX[size] || SIZE_MAX.md;
 
   useEffect(() => {
@@ -15,7 +15,7 @@ export function ModalBase({ title, subtitle, onClose, children, footer, size = "
 
   return (
     <div
-      className={`fixed inset-0 ${elevated ? "z-[60]" : "z-50"} overflow-y-auto modal-mobile-full`}
+      className={`fixed inset-0 ${elevated ? "z-[60]" : "z-50"} overflow-y-auto modal-mobile-full${mobileCompact ? " modal-mobile-compact" : ""}`}
       style={{ background: "rgba(30,40,25,0.45)", backdropFilter: "blur(4px)" }}
       onClick={onClose}
       role="dialog"
