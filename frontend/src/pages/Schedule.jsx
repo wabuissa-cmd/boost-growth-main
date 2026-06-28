@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef, useLayoutEffect } fr
 import { useSearchParams } from "react-router-dom";
 import api, { DAYS_EN, DAYS_SHORT, TIME_SLOTS, SERVICE_CODES, startOfWeek, addDays, toISODate, formatDateRange } from "../api";
 import {
-  getCellStyle, META_SERVICE_CODES, MERGE_QUICK,
+  getCellStyle, MERGE_QUICK, scheduleCellDisplayLabel,
   SERVICE_CELL_COLORS, buildSlotRange, isSlotSelectable, slotIndex, clampMergeSlotCount, clampMergeDuration,
   findCellAt, isHiddenFromSchedule, scheduleDisplaySpan, scheduleCoveredSlotKeys,
   resolveSelfTherapist, findClientForScheduleCell, isScheduleClientLogCell,
@@ -85,14 +85,11 @@ function CellContent({ cell, sc }) {
   if (cell.state === "available" || cell.service_code === "AVAILABLE") {
     return <div className="text-[10px] font-semibold opacity-70">Available</div>;
   }
-  const isMeta = META_SERVICE_CODES.has(cell.service_code) || !cell.child_name;
-  const label = cell.note && isMeta ? cell.note : null;
+  const label = scheduleCellDisplayLabel(cell, sc?.short);
   return (
     <div className="leading-tight text-center w-full flex flex-col items-center justify-center">
       <div className="font-bold text-[11px] text-center w-full">
-        {label || (isMeta ? (cell.note || sc?.short) : (
-          <>{sc?.short || cell.service_code}{cell.child_name && <> | {cell.child_name}</>}</>
-        ))}
+        {label}
       </div>
       {cell.custom_time && <div className="text-[9px] opacity-80 text-center w-full">({cell.custom_time})</div>}
     </div>

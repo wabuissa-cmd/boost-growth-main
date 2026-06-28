@@ -9560,7 +9560,7 @@ async def import_historical(body: dict, _=Depends(import_access)):
                         child = child[:child.find("(")].strip()
                     if slot_idx >= len(TIMES):
                         continue
-                    if service in ("LEAVE", "BREAK", "AVC"):
+                    if service in ("LEAVE", "BREAK", "AVC", "SUPERVISION", "OBSERVATION", "MEETING"):
                         note = txt
                     await db.schedule_cells.insert_one({
                         "id": str(uuid.uuid4()),
@@ -9745,11 +9745,11 @@ def _parse_schedule_cell_text(txt: str):
     elif "BREAK" in upper:
         service = "BREAK"; note = txt
     elif "SUPERVISION" in upper:
-        service = "SUPERVISION"
+        service = "SUPERVISION"; note = txt
     elif "OBSERVATION" in upper:
-        service = "OBSERVATION"
+        service = "OBSERVATION"; note = txt
     elif "MEETING" in upper:
-        service = "MEETING"
+        service = "MEETING"; note = txt
     elif upper.startswith("HS"):
         service = "HS"
     elif upper.startswith("OS"):
@@ -9763,6 +9763,13 @@ def _parse_schedule_cell_text(txt: str):
         child = txt[idx + 2:].strip()
     elif " with " in txt.lower():
         child = txt.lower().split(" with ", 1)[1].strip().title()
+    if service == "SUPERVISION" and not child:
+        m = re.search(
+            r"(?i)supervision\s*(?:[-–]\s*|\s+w/?\s*|\s+)(.+?)(?:\s*\(|$)",
+            txt,
+        )
+        if m:
+            child = m.group(1).strip()
     if child and "(" in child:
         m_open = child.find("(")
         m_close = child.find(")", m_open)

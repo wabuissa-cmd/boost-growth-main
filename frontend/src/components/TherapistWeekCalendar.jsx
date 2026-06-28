@@ -2,14 +2,12 @@ import { useMemo, useState } from "react";
 import { CaretLeft, CaretRight, MapPin, VideoCamera, Plus } from "@phosphor-icons/react";
 import LocationLink from "./LocationLink";
 import { DAYS_SHORT, TIME_SLOTS, addDays, toISODate, formatDateRange } from "../api";
-import { getCellStyle } from "../scheduleUtils";
+import { getCellStyle, scheduleCellDisplayLabel } from "../scheduleUtils";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "./Modal";
 import api, { formatErr } from "../api";
-
-const META = new Set(["LEAVE", "BREAK", "AVC", "AVAILABLE", "MEETING", "SUPERVISION", "OBSERVATION"]);
 
 function dayDate(weekStart, dayIdx) {
   return addDays(weekStart, dayIdx);
@@ -240,10 +238,7 @@ export default function TherapistWeekCalendar({
                   const style = getCellStyle(cell, clients);
                   const meet = meetUrl(client);
                   const loc = !meet ? sessionLocation(client, cell.service_code) : null;
-                  const isMeta = META.has(cell.service_code) || !cell.child_name;
-                  const title = isMeta
-                    ? (cell.note || cell.service_code)
-                    : `${cell.service_code}${cell.child_name ? ` · ${cell.child_name}` : ""}`;
+                  const title = scheduleCellDisplayLabel(cell, cell.service_code);
 
                   return (
                     <div

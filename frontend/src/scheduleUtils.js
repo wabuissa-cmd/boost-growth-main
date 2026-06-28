@@ -238,6 +238,17 @@ export function isScheduleClientLogCell(cell) {
   return true;
 }
 
+/** Primary label shown inside a schedule grid cell (preserves full Excel text when stored in note). */
+export function scheduleCellDisplayLabel(cell, serviceShort) {
+  if (!cell) return "";
+  if (cell.note?.trim()) return cell.note.trim();
+  const short = serviceShort || cell.service_code || "";
+  if (cell.child_name?.trim()) {
+    return `${short} | ${cell.child_name.trim()}`;
+  }
+  return short;
+}
+
 export function findCellAt(therapistId, day, timeSlot, cellMap, cells) {
   const key = `${therapistId}_${day}_${timeSlot}`;
   if (cellMap[key]) return cellMap[key];
