@@ -19,4 +19,6 @@ echo "==> Copying build to backend/static..."
 rm -rf backend/static
 mkdir -p backend/static
 cp -r frontend/build/* backend/static/
-echo "==> Build complete."
+echo "==> Stamping build version..."
+git rev-parse --short HEAD 2>/dev/null > backend/BUILD_VERSION.txt || date -u +%Y-%m-%dT%H:%MZ > backend/BUILD_VERSION.txt
+echo "==> Build complete ($(cat backend/BUILD_VERSION.txt))."

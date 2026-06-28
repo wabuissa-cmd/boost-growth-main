@@ -9,13 +9,13 @@ ENV CI=true \
     DISABLE_ESLINT_PLUGIN=true \
     SKIP_PREFLIGHT_CHECK=true \
     NODE_OPTIONS=--max-old-space-size=2048
-ENV RAILWAY_DEPLOY_REV=prep-remove-fix-v2
+ENV RAILWAY_DEPLOY_REV=prep-remove-fix-v3-force
 RUN npm run build
 
 FROM python:3.11-slim
 WORKDIR /app/backend
 
-ARG DEPLOY_REV=20260627-f42419b-force-rebuild
+ARG DEPLOY_REV=ef4d6b9-prep-remove-force-20260628
 RUN echo "deploy ${DEPLOY_REV}" > /dev/null
 
 COPY backend/requirements.txt .
