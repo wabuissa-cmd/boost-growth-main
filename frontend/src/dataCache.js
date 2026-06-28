@@ -108,5 +108,9 @@ export function invalidateForMutation(method, url) {
   if (u.includes("/schedule")) {
     invalidateCache("/schedule");
   }
+  if (u.includes("/preparations")) {
+    invalidateCache("/sessions");
+    invalidateCache("/schedule");
+  }
   if (method !== "GET") invalidateCache("/clients/package-status");
 }

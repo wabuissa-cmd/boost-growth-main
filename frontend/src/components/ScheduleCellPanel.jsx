@@ -47,6 +47,9 @@ export default function ScheduleCellPanel({
   saving,
   canParentCancellationOps = false,
   weekStart,
+  canManagePrep = false,
+  showPrepBadge = false,
+  onClearPrep,
   mergedSlotCount = 0,
 }) {
   const [clientOpen, setClientOpen] = useState(false);
@@ -404,7 +407,18 @@ export default function ScheduleCellPanel({
           </div>
         </div>
 
-        <div className="px-4 py-4 border-t flex gap-2 flex-shrink-0" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
+        <div className="px-4 py-4 border-t flex gap-2 flex-shrink-0 flex-wrap" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
+          {canManagePrep && showPrepBadge && onClearPrep && (
+            <button
+              type="button"
+              data-testid="cell-remove-prep-badge"
+              className="w-full text-sm font-semibold rounded-xl border-2 px-3 py-2.5 min-h-[44px]"
+              style={{ borderColor: "#C97B5C", color: "#8A3F27", background: "#FCE0E8" }}
+              onClick={onClearPrep}
+            >
+              Remove prep checkmark ✓
+            </button>
+          )}
           <ModalBtnSecondary type="button" className="flex-1" onClick={onClose}>Close</ModalBtnSecondary>
           <ModalBtnPrimary type="button" className="flex-1" data-testid="cell-save-btn" onClick={handleSave} disabled={saving}>
             <FloppyDisk size={16} className="inline mr-1" />

@@ -8,7 +8,7 @@ import {
   resolveSelfTherapist, findClientForScheduleCell, isScheduleClientLogCell, scheduleCellChildName,
 } from "../scheduleUtils";
 import { MAX_SCHEDULE_MERGE_SLOTS } from "../scheduleConstants";
-import { useAuth, showAdminNav, isClientLead, canParentCancellationOps, hasFullClientAccess, hasOpsAccess, isHrOps } from "../auth";
+import { useAuth, showAdminNav, isClientLead, canParentCancellationOps, hasFullClientAccess, hasOpsAccess } from "../auth";
 import {
   CaretLeft, CaretRight, CaretDown, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
   CopySimple, Table, CalendarBlank, CheckCircle, PencilSimple, GridFour, Printer, WhatsappLogo, UserPlus,
@@ -27,7 +27,7 @@ import SchedulePrepBadge from "../components/SchedulePrepBadge";
 import { buildPrepLookup, buildSessionPrepLookup, buildSuppressionLookup, isCellPrepComplete, mergePrepLookups, therapistPrepIdAliases } from "../schedulePrepUtils";
 import { buildParentMessages } from "../scheduleParentMessages";
 import { sortTherapistsForSchedule, getTherapistScheduleName, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
-import { cachedGet } from "../dataCache";
+import { cachedGet, invalidateCache } from "../dataCache";
 import "../dashboardLayout.css";
 
 const SCHEDULE_MOBILE_BP = 768;
@@ -138,7 +138,7 @@ export default function Schedule() {
   const opsCanSeeAllPreps = hasFullClientAccess(user) || scheduleAdmin || hasOpsAccess(user);
   const canQuickLog = !scheduleAdmin && !scheduleLead;
   const canSeePrepBadges = !!user && (opsCanSeeAllPreps || canQuickLog);
-  const canManagePrep = !!user && (hasFullClientAccess(user) || isHrOps(user));
+  const canManagePrep = !!user && (hasOpsAccess(user) || scheduleAdmin || hasFullClientAccess(user));
   const parentCancelOps = canParentCancellationOps(user);
   const [view, setView] = useState(() => {
     // Default to "Per Therapist" (blocks) view for all users per business request.
@@ -570,7 +570,7 @@ export default function Schedule() {
     (tid) => scheduleAdmin || (scheduleLead && (view === "sheet" || tid === selfTherapist?.id)),
     [scheduleAdmin, scheduleLead, selfTherapist?.id, view]
   );
-  const canNotifySchedule = scheduleAdmin || scheduleLead;
+  const canNotifySchedule = scheduleAdmin || scheduleLead || hasOpsAccess(user);
 
   const renderCellMenuBtn = (cell, therapist_id, day, time_slot) => {
     if (!canEditRow(therapist_id)) return null;
@@ -874,11 +874,23 @@ export default function Schedule() {
   };
 
   const clearPrepFromCell = async (therapist_id, day, cell, deletePrepHistory = true) => {
-    if (!cell || !canManagePrep) return;
-    const childName = scheduleCellChildName(cell);
-    const client = childName ? findClientForScheduleCell(childName, clients) : null;
+    if (!cell) return;
+    if (!canManagePrep) {
+      alert("You do not have permission to remove preparation markers.");
+      return;
+    }
+    let childName = scheduleCellChildName(cell);
+    let client = childName ? findClientForScheduleCell(childName, clients) : null;
+    if (!client && childName) {
+      try {
+        const { data } = await api.get("/clients/resolve-schedule-name", { params: { child_name: childName } });
+        client = data;
+      } catch {
+        /* fall through */
+      }
+    }
     if (!client) {
-      alert("Could not match this cell to a client record.");
+      alert(`Could not match "${childName || "this cell"}" to a client. Try Edit Session and check the client name.`);
       return;
     }
     const sessionDate = toISODate(addDays(weekStart, day));
@@ -895,7 +907,10 @@ export default function Schedule() {
         delete_prep_history: deletePrepHistory,
         delete_sessions: true,
       });
+      invalidateCache("/sessions");
+      invalidateCache("/schedule");
       await load(true);
+      await loadPreparations();
     } catch (err) {
       alert(err?.response?.data?.detail || "Could not remove preparation marker.");
     }
@@ -1153,7 +1168,11 @@ export default function Schedule() {
                         onTouchEnd={onCellTouchEnd}
                       >
                         {renderCellMenuBtn(cell, t.id, di, ts)}
-                        {showPrepBadge && <SchedulePrepBadge />}
+                        {showPrepBadge && (
+                          <SchedulePrepBadge
+                            onClear={canManagePrep ? () => clearPrepFromCell(t.id, di, cell, true) : undefined}
+                          />
+                        )}
                         {cell && <CellContent cell={cell} sc={sc} />}
                       </td>
                     );
@@ -1246,7 +1265,11 @@ export default function Schedule() {
                       onTouchMove={onCellTouchMove}
                       onTouchEnd={onCellTouchEnd}>
                       {renderCellMenuBtn(cell, therapist.id, di, ts)}
-                      {showPrepBadge && <SchedulePrepBadge />}
+                      {showPrepBadge && (
+                        <SchedulePrepBadge
+                          onClear={canManagePrep ? () => clearPrepFromCell(therapist.id, di, cell, true) : undefined}
+                        />
+                      )}
                       {cell && <CellContent cell={cell} sc={sc} />}
                     </td>
                   );
@@ -1522,6 +1545,9 @@ export default function Schedule() {
           saving={panelSaving}
           canParentCancellationOps={parentCancelOps}
           weekStart={weekStartISO}
+          canManagePrep={canManagePrep}
+          showPrepBadge={cellHasPrepBadge(panelForm, panelForm.therapist_id, panelForm.day)}
+          onClearPrep={() => clearPrepFromCell(panelForm.therapist_id, panelForm.day, panelForm, true)}
           mergedSlotCount={
             selection?.therapist_id === panelForm.therapist_id && selection?.day === panelForm.day
               ? selection.slots?.length || 0
@@ -1558,7 +1584,7 @@ export default function Schedule() {
               Copy Cell
             </button>
           )}
-          {canManagePrep && ctxMenu.cell && cellHasPrepBadge(ctxMenu.cell, ctxMenu.therapist_id, ctxMenu.day) && (
+          {canManagePrep && ctxMenu.cell && isScheduleClientLogCell(ctxMenu.cell) && (
             <button
               type="button"
               data-testid="schedule-remove-prep-badge"

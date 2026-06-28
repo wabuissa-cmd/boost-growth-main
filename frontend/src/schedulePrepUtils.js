@@ -141,8 +141,11 @@ function prepRecordMatchesCell(rec, cell, therapistId, sessionDate, childName, c
   return false;
 }
 
-function sessionMatchesCell(sessions, cell, therapistId, sessionDate, client, clients = []) {
+function sessionMatchesCell(sessions, cell, therapistId, sessionDate, client, clients = [], suppressionLookup = null) {
   if (!sessions?.length) return false;
+  const cid = client?.id;
+  if (cid && suppressionLookup?.has(`suppress:${therapistId}|${cid}|${sessionDate}`)) return false;
+  if (cell?.id && suppressionLookup?.has(`suppress:cell:${cell.id}`)) return false;
   for (const s of sessions) {
     if (!LOGGED_PREP_STATUSES.has(s.status)) continue;
     if ((s.session_date || "").slice(0, 10) !== sessionDate) continue;
@@ -194,8 +197,8 @@ export function isCellPrepComplete(
   if (client) {
     const keys = prepKeysForCell(cell, therapistId, day, weekStart, client.id, client.name);
     if (keys.some((k) => prepLookup.has(k))) return true;
-    if (sessionMatchesCell(weekSessions, cell, therapistId, sessionDate, client, clients)) return true;
-  } else if (sessionMatchesCell(weekSessions, cell, therapistId, sessionDate, null, clients)) {
+    if (sessionMatchesCell(weekSessions, cell, therapistId, sessionDate, client, clients, suppressionLookup)) return true;
+  } else if (sessionMatchesCell(weekSessions, cell, therapistId, sessionDate, null, clients, suppressionLookup)) {
     return true;
   }
 

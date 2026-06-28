@@ -2304,7 +2304,12 @@ async def list_schedule_preparations(
 
 
 def _can_manage_schedule_prep(user: dict) -> bool:
-    return _has_full_client_access(user) or _is_hr_ops(user)
+    return (
+        _has_full_client_access(user)
+        or _is_hr_ops(user)
+        or _is_walaa_ops(user)
+        or _is_portal_admin(user)
+    )
 
 
 @api.post("/schedule/preparations/clear")

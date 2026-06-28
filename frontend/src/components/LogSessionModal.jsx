@@ -12,6 +12,12 @@ import {
 } from "./Modal";
 import { getTherapistScheduleName } from "../scheduleConstants";
 
+const ALLOWED_SESSION_STATUSES = new Set(["Completed", "Cancelled", "No Show"]);
+
+function normalizeSessionStatus(status) {
+  if (!status || status === "No Service") return "Completed";
+  return ALLOWED_SESSION_STATUSES.has(status) ? status : "Completed";
+}
 const STATUS_OPTS = [
   { id: "Completed", label: "Completed", icon: CheckCircle, color: "#3D4F35", bg: "#E5EBE1" },
   { id: "Cancelled", label: "Cancelled", icon: Warning, color: "#6B5218", bg: "#FAF0D1" },
@@ -56,7 +62,10 @@ export default function LogSessionModal({
   const canPickAnyDate = hasFullClientAccess(currentUser) || isHrOps(currentUser);
   const todayISO = toISODate(new Date());
   const [form, setForm] = useState(() => {
-    if (session) return { ...session };
+    if (session) {
+      const st = session.status === "No Service" ? "Completed" : session.status;
+      return { ...session, status: st };
+    }
     const start = prefill?.start_time || "14:00";
     const end = prefill?.end_time || "16:00";
     return {
@@ -83,7 +92,7 @@ export default function LogSessionModal({
       alert("No Service is no longer available. Choose Completed, Cancelled, or No Show.");
       return;
     }
-    const payload = { ...form, hours: computeHours(form.start_time, form.end_time) };
+    const payload = { ...form, status: normalizeSessionStatus(form.status), hours: computeHours(form.start_time, form.end_time) };
     if (session?.id) await api.put(`/sessions/${session.id}`, payload);
     else await api.post("/sessions", payload);
     if (scheduleContext?.therapist_id && client?.id && form.session_date) {
@@ -144,7 +153,7 @@ export default function LogSessionModal({
         )}
         <FormSection title="Status">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {STATUS_OPTS.filter(s => s.id !== "No Service").map(s => {
+            {STATUS_OPTS.map(s => {
               const Icon = s.icon;
               const active = form.status === s.id;
               return (

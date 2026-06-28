@@ -110,12 +110,13 @@ function ServiceTypeToggle({ value, onChange, tabState }) {
 function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdit, onDeleted, rowBg, billingKind, locked = false, bordered = false, sheetCols }) {
   const colIds = sheetCols ? new Set(sheetCols.map(c => c.id)) : null;
   const show = (id) => !colIds || colIds.has(id);
-  const stColor = s.status === "Completed" ? "#3D4F35" :
-    s.status === "Cancelled" ? "#6B5218" :
-    s.status === "No Show" ? "#8A3F27" : "#5C6853";
-  const stBg = s.status === "Completed" ? "#E5EBE1" :
-    s.status === "Cancelled" ? "#FAF0D1" :
-    s.status === "No Show" ? "#F8EBE7" : "#F0EDE9";
+  const displayStatus = s.status === "No Service" ? "Completed" : s.status;
+  const stColor = displayStatus === "Completed" ? "#3D4F35" :
+    displayStatus === "Cancelled" ? "#6B5218" :
+    displayStatus === "No Show" ? "#8A3F27" : "#5C6853";
+  const stBg = displayStatus === "Completed" ? "#E5EBE1" :
+    displayStatus === "Cancelled" ? "#FAF0D1" :
+    displayStatus === "No Show" ? "#F8EBE7" : "#F0EDE9";
   const tNames = (s.therapist_ids || []).map(id => findT(id)?.name?.replace("Ms. ", "")).filter(Boolean).join(" - ");
   const canEdit = !locked && (
     isAdmin ||
@@ -130,7 +131,7 @@ function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdi
     <tr key={s.id} className={bordered ? "" : "border-t border-[#E2DDD4]"} style={{ background: rowBg || undefined }}>
       {show("days") && <td className={`${cell} font-bold`}>{dayNameFromDate(s.session_date)}</td>}
       {show("date") && <td className={`${cell} font-bold`}>{fmtDate(s.session_date)}</td>}
-      {show("status") && <td className={cell}><span className="pill text-[10px] uppercase" style={{ background: stBg, color: stColor }}>{s.status}</span></td>}
+      {show("status") && <td className={cell}><span className="pill text-[10px] uppercase" style={{ background: stBg, color: stColor }}>{displayStatus}</span></td>}
       {show("time") && <td className={cell}>{s.start_time && s.end_time ? `${s.start_time} - ${s.end_time}` : "—"}</td>}
       {show("hours") && <td className={`${cell} font-bold`}>{measureVal}</td>}
       {show("therapist") && <td className={cell}>{tNames || "—"}</td>}
@@ -463,7 +464,7 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
   const selectedInvoice = invoices.find(i => i.id === selectedInvoiceId);
   const invoiceLocked = !!selectedInvoice?.is_closed;
   const cycleWeeks = selectedInvoice?.ss_week_count || 4;
-  const canManagePrep = hasFullClientAccess(user) || isHrOps(user);
+  const canManagePrep = hasOpsAccess(user) || hasFullClientAccess(user);
 
   const fetchSessionsForInvoice = useCallback(async (invoiceId) => {
     const params = { client_id: client.id };
