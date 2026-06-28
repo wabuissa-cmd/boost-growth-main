@@ -9728,9 +9728,74 @@ def _extract_horizontal_merges(ws):
     return anchors, skip
 
 
+def _is_empty_schedule_cell(val) -> bool:
+    """True when Excel cell should stay blank on the schedule grid."""
+    if val is None:
+        return True
+    txt = str(val).strip()
+    if not txt:
+        return True
+    return txt in ("-", "—", "–", "N/A", "n/a")
+
+
+def _normalize_schedule_therapist_label(name: str) -> str:
+    """Strip Ms. prefix and parenthetical duplicates (e.g. 'Alhanouf (Alhanouf)')."""
+    name = (name or "").strip()
+    name = re.sub(r"^Ms\.?\s*", "", name, flags=re.I).strip()
+    m = re.match(r"^(.+?)\s*\(\s*\1\s*\)\s*$", name, re.I)
+    if m:
+        name = m.group(1).strip()
+    return name
+
+
+def _build_schedule_therapist_name_map(therapists: list) -> dict:
+    """Excel/header labels -> therapist id (first + family, aliases, display names)."""
+    t_by_name: dict = {}
+
+    def add(key: str, tid: str):
+        k = (key or "").strip()
+        if k:
+            t_by_name[k] = tid
+            t_by_name[k.lower()] = tid
+
+    for t in therapists:
+        tid = t["id"]
+        raw = (t.get("name") or "").strip()
+        add(raw, tid)
+        short = _normalize_schedule_therapist_label(raw)
+        add(short, tid)
+        display = therapist_schedule_display_name(t)
+        add(display, tid)
+        parts = short.split()
+        first = parts[0] if parts else short
+        if first:
+            add(first, tid)
+        if first.lower() == "hajar":
+            add("Hajer", tid)
+        if first.lower() == "hajer":
+            add("Hajar", tid)
+        key = (t.get("key") or "").strip()
+        family = None
+        for k, v in THERAPIST_FAMILY_NAMES.items():
+            if k.lower() == key.lower():
+                family = v
+                break
+        if family and first:
+            fo = THERAPIST_FIRST_NAME_OVERRIDES.get(first.lower(), first)
+            add(f"{first} {family}", tid)
+            if fo != first:
+                add(f"{fo} {family}", tid)
+            add(f"Ms. {first} {family}", tid)
+            add(f"Ms. {fo} {family}", tid)
+            if first.lower() in ("hajar", "hajer"):
+                add(f"Hajer {family}", tid)
+                add(f"Hajar {family}", tid)
+    return t_by_name
+
+
 def _parse_schedule_cell_text(txt: str):
     """Returns (service_code, child_name, custom_time, note) or None."""
-    if not txt or not str(txt).strip():
+    if _is_empty_schedule_cell(txt):
         return None
     txt = str(txt).strip()
     upper = txt.upper()
@@ -9782,14 +9847,30 @@ def _parse_schedule_cell_text(txt: str):
 
 
 def _resolve_schedule_therapist(name: str, t_by_name: dict) -> Optional[str]:
-    name = (name or "").strip()
+    name = _normalize_schedule_therapist_label(name)
     if not name:
         return None
     if name in t_by_name:
         return t_by_name[name]
-    for key, tid in t_by_name.items():
-        if key.lower() == name.lower():
-            return tid
+    nl = name.lower()
+    if nl in t_by_name:
+        return t_by_name[nl]
+    first = name.split()[0] if name.split() else name
+    if first in t_by_name:
+        return t_by_name[first]
+    fl = first.lower()
+    if fl in t_by_name:
+        return t_by_name[fl]
+    # Unique match on "First Family" when Excel omits extra spacing/casing
+    matches = {tid for key, tid in t_by_name.items() if key.lower() == nl}
+    if len(matches) == 1:
+        return next(iter(matches))
+    prefix_matches = {
+        tid for key, tid in t_by_name.items()
+        if " " in key and (key.lower().startswith(nl) or nl.startswith(key.lower()))
+    }
+    if len(prefix_matches) == 1:
+        return next(iter(prefix_matches))
     return None
 
 
@@ -9876,6 +9957,7 @@ async def _import_schedule_grid(
                         current_t_id = tid
                     elif name_c and name_c not in skipped_unknown:
                         skipped_unknown.append(name_c)
+                        current_t_id = None
                 day_label = (r[2] if len(r) > 2 else "").lower()
                 day_idx = SCHEDULE_DAYS_MAP.get(day_label)
                 if day_idx is not None and current_t_id:
@@ -9888,50 +9970,55 @@ async def _import_schedule_grid(
                             break
                         if (i, col_idx) in merge_skip:
                             continue
-                        val = r[col_idx].strip()
+                        val = r[col_idx].strip() if col_idx < len(r) else ""
                         parsed = _parse_schedule_cell_text(val)
-                        if parsed:
-                            service, child, custom, note = parsed
-                            canonical_ts = (
-                                SCHEDULE_TIME_SLOTS[slot_idx]
-                                if slot_idx < len(SCHEDULE_TIME_SLOTS)
-                                else ts
-                            )
-                            merge_cols = float(merge_anchors.get((i, col_idx), 1))
-                            custom_dur = _duration_from_custom(canonical_ts, custom, time_slots) if custom else 1.0
-                            if custom and custom_dur > 1:
-                                duration = custom_dur
-                            elif merge_cols > 1:
-                                duration = merge_cols
-                            else:
-                                duration = 1.0
-                            span = _duration_slot_span(duration)
-                            if span > 1:
-                                skip_until = slot_idx + span - 1
-                            cell_color = client_colors.get(child) if child else None
-                            if not clear_existing:
+                        canonical_ts = (
+                            SCHEDULE_TIME_SLOTS[slot_idx]
+                            if slot_idx < len(SCHEDULE_TIME_SLOTS)
+                            else ts
+                        )
+                        if not parsed:
+                            if _is_empty_schedule_cell(val):
                                 await _clear_schedule_span(
-                                    current_t_id, day_idx, canonical_ts, duration, week_start
+                                    current_t_id, day_idx, canonical_ts, 1.0, week_start
                                 )
-                            pending_cells.append({
-                                "id": str(uuid.uuid4()),
-                                "therapist_id": current_t_id,
-                                "day": day_idx,
-                                "time_slot": canonical_ts,
-                                "service_code": service,
-                                "child_name": child,
-                                "note": note,
-                                "custom_time": custom,
-                                "state": "normal",
-                                "color": cell_color,
-                                "duration": duration,
-                                "week_start": week_start,
-                                "created_at": now_iso(),
-                            })
-                            if len(pending_cells) >= 100:
-                                await db.schedule_cells.insert_many(pending_cells)
-                                inserted += len(pending_cells)
-                                pending_cells.clear()
+                            continue
+                        service, child, custom, note = parsed
+                        merge_cols = float(merge_anchors.get((i, col_idx), 1))
+                        custom_dur = _duration_from_custom(canonical_ts, custom, time_slots) if custom else 1.0
+                        if custom and custom_dur > 1:
+                            duration = custom_dur
+                        elif merge_cols > 1:
+                            duration = merge_cols
+                        else:
+                            duration = 1.0
+                        span = _duration_slot_span(duration)
+                        if span > 1:
+                            skip_until = slot_idx + span - 1
+                        cell_color = client_colors.get(child) if child else None
+                        if not clear_existing:
+                            await _clear_schedule_span(
+                                current_t_id, day_idx, canonical_ts, duration, week_start
+                            )
+                        pending_cells.append({
+                            "id": str(uuid.uuid4()),
+                            "therapist_id": current_t_id,
+                            "day": day_idx,
+                            "time_slot": canonical_ts,
+                            "service_code": service,
+                            "child_name": child,
+                            "note": note,
+                            "custom_time": custom,
+                            "state": "normal",
+                            "color": cell_color,
+                            "duration": duration,
+                            "week_start": week_start,
+                            "created_at": now_iso(),
+                        })
+                        if len(pending_cells) >= 100:
+                            await db.schedule_cells.insert_many(pending_cells)
+                            inserted += len(pending_cells)
+                            pending_cells.clear()
                 i += 1
             if pending_cells:
                 await db.schedule_cells.insert_many(pending_cells)
@@ -10145,11 +10232,7 @@ async def import_schedule_excel(file: UploadFile = File(...),
     week_start = _normalize_week_start(week_start)
     logger.info(f"Schedule import week_start={week_start} (normalized to Sunday)")
     therapists = await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).to_list(100)
-    t_by_name = {t["name"]: t["id"] for t in therapists}
-    for t in therapists:
-        short = t["name"].replace("Ms. ", "").strip()
-        t_by_name[short] = t["id"]
-        t_by_name[short.lower()] = t["id"]
+    t_by_name = _build_schedule_therapist_name_map(therapists)
 
     if fname.endswith(".csv"):
         import csv
@@ -10212,11 +10295,7 @@ async def import_schedule_google(body: dict, _=Depends(import_access)):
     )
     week_start, week_warning = _resolve_import_week_start(week_start, used_sheet)
     therapists = await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).to_list(100)
-    t_by_name = {t["name"]: t["id"] for t in therapists}
-    for t in therapists:
-        short = t["name"].replace("Ms. ", "").strip()
-        t_by_name[short] = t["id"]
-        t_by_name[short.lower()] = t["id"]
+    t_by_name = _build_schedule_therapist_name_map(therapists)
     inserted, skipped = await _import_schedule_grid(
         grid, week_start, t_by_name, bool(clear_existing),
         merge_anchors=merge_anchors, merge_skip=merge_skip,

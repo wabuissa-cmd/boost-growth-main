@@ -11,7 +11,7 @@ export default function ImportPage() {
   const [loading, setLoading] = useState(false);
   const [replaceMissingClients, setReplaceMissingClients] = useState(false);
   const [historicalWeeks, setHistoricalWeeks] = useState([]);
-  const [clearExisting, setClearExisting] = useState(false);
+  const [clearExisting, setClearExisting] = useState(true);
   const [scheduleWeekStart, setScheduleWeekStart] = useState(toISODate(startOfWeek(new Date())));
   const [sheetName, setSheetName] = useState("");
   const [availableSheets, setAvailableSheets] = useState([]);
