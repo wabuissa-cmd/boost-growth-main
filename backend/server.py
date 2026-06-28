@@ -9824,8 +9824,17 @@ async def _import_schedule_grid(
     merge_skip = merge_skip or set()
     if clear_existing:
         await db.schedule_cells.delete_many({"week_start": week_start})
+    client_colors: dict = {}
+    async for cl in db.clients.find(
+        _active_client_filter({}),
+        {"_id": 0, "name": 1, "schedule_color": 1, "color": 1},
+    ):
+        name = cl.get("name")
+        if name:
+            client_colors[name] = cl.get("schedule_color") or cl.get("color")
     inserted = 0
     skipped_unknown = []
+    pending_cells: List[dict] = []
     time_slots = list(SCHEDULE_TIME_SLOTS)
     i = 0
     while i < len(grid):
@@ -9892,15 +9901,12 @@ async def _import_schedule_grid(
                             span = _duration_slot_span(duration)
                             if span > 1:
                                 skip_until = slot_idx + span - 1
-                            cell_color = None
-                            if child:
-                                cl = await db.clients.find_one(_active_client_filter({"name": child}), {"_id": 0, "schedule_color": 1, "color": 1})
-                                if cl:
-                                    cell_color = cl.get("schedule_color") or cl.get("color")
-                            await _clear_schedule_span(
-                                current_t_id, day_idx, canonical_ts, duration, week_start
-                            )
-                            await db.schedule_cells.insert_one({
+                            cell_color = client_colors.get(child) if child else None
+                            if not clear_existing:
+                                await _clear_schedule_span(
+                                    current_t_id, day_idx, canonical_ts, duration, week_start
+                                )
+                            pending_cells.append({
                                 "id": str(uuid.uuid4()),
                                 "therapist_id": current_t_id,
                                 "day": day_idx,
@@ -9915,8 +9921,15 @@ async def _import_schedule_grid(
                                 "week_start": week_start,
                                 "created_at": now_iso(),
                             })
-                            inserted += 1
+                            if len(pending_cells) >= 100:
+                                await db.schedule_cells.insert_many(pending_cells)
+                                inserted += len(pending_cells)
+                                pending_cells.clear()
                 i += 1
+            if pending_cells:
+                await db.schedule_cells.insert_many(pending_cells)
+                inserted += len(pending_cells)
+                pending_cells.clear()
             continue
         i += 1
     return inserted, skipped_unknown

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import api, { startOfWeek, toISODate } from "../api";
+import api, { SCHEDULE_IMPORT_TIMEOUT, startOfWeek, toISODate } from "../api";
 import { UploadSimple, Download, CheckCircle, X, FileXls, CalendarBlank, UserList, ArrowsClockwise } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
 import { WAITING_LIST_SHEET_URL } from "../constants/waiting";
@@ -101,7 +101,9 @@ export default function ImportPage() {
       if (type === "clients" && replaceMissingClients) {
         fd.append("replace_missing", "true");
       }
-      const { data } = await api.post(endpoint, fd, { headers: {"Content-Type": "multipart/form-data"}});
+      const opts = { headers: { "Content-Type": "multipart/form-data" } };
+      if (type === "schedule") opts.timeout = SCHEDULE_IMPORT_TIMEOUT;
+      const { data } = await api.post(endpoint, fd, opts);
       const msg = type === "schedule"
         ? `${data.cells_inserted} cells for week ${data.week_start}${data.sheet_used ? ` · sheet "${data.sheet_used}"` : ""}${data.merge_spans_detected != null ? ` · ${data.merge_spans_detected} merged spans detected` : ""}${data.week_start_warning ? ` · ${data.week_start_warning}` : ""}`
         : type === "intake"
@@ -117,12 +119,16 @@ export default function ImportPage() {
     if (!googleUrl.trim()) return;
     setLoading(true); setResult(null);
     try {
-      const { data } = await api.post("/import/schedule-google", {
-        sheet_url: googleUrl.trim(),
-        week_start: scheduleWeekStart,
-        sheet_name: sheetName || undefined,
-        clear_existing: clearExisting,
-      });
+      const { data } = await api.post(
+        "/import/schedule-google",
+        {
+          sheet_url: googleUrl.trim(),
+          week_start: scheduleWeekStart,
+          sheet_name: sheetName || undefined,
+          clear_existing: clearExisting,
+        },
+        { timeout: SCHEDULE_IMPORT_TIMEOUT },
+      );
       setResult({
         ok: true,
         msg: `${data.cells_inserted} cells for week ${data.week_start} · sheet "${data.sheet_used}" · ${data.merge_spans_detected} merged spans${data.week_start_warning ? ` · ${data.week_start_warning}` : ""}`,
@@ -342,8 +348,13 @@ export default function ImportPage() {
               <input type="checkbox" checked={clearExisting} onChange={e => setClearExisting(e.target.checked)}/>
               <span style={{color: "#5C6853"}}>Clear existing cells for this week first (recommended)</span>
             </label>
+            {loading && (
+              <div className="text-sm mb-3 p-3 rounded-xl border border-[#E2DDD4]" style={{ background: "#FAFAF7", color: "#5C6853" }}>
+                Importing… may take up to 2 minutes. Please keep this tab open.
+              </div>
+            )}
             <button onClick={upload} disabled={!file || loading} className="btn btn-primary w-full disabled:opacity-50 mb-4">
-              {loading ? <span className="spinner"/> : <><UploadSimple size={16}/> Import Schedule</>}
+              {loading ? <><span className="spinner"/> Importing…</> : <><UploadSimple size={16}/> Import Schedule</>}
             </button>
             <div className="border-t border-[#E2DDD4] pt-4">
               <div className="font-bold mb-2 text-sm" style={{color: "#2C3625"}}>Or import directly from Google Sheets</div>
@@ -358,7 +369,7 @@ export default function ImportPage() {
                 onChange={e => setGoogleUrl(e.target.value)}
               />
               <button onClick={importFromGoogle} disabled={!googleUrl.trim() || loading} className="btn btn-secondary w-full disabled:opacity-50">
-                {loading ? <span className="spinner"/> : <><Download size={16}/> Import from Google Sheets</>}
+                {loading ? <><span className="spinner"/> Importing…</> : <><Download size={16}/> Import from Google Sheets</>}
               </button>
             </div>
           </div>

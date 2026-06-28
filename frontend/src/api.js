@@ -9,6 +9,9 @@ export const API = BACKEND_URL ? `${BACKEND_URL}/api` : "/api";
 
 const api = axios.create({ baseURL: API, withCredentials: true, timeout: 25000 });
 
+/** Schedule Excel / Google import can take 1–2 min on large weekly grids. */
+export const SCHEDULE_IMPORT_TIMEOUT = 180000;
+
 api.interceptors.response.use(
   (res) => {
     const d = res.data;
