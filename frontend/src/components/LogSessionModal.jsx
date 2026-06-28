@@ -23,9 +23,9 @@ function normalizeSessionStatus(status) {
 }
 
 const STATUS_OPTS = [
-  { id: "Completed", label: "Completed", icon: CheckCircle, color: "#3D4F35", bg: "#EEF3EA", border: "#C8D4BE" },
-  { id: "Cancelled", label: "Cancelled", icon: Warning, color: "#6B5218", bg: "#FBF6E8", border: "#E8D9A8" },
-  { id: "No Show", label: "No Show", icon: XCircle, color: "#8A3F27", bg: "#FAF0ED", border: "#E8C4B8" },
+  { id: "Completed", label: "Completed", icon: CheckCircle, color: "#3D4F35", bg: "#E5EBE1", border: "#B8C8A8" },
+  { id: "Cancelled", label: "Cancelled", icon: Warning, color: "#6B5218", bg: "#FAF0D1", border: "#E5C387" },
+  { id: "No Show", label: "No Show", icon: XCircle, color: "#8A3F27", bg: "#F8EBE7", border: "#E8A898" },
 ];
 
 function computeHours(st, et) {
@@ -202,10 +202,10 @@ export default function LogSessionModal({
                 type="button"
                 data-testid={`sess-status-${s.id.toLowerCase().replace(/\s+/g, "-")}`}
                 onClick={() => setForm({ ...form, status: s.id })}
-                className={`log-session-status-btn${active ? " is-active" : ""}`}
+                className={`log-session-status-btn log-session-status-btn--${s.id.toLowerCase().replace(/\s+/g, "-")}${active ? " is-active" : ""}`}
                 style={{
-                  background: active ? s.bg : "#FAFAF8",
-                  borderColor: active ? s.border : "#E8E4DC",
+                  background: s.bg,
+                  borderColor: active ? s.border : `${s.border}99`,
                   color: s.color,
                 }}
               >
