@@ -1,5 +1,5 @@
 import { addDays, toISODate } from "./api";
-import { findClientForScheduleCell, isScheduleClientLogCell, scheduleCellChildName } from "./scheduleUtils";
+import { findClientForScheduleCell, isScheduleClientLogCell, normScheduleName, scheduleCellChildName } from "./scheduleUtils";
 
 /** Build lookup keys for a prep record returned by the API. */
 export function prepRecordKeys(rec) {
@@ -12,8 +12,11 @@ export function prepRecordKeys(rec) {
     keys.push(`mark:${tid}|${cid}|${date}`);
   }
   const slot = (rec.time_slot || "").trim();
-  if (tid && cid && date) {
+  if (tid && cid && date && slot) {
     keys.push(`slot:${tid}|${cid}|${date}|${slot}`);
+  }
+  if (tid && cid && date && rec.client_name) {
+    keys.push(`name:${tid}|${normScheduleName(rec.client_name)}|${date}`);
   }
   return keys;
 }
@@ -27,25 +30,52 @@ export function buildPrepLookup(preparations) {
   return set;
 }
 
-export function prepKeysForCell(cell, therapistId, day, weekStart, clientId) {
+export function prepKeysForCell(cell, therapistId, day, weekStart, clientId, clientName) {
   if (!cell || !clientId) return [];
   const sessionDate = toISODate(addDays(new Date(weekStart + "T12:00:00"), day));
   const keys = [];
   if (cell.id) keys.push(`cell:${cell.id}`);
   keys.push(`mark:${therapistId}|${clientId}|${sessionDate}`);
   const slot = (cell.time_slot || "").trim();
-  keys.push(`slot:${therapistId}|${clientId}|${sessionDate}|${slot}`);
+  if (slot) keys.push(`slot:${therapistId}|${clientId}|${sessionDate}|${slot}`);
+  if (clientName) keys.push(`name:${therapistId}|${normScheduleName(clientName)}|${sessionDate}`);
   return keys;
 }
 
-export function isCellPrepComplete(prepLookup, cell, therapistId, day, weekStart, clients) {
+function prepRecordMatchesCell(rec, cell, therapistId, sessionDate, childName, client) {
+  if (!rec || rec.therapist_id !== therapistId) return false;
+  if ((rec.session_date || "").slice(0, 10) !== sessionDate) return false;
+  if (rec.schedule_cell_id && cell?.id && rec.schedule_cell_id === cell.id) return true;
+  if (client && rec.client_id === client.id) return true;
+  if (rec.client_name && childName) {
+    const a = normScheduleName(rec.client_name);
+    const b = normScheduleName(childName);
+    if (a === b || a.startsWith(b) || b.startsWith(a)) return true;
+    const af = a.split(/\s+/)[0];
+    const bf = b.split(/\s+/)[0];
+    if (af && bf && af === bf) return true;
+  }
+  return false;
+}
+
+export function isCellPrepComplete(prepLookup, cell, therapistId, day, weekStart, clients, preparations = []) {
   if (!cell) return false;
   if (cell.id && prepLookup.has(`cell:${cell.id}`)) return true;
   if (!isScheduleClientLogCell(cell)) return false;
-  const client = findClientForScheduleCell(scheduleCellChildName(cell), clients);
-  if (!client) return false;
-  const keys = prepKeysForCell(cell, therapistId, day, weekStart, client.id);
-  return keys.some((k) => prepLookup.has(k));
+
+  const sessionDate = toISODate(addDays(new Date(weekStart + "T12:00:00"), day));
+  const childName = scheduleCellChildName(cell);
+  const client = childName ? findClientForScheduleCell(childName, clients) : null;
+
+  if (client) {
+    const keys = prepKeysForCell(cell, therapistId, day, weekStart, client.id, client.name);
+    if (keys.some((k) => prepLookup.has(k))) return true;
+  }
+
+  for (const rec of preparations || []) {
+    if (prepRecordMatchesCell(rec, cell, therapistId, sessionDate, childName, client)) return true;
+  }
+  return false;
 }
 
 export function scheduleSlotFromCell(cell, therapistId, day, weekStart, clientId) {

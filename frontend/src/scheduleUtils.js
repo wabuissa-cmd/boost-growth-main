@@ -188,7 +188,7 @@ export function resolveSelfTherapist(user, therapists = []) {
   return null;
 }
 
-function normScheduleName(s) {
+export function normScheduleName(s) {
   return (s || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 

@@ -1808,6 +1808,7 @@ async def _upsert_schedule_preparation(
         "day": day,
         "prepared_by": prepared_by,
         "prepared_at": now_iso(),
+        "client_name": client_name,
     }
     if existing:
         await db.schedule_preparations.update_one({"id": existing["id"]}, {"$set": doc})
@@ -1852,12 +1853,39 @@ def _schedule_cell_child_label(cell: dict) -> str:
     return re.sub(r"\s*\([^)]*\)\s*$", "", note).strip()
 
 
+async def _cell_matches_session_client(cell: dict, client_id: str) -> bool:
+    """True when a schedule cell refers to the same client as a logged session."""
+    label = _schedule_cell_child_label(cell)
+    if label:
+        matched = await _find_client_by_schedule_child_name(label)
+        if matched:
+            return matched.get("id") == client_id
+    client = await db.clients.find_one(_active_client_filter({"id": client_id}), {"_id": 0, "name": 1})
+    if not client:
+        return False
+    cname = (client.get("name") or "").strip()
+    cfirst = cname.split()[0].lower() if cname else ""
+    if not cfirst or len(cfirst) < 3:
+        return False
+    hay = " ".join(
+        x for x in [(cell.get("child_name") or ""), (cell.get("note") or ""), label or ""] if x
+    ).lower()
+    if cfirst not in hay:
+        return False
+    by_first = await _find_client_by_schedule_child_name(cfirst)
+    if by_first:
+        return by_first.get("id") == client_id
+    return True
+
+
 async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) -> None:
     """When a session is logged, mark matching schedule cells as prepared."""
     client_id = sess.get("client_id")
     session_date = (sess.get("session_date") or "")[:10]
     if not client_id or not session_date:
         return
+    client = await db.clients.find_one(_active_client_filter({"id": client_id}), {"_id": 0, "name": 1})
+    client_name = (client or {}).get("name")
     therapist_ids = sess.get("therapist_ids") or []
     cells = await db.schedule_cells.find(
         {
@@ -1872,11 +1900,7 @@ async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) 
         slot_date = _schedule_cell_date_iso(cell)
         if slot_date != session_date:
             continue
-        label = _schedule_cell_child_label(cell)
-        if not label:
-            continue
-        matched = await _find_client_by_schedule_child_name(label)
-        if not matched or matched.get("id") != client_id:
+        if not await _cell_matches_session_client(cell, client_id):
             continue
         tid = cell.get("therapist_id")
         if not tid:
@@ -1894,7 +1918,80 @@ async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) 
             schedule_cell_id=cell.get("id"),
             week_start=cell.get("week_start"),
             day=cell.get("day"),
+            client_name=client_name,
         )
+        # Date-level marker (no time_slot) so frontend always matches even if slot strings differ.
+        await _upsert_schedule_preparation(
+            therapist_id=tid,
+            client_id=client_id,
+            session_date=session_date,
+            prepared_by=user_id or sess.get("created_by") or "",
+            time_slot="",
+            schedule_cell_id=cell.get("id"),
+            week_start=cell.get("week_start"),
+            day=cell.get("day"),
+            client_name=client_name,
+        )
+
+
+async def _sync_prep_history_to_schedule_markers(start: str, end: str) -> None:
+    """Mirror prep_history rows into schedule_preparations for schedule badge display."""
+    rows = await db.prep_history.find(
+        {"session_date": {"$gte": start, "$lte": end}},
+        {"_id": 0},
+    ).to_list(5000)
+    for row in rows:
+        tid = row.get("therapist_id")
+        cid = row.get("client_id")
+        sd = (row.get("session_date") or "")[:10]
+        if not tid or not cid or not sd:
+            continue
+        cell_id = row.get("schedule_cell_id")
+        time_slot = (row.get("time_slot") or "").strip()
+        week_start = None
+        day = None
+        if cell_id:
+            cell = await db.schedule_cells.find_one({"id": cell_id}, {"_id": 0})
+            if cell:
+                time_slot = cell.get("time_slot") or time_slot
+                week_start = cell.get("week_start")
+                day = cell.get("day")
+        if not cell_id:
+            cells = await db.schedule_cells.find({"therapist_id": tid}, {"_id": 0}).to_list(600)
+            for cell in cells:
+                if _schedule_cell_date_iso(cell) != sd:
+                    continue
+                if await _cell_matches_session_client(cell, cid):
+                    cell_id = cell.get("id")
+                    time_slot = cell.get("time_slot") or time_slot
+                    week_start = cell.get("week_start")
+                    day = cell.get("day")
+                    break
+        try:
+            await _upsert_schedule_preparation(
+                therapist_id=tid,
+                client_id=cid,
+                session_date=sd,
+                prepared_by=row.get("prepared_by") or "",
+                time_slot=time_slot,
+                schedule_cell_id=cell_id,
+                week_start=week_start,
+                day=day,
+                client_name=row.get("client_name"),
+            )
+            await _upsert_schedule_preparation(
+                therapist_id=tid,
+                client_id=cid,
+                session_date=sd,
+                prepared_by=row.get("prepared_by") or "",
+                time_slot="",
+                schedule_cell_id=cell_id,
+                week_start=week_start,
+                day=day,
+                client_name=row.get("client_name"),
+            )
+        except Exception:
+            logger.exception("sync prep_history to schedule marker %s", row.get("id"))
 
 
 async def _sync_schedule_preparations_for_week(start: str, end: str) -> None:
@@ -1913,6 +2010,10 @@ async def _sync_schedule_preparations_for_week(start: str, end: str) -> None:
             )
         except Exception:
             logger.exception("sync schedule preparation for session %s", sess.get("id"))
+    try:
+        await _sync_prep_history_to_schedule_markers(start, end)
+    except Exception:
+        logger.exception("sync prep_history to schedule markers for %s–%s", start, end)
 
 
 @api.get("/schedule/preparations")

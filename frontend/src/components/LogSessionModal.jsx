@@ -1,5 +1,5 @@
 import { useState } from "react";
-import api from "../api";
+import api, { toISODate } from "../api";
 import { resolveSessionTherapistIds } from "../attendanceUtils";
 import {
   CheckCircle, Prohibit, Warning, XCircle, Clock, MapPin,
@@ -57,7 +57,7 @@ export default function LogSessionModal({
     const end = prefill?.end_time || "16:00";
     return {
       client_id: client?.id,
-      session_date: prefill?.session_date || new Date().toISOString().slice(0, 10),
+      session_date: prefill?.session_date || toISODate(new Date()),
       start_time: start,
       end_time: end,
       hours: computeHours(start, end),

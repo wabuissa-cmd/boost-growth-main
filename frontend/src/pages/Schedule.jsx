@@ -8,7 +8,7 @@ import {
   resolveSelfTherapist, findClientForScheduleCell, isScheduleClientLogCell, scheduleCellChildName,
 } from "../scheduleUtils";
 import { MAX_SCHEDULE_MERGE_SLOTS } from "../scheduleConstants";
-import { useAuth, showAdminNav, isClientLead, canParentCancellationOps, hasFullClientAccess } from "../auth";
+import { useAuth, showAdminNav, isClientLead, canParentCancellationOps, hasFullClientAccess, hasOpsAccess } from "../auth";
 import {
   CaretLeft, CaretRight, CaretDown, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
   CopySimple, Table, CalendarBlank, CheckCircle, PencilSimple, GridFour, Printer, WhatsappLogo, UserPlus,
@@ -135,7 +135,7 @@ export default function Schedule() {
   const scheduleAdmin = showAdminNav(user);
   const scheduleLead = isClientLead(user) && !scheduleAdmin;
   const isAdmin = scheduleAdmin;
-  const opsCanSeeAllPreps = hasFullClientAccess(user) || scheduleAdmin;
+  const opsCanSeeAllPreps = hasFullClientAccess(user) || scheduleAdmin || hasOpsAccess(user);
   const canQuickLog = !scheduleAdmin && !scheduleLead;
   const parentCancelOps = canParentCancellationOps(user);
   const [view, setView] = useState(() => {
@@ -192,6 +192,7 @@ export default function Schedule() {
   const [parentCancelFocus, setParentCancelFocus] = useState(null);
   const [pendingCancellations, setPendingCancellations] = useState([]);
   const [prepLookup, setPrepLookup] = useState(() => new Set());
+  const [preparations, setPreparations] = useState([]);
 
   useEffect(() => {
     if (!adminEditsOpen) return;
@@ -295,8 +296,11 @@ export default function Schedule() {
     if (!canQuickLog && !opsCanSeeAllPreps) return;
     try {
       const { data } = await api.get("/schedule/preparations", { params: { week_start: weekStartISO } });
-      setPrepLookup(buildPrepLookup(Array.isArray(data) ? data : []));
+      const rows = Array.isArray(data) ? data : [];
+      setPreparations(rows);
+      setPrepLookup(buildPrepLookup(rows));
     } catch {
+      setPreparations([]);
       setPrepLookup(new Set());
     }
   }, [weekStartISO, canQuickLog, opsCanSeeAllPreps]);
@@ -1062,7 +1066,7 @@ export default function Schedule() {
                     const baseStyle = getSheetCellStyle(cell, clients);
                     const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
                     const showPrepBadge = opsCanSeeAllPreps && isScheduleClientLogCell(cell)
-                      && isCellPrepComplete(prepLookup, cell, t.id, di, weekStartISO, clients);
+                      && isCellPrepComplete(prepLookup, cell, t.id, di, weekStartISO, clients, preparations);
                     return (
                       <td
                         key={ts}
@@ -1159,7 +1163,7 @@ export default function Schedule() {
                   const baseStyle = getSheetCellStyle(cell, clients);
                   const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
                   const showPrepBadge = opsCanSeeAllPreps && isScheduleClientLogCell(cell)
-                    && isCellPrepComplete(prepLookup, cell, therapist.id, di, weekStartISO, clients);
+                    && isCellPrepComplete(prepLookup, cell, therapist.id, di, weekStartISO, clients, preparations);
                   return (
                     <td key={ts} className={cellClassNameBlock(cell, canEditRow(therapist.id), leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts), canQuickLog && therapist.id === selfTherapist?.id, showPrepBadge)}
                       colSpan={colSpan}
@@ -1194,7 +1198,7 @@ export default function Schedule() {
         className="no-print"
         toolbarPlacement={isScheduleNarrow ? "outside" : "inline"}
         subtitle={isAdmin
-          ? "Right-click any cell for actions · Click to edit · Drag to select multiple slots"
+          ? "Right-click any cell for actions · Click to edit · Green ✓ = session prepared"
           : scheduleLead && view === "sheet"
             ? opsCanSeeAllPreps
               ? "Team schedule — green ✓ = session prepared"

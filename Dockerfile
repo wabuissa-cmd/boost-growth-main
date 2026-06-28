@@ -9,7 +9,7 @@ ENV CI=true \
     DISABLE_ESLINT_PLUGIN=true \
     SKIP_PREFLIGHT_CHECK=true \
     NODE_OPTIONS=--max-old-space-size=2048
-ENV RAILWAY_DEPLOY_REV=f42419b-force-docker-rebuild
+ENV RAILWAY_DEPLOY_REV=4bfe01f-prep-badge-sync
 RUN npm run build
 
 FROM python:3.11-slim
