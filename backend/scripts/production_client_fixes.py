@@ -380,41 +380,39 @@ def fix_alzughaibi_080(api: Api):
 
 
 def fix_abdulelah_070(api: Api):
-    print("\n[070 Abdulelah] SS only, sync attendance + reopen current")
+    """HS home service — keep closed SS invoices; current cycle is HS."""
+    print("\n[070 Abdulelah] HS home — keep school history, open HS current")
     c = api.client_by_file("070")
     put_client(
         api, c,
-        service_type="SS",
-        locations=[{"service": "SS", "address": "Manarat Ar Riyadh"}],
-        billing_mode="weeks",
-        package_hours=40,
+        service_type="HS",
+        locations=[{"service": "HS", "address": "Al-Manziliyah"}],
+        billing_mode="hours",
+        package_hours=32,
     )
     invs = api.invoices(c["id"])
     for inv in invs:
+        if inv.get("invoice_number") in ("INV0435", "INV0467"):
+            continue
+        if inv.get("invoice_number") == "INV0510":
+            put_invoice(
+                api, inv,
+                service_type="HS",
+                package_size=32,
+                is_closed=False,
+                close_date=None,
+                payment_status="pending",
+                week_overrides={},
+            )
+            print("  INV0510 open HS pkg=32")
+            continue
         st = (inv.get("service_type") or "").upper()
-        if st == "HS" or float(inv.get("package_size") or 0) > 8:
-            delete_invoice(api, inv["id"], inv.get("invoice_number"))
+        if st == "SS" and not inv.get("is_closed"):
+            put_invoice(api, inv, is_closed=True, close_date=inv.get("close_date"))
     invs = api.invoices(c["id"])
-    open_ss = [i for i in invs if not i.get("is_closed") and (i.get("service_type") or "SS") == "SS"]
-    if open_ss:
-        print(f"  open SS: {open_ss[0]['invoice_number']}")
-        return
-    ss_all = sorted(
-        [i for i in invs if (i.get("service_type") or "SS") == "SS"],
-        key=lambda x: x.get("invoice_number") or "",
-        reverse=True,
-    )
-    if ss_all:
-        reopen_invoice(api, ss_all[0], "SS")
-    else:
-        api.send("POST", f"/clients/{c['id']}/invoices", {
-            "invoice_number": "INV0517",
-            "service_type": "SS",
-            "package_size": 4,
-            "start_date": "2026-06-25",
-            "is_closed": False,
-        })
-        print("  created INV0517 open SS")
+    open_hs = [i for i in invs if not i.get("is_closed") and (i.get("service_type") or "HS") == "HS"]
+    if not open_hs:
+        reopen_current_hs(api, "070", "INV0510", close_stale=False)
 
 
 def audit(api: Api, file_no: str):
@@ -467,8 +465,8 @@ def fix_asma_account(api: Api):
 
 
 JUN27_CLIENTS = ("053", "061", "068", "079", "034", "070")
-JUN27_HS_REBUILD = ("061", "068")
-JUN27_SS_REBUILD = ("053", "034", "070")
+JUN27_HS_REBUILD = ("061", "068", "070")
+JUN27_SS_REBUILD = ("053", "034")
 
 
 def finish_jun27_cleanup(api: Api):
@@ -494,7 +492,7 @@ def finish_jun27_cleanup(api: Api):
     if target:
         reopen_invoice(api, target, "SS")
 
-    print("\n[finish] 070 SS cleanup")
+    print("\n[finish] 070 HS current invoice")
     c = api.client_by_file("070")
     for inv in api.invoices(c["id"]):
         if inv.get("invoice_number") == "INV0517":
@@ -507,8 +505,16 @@ def finish_jun27_cleanup(api: Api):
             put_invoice(api, inv, is_closed=True, close_date=inv.get("close_date"))
     target = next((i for i in invs if i.get("invoice_number") == "INV0510"), None)
     if target:
-        put_invoice(api, target, service_type="SS", package_size=4, is_closed=False, close_date=None)
-        print("  INV0510 open SS pkg=4")
+        put_invoice(
+            api, target,
+            service_type="HS",
+            package_size=32,
+            is_closed=False,
+            close_date=None,
+            payment_status="pending",
+            week_overrides={},
+        )
+        print("  INV0510 open HS pkg=32")
 
 
 def run_jun27_fixes(api: Api, api_only: bool = False, rebuild_only: bool = False):

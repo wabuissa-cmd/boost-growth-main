@@ -1266,7 +1266,7 @@ MASTER_CLIENTS = [
     ("062", "Lulu Almutair",         "msRazan",    ["msFahda"],                24, "msFahda", "HS/SS", "Almuroj"),
     ("065", "Aser Alharbi",          "msMaha",     ["msMaha"],                 24, "msMaha",  "HS",    "Al Izdihar"),
     ("068", "Abdulrahman Alshawi",   "msRazan",    ["msFahda"],                24, "msFahda", "HS",    "AR Rayan"),
-    ("070", "Abdulelah Almuhana",    "msAbeer",    ["msMaha"],                 40, "msMaha",  "SS",    "Manarat Riyadh"),
+    ("070", "Abdulelah Almuhana",    "msAbeer",    ["msMaha"],                 32, "msMaha",  "HS",    "Al-Manziliyah"),
     ("072", "Khalid Bin Shuael",     "msShatha",   ["msFahda"],                24, "msFahda", "HS",    "AlMursalat"),
     ("079", "Fahad Suliman",         "msFahda",    ["msFahda"],                40, "msFahda", "HS",    "Al-Sahafa"),
     ("053", "Ahmad Alshalfan",       "msHajer",    ["msFahda"],                24, "msFahda", "HS/SS", "Almalqa"),
@@ -10559,7 +10559,7 @@ CLIENT_SEED = [
     {"file_no":"063","name":"Amani Ghaith","main":"Ms. Maha","co":[],"pkg":24,"sup":"Ms. Maha","color":"#FFF2CC","locs":[{"service":"HS","address":"Alnakheel"}]},
     {"file_no":"065","name":"Aser Alharbi","main":"Ms. Najla","co":["Ms. Maha"],"pkg":24,"sup":"Ms. Maha","color":"#F4CCCC","locs":[{"service":"HS","address":"Al Izdihar - First floor - House no 15"}]},
     {"file_no":"068","name":"Abdulrahman Alshawi","main":"Ms. Razan","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#C9DAF8","locs":[{"service":"HS","address":"AR Rayan - Home no 32"}]},
-    {"file_no":"070","name":"Abdulelah Almuhana","main":"Ms. Abeer","co":["Ms. Maha"],"pkg":24,"sup":"Ms. Maha","color":"#CFE2F3","locs":[{"service":"SS","address":"Manarat Ar Riyadh"}]},
+    {"file_no":"070","name":"Abdulelah Almuhana","main":"Ms. Abeer","co":["Ms. Maha"],"pkg":32,"sup":"Ms. Maha","color":"#CFE2F3","locs":[{"service":"HS","address":"Al-Manziliyah"}]},
     {"file_no":"072","name":"Khalid Bin Shuael","main":"Ms. Shatha","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#EAD1DC","locs":[{"service":"HS","address":"AlMursalat"}]},
 ]
 
