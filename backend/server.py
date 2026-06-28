@@ -6043,7 +6043,7 @@ async def list_sessions(client_id: Optional[str] = None, invoice_id: Optional[st
             else:
                 q["invoice_id"] = invoice_id
         items = await db.sessions.find(q, {"_id": 0}).sort("session_date", -1).to_list(2000)
-    if (user.get("role") == "therapist" and not _has_full_client_access(user):
+    if user.get("role") == "therapist" and not _has_full_client_access(user):
         uid = await _resolve_user_therapist_id(user) or user.get("id")
         # Caseload therapists see full client history for preparation review
         if not (client_id and await _therapist_assigned_to_client(uid, client_id)):
@@ -10967,6 +10967,7 @@ async def root():
 
 
 @api.get("/health")
+@api.head("/health")
 async def health():
     return {"status": "ok"}
 
