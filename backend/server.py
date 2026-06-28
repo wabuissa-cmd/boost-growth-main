@@ -1994,12 +1994,102 @@ async def _sync_prep_history_to_schedule_markers(start: str, end: str) -> None:
             logger.exception("sync prep_history to schedule marker %s", row.get("id"))
 
 
+_LOGGED_PREP_SESSION_STATUSES = {"Completed", "Cancelled", "No Show", "No Service"}
+
+
+async def _computed_schedule_preparation_markers(
+    start: str, end: str, therapist_id: Optional[str] = None
+) -> list:
+    """Build prep markers directly from logged sessions — source of truth for green badges."""
+    sessions = await db.sessions.find(
+        {
+            "session_date": {"$gte": start, "$lte": end},
+            "status": {"$in": list(_LOGGED_PREP_SESSION_STATUSES)},
+        },
+        {"_id": 0},
+    ).to_list(5000)
+    if not sessions:
+        return []
+    client_ids = list({s.get("client_id") for s in sessions if s.get("client_id")})
+    clients: dict = {}
+    if client_ids:
+        async for c in db.clients.find(
+            _active_client_filter({"id": {"$in": client_ids}}),
+            {"_id": 0, "id": 1, "name": 1},
+        ):
+            clients[c["id"]] = c
+    cells = await db.schedule_cells.find({}, {"_id": 0}).to_list(4000)
+    markers: list = []
+    seen: set = set()
+    for sess in sessions:
+        cid = sess.get("client_id")
+        sd = (sess.get("session_date") or "")[:10]
+        if not cid or not sd:
+            continue
+        for tid in sess.get("therapist_ids") or []:
+            if therapist_id and tid != therapist_id:
+                continue
+            key = (tid, cid, sd)
+            if key in seen:
+                continue
+            seen.add(key)
+            cell_id = None
+            time_slot = ""
+            week_start = None
+            day = None
+            for cell in cells:
+                if cell.get("therapist_id") != tid:
+                    continue
+                if _schedule_cell_date_iso(cell) != sd:
+                    continue
+                if not await _cell_matches_session_client(cell, cid):
+                    continue
+                cell_id = cell.get("id")
+                time_slot = cell.get("time_slot") or ""
+                week_start = cell.get("week_start")
+                day = cell.get("day")
+                break
+            markers.append({
+                "therapist_id": tid,
+                "client_id": cid,
+                "session_date": sd,
+                "time_slot": time_slot,
+                "schedule_cell_id": cell_id,
+                "week_start": week_start,
+                "day": day,
+                "client_name": (clients.get(cid) or {}).get("name"),
+                "source": "session",
+            })
+    return markers
+
+
+def _merge_schedule_preparation_markers(*groups: list) -> list:
+    """Merge marker rows; prefer entries with schedule_cell_id."""
+    merged: dict = {}
+    for group in groups:
+        for item in group or []:
+            tid = item.get("therapist_id")
+            cid = item.get("client_id")
+            sd = (item.get("session_date") or "")[:10]
+            if not tid or not cid or not sd:
+                continue
+            key = (tid, cid, sd)
+            prev = merged.get(key)
+            if not prev:
+                merged[key] = dict(item)
+            elif item.get("schedule_cell_id") and not prev.get("schedule_cell_id"):
+                merged[key] = {**prev, **item}
+            elif item.get("client_name") and not prev.get("client_name"):
+                merged[key] = {**prev, "client_name": item["client_name"]}
+    return list(merged.values())
+
+
 async def _sync_schedule_preparations_for_week(start: str, end: str) -> None:
     """Backfill schedule prep markers from completed sessions (idempotent)."""
     sessions = await db.sessions.find(
         {
             "session_date": {"$gte": start, "$lte": end},
-            "status": {"$in": ["Completed", "Cancelled", "No Show", "No Service"]},
+            "status": {"$in": list(_LOGGED_PREP_SESSION_STATUSES)},
         },
         {"_id": 0},
     ).to_list(5000)
@@ -2022,7 +2112,7 @@ async def list_schedule_preparations(
     therapist_id: Optional[str] = None,
     user=Depends(get_current_user),
 ):
-    """Prep-complete markers for schedule slots in a week (Mon–Fri)."""
+    """Prep-complete markers for schedule slots in a week (Sun–Thu)."""
     if not week_start:
         raise HTTPException(status_code=400, detail="week_start required")
     try:
@@ -2038,8 +2128,9 @@ async def list_schedule_preparations(
     if tid:
         q["therapist_id"] = tid
     await _sync_schedule_preparations_for_week(start, end)
-    items = await db.schedule_preparations.find(q, {"_id": 0}).to_list(2000)
-    return items
+    db_items = await db.schedule_preparations.find(q, {"_id": 0}).to_list(2000)
+    computed = await _computed_schedule_preparation_markers(start, end, tid)
+    return _merge_schedule_preparation_markers(db_items, computed)
 
 
 @api.post("/schedule/preparations")

@@ -24,7 +24,7 @@ import ParentWhatsAppModal from "../components/ParentWhatsAppModal";
 import ParentCancellationModal from "../components/ParentCancellationModal";
 import LogSessionModal, { slotToTime24, addHoursToTime } from "../components/LogSessionModal";
 import SchedulePrepBadge from "../components/SchedulePrepBadge";
-import { buildPrepLookup, isCellPrepComplete } from "../schedulePrepUtils";
+import { buildPrepLookup, buildSessionPrepLookup, isCellPrepComplete, mergePrepLookups } from "../schedulePrepUtils";
 import { buildParentMessages } from "../scheduleParentMessages";
 import { sortTherapistsForSchedule, getTherapistScheduleName, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
 import { cachedGet } from "../dataCache";
@@ -137,6 +137,7 @@ export default function Schedule() {
   const isAdmin = scheduleAdmin;
   const opsCanSeeAllPreps = hasFullClientAccess(user) || scheduleAdmin || hasOpsAccess(user);
   const canQuickLog = !scheduleAdmin && !scheduleLead;
+  const canSeePrepBadges = !!user && (opsCanSeeAllPreps || canQuickLog);
   const parentCancelOps = canParentCancellationOps(user);
   const [view, setView] = useState(() => {
     // Default to "Per Therapist" (blocks) view for all users per business request.
@@ -193,6 +194,7 @@ export default function Schedule() {
   const [pendingCancellations, setPendingCancellations] = useState([]);
   const [prepLookup, setPrepLookup] = useState(() => new Set());
   const [preparations, setPreparations] = useState([]);
+  const [weekSessions, setWeekSessions] = useState([]);
 
   useEffect(() => {
     if (!adminEditsOpen) return;
@@ -293,36 +295,52 @@ export default function Schedule() {
   };
 
   const loadPreparations = useCallback(async () => {
-    if (!canQuickLog && !opsCanSeeAllPreps) return;
+    if (!user) return;
+    if (!canSeePrepBadges) return;
     try {
       const { data } = await api.get("/schedule/preparations", { params: { week_start: weekStartISO } });
       const rows = Array.isArray(data) ? data : [];
       setPreparations(rows);
-      setPrepLookup(buildPrepLookup(rows));
+      const sessionKeys = buildSessionPrepLookup(weekSessions, weekStartISO, weekEndISO);
+      setPrepLookup(mergePrepLookups(buildPrepLookup(rows), sessionKeys));
     } catch {
       setPreparations([]);
-      setPrepLookup(new Set());
+      setPrepLookup(buildSessionPrepLookup(weekSessions, weekStartISO, weekEndISO));
     }
-  }, [weekStartISO, canQuickLog, opsCanSeeAllPreps]);
+  }, [weekStartISO, weekEndISO, weekSessions, canSeePrepBadges, user]);
 
   const load = useCallback(async (force = false) => {
     const yr = weekStart.getFullYear();
-    const [c, t, cl, lv] = await Promise.all([
+    const ws = weekStartISO;
+    const we = weekEndISO;
+    const [c, t, cl, lv, sess] = await Promise.all([
       cachedGet("/schedule", { params: { week_start: weekStartISO }, force }),
       cachedGet("/therapists", { force }).catch(() => []),
       cachedGet("/clients", { force }).catch(() => []),
       cachedGet("/leaves", { params: { year: yr }, force }).catch(() => []),
+      canSeePrepBadges
+        ? cachedGet("/sessions", { force }).catch(() => [])
+        : Promise.resolve([]),
     ]);
     setCells(Array.isArray(c) ? c : []);
     setTherapists(Array.isArray(t) ? t : []);
     setClients(Array.isArray(cl) ? cl : []);
     setLeaves(Array.isArray(lv) ? lv : []);
+    const inWeek = (Array.isArray(sess) ? sess : []).filter((s) => {
+      const d = (s.session_date || "").slice(0, 10);
+      return d >= ws && d <= we;
+    });
+    setWeekSessions(inWeek);
     try {
       const st = await cachedGet("/schedule/week-status", { params: { week_start: weekStartISO }, force });
       setWeekStatus(st?.status || "published");
     } catch (_) { setWeekStatus("published"); }
+  }, [weekStartISO, weekStart, weekEndISO, canSeePrepBadges, user]);
+
+  useEffect(() => {
+    if (!user || !canSeePrepBadges) return;
     loadPreparations();
-  }, [weekStartISO, weekStart, loadPreparations]);
+  }, [user, canSeePrepBadges, loadPreparations, weekSessions]);
 
   const loadClosures = useCallback(async () => {
     try {
@@ -1065,8 +1083,8 @@ export default function Schedule() {
                     const colSpan = scheduleDisplaySpan(cell);
                     const baseStyle = getSheetCellStyle(cell, clients);
                     const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
-                    const showPrepBadge = opsCanSeeAllPreps && isScheduleClientLogCell(cell)
-                      && isCellPrepComplete(prepLookup, cell, t.id, di, weekStartISO, clients, preparations);
+                    const showPrepBadge = canSeePrepBadges && isScheduleClientLogCell(cell)
+                      && isCellPrepComplete(prepLookup, cell, t.id, di, weekStartISO, clients, preparations, weekSessions);
                     return (
                       <td
                         key={ts}
@@ -1162,8 +1180,8 @@ export default function Schedule() {
                   const colSpan = scheduleDisplaySpan(cell);
                   const baseStyle = getSheetCellStyle(cell, clients);
                   const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
-                  const showPrepBadge = opsCanSeeAllPreps && isScheduleClientLogCell(cell)
-                    && isCellPrepComplete(prepLookup, cell, therapist.id, di, weekStartISO, clients, preparations);
+                  const showPrepBadge = canSeePrepBadges && isScheduleClientLogCell(cell)
+                    && isCellPrepComplete(prepLookup, cell, therapist.id, di, weekStartISO, clients, preparations, weekSessions);
                   return (
                     <td key={ts} className={cellClassNameBlock(cell, canEditRow(therapist.id), leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts), canQuickLog && therapist.id === selfTherapist?.id, showPrepBadge)}
                       colSpan={colSpan}
