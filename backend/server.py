@@ -6050,6 +6050,63 @@ async def list_sessions(client_id: Optional[str] = None, invoice_id: Optional[st
             items = [s for s in items if uid in (s.get("therapist_ids") or [])]
     return _sessions_with_day_names(items)
 
+async def _user_in_session_therapists(user: dict, therapist_ids: list) -> bool:
+    """True if logged-in user (or mapped therapist row) is on the session."""
+    uid = await _resolve_user_therapist_id(user) or user.get("id")
+    allowed = set(therapist_ids or [])
+    return bool(uid and uid in allowed) or bool(user.get("id") and user["id"] in allowed)
+
+
+async def _sync_prep_history_for_session(sess: dict, prepared_by: str, notes: Optional[str] = None) -> None:
+    """Keep prep_history notes/therapists aligned with a logged session."""
+    sid = sess.get("id")
+    cid = sess.get("client_id")
+    sd = (sess.get("session_date") or "")[:10]
+    if not sid or not cid or not sd:
+        return
+    client = await db.clients.find_one({"id": cid}, {"_id": 0, "name": 1})
+    tids = [t for t in (sess.get("therapist_ids") or []) if t]
+    primary_tid = tids[0] if tids else None
+    note_val = notes if notes is not None else sess.get("note")
+    patch = {
+        "notes": (note_val or "").strip(),
+        "session_id": sid,
+        "prepared_at": now_iso(),
+        "source": "session",
+    }
+    if primary_tid:
+        patch["therapist_id"] = primary_tid
+        th = await db.therapists.find_one({"id": primary_tid}, {"_id": 0, "name": 1, "key": 1})
+        if th:
+            patch["therapist_name"] = therapist_schedule_display_name(th)
+    await db.prep_history.update_many({"session_id": sid}, {"$set": patch})
+    if primary_tid:
+        await _upsert_prep_history(
+            therapist_id=primary_tid,
+            client_id=cid,
+            session_date=sd,
+            prepared_by=prepared_by,
+            time_slot=sess.get("start_time") or "",
+            client_name=(client or {}).get("name"),
+            notes=(note_val or "").strip() or None,
+            invoice_id=sess.get("invoice_id"),
+            session_id=sid,
+            source="session",
+        )
+
+
+def _merge_session_therapist_ids(payload_ids: list, user: dict, resolved_uid: Optional[str]) -> list:
+    """Ensure logging therapist stays on the session; keep co-therapists from payload."""
+    ids = [t for t in (payload_ids or []) if t]
+    if user.get("role") == "therapist":
+        uid = resolved_uid or user.get("id")
+        if uid and uid not in ids:
+            ids.insert(0, uid)
+        elif user.get("id") and user["id"] not in ids:
+            ids.insert(0, user["id"])
+    return ids
+
+
 def _service_code_for_new_session(client: dict, payload: SessionIn) -> str:
     if payload.service_type:
         st = _normalize_service_type(payload.service_type)
@@ -6101,13 +6158,8 @@ async def create_session(payload: SessionIn, user=Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="No Service is no longer available")
     _require_same_day_session(user, payload.session_date)
     sid = str(uuid.uuid4())
-    therapist_ids = payload.therapist_ids or []
-    if user.get("role") == "therapist":
-        uid = await _resolve_user_therapist_id(user) or user.get("id")
-        if uid and uid not in therapist_ids:
-            therapist_ids.append(uid)
-        elif user.get("id") and user["id"] not in therapist_ids:
-            therapist_ids.append(user["id"])
+    resolved_uid = await _resolve_user_therapist_id(user) if user.get("role") == "therapist" else None
+    therapist_ids = _merge_session_therapist_ids(payload.therapist_ids, user, resolved_uid)
     client = await db.clients.find_one(_active_client_filter({"id": payload.client_id}), {"_id": 0})
     invs = await db.invoices.find({"client_id": payload.client_id}, {"_id": 0}).to_list(200)
     doc = {"id": sid, **payload.model_dump(), "therapist_ids": therapist_ids,
@@ -6175,22 +6227,32 @@ async def update_session(sid: str, payload: SessionIn, user=Depends(get_current_
     sess = await db.sessions.find_one({"id": sid})
     if not sess:
         raise HTTPException(status_code=404, detail="Not found")
-    if not _has_full_client_access(user) and user["id"] not in (sess.get("therapist_ids") or []):
+    if not _has_full_client_access(user) and not await _user_in_session_therapists(user, sess.get("therapist_ids") or []):
         raise HTTPException(status_code=403, detail="Forbidden")
     if not _session_editable_by_user(user, sess):
         raise HTTPException(status_code=403, detail="Sessions can only be edited on the same day. Contact admin for changes.")
     if (payload.status or "").strip() == "No Service":
         raise HTTPException(status_code=400, detail="No Service is no longer available")
     _require_same_day_session(user, payload.session_date)
-    await db.sessions.update_one({"id": sid}, {"$set": payload.model_dump()})
-    return await db.sessions.find_one({"id": sid}, {"_id": 0})
+    resolved_uid = await _resolve_user_therapist_id(user) if user.get("role") == "therapist" else None
+    therapist_ids = _merge_session_therapist_ids(payload.therapist_ids, user, resolved_uid)
+    patch = payload.model_dump()
+    patch["therapist_ids"] = therapist_ids
+    patch["note"] = (payload.note or "").strip() or None
+    await db.sessions.update_one({"id": sid}, {"$set": patch})
+    updated = await db.sessions.find_one({"id": sid}, {"_id": 0})
+    try:
+        await _sync_prep_history_for_session(updated, user["id"], notes=patch.get("note"))
+    except Exception:
+        logger.exception("Prep history sync on session update failed")
+    return updated
 
 @api.delete("/sessions/{sid}")
 async def delete_session(sid: str, user=Depends(get_current_user)):
     sess = await db.sessions.find_one({"id": sid})
     if not sess:
         return {"ok": True}
-    if not _has_full_client_access(user) and user["id"] not in (sess.get("therapist_ids") or []):
+    if not _has_full_client_access(user) and not await _user_in_session_therapists(user, sess.get("therapist_ids") or []):
         raise HTTPException(status_code=403, detail="Forbidden")
     if not _session_editable_by_user(user, sess):
         raise HTTPException(status_code=403, detail="Sessions can only be edited on the same day. Contact admin for changes.")

@@ -121,6 +121,37 @@ export function resolveSessionTherapistIds(client, serviceType, currentUser, res
   return cos.length ? [cos[0]] : [];
 }
 
+/** Keep co-therapists the user picked when service/location changes. */
+export function mergeSessionTherapistIds(currentIds, defaultIds) {
+  const merged = [...(defaultIds || []), ...(currentIds || [])];
+  return [...new Set(merged.filter(Boolean))];
+}
+
+/** Payload fields accepted by POST/PUT /sessions */
+export function buildSessionPayload(form, clientId) {
+  return {
+    client_id: clientId || form.client_id,
+    session_date: (form.session_date || "").slice(0, 10),
+    start_time: form.start_time || null,
+    end_time: form.end_time || null,
+    hours: computeHoursFromTimes(form.start_time, form.end_time),
+    status: form.status,
+    therapist_ids: [...new Set((form.therapist_ids || []).filter(Boolean))],
+    note: (form.note || "").trim() || null,
+    location: form.location || null,
+    service_type: form.service_type || null,
+  };
+}
+
+function computeHoursFromTimes(st, et) {
+  if (!st || !et) return 0;
+  const [h1, m1] = st.split(":").map(Number);
+  const [h2, m2] = et.split(":").map(Number);
+  let diff = (h2 * 60 + m2) - (h1 * 60 + m1);
+  if (diff < 0) diff += 24 * 60;
+  return Math.round(diff / 30) / 2;
+}
+
 /** SS: 4 blocks of 5 school days (Sun–Thu) from invoice start_date. */
 export function computeSchoolWeekWindows(anchorISO, totalWeeks = 4) {
   if (!anchorISO) {

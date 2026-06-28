@@ -1,14 +1,17 @@
 import { useState } from "react";
-import api, { toISODate } from "../api";
-import { resolveSessionTherapistIds } from "../attendanceUtils";
+import api, { toISODate, formatErr } from "../api";
+import {
+  resolveSessionTherapistIds,
+  mergeSessionTherapistIds,
+  buildSessionPayload,
+} from "../attendanceUtils";
 import { hasFullClientAccess, isHrOps } from "../auth";
 import {
-  CheckCircle, Warning, XCircle, Clock, MapPin,
+  CheckCircle, Warning, XCircle, Clock,
 } from "@phosphor-icons/react";
 import { resolveSelfTherapist } from "../scheduleUtils";
 import {
-  ModalBase, FormSection, FormField,
-  ModalBtnPrimary, ModalBtnSecondary,
+  ModalBase, ModalBtnPrimary, ModalBtnSecondary,
 } from "./Modal";
 import { getTherapistScheduleName } from "../scheduleConstants";
 
@@ -18,10 +21,11 @@ function normalizeSessionStatus(status) {
   if (!status || status === "No Service") return "Completed";
   return ALLOWED_SESSION_STATUSES.has(status) ? status : "Completed";
 }
+
 const STATUS_OPTS = [
-  { id: "Completed", label: "Completed", icon: CheckCircle, color: "#3D4F35", bg: "#E5EBE1" },
-  { id: "Cancelled", label: "Cancelled", icon: Warning, color: "#6B5218", bg: "#FAF0D1" },
-  { id: "No Show", label: "No Show", icon: XCircle, color: "#8A3F27", bg: "#F8EBE7" },
+  { id: "Completed", label: "Completed", icon: CheckCircle, color: "#3D4F35", bg: "#EEF3EA", border: "#C8D4BE" },
+  { id: "Cancelled", label: "Cancelled", icon: Warning, color: "#6B5218", bg: "#FBF6E8", border: "#E8D9A8" },
+  { id: "No Show", label: "No Show", icon: XCircle, color: "#8A3F27", bg: "#FAF0ED", border: "#E8C4B8" },
 ];
 
 function computeHours(st, et) {
@@ -53,6 +57,15 @@ export function addHoursToTime(time24, hours) {
   return `${String(nh).padStart(2, "0")}:${String(nm).padStart(2, "0")}`;
 }
 
+function FieldLabel({ children, required }) {
+  return (
+    <label className="log-session-label">
+      {children}
+      {required && <span className="log-session-required"> *</span>}
+    </label>
+  );
+}
+
 export default function LogSessionModal({
   client, therapists, currentUser, onClose, onSaved, session, prefill, scheduleContext,
 }) {
@@ -64,7 +77,12 @@ export default function LogSessionModal({
   const [form, setForm] = useState(() => {
     if (session) {
       const st = session.status === "No Service" ? "Completed" : session.status;
-      return { ...session, status: st };
+      return {
+        ...session,
+        status: st,
+        therapist_ids: [...new Set((session.therapist_ids || []).filter(Boolean))],
+        note: session.note || "",
+      };
     }
     const start = prefill?.start_time || "14:00";
     const end = prefill?.end_time || "16:00";
@@ -82,8 +100,19 @@ export default function LogSessionModal({
     };
   });
 
+  const [saving, setSaving] = useState(false);
+  const [coPickOpen, setCoPickOpen] = useState(false);
+
+  const applyServiceChange = (next) => {
+    setForm((f) => {
+      const defaults = resolveSessionTherapistIds(client, next.service_type, currentUser, selfTherapistId);
+      return { ...f, ...next, therapist_ids: mergeSessionTherapistIds(f.therapist_ids, defaults) };
+    });
+  };
+
   const submit = async (e) => {
     e.preventDefault();
+    if (saving) return;
     if (!canPickAnyDate && (form.session_date || "").slice(0, 10) !== todayISO) {
       alert("التحضير مسموح فقط في يوم الجلسة.\nPreparation is only allowed on the session day.");
       return;
@@ -92,25 +121,40 @@ export default function LogSessionModal({
       alert("No Service is no longer available. Choose Completed, Cancelled, or No Show.");
       return;
     }
-    const payload = { ...form, status: normalizeSessionStatus(form.status), hours: computeHours(form.start_time, form.end_time) };
-    if (session?.id) await api.put(`/sessions/${session.id}`, payload);
-    else await api.post("/sessions", payload);
-    if (scheduleContext?.therapist_id && client?.id && form.session_date) {
-      try {
-        await api.post("/schedule/preparations", {
-          therapist_id: scheduleContext.therapist_id,
-          client_id: client.id,
-          session_date: form.session_date,
-          time_slot: scheduleContext.time_slot || "",
-          schedule_cell_id: scheduleContext.schedule_cell_id || null,
-          week_start: scheduleContext.week_start || null,
-          day: scheduleContext.day,
-        });
-      } catch {
-        /* session save succeeded; schedule marker may still sync from backend */
-      }
+    const payload = buildSessionPayload(
+      { ...form, status: normalizeSessionStatus(form.status) },
+      client?.id,
+    );
+    if (!payload.therapist_ids?.length) {
+      alert("Please select at least one therapist for this session.");
+      return;
     }
-    onSaved();
+    setSaving(true);
+    try {
+      if (session?.id) await api.put(`/sessions/${session.id}`, payload);
+      else await api.post("/sessions", payload);
+      if (scheduleContext?.therapist_id && client?.id && form.session_date) {
+        try {
+          await api.post("/schedule/preparations", {
+            therapist_id: scheduleContext.therapist_id,
+            client_id: client.id,
+            session_date: form.session_date,
+            time_slot: scheduleContext.time_slot || "",
+            schedule_cell_id: scheduleContext.schedule_cell_id || null,
+            week_start: scheduleContext.week_start || null,
+            day: scheduleContext.day,
+            notes: payload.note || "",
+          });
+        } catch {
+          /* session saved; schedule marker may still sync from backend */
+        }
+      }
+      onSaved();
+    } catch (err) {
+      alert(formatErr(err?.response?.data?.detail) || "Could not save session. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const toggleT = (id) => {
@@ -122,97 +166,96 @@ export default function LogSessionModal({
 
   const formId = session ? "edit-session-form" : "log-session-form";
   const hours = computeHours(form.start_time, form.end_time);
+  const availableCoTherapists = therapists.filter(t => !form.therapist_ids.includes(t.id));
+  const clientSubtitle = client
+    ? `${client.name}${client.file_no ? ` · #${client.file_no}` : ""}`
+    : undefined;
 
   return (
     <ModalBase
+      className="log-session-modal"
+      shellClassName="log-session-shell"
+      bodyClassName="log-session-body"
       title={session ? "Edit Session" : "Log Session"}
-      subtitle={session ? "Update session details" : "Record attendance for this session"}
+      subtitle={clientSubtitle}
       onClose={onClose}
-      size="lg"
+      size="session"
       mobileCompact
+      compact
       footer={(
-        <>
-          <ModalBtnSecondary type="button" onClick={onClose}>Cancel</ModalBtnSecondary>
-          <ModalBtnPrimary data-testid="sess-save" type="submit" form={formId}>
-            {session ? "Save changes" : "Log Session"}
+        <div className="log-session-footer">
+          <ModalBtnSecondary type="button" className="log-session-btn-secondary" onClick={onClose}>Cancel</ModalBtnSecondary>
+          <ModalBtnPrimary data-testid="sess-save" type="submit" form={formId} className="log-session-btn-primary" disabled={saving}>
+            {saving ? "Saving…" : (session ? "Save" : "Log Session")}
           </ModalBtnPrimary>
-        </>
+        </div>
       )}
     >
-      <form id={formId} onSubmit={submit}>
-        {client && (
-          <div className="flex items-center gap-3 px-4 py-3 rounded-xl mb-4" style={{ background: "#F0E9D8", border: "1px solid #E2DDD4" }}>
-            <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white text-sm shrink-0" style={{ background: client.color || "#7A8A6A" }}>
-              {client.name?.charAt(0)}
-            </div>
-            <div>
-              <div className="font-bold text-sm" style={{ color: "#2C3625" }}>{client.name}</div>
-              <div className="ui-caption">File #{client.file_no || "—"}</div>
-            </div>
-          </div>
-        )}
-        <FormSection title="Status">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {STATUS_OPTS.map(s => {
-              const Icon = s.icon;
-              const active = form.status === s.id;
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => setForm({ ...form, status: s.id })}
-                  className={`px-2 py-2.5 rounded-xl border flex flex-col items-center gap-1 transition-all ${active ? "ring-2 ring-[#7A8A6A]" : ""}`}
-                  style={{ background: s.bg, borderColor: active ? "#7A8A6A" : "#E2DDD4", color: s.color }}
-                >
-                  <Icon size={20} weight="fill" />
-                  <span className="text-[11px] font-bold leading-tight text-center">{s.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </FormSection>
-        <FormSection title="When & where">
-          {client?.locations?.length > 0 && (
-            <FormField label="Service / location">
-              <select data-testid="sess-location" className="modal-input" value={form.location}
+      <form id={formId} onSubmit={submit} className="log-session-form">
+        <div className="log-session-status-row" role="group" aria-label="Session status">
+          {STATUS_OPTS.map(s => {
+            const Icon = s.icon;
+            const active = form.status === s.id;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                data-testid={`sess-status-${s.id.toLowerCase().replace(/\s+/g, "-")}`}
+                onClick={() => setForm({ ...form, status: s.id })}
+                className={`log-session-status-btn${active ? " is-active" : ""}`}
+                style={{
+                  background: active ? s.bg : "#FAFAF8",
+                  borderColor: active ? s.border : "#E8E4DC",
+                  color: s.color,
+                }}
+              >
+                <Icon size={16} weight={active ? "fill" : "regular"} />
+                <span>{s.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="log-session-card">
+          {client?.locations?.length > 0 ? (
+            <div className="log-session-field">
+              <FieldLabel>Location</FieldLabel>
+              <select
+                data-testid="sess-location"
+                className="modal-input log-session-input"
+                value={form.location}
                 onChange={e => {
                   const loc = client.locations.find(l => l.address === e.target.value);
                   const svc = loc?.service || form.service_type || "HS";
-                  setForm({
-                    ...form,
-                    location: e.target.value,
-                    service_type: svc,
-                    therapist_ids: resolveSessionTherapistIds(client, svc, currentUser, selfTherapistId),
-                  });
-                }}>
+                  applyServiceChange({ location: e.target.value, service_type: svc });
+                }}
+              >
                 {client.locations.map((l, i) => (
                   <option key={i} value={l.address}>{l.service} · {l.address}</option>
                 ))}
               </select>
-            </FormField>
-          )}
-          {(!client?.locations?.length) && (
-            <FormField label="Service type">
-              <select className="modal-input" value={form.service_type || "HS"}
-                onChange={e => {
-                  const svc = e.target.value;
-                  setForm({
-                    ...form,
-                    service_type: svc,
-                    therapist_ids: resolveSessionTherapistIds(client, svc, currentUser, selfTherapistId),
-                  });
-                }}>
+            </div>
+          ) : (
+            <div className="log-session-field">
+              <FieldLabel>Service</FieldLabel>
+              <select
+                className="modal-input log-session-input"
+                value={form.service_type || "HS"}
+                onChange={e => applyServiceChange({ service_type: e.target.value })}
+              >
                 <option value="HS">Home Session (HS)</option>
                 <option value="SS">School Support (SS)</option>
               </select>
-            </FormField>
+            </div>
           )}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <FormField label="Date" required>
+
+          <div className="log-session-datetime">
+            <div className="log-session-field">
+              <FieldLabel required>Date</FieldLabel>
               <input
                 data-testid="sess-date"
                 type="date"
-                className="modal-input"
+                className="modal-input log-session-input"
                 required
                 value={form.session_date}
                 min={canPickAnyDate ? undefined : todayISO}
@@ -220,44 +263,92 @@ export default function LogSessionModal({
                 readOnly={!canPickAnyDate && !session}
                 onChange={e => setForm({ ...form, session_date: e.target.value })}
               />
-            </FormField>
-            <FormField label="From">
-              <input type="time" className="modal-input" value={form.start_time}
-                onChange={e => setForm({ ...form, start_time: e.target.value })} />
-            </FormField>
-            <FormField label="To">
-              <input type="time" className="modal-input" value={form.end_time}
-                onChange={e => setForm({ ...form, end_time: e.target.value })} />
-            </FormField>
+            </div>
+            <div className="log-session-field">
+              <FieldLabel>From</FieldLabel>
+              <input
+                type="time"
+                className="modal-input log-session-input"
+                value={form.start_time}
+                onChange={e => setForm({ ...form, start_time: e.target.value })}
+              />
+            </div>
+            <div className="log-session-field">
+              <FieldLabel>To</FieldLabel>
+              <input
+                type="time"
+                className="modal-input log-session-input"
+                value={form.end_time}
+                onChange={e => setForm({ ...form, end_time: e.target.value })}
+              />
+            </div>
           </div>
-          <p className="ui-caption flex items-center gap-1 mt-1">
-            <Clock size={12} /> Duration: <strong>{hours}h</strong>
+
+          <p className="log-session-duration">
+            <Clock size={13} weight="duotone" />
+            <span><strong>{hours}h</strong> duration</span>
           </p>
-        </FormSection>
-        <FormSection title="Therapist">
-          <div className="flex flex-wrap gap-1.5 mb-2">
+        </div>
+
+        <div className="log-session-card">
+          <FieldLabel>Therapist{form.therapist_ids.length > 1 ? "s" : ""}</FieldLabel>
+          <div className="log-session-therapists">
             {form.therapist_ids.map(id => {
               const t = therapists.find(x => x.id === id);
               if (!t) return null;
+              const isSelf = id === selfTherapistId || id === currentUser?.id;
               return (
-                <span key={id} className="pill px-2.5 py-1 text-[11px]" style={{ background: t.color, color: "white" }}>
+                <span key={id} className="log-session-therapist-chip" style={{ background: t.color || "#7A8A6A" }}>
                   {getTherapistScheduleName(t)}
-                  <button type="button" onClick={() => toggleT(id)} className="ml-1 opacity-80">✕</button>
+                  {!isSelf && (
+                    <button type="button" onClick={() => toggleT(id)} aria-label="Remove therapist">×</button>
+                  )}
                 </span>
               );
             })}
           </div>
-          <select className="modal-input text-sm" value="" onChange={e => { if (e.target.value) toggleT(e.target.value); e.target.value = ""; }}>
-            <option value="">+ Add co-therapist</option>
-            {therapists.filter(t => !form.therapist_ids.includes(t.id)).map(t => (
-              <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>
-            ))}
-          </select>
-        </FormSection>
-        <FormSection title="Notes">
-          <textarea className="modal-input text-sm" rows={2} placeholder="Optional note…" value={form.note || ""}
-            onChange={e => setForm({ ...form, note: e.target.value })} />
-        </FormSection>
+          {availableCoTherapists.length > 0 && (
+            <div className="log-session-co-pick">
+              <button
+                type="button"
+                className="log-session-add-co-btn"
+                onClick={() => setCoPickOpen(v => !v)}
+                aria-expanded={coPickOpen}
+              >
+                + Add co-therapist / supervisor
+              </button>
+              {coPickOpen && (
+                <div className="log-session-co-list">
+                  {availableCoTherapists.map(t => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      className="log-session-co-option"
+                      onClick={() => {
+                        toggleT(t.id);
+                        setCoPickOpen(false);
+                      }}
+                    >
+                      <span className="log-session-co-dot" style={{ background: t.color || "#7A8A6A" }} />
+                      {getTherapistScheduleName(t)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="log-session-field">
+          <FieldLabel>Notes</FieldLabel>
+          <textarea
+            className="modal-input log-session-input log-session-notes"
+            rows={2}
+            placeholder="Optional…"
+            value={form.note || ""}
+            onChange={e => setForm({ ...form, note: e.target.value })}
+          />
+        </div>
       </form>
     </ModalBase>
   );

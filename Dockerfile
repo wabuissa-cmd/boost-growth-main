@@ -9,7 +9,7 @@ ENV CI=true \
     DISABLE_ESLINT_PLUGIN=true \
     SKIP_PREFLIGHT_CHECK=true \
     NODE_OPTIONS=--max-old-space-size=2048
-ENV RAILWAY_DEPLOY_REV=prep-remove-fix-v4-syntax
+ENV RAILWAY_DEPLOY_REV=log-session-notes-co-v1
 RUN npm run build
 
 FROM python:3.11-slim

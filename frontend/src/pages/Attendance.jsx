@@ -393,7 +393,7 @@ export default function Attendance() {
 
       {logFor && logFor !== "__pick__" && (
         <LogSessionModal client={logFor} therapists={therapists} currentUser={user}
-          onClose={() => setLogFor(null)} onSaved={() => { setLogFor(null); load(); }} mobileCompact />
+          onClose={() => setLogFor(null)} onSaved={() => { setLogFor(null); load(); }} />
       )}
 
       {editingSess && (

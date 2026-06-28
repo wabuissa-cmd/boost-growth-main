@@ -1,10 +1,15 @@
 import { useEffect } from "react";
 import { X } from "@phosphor-icons/react";
 
-const SIZE_MAX = { sm: 480, md: 600, lg: 760, xl: 900 };
+const SIZE_MAX = { sm: 480, md: 600, lg: 760, xl: 900, session: 520 };
 
 /** ModalBase — unified shell for every modal in the app */
-export function ModalBase({ title, subtitle, onClose, children, footer, size = "md", elevated = false, mobileCompact = false }) {
+export function ModalBase({
+  title, subtitle, onClose, children, footer, size = "md",
+  elevated = false, mobileCompact = false,
+  className = "", shellClassName = "", bodyClassName = "",
+  compact = false,
+}) {
   const maxWidth = SIZE_MAX[size] || SIZE_MAX.md;
 
   useEffect(() => {
@@ -15,7 +20,7 @@ export function ModalBase({ title, subtitle, onClose, children, footer, size = "
 
   return (
     <div
-      className={`fixed inset-0 ${elevated ? "z-[60]" : "z-50"} overflow-y-auto modal-mobile-full${mobileCompact ? " modal-mobile-compact" : ""}`}
+      className={`fixed inset-0 ${elevated ? "z-[60]" : "z-50"} overflow-y-auto modal-mobile-full${mobileCompact ? " modal-mobile-compact" : ""} ${className}`.trim()}
       style={{ background: "rgba(30,40,25,0.45)", backdropFilter: "blur(4px)" }}
       onClick={onClose}
       role="dialog"
@@ -23,24 +28,24 @@ export function ModalBase({ title, subtitle, onClose, children, footer, size = "
     >
       <div className="flex min-h-full items-center justify-center p-4 sm:p-6 modal-center-wrap">
         <div
-          className="modal-shell bg-white rounded-[1.25rem] shadow-2xl flex flex-col overflow-hidden w-full my-auto"
+          className={`modal-shell bg-white rounded-[1.25rem] shadow-2xl flex flex-col overflow-hidden w-full my-auto ${shellClassName}`.trim()}
           style={{ maxWidth: `min(${maxWidth}px, calc(100vw - 32px))`, maxHeight: "min(90dvh, calc(100dvh - 24px))" }}
           onClick={(e) => e.stopPropagation()}
         >
           {/* HEADER */}
           <div
-            className="px-5 sm:px-8 pt-5 sm:pt-7 pb-4 sm:pb-5 border-b flex items-start justify-between flex-shrink-0"
+            className={`${compact ? "px-4 pt-4 pb-3" : "px-5 sm:px-8 pt-5 sm:pt-7 pb-4 sm:pb-5"} border-b flex items-start justify-between flex-shrink-0`}
             style={{ borderColor: "#EDE9E3" }}
           >
             <div className="min-w-0 pr-2">
               <h2
-                className="font-bold tracking-tight text-xl sm:text-[26px]"
+                className={`font-bold tracking-tight ${compact ? "text-lg sm:text-xl" : "text-xl sm:text-[26px]"}`}
                 style={{ color: "#1C2617", lineHeight: 1.2 }}
               >
                 {title}
               </h2>
               {subtitle && (
-                <p className="mt-1 text-sm truncate" style={{ color: "#8B9E7A" }}>
+                <p className={`mt-0.5 truncate ${compact ? "text-xs" : "text-sm"}`} style={{ color: "#8B9E7A" }}>
                   {subtitle}
                 </p>
               )}
@@ -57,14 +62,14 @@ export function ModalBase({ title, subtitle, onClose, children, footer, size = "
           </div>
 
           {/* BODY */}
-          <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-4 sm:py-6 space-y-6 min-h-0">
+          <div className={`flex-1 overflow-y-auto min-h-0 ${compact ? "px-4 py-3 space-y-4" : "px-4 sm:px-8 py-4 sm:py-6 space-y-6"} ${bodyClassName}`.trim()}>
             {children}
           </div>
 
           {/* FOOTER */}
           {footer && (
             <div
-              className="modal-footer-sticky px-5 sm:px-8 py-4 sm:py-5 border-t flex items-center justify-end gap-2 sm:gap-3 flex-wrap flex-shrink-0"
+              className={`modal-footer-sticky border-t flex items-center justify-end gap-2 sm:gap-3 flex-wrap flex-shrink-0 ${compact ? "px-4 py-3" : "px-5 sm:px-8 py-4 sm:py-5"}`}
               style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}
             >
               {footer}
