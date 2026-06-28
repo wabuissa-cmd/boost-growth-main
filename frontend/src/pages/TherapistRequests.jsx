@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import api, { API, openAuthenticatedFile } from "../api";
 import { useAuth, isJenan } from "../auth";
 import {
   Plus, Package, Briefcase, ClockCounterClockwise, CalendarBlank,
   CheckCircle, XCircle, Hourglass, ChatCircleText, Clock, Lightning,
-  Paperclip, FileArrowDown, UploadSimple,
+  Paperclip, FileArrowDown, UploadSimple, FileText, Buildings,
 } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
@@ -19,6 +19,7 @@ import {
   LEAVE_STATUS, LEAVE_TYPES, diffDays, fmtDateRange, leaveStatusLabel, permissionPayLabel,
   permissionDaysFromTimes, addHoursToTime24, fmtLeaveSchedule,
   leaveRequiresDocument, ATTACHMENT_REQUIRED_MSG,
+  VACATION_LEAVE_TYPES, LEAVE_TAB_TYPES, selectableLeaveTypeEntries,
 } from "../leaveUtils";
 
 const STATUS_MAP = {
@@ -32,14 +33,21 @@ const STATUS_MAP = {
   done: { label: "Completed", cls: "bg-[#7A8A6A] text-white border-[#7A8A6A]", icon: <CheckCircle size={14} weight="fill"/>, color: "#7A8A6A" },
 };
 
-const NEW_TYPES = [
-  { id: "general", label: "General", icon: <Briefcase size={20} weight="duotone"/>, color: "#7A8A6A" },
-  { id: "supplies", label: "Materials", icon: <Package size={20} weight="duotone"/>, color: "#D4A64A" },
-  { id: "leave", label: "Leave Request", icon: <ClockCounterClockwise size={20} weight="duotone"/>, color: "#7A8A6A" },
-  { id: "permission", label: "Permission", icon: <CalendarBlank size={20} weight="duotone"/>, color: "#6BAA9B" },
+const REQUEST_TABS = [
+  { id: "vacation", label: "Vacation applications" },
+  { id: "leave", label: "Leave" },
+  { id: "other", label: "Other applications" },
 ];
 
-const LEAVE_REQUEST_TYPES = ["Annual", "Sickleave", "Unpaid", "Exam", "Emergency"];
+const OTHER_REQUEST_TYPES = [
+  { id: "general", label: "General", icon: <Briefcase size={20} weight="duotone"/>, color: "#7A8A6A" },
+  { id: "supplies", label: "Materials", icon: <Package size={20} weight="duotone"/>, color: "#D4A64A" },
+  { id: "requirements", label: "Requirements", icon: <FileText size={20} weight="duotone"/>, color: "#7B96B5" },
+  { id: "government", label: "Government / HR", icon: <Buildings size={20} weight="duotone"/>, color: "#6BAA9B" },
+];
+
+const LEAVE_FORM_TYPES = selectableLeaveTypeEntries().filter(([k]) => LEAVE_TAB_TYPES.includes(k));
+const VACATION_FORM_TYPES = selectableLeaveTypeEntries().filter(([k]) => VACATION_LEAVE_TYPES.includes(k));
 
 const PRIORITIES = [
   { id: "low", label: "Low", color: "#8B9E7A" },
@@ -108,7 +116,7 @@ export default function TherapistRequests() {
   const [balance, setBalance] = useState(null);
   const [edit, setEdit] = useState(null);
   const [step, setStep] = useState(1);
-  const [submitting, setSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState("vacation");
 
   const load = async () => {
     const [req, lv, bal] = await Promise.all([
@@ -121,7 +129,25 @@ export default function TherapistRequests() {
     setBalance((bal.data || []).find(r => r.therapist_id === user?.id) || null);
   };
 
-  useEffect(() => { load(); }, [user?.id]);
+  const [submitting, setSubmitting] = useState(false);
+
+  const vacationLeaves = leaves.filter(l => VACATION_LEAVE_TYPES.includes(l.leave_type));
+  const otherLeaves = leaves.filter(l => LEAVE_TAB_TYPES.includes(l.leave_type));
+
+  const modalTypeOptions = useMemo(() => {
+    if (activeTab === "vacation") {
+      return [
+        { id: "leave", label: "Annual vacation", icon: <ClockCounterClockwise size={20} weight="duotone"/>, color: "#7A8A6A" },
+      ];
+    }
+    if (activeTab === "leave") {
+      return [
+        { id: "permission", label: "Permission", icon: <CalendarBlank size={20} weight="duotone"/>, color: "#6BAA9B" },
+        { id: "leave", label: "Sick / unpaid leave", icon: <ClockCounterClockwise size={20} weight="duotone"/>, color: "#9B7BAB" },
+      ];
+    }
+    return OTHER_REQUEST_TYPES;
+  }, [activeTab]);
 
   const submit = async () => {
     setSubmitting(true);
@@ -244,16 +270,28 @@ export default function TherapistRequests() {
   };
 
   const openNew = () => {
-    setEdit({ ...emptyRequest(), ...emptyPermission(user?.id) });
+    if (activeTab === "vacation") {
+      setEdit({ ...emptyRequest(), ...emptyLeave(user?.id), request_type: "leave", leave_type: "Annual" });
+    } else if (activeTab === "leave") {
+      setEdit({ ...emptyRequest(), ...emptyPermission(user?.id), request_type: "permission" });
+    } else {
+      setEdit({ ...emptyRequest(), request_type: "general" });
+    }
     setStep(1);
   };
+
+  useEffect(() => { load(); }, [user?.id]);
 
   const typeInfo = (id) => {
     if (id === "attachment") {
       return { id: "attachment", label: "Report Attachment", color: "#7B96B5" };
     }
-    if (id === "supplies") return NEW_TYPES.find(t => t.id === "supplies");
-    return NEW_TYPES.find(t => t.id === id) || NEW_TYPES[0];
+    if (id === "supplies") return OTHER_REQUEST_TYPES.find(t => t.id === "supplies");
+    const other = OTHER_REQUEST_TYPES.find(t => t.id === id);
+    if (other) return other;
+    if (id === "permission") return { id: "permission", label: "Permission", color: "#6BAA9B" };
+    if (id === "leave") return { id: "leave", label: "Leave", color: "#7A8A6A" };
+    return OTHER_REQUEST_TYPES[0];
   };
 
   const isLeaveFlow = edit?.request_type === "permission" || edit?.request_type === "leave";
@@ -270,19 +308,40 @@ export default function TherapistRequests() {
     <div>
       <PageBanner
         title="Request"
-        subtitle="General requests · materials · leave · permission · attachments"
+        subtitle="Vacation · leave · materials & HR applications"
         className="editorial-banner--compact-mobile"
       />
+
+      <div className="intake-tabs mb-4">
+        {REQUEST_TABS.map(t => (
+          <button
+            key={t.id}
+            type="button"
+            data-testid={`req-tab-${t.id}`}
+            onClick={() => setActiveTab(t.id)}
+            className={`intake-tab${activeTab === t.id ? " active" : ""}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
       <div className="req-split">
         <section className="req-panel-left">
           <div className="req-panel-head req-panel-head--actions">
             <div className="min-w-0">
-              <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Leave & Requests</h2>
-              <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>Balance · leave history · new requests</p>
+              <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>
+                {activeTab === "vacation" ? "Vacation applications" : activeTab === "leave" ? "Leave applications" : "Other applications"}
+              </h2>
+              <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>
+                {activeTab === "vacation" ? "Annual leave · balance" : activeTab === "leave" ? "Sick · unpaid · permission" : "Materials · requirements · government · general"}
+              </p>
             </div>
             {requestActions}
           </div>
+          {(activeTab === "vacation" || activeTab === "leave") && (
+          <>
+          {activeTab === "vacation" && (
           <div className="req-leave-balance mx-3 mt-3">
             <div className="text-[10px] tracking-[0.2em] font-bold opacity-90 mb-2">LEAVE BALANCE</div>
             {balance?.contract_period_start && (
@@ -321,15 +380,17 @@ export default function TherapistRequests() {
               <div className="text-sm opacity-90">Loading…</div>
             )}
           </div>
+          )}
           <div className="req-panel-head">
-            <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Leave Requests</h2>
-            <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>Annual · sick · permission · exam</p>
+            <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>
+              {activeTab === "vacation" ? "Annual vacation requests" : "Leave requests"}
+            </h2>
           </div>
           <div className="req-panel-list">
-            {leaves.length === 0 && (
-              <div className="p-8 text-center text-sm" style={{ color: "#8B9E7A" }}>No leave requests</div>
+            {(activeTab === "vacation" ? vacationLeaves : otherLeaves).length === 0 && (
+              <div className="p-8 text-center text-sm" style={{ color: "#8B9E7A" }}>No requests yet</div>
             )}
-            {leaves.map(l => {
+            {(activeTab === "vacation" ? vacationLeaves : otherLeaves).map(l => {
               const st = LEAVE_STATUS[l.status] || LEAVE_STATUS.pending;
               const tp = LEAVE_TYPES[l.leave_type] || { label: l.leave_type, color: "#7A8A6A" };
               const unpaid = permissionPayLabel(l);
@@ -353,14 +414,9 @@ export default function TherapistRequests() {
               );
             })}
           </div>
-        </section>
-
-        <div className="req-sidebar-stack">
-        <section className="req-panel-sidebar">
-          <div className="req-panel-head">
-            <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>General Requests</h2>
-            <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>Materials · notes · attachments</p>
-          </div>
+          </>
+          )}
+          {activeTab === "other" && (
           <div className="req-panel-list">
             {requests.length === 0 && (
               <div className="p-8 text-center text-sm" style={{ color: "#8B9E7A" }}>No requests yet</div>
@@ -379,53 +435,8 @@ export default function TherapistRequests() {
                     </span>
                   </div>
                   <div className="font-bold text-sm" style={{ color: "#2C3625" }}>{r.title}</div>
-                  {isAttachment && (
-                    <div className="text-xs mt-1 space-y-0.5" style={{ color: "#5C6853" }}>
-                      <div>Report date: <strong>{fmtShortDate(r.report_date)}</strong></div>
-                      <div>Uploaded: {new Date(r.created_at).toLocaleString("en-US")}</div>
-                      {r.attachment_url && (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            try {
-                              await openAuthenticatedFile(`${API}/requests/${r.id}/attachment`, {
-                                errorMessage: "تعذّر فتح المرفق — اطلبي من المعالجة إعادة رفعه",
-                              });
-                            } catch (e) {
-                              alert(e?.message || "تعذّر فتح المرفق — اطلبي من المعالجة إعادة رفعه");
-                            }
-                          }}
-                          className="inline-flex items-center gap-1 mt-1 font-semibold underline"
-                          style={{ color: "#5C8A47", background: "none", border: "none", padding: 0, cursor: "pointer" }}
-                        >
-                          <FileArrowDown size={12}/> View attachment
-                        </button>
-                      )}
-                    </div>
-                  )}
                   {!isAttachment && r.description && (
                     <div className="text-xs mt-1" style={{ color: "#5C6853" }}>{r.description}</div>
-                  )}
-                  {!isAttachment && r.attachment_url && (
-                    <div className="text-xs mt-1" style={{ color: "#5C6853" }}>
-                      {r.report_date && <div>Report date: <strong>{fmtShortDate(r.report_date)}</strong></div>}
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            await openAuthenticatedFile(`${API}/requests/${r.id}/attachment`, {
-                              errorMessage: "تعذّر فتح المرفق — اطلبي من المعالجة إعادة رفعه",
-                            });
-                          } catch (e) {
-                            alert(e?.message || "تعذّر فتح المرفق — اطلبي من المعالجة إعادة رفعه");
-                          }
-                        }}
-                        className="inline-flex items-center gap-1 mt-1 font-semibold underline"
-                        style={{ color: "#5C8A47", background: "none", border: "none", padding: 0, cursor: "pointer" }}
-                      >
-                        <FileArrowDown size={12}/> View attachment
-                      </button>
-                    </div>
                   )}
                   {r.admin_note && (
                     <div className="mt-2 text-xs p-2 rounded-lg bg-[#E5EBE1]" style={{ color: "#3D4F35" }}>
@@ -441,9 +452,14 @@ export default function TherapistRequests() {
               );
             })}
           </div>
+          )}
         </section>
-        {!hidePurchases && <PurchasesPanel compact />}
+
+        {!hidePurchases && activeTab === "other" && (
+        <div className="req-sidebar-stack">
+        <PurchasesPanel compact />
         </div>
+        )}
       </div>
 
       {edit && (
@@ -484,7 +500,7 @@ export default function TherapistRequests() {
           {step === 1 && (
             <FormSection title="Request type">
               <div className="grid grid-cols-1 gap-2">
-                {NEW_TYPES.map(t => (
+                {modalTypeOptions.map(t => (
                   <button
                     key={t.id}
                     type="button"
@@ -559,8 +575,8 @@ export default function TherapistRequests() {
             <FormSection title="Leave details">
               <FormField label="Leave type">
                 <select className="modal-input" value={edit.leave_type || "Annual"} onChange={e => setEdit({ ...edit, leave_type: e.target.value })}>
-                  {LEAVE_REQUEST_TYPES.map(lt => (
-                    <option key={lt} value={lt}>{LEAVE_TYPES[lt]?.label || lt}</option>
+                  {(activeTab === "vacation" ? VACATION_FORM_TYPES : LEAVE_FORM_TYPES).map(([lt, meta]) => (
+                    <option key={lt} value={lt}>{meta.label}</option>
                   ))}
                 </select>
               </FormField>

@@ -30,11 +30,21 @@ export function buildInvoiceSheetColumns(selectedIds, { isSchool = false, includ
   return cols;
 }
 
-export default function ExportColumnsModal({ initial, onClose, onExport, confirmLabel = "Export Excel" }) {
+export default function ExportColumnsModal({
+  initial,
+  onClose,
+  onExport,
+  confirmLabel = "Export Excel",
+  showSealOption = false,
+  initialIncludeSeal = false,
+  initialSealPosition = "right",
+}) {
   const [selected, setSelected] = useState(() => {
     const set = new Set(initial || EXPORT_COLUMN_DEFS.map(c => c.id));
     return EXPORT_COLUMN_DEFS.map(c => ({ ...c, on: set.has(c.id) }));
   });
+  const [includeSeal, setIncludeSeal] = useState(initialIncludeSeal);
+  const [sealPosition, setSealPosition] = useState(initialSealPosition === "left" ? "left" : "right");
 
   const toggle = (id) => setSelected(s => s.map(c => (c.id === id ? { ...c, on: !c.on } : c)));
 
@@ -47,7 +57,15 @@ export default function ExportColumnsModal({ initial, onClose, onExport, confirm
       footer={(
         <>
           <ModalBtnSecondary type="button" onClick={onClose}>Cancel</ModalBtnSecondary>
-          <ModalBtnPrimary type="button" onClick={() => onExport(selected.filter(c => c.on).map(c => c.id))}>{confirmLabel}</ModalBtnPrimary>
+          <ModalBtnPrimary
+            type="button"
+            onClick={() => onExport(
+              selected.filter(c => c.on).map(c => c.id),
+              showSealOption ? { includeSeal, sealPosition } : undefined,
+            )}
+          >
+            {confirmLabel}
+          </ModalBtnPrimary>
         </>
       )}
     >
@@ -73,6 +91,38 @@ export default function ExportColumnsModal({ initial, onClose, onExport, confirm
           </label>
         ))}
       </div>
+      {showSealOption && (
+        <div className="mt-4 pt-4 border-t border-[#EDE9E3] space-y-3">
+          <label className="flex items-start gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 accent-[#5C8A47]"
+              checked={includeSeal}
+              onChange={e => setIncludeSeal(e.target.checked)}
+            />
+            <span>
+              <span className="font-semibold" style={{ color: "#2C3625" }}>Include company seal on PDF</span>
+              <span className="block text-xs mt-0.5" style={{ color: "#8B9E7A" }}>
+                Uses <code className="text-[10px]">/brand-assets/company-seal.png</code> when uploaded
+              </span>
+            </span>
+          </label>
+          {includeSeal && (
+            <div className="flex gap-2">
+              {["left", "right"].map(pos => (
+                <button
+                  key={pos}
+                  type="button"
+                  onClick={() => setSealPosition(pos)}
+                  className={`pill border text-xs px-3 py-1.5 ${sealPosition === pos ? "bg-[#E5EBE1] border-[#5C8A47]" : "border-[#DDD8D0]"}`}
+                >
+                  Seal on {pos}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </ModalBase>
   );
 }

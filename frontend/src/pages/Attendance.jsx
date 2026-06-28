@@ -4,7 +4,7 @@ import api from "../api";
 import { useAuth, showAdminNav, hasOpsAccess, hasFullClientAccess, isHrOps } from "../auth";
 import {
   MagnifyingGlass, Plus, X, Trash, PencilSimple, ClipboardText, ClockCounterClockwise,
-  CheckCircle, Prohibit, Warning, XCircle, Clock, MapPin, Printer, FileXls,
+  CheckCircle, Warning, XCircle, Clock, MapPin, Printer, FileXls,
   Receipt, ArrowsCounterClockwise, CalendarBlank, CaretDown, Download
 } from "@phosphor-icons/react";
 import {
@@ -39,6 +39,9 @@ import { getTherapistScheduleName } from "../scheduleConstants";
 import { cachedGet, peekCache } from "../dataCache";
 
 const EXPORT_COLS_KEY = "bg_export_columns";
+const INVOICE_SEAL_KEY = "bg_invoice_pdf_seal";
+/** Placeholder path — upload seal to frontend/public/brand-assets/company-seal.png */
+const COMPANY_SEAL_SRC = "/brand-assets/company-seal.png";
 
 const SUPERVISOR_CLIENTS = {
   msMaha: ["035", "037", "038", "040", "041", "042", "047", "052", "054", "060", "063", "065", "070"],
@@ -54,7 +57,6 @@ function isSupervisorForClient(user, fileNo) {
 
 const STATUS_OPTS = [
   { id: "Completed", label: "Completed", icon: <CheckCircle size={28} weight="fill"/>, color: "#3D4F35", bg: "#E5EBE1" },
-  { id: "No Service", label: "No Service", icon: <Prohibit size={28} weight="fill"/>, color: "#5C6853", bg: "#F0EDE9" },
   { id: "Cancelled", label: "Cancelled", icon: <Warning size={28} weight="fill"/>, color: "#8B6918", bg: "#FAF0D1" },
   { id: "No Show", label: "No Show", icon: <XCircle size={28} weight="fill"/>, color: "#8A3F27", bg: "#F8EBE7" },
 ];
@@ -948,6 +950,15 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
   const [localSessions, setLocalSessions] = useState(sessions);
   const [showExportColumns, setShowExportColumns] = useState(false);
   const [exportPendingMode, setExportPendingMode] = useState(null);
+  const [pdfSeal, setPdfSeal] = useState(() => {
+    try {
+      const raw = localStorage.getItem(INVOICE_SEAL_KEY);
+      return raw ? JSON.parse(raw) : { includeSeal: false, sealPosition: "right" };
+    } catch {
+      return { includeSeal: false, sealPosition: "right" };
+    }
+  });
+  const [sealImageOk, setSealImageOk] = useState(true);
   const [sheetColIds, setSheetColIds] = useState(() => {
     try {
       const raw = localStorage.getItem(EXPORT_COLS_KEY);
@@ -1617,7 +1628,15 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
 
         <div className="flex-1 overflow-y-auto bg-white min-h-0">
           {/* Logo + Title */}
-          <div className="px-4 pt-3 pb-2 flex items-center justify-between border-b-2" style={{borderColor: "#7A8A6A"}}>
+          <div className="px-4 pt-3 pb-2 flex items-center justify-between border-b-2 relative invoice-print-header" style={{borderColor: "#7A8A6A"}}>
+            {pdfSeal?.includeSeal && sealImageOk && (
+              <img
+                src={COMPANY_SEAL_SRC}
+                alt=""
+                className={`invoice-company-seal invoice-company-seal--${pdfSeal.sealPosition || "right"} no-screen-seal`}
+                onError={() => setSealImageOk(false)}
+              />
+            )}
             <div className="flex items-center gap-2">
               <div className="w-10 h-10 rounded-lg flex items-center justify-center p-1.5" style={{background: "#7A8A6A"}}>
                 <img src="/bg-logo.png" alt="" className="w-full h-full object-contain"/>
@@ -2026,12 +2045,19 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
           <ExportColumnsModal
             initial={savedExportCols}
             confirmLabel={exportPendingMode === "pdf" ? "Export PDF" : "Export Excel"}
+            showSealOption={exportPendingMode === "pdf"}
+            initialIncludeSeal={pdfSeal?.includeSeal}
+            initialSealPosition={pdfSeal?.sealPosition}
             onClose={() => { setShowExportColumns(false); setExportPendingMode(null); }}
-            onExport={(cols) => {
+            onExport={(cols, sealOpts) => {
               setSheetColIds(cols);
               try { localStorage.setItem(EXPORT_COLS_KEY, JSON.stringify(cols)); } catch { /* ignore */ }
               setShowExportColumns(false);
               if (exportPendingMode === "pdf") {
+                const nextSeal = sealOpts || pdfSeal;
+                setPdfSeal(nextSeal);
+                setSealImageOk(true);
+                try { localStorage.setItem(INVOICE_SEAL_KEY, JSON.stringify(nextSeal)); } catch { /* ignore */ }
                 setTimeout(() => window.print(), 150);
               } else {
                 exportExcel(cols);

@@ -815,6 +815,9 @@ main, .page-enter { min-width: 0; }
     display: flex;
     flex-direction: row;
     align-items: stretch;
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
 }
 .app-sidebar {
     width: 15.5rem;
@@ -864,7 +867,14 @@ main, .page-enter { min-width: 0; }
     min-width: 0;
     display: flex;
     flex-direction: column;
-    min-height: 100dvh;
+    min-height: 0;
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+}
+.app-main-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
 }
 .sidebar-brand {
     display: flex;
@@ -1243,7 +1253,7 @@ main, .page-enter { min-width: 0; }
     outline-offset: 3px;
 }
 
-.divider { height: 1px; background: var(--border-default); }
+.invoice-company-seal.no-screen-seal { display: none; }
 
 /* Print styles for Attendance invoice + Schedule */
 @media print {
@@ -1339,6 +1349,18 @@ main, .page-enter { min-width: 0; }
     .app-sidebar,
     .mobile-nav-bar,
     .sidebar-toggle-btn { display: none !important; }
+    .no-screen-seal { display: block !important; }
+    .invoice-print-header { position: relative; min-height: 56px; }
+    .invoice-company-seal {
+        position: absolute;
+        top: 8px;
+        width: 72px;
+        height: 72px;
+        object-fit: contain;
+        opacity: 0.92;
+    }
+    .invoice-company-seal--left { left: 8px; }
+    .invoice-company-seal--right { right: 8px; }
 }
 
 /* Status badge bar at top of card */

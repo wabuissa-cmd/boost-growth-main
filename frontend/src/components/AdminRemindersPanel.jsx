@@ -100,7 +100,7 @@ export function buildAdminReminders({
       icon: ListChecks,
       title: `${pendingRequests} staff request${pendingRequests > 1 ? "s" : ""} pending`,
       detail: "Review and approve staff submissions",
-      to: "/staff-leave?tab=staff",
+      to: "/staff-leave?tab=other",
     });
   }
 
@@ -155,7 +155,7 @@ export function buildAdminReminders({
       icon: CalendarBlank,
       title: `${pendingLeaves} leave request${pendingLeaves > 1 ? "s" : ""} pending`,
       detail: "Review therapist leave submissions",
-      to: "/staff-leave?tab=leave-requests",
+      to: "/staff-leave?tab=vacation",
     });
   }
 

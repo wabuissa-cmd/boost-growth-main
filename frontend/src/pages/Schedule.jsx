@@ -24,7 +24,7 @@ import ParentWhatsAppModal from "../components/ParentWhatsAppModal";
 import ParentCancellationModal from "../components/ParentCancellationModal";
 import LogSessionModal, { slotToTime24, addHoursToTime } from "../components/LogSessionModal";
 import SchedulePrepBadge from "../components/SchedulePrepBadge";
-import { buildPrepLookup, buildSessionPrepLookup, buildSuppressionLookup, isCellPrepComplete, mergePrepLookups } from "../schedulePrepUtils";
+import { buildPrepLookup, buildSessionPrepLookup, buildSuppressionLookup, isCellPrepComplete, mergePrepLookups, therapistPrepIdAliases } from "../schedulePrepUtils";
 import { buildParentMessages } from "../scheduleParentMessages";
 import { sortTherapistsForSchedule, getTherapistScheduleName, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
 import { cachedGet } from "../dataCache";
@@ -299,20 +299,27 @@ export default function Schedule() {
   const loadPreparations = useCallback(async () => {
     if (!user) return;
     if (!canSeePrepBadges) return;
+    const ownTherapist = resolveSelfTherapist(user, therapists);
     try {
-      const { data } = await api.get("/schedule/preparations", { params: { week_start: weekStartISO } });
+      const prepParams = { week_start: weekStartISO };
+      if (ownTherapist?.id && !opsCanSeeAllPreps) {
+        prepParams.therapist_id = ownTherapist.id;
+      }
+      const { data } = await api.get("/schedule/preparations", { params: prepParams });
       const rows = Array.isArray(data) ? data : (data?.items ?? []);
       const sups = Array.isArray(data) ? [] : (data?.suppressions ?? []);
       setPreparations(rows);
       setSuppressionLookup(buildSuppressionLookup(sups));
-      const sessionKeys = buildSessionPrepLookup(weekSessions, weekStartISO, weekEndISO);
+      const idAliases = therapistPrepIdAliases(ownTherapist, user);
+      const sessionKeys = buildSessionPrepLookup(weekSessions, weekStartISO, weekEndISO, idAliases);
       setPrepLookup(mergePrepLookups(buildPrepLookup(rows), sessionKeys));
     } catch {
       setPreparations([]);
       setSuppressionLookup(new Set());
-      setPrepLookup(buildSessionPrepLookup(weekSessions, weekStartISO, weekEndISO));
+      const idAliases = therapistPrepIdAliases(ownTherapist, user);
+      setPrepLookup(buildSessionPrepLookup(weekSessions, weekStartISO, weekEndISO, idAliases));
     }
-  }, [weekStartISO, weekEndISO, weekSessions, canSeePrepBadges, user]);
+  }, [weekStartISO, weekEndISO, weekSessions, canSeePrepBadges, user, therapists, opsCanSeeAllPreps]);
 
   const load = useCallback(async (force = false) => {
     const yr = weekStart.getFullYear();

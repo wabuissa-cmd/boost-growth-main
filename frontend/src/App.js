@@ -167,18 +167,18 @@ function AppRoutes() {
         <Route path="/my-reports" element={<MyReportsAccess><TherapistMyReports/></MyReportsAccess>}/>
         <Route path="/my-leaves" element={<Navigate to="/my-requests" replace/>}/>
         <Route path="/staff-leave" element={<StaffLeaveAccess><StaffLeave/></StaffLeaveAccess>}/>
-        <Route path="/requests" element={<Navigate to="/staff-leave?tab=staff" replace/>}/>
+        <Route path="/requests" element={<Navigate to="/staff-leave?tab=other" replace/>}/>
         <Route path="/directory" element={<Directory/>}/>
         <Route path="/resources" element={<Resources/>}/>
         <Route path="/manager" element={<ManagerHubAccess><ManagerHub/></ManagerHubAccess>}/>
         <Route path="/reports" element={<ReportsAccess><Reports/></ReportsAccess>}/>
         <Route path="/import" element={<ImportAccess><ImportPage/></ImportAccess>}/>
         <Route path="/admin" element={<SystemAdminOnly><Admin/></SystemAdminOnly>}/>
-        <Route path="/leave-balance" element={<Navigate to="/staff-leave?tab=balance" replace/>}/>
+        <Route path="/leave-balance" element={<Navigate to="/staff-leave?tab=vacation" replace/>}/>
         <Route path="/purchases" element={<PurchasesAccess><Purchases/></PurchasesAccess>}/>
-        <Route path="/leaves" element={<Navigate to="/staff-leave?tab=leave-requests" replace/>}/>
-        <Route path="/leave-requests" element={<Navigate to="/staff-leave?tab=leave-requests" replace/>}/>
-        <Route path="/therapist-leaves" element={<Navigate to="/staff-leave?tab=balance" replace/>}/>
+        <Route path="/leaves" element={<Navigate to="/staff-leave?tab=vacation" replace/>}/>
+        <Route path="/leave-requests" element={<Navigate to="/staff-leave?tab=vacation" replace/>}/>
+        <Route path="/therapist-leaves" element={<Navigate to="/staff-leave?tab=vacation" replace/>}/>
       </Route>
       <Route path="*" element={<Navigate to="/home" replace/>}/>
     </Routes>

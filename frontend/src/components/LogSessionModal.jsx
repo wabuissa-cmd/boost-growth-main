@@ -2,8 +2,9 @@ import { useState } from "react";
 import api, { toISODate } from "../api";
 import { resolveSessionTherapistIds } from "../attendanceUtils";
 import {
-  CheckCircle, Prohibit, Warning, XCircle, Clock, MapPin,
+  CheckCircle, Warning, XCircle, Clock, MapPin,
 } from "@phosphor-icons/react";
+import { resolveSelfTherapist } from "../scheduleUtils";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -12,7 +13,6 @@ import { getTherapistScheduleName } from "../scheduleConstants";
 
 const STATUS_OPTS = [
   { id: "Completed", label: "Completed", icon: CheckCircle, color: "#3D4F35", bg: "#E5EBE1" },
-  { id: "No Service", label: "No Service", icon: Prohibit, color: "#5C6853", bg: "#F0EDE9" },
   { id: "Cancelled", label: "Cancelled", icon: Warning, color: "#6B5218", bg: "#FAF0D1" },
   { id: "No Show", label: "No Show", icon: XCircle, color: "#8A3F27", bg: "#F8EBE7" },
 ];
@@ -51,6 +51,7 @@ export default function LogSessionModal({
 }) {
   const defaultLoc = client?.locations?.[0];
   const initialSvc = prefill?.service_type || defaultLoc?.service || client?.service_type || "HS";
+  const selfTherapistId = resolveSelfTherapist(currentUser, therapists)?.id;
   const [form, setForm] = useState(() => {
     if (session) return { ...session };
     const start = prefill?.start_time || "14:00";
@@ -62,7 +63,7 @@ export default function LogSessionModal({
       end_time: end,
       hours: computeHours(start, end),
       status: "Completed",
-      therapist_ids: resolveSessionTherapistIds(client, initialSvc, currentUser),
+      therapist_ids: resolveSessionTherapistIds(client, initialSvc, currentUser, selfTherapistId),
       note: prefill?.note || "",
       location: prefill?.location || defaultLoc?.address || "",
       service_type: initialSvc,
@@ -161,7 +162,7 @@ export default function LogSessionModal({
                     ...form,
                     location: e.target.value,
                     service_type: svc,
-                    therapist_ids: resolveSessionTherapistIds(client, svc, currentUser),
+                    therapist_ids: resolveSessionTherapistIds(client, svc, currentUser, selfTherapistId),
                   });
                 }}>
                 {client.locations.map((l, i) => (
@@ -178,7 +179,7 @@ export default function LogSessionModal({
                   setForm({
                     ...form,
                     service_type: svc,
-                    therapist_ids: resolveSessionTherapistIds(client, svc, currentUser),
+                    therapist_ids: resolveSessionTherapistIds(client, svc, currentUser, selfTherapistId),
                   });
                 }}>
                 <option value="HS">Home Session (HS)</option>

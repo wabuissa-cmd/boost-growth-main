@@ -479,7 +479,7 @@ export default function Shell() {
         </div>
       )}
 
-      <main className="flex-1 min-w-0">
+      <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden app-main-scroll">
         <div className="max-w-[1600px] mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 page-enter" key={loc.pathname}>
           <Suspense fallback={<div className="flex justify-center py-16"><div className="spinner" /></div>}>
             <Outlet />

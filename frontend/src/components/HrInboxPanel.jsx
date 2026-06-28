@@ -50,7 +50,7 @@ export default function HrInboxPanel({ user, coordinationOnly = false }) {
   if (!coordinationOnly) {
     if (jenan || portalAdmin) {
       rows.push({
-        to: "/staff-leave?tab=leave-requests",
+        to: "/staff-leave?tab=vacation",
         icon: CalendarBlank,
         label: "Leaves awaiting manager review",
         count: inbox.leaves_pending_manager,
@@ -59,7 +59,7 @@ export default function HrInboxPanel({ user, coordinationOnly = false }) {
     }
     if (hrOps || portalAdmin) {
       rows.push({
-        to: "/staff-leave?tab=leave-requests",
+        to: "/staff-leave?tab=vacation",
         icon: CalendarBlank,
         label: "Leaves awaiting HR approval",
         count: inbox.leaves_pending_hr,
@@ -68,7 +68,7 @@ export default function HrInboxPanel({ user, coordinationOnly = false }) {
     }
     if (jenan || portalAdmin) {
       rows.push({
-        to: "/staff-leave?tab=staff",
+        to: "/staff-leave?tab=other",
         icon: ListChecks,
         label: "Staff requests awaiting manager review",
         count: inbox.requests_pending_manager,
@@ -77,7 +77,7 @@ export default function HrInboxPanel({ user, coordinationOnly = false }) {
     }
     if (hrOps || portalAdmin) {
       rows.push({
-        to: "/staff-leave?tab=staff",
+        to: "/staff-leave?tab=other",
         icon: ListChecks,
         label: "Staff requests awaiting HR approval",
         count: inbox.requests_pending_hr,

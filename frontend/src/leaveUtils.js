@@ -22,6 +22,20 @@ export const LEAVE_TYPES = {
   Emergency: { label: "Emergency", color: "#D49A60" },
 };
 
+/** Leave types hidden from new-request UI (legacy DB rows may still use them). */
+export const DEPRECATED_LEAVE_TYPES = new Set(["Exam", "Emergency"]);
+
+export const VACATION_LEAVE_TYPES = ["Annual"];
+
+export const LEAVE_TAB_TYPES = ["Sickleave", "Unpaid", "Permission", "Absence"];
+
+export function selectableLeaveTypeEntries(currentType = null) {
+  return Object.entries(LEAVE_TYPES).filter(([k]) => {
+    if (DEPRECATED_LEAVE_TYPES.has(k)) return k === currentType;
+    return true;
+  });
+}
+
 export const DOC_TYPES = [
   { id: "medical", label: "Medical Report" },
   { id: "appointment", label: "Appointment Report" },

@@ -59,8 +59,26 @@ function isPrepSuppressed(suppressionLookup, therapistId, sessionDate, clientId,
   return false;
 }
 
+/** Map equivalent therapist ids (user login id vs therapists table id). */
+export function therapistPrepIdAliases(selfTherapist, user) {
+  const map = new Map();
+  if (!selfTherapist?.id || !user?.id || selfTherapist.id === user.id) return map;
+  map.set(selfTherapist.id, [user.id]);
+  map.set(user.id, [selfTherapist.id]);
+  return map;
+}
+
+function addPrepMarkKeys(set, tid, cid, date, idAliases) {
+  if (!tid || !cid || !date) return;
+  set.add(`mark:${tid}|${cid}|${date}`);
+  const alts = idAliases?.get(tid);
+  if (alts) {
+    for (const alt of alts) set.add(`mark:${alt}|${cid}|${date}`);
+  }
+}
+
 /** Logged sessions → therapist + client + date keys (primary source of truth). */
-export function buildSessionPrepLookup(sessions, weekStartISO, weekEndISO) {
+export function buildSessionPrepLookup(sessions, weekStartISO, weekEndISO, idAliases = null) {
   const set = new Set();
   for (const s of sessions || []) {
     const date = (s.session_date || "").slice(0, 10);
@@ -69,7 +87,7 @@ export function buildSessionPrepLookup(sessions, weekStartISO, weekEndISO) {
     const cid = s.client_id;
     if (!cid) continue;
     for (const tid of s.therapist_ids || []) {
-      set.add(`mark:${tid}|${cid}|${date}`);
+      addPrepMarkKeys(set, tid, cid, date, idAliases);
     }
   }
   return set;

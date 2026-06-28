@@ -5997,8 +5997,8 @@ async def list_sessions(client_id: Optional[str] = None, invoice_id: Optional[st
             else:
                 q["invoice_id"] = invoice_id
         items = await db.sessions.find(q, {"_id": 0}).sort("session_date", -1).to_list(2000)
-    if user.get("role") == "therapist" and not _has_full_client_access(user):
-        uid = user["id"]
+    if (user.get("role") == "therapist" and not _has_full_client_access(user):
+        uid = await _resolve_user_therapist_id(user) or user.get("id")
         # Caseload therapists see full client history for preparation review
         if not (client_id and await _therapist_assigned_to_client(uid, client_id)):
             items = [s for s in items if uid in (s.get("therapist_ids") or [])]
@@ -6053,8 +6053,12 @@ def _attach_open_invoice_to_session(doc: dict, client: dict, invoices: list) -> 
 async def create_session(payload: SessionIn, user=Depends(get_current_user)):
     sid = str(uuid.uuid4())
     therapist_ids = payload.therapist_ids or []
-    if user.get("role") == "therapist" and user["id"] not in therapist_ids:
-        therapist_ids.append(user["id"])
+    if user.get("role") == "therapist":
+        uid = await _resolve_user_therapist_id(user) or user.get("id")
+        if uid and uid not in therapist_ids:
+            therapist_ids.append(uid)
+        elif user.get("id") and user["id"] not in therapist_ids:
+            therapist_ids.append(user["id"])
     client = await db.clients.find_one(_active_client_filter({"id": payload.client_id}), {"_id": 0})
     invs = await db.invoices.find({"client_id": payload.client_id}, {"_id": 0}).to_list(200)
     doc = {"id": sid, **payload.model_dump(), "therapist_ids": therapist_ids,
@@ -8447,6 +8451,8 @@ async def leaves_balance(year: Optional[int] = None, scope: Optional[str] = None
 async def create_leave(payload: LeaveIn, user=Depends(get_current_user)):
     if not _is_portal_admin(user) and not _is_hr_ops(user) and payload.therapist_id != user["id"]:
         raise HTTPException(status_code=403, detail="Therapist can only create own leaves")
+    if (payload.leave_type or "") in ("Exam", "Emergency"):
+        raise HTTPException(status_code=400, detail="This leave type is no longer accepted. Choose Annual, Sick, Unpaid, or Permission.")
     lid = str(uuid.uuid4())
     doc = {"id": lid, **payload.model_dump(), **_leave_default_fields(), "created_by": user["id"], "created_at": now_iso()}
     if user.get("role") != "admin":

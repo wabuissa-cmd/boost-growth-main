@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useMemo } from "react";
 import api, { API, openAuthenticatedFile } from "../api";
 import { useAuth, showAdminNav, canEditStaffRequests, canManageLeaves, canHrReviewLeaves, isJenan } from "../auth";
 import { Navigate } from "react-router-dom";
-import { Plus, PencilSimple, Trash, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Calendar, Package, UploadSimple, Eye, FileArrowDown } from "@phosphor-icons/react";
+import { Plus, PencilSimple, Trash, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Package, UploadSimple, Eye, FileArrowDown, FileText, Buildings } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -153,11 +153,12 @@ function queueItemAwaitingAttachment(item) {
 }
 
 const TYPES = [
-  { id: "leave", label: "Time Off", icon: <Calendar size={20} weight="duotone"/>, color: "#A4BCCB" },
-  { id: "supplies", label: "Supplies / Materials", icon: <Package size={20} weight="duotone"/>, color: "#D4A64A" },
+  { id: "general", label: "General", icon: <Briefcase size={20} weight="duotone"/>, color: "#8B7BA8" },
+  { id: "supplies", label: "Materials", icon: <Package size={20} weight="duotone"/>, color: "#D4A64A" },
+  { id: "requirements", label: "Requirements", icon: <FileText size={20} weight="duotone"/>, color: "#7B96B5" },
+  { id: "government", label: "Government / HR", icon: <Buildings size={20} weight="duotone"/>, color: "#6BAA9B" },
   { id: "schedule_change", label: "Schedule Change", icon: <CalendarBlank size={20} weight="duotone"/>, color: "#7A8A6A" },
   { id: "reward", label: "Reward / Recognition", icon: <Trophy size={20} weight="duotone"/>, color: "#C97B5C" },
-  { id: "general", label: "General", icon: <Briefcase size={20} weight="duotone"/>, color: "#8B7BA8" },
 ];
 
 const REWARD_TYPES = [
@@ -393,7 +394,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
       {!embedded && (
       <PageBanner
         title={canManageReq ? "Staff Requests" : "My Requests"}
-        subtitle={canManageReq ? "Materials, general & session-related requests — leave tools on the right" : "Submit and track your staff requests"}
+        subtitle={canManageReq ? "Other staff applications — materials, requirements, government & general" : "Submit and track your staff requests"}
         badge={(
           <>
             {leaveHr && isPortalAdminUser && (
@@ -441,7 +442,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
           <div className="req-panel-head">
             <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>{staffLabel}</h2>
             <p className="text-xs mt-1 mb-2" style={{ color: "#8B9E7A" }}>
-              {managerView ? "Leave · salary certificate · supplies · general — one queue" : "Supplies · schedule changes · rewards · general"}
+              {managerView ? "Leave · salary certificate · supplies · general — one queue" : "Materials · requirements · government · general"}
             </p>
             <div className="flex gap-1.5 flex-wrap">
               <button onClick={() => setFilter("all")} className={`pill text-[10px] ${filter==="all" ? "bg-[#7A8A6A] text-white" : "bg-[#F0E9D8]"}`}>All ({queueItems.length})</button>
@@ -484,7 +485,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                     const isLeave = r._queueKind === "leave";
                     const tp = isLeave
                       ? { label: r.typeLabel, color: r.typeColor }
-                      : (TYPES.find(t => t.id === r.request_type) || TYPES[4]);
+                      : (TYPES.find(t => t.id === r.request_type) || TYPES[0]);
                     const wf = managerWorkflowLabel(r);
                     return (
                       <tr key={isLeave ? `leave-${r.id}` : r.id}>
@@ -528,7 +529,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
             {filtered.length === 0 && <div className="p-8 text-center text-sm" style={{color: "#8B9E7A"}}>No requests yet</div>}
             {filtered.map(r => {
               const st = STATUS_MAP[r.status] || STATUS_MAP.pending;
-              const tp = TYPES.find(t => t.id === r.request_type) || TYPES[4];
+              const tp = TYPES.find(t => t.id === r.request_type) || TYPES[0];
               return (
                 <div key={r.id} className="req-item">
                   <div className="flex items-start gap-2">
@@ -591,10 +592,11 @@ export default function Requests({ personal = false, embedded = false, managerVi
                   <div className="font-bold" style={{ color: "#2C3625" }}>{t.label}</div>
                   <div style={{ color: "#8B9E7A" }}>
                     {t.id === "supplies" && "Materials, toys, or classroom items"}
+                    {t.id === "requirements" && "Equipment, tools, or operational needs"}
+                    {t.id === "government" && "Government letters, HR documents, or official paperwork"}
                     {t.id === "schedule_change" && "Session time or day adjustments"}
                     {t.id === "reward" && "Recognition or bonus requests"}
                     {t.id === "general" && "Other staff-related needs"}
-                    {t.id === "leave" && "Routed via leave panel below"}
                   </div>
                 </div>
               </div>
@@ -826,17 +828,6 @@ export default function Requests({ personal = false, embedded = false, managerVi
               <FormField label="Subject" required>
                 <input data-testid="req-title" className="modal-input" value={edit.title} onChange={e => setEdit({ ...edit, title: e.target.value })} placeholder="Brief title..." />
               </FormField>
-
-              {edit.request_type === "leave" && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <FormField label="From">
-                    <input type="date" className="modal-input" value={edit.date_from || ""} onChange={e => setEdit({ ...edit, date_from: e.target.value })} />
-                  </FormField>
-                  <FormField label="To">
-                    <input type="date" className="modal-input" value={edit.date_to || ""} onChange={e => setEdit({ ...edit, date_to: e.target.value })} />
-                  </FormField>
-                </div>
-              )}
 
               {edit.request_type === "schedule_change" && (
                 <FormField label="Date affected">

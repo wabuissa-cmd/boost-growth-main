@@ -17,6 +17,7 @@ import {
   diffDays, fmtDateRange, fmtLeaveSchedule, isActiveLeave, isHistoryLeave, exportLeavesCsv,
   scheduleImpactLabel, leavePayCategory, leaveStatusLabel, permissionPayLabel,
   isPendingLeaveStatus,
+  selectableLeaveTypeEntries,
 } from "../leaveUtils";
 import { getTherapistScheduleName } from "../scheduleConstants";
 
@@ -756,7 +757,7 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
       />
       )}
       {therapistProfileView && (
-        <Link to={embedded ? "/staff-leave?tab=balance" : "/leave-balance"} className="text-xs font-bold mb-3 inline-block hover:underline" style={{ color: "#7A8A6A" }}>
+        <Link to={embedded ? "/staff-leave?tab=vacation" : "/leave-balance"} className="text-xs font-bold mb-3 inline-block hover:underline" style={{ color: "#7A8A6A" }}>
           ← Back to Leave Balance
         </Link>
       )}
@@ -875,7 +876,7 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField label="Leave Type">
                 <select className="modal-input" value={edit.leave_type} onChange={e => setEdit({ ...edit, leave_type: e.target.value })}>
-                  {Object.entries(LEAVE_TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                  {selectableLeaveTypeEntries(edit.leave_type).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                 </select>
               </FormField>
               <FormField label="Days">

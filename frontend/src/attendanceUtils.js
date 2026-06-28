@@ -104,8 +104,11 @@ export function sessionEditableByUser(session, user, isOpsAdmin) {
 }
 
 /** Default therapist(s) for a logged session by service type (HS = main, SS = co). */
-export function resolveSessionTherapistIds(client, serviceType, currentUser) {
-  if (currentUser?.role === "therapist" && currentUser.id) return [currentUser.id];
+export function resolveSessionTherapistIds(client, serviceType, currentUser, resolvedTherapistId = null) {
+  if (currentUser?.role === "therapist") {
+    const tid = resolvedTherapistId || currentUser.id;
+    return tid ? [tid] : [];
+  }
   if (!client) return [];
   const st = normalizeServiceTypeCode(serviceType) || "HS";
   const main = client.main_therapist_id;
