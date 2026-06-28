@@ -2186,26 +2186,85 @@ async def _jenan_therapist_id() -> Optional[str]:
     return None
 
 
+SCHEDULE_CHILD_NAME_ALIASES = {
+    "abdularahman": "abdulrahman",
+    "aljouhrah": "aljoharah",
+    "ameerah": "ameirah",
+}
+
+
+def _apply_schedule_child_name_aliases(name: str) -> str:
+    """Fix common Excel/schedule typos before client lookup."""
+    raw = (name or "").strip()
+    if not raw:
+        return raw
+    parts = raw.split()
+    first = parts[0].lower()
+    if first in SCHEDULE_CHILD_NAME_ALIASES:
+        parts[0] = SCHEDULE_CHILD_NAME_ALIASES[first].title() if parts[0][0].isupper() else SCHEDULE_CHILD_NAME_ALIASES[first]
+        return " ".join(parts)
+    return raw
+
+
 async def _find_client_by_schedule_child_name(child_name: str) -> Optional[dict]:
-    """Match client by schedule cell child_name (same rules as import / schedule-color)."""
+    """Match client by schedule cell child_name (name, file_no, first-name, aliases)."""
     name = (child_name or "").strip()
     if not name:
         return None
-    fields = {"_id": 0, "id": 1, "name": 1, "main_therapist_id": 1, "co_therapist_ids": 1}
-    client = await db.clients.find_one(_active_client_filter({"name": name}), fields)
+    fields = {
+        "_id": 0, "id": 1, "name": 1, "file_no": 1,
+        "main_therapist_id": 1, "co_therapist_ids": 1,
+        "schedule_color": 1, "color": 1,
+    }
+
+    async def _lookup(label: str) -> Optional[dict]:
+        label = (label or "").strip()
+        if not label:
+            return None
+        client = await db.clients.find_one(_active_client_filter({"name": label}), fields)
+        if client:
+            return client
+        client = await db.clients.find_one(
+            _active_client_filter({"name": {"$regex": f"^{re.escape(label)}($|\\s)", "$options": "i"}}),
+            fields,
+        )
+        if client:
+            return client
+        items = await db.clients.find(_active_client_filter(), fields).to_list(500)
+        for c in items:
+            cn = (c.get("name") or "").strip()
+            if cn and (label == cn or label.startswith(cn + " ")):
+                return c
+        first = label.split()[0] if label.split() else label
+        if len(first) >= 3:
+            fl = first.lower()
+            by_first = [
+                c for c in items
+                if (c.get("name") or "").strip().split()[0].lower() == fl
+            ]
+            if len(by_first) == 1:
+                return by_first[0]
+        return None
+
+    m = re.match(r"^(\d{2,3})\b", name)
+    if m:
+        by_file = await _find_client_by_file_no(m.group(1))
+        if by_file:
+            return await db.clients.find_one(_active_client_filter({"id": by_file["id"]}), fields)
+    m = re.search(r"\((\d{2,3})\)", name)
+    if m:
+        by_file = await _find_client_by_file_no(m.group(1))
+        if by_file:
+            return await db.clients.find_one(_active_client_filter({"id": by_file["id"]}), fields)
+
+    client = await _lookup(name)
     if client:
         return client
-    client = await db.clients.find_one(
-        _active_client_filter({"name": {"$regex": f"^{re.escape(name)}($|\\s)"}}),
-        fields,
-    )
-    if client:
-        return client
-    items = await db.clients.find(_active_client_filter(), fields).to_list(500)
-    for c in items:
-        cn = (c.get("name") or "").strip()
-        if cn and (name == cn or name.startswith(cn + " ")):
-            return c
+    aliased = _apply_schedule_child_name_aliases(name)
+    if aliased != name:
+        client = await _lookup(aliased)
+        if client:
+            return client
     return None
 
 
@@ -9843,6 +9902,23 @@ def _parse_schedule_cell_text(txt: str):
             child = child[:m_open].strip()
     if not custom:
         custom = _time_range_from_text(txt)
+    if not child and not note:
+        remainder = txt
+        for prefix in ("HS", "SS", "OS"):
+            if upper.startswith(prefix):
+                remainder = re.sub(rf"^{prefix}\s*[\|\-:]*\s*", "", txt, flags=re.I).strip()
+                break
+        if remainder and remainder.upper() not in {
+            "LEAVE", "BREAK", "AVC", "MEETING", "SUPERVISION", "OBSERVATION", "AVAILABLE",
+        }:
+            child = remainder
+            if "(" in child:
+                m_open = child.find("(")
+                m_close = child.find(")", m_open)
+                if m_close > m_open:
+                    if not custom:
+                        custom = child[m_open + 1:m_close].strip()
+                    child = child[:m_open].strip()
     return service, child, custom, note
 
 
@@ -9984,6 +10060,14 @@ async def _import_schedule_grid(
                                 )
                             continue
                         service, child, custom, note = parsed
+                        cell_color = None
+                        if child:
+                            resolved = await _find_client_by_schedule_child_name(child)
+                            if resolved:
+                                child = resolved.get("name") or child
+                                cell_color = resolved.get("schedule_color") or resolved.get("color")
+                        if not cell_color and child:
+                            cell_color = client_colors.get(child)
                         merge_cols = float(merge_anchors.get((i, col_idx), 1))
                         custom_dur = _duration_from_custom(canonical_ts, custom, time_slots) if custom else 1.0
                         if custom and custom_dur > 1:
@@ -9995,7 +10079,6 @@ async def _import_schedule_grid(
                         span = _duration_slot_span(duration)
                         if span > 1:
                             skip_until = slot_idx + span - 1
-                        cell_color = client_colors.get(child) if child else None
                         if not clear_existing:
                             await _clear_schedule_span(
                                 current_t_id, day_idx, canonical_ts, duration, week_start

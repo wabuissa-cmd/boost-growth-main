@@ -192,9 +192,27 @@ function normScheduleName(s) {
   return (s || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-/** Match schedule cell child_name to a client (mirrors backend _find_client_by_schedule_child_name). */
-export function findClientForScheduleCell(childName, clients = []) {
-  const name = (childName || "").trim();
+const SCHEDULE_CHILD_NAME_ALIASES = {
+  abdularahman: "abdulrahman",
+  aljouhrah: "aljoharah",
+  ameerah: "ameirah",
+};
+
+function applyScheduleChildNameAliases(name) {
+  const raw = (name || "").trim();
+  if (!raw) return raw;
+  const parts = raw.split(/\s+/);
+  const first = parts[0].toLowerCase();
+  if (SCHEDULE_CHILD_NAME_ALIASES[first]) {
+    const fixed = SCHEDULE_CHILD_NAME_ALIASES[first];
+    parts[0] = /^[A-Z]/.test(parts[0]) ? fixed.charAt(0).toUpperCase() + fixed.slice(1) : fixed;
+    return parts.join(" ");
+  }
+  return raw;
+}
+
+function lookupClientByLabel(label, clients = []) {
+  const name = (label || "").trim();
   if (!name || !clients.length) return null;
 
   let client = clients.find(c => (c.name || "").trim() === name);
@@ -203,6 +221,19 @@ export function findClientForScheduleCell(childName, clients = []) {
   const nameNorm = normScheduleName(name);
   client = clients.find(c => normScheduleName(c.name) === nameNorm);
   if (client) return client;
+
+  const fileLead = name.match(/^(\d{2,3})\b/);
+  if (fileLead) {
+    const fn = fileLead[1].padStart(3, "0");
+    client = clients.find(c => String(c.file_no || "").padStart(3, "0") === fn);
+    if (client) return client;
+  }
+  const fileParen = name.match(/\((\d{2,3})\)/);
+  if (fileParen) {
+    const fn = fileParen[1].padStart(3, "0");
+    client = clients.find(c => String(c.file_no || "").padStart(3, "0") === fn);
+    if (client) return client;
+  }
 
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const prefixRe = new RegExp(`^${escaped}($|\\s)`, "i");
@@ -229,13 +260,58 @@ export function findClientForScheduleCell(childName, clients = []) {
   return null;
 }
 
+/** Match schedule cell child_name to a client (mirrors backend _find_client_by_schedule_child_name). */
+export function findClientForScheduleCell(childName, clients = []) {
+  const name = (childName || "").trim();
+  if (!name || !clients.length) return null;
+
+  let client = lookupClientByLabel(name, clients);
+  if (client) return client;
+
+  const aliased = applyScheduleChildNameAliases(name);
+  if (aliased !== name) {
+    client = lookupClientByLabel(aliased, clients);
+    if (client) return client;
+  }
+
+  return null;
+}
+
+/** Effective child name on a schedule cell (child_name or parsed from note / label text). */
+export function scheduleCellChildName(cell) {
+  if (!cell) return null;
+  const direct = (cell.child_name || "").trim();
+  if (direct) return direct;
+
+  const note = (cell.note || "").trim();
+  if (!note) return null;
+  if (META_SERVICE_CODES.has(cell.service_code)) return null;
+
+  if (note.includes("|")) {
+    const part = note.split("|", 1)[1]?.trim();
+    if (part) return part.replace(/\s*\([^)]*\)\s*$/, "").trim() || null;
+  }
+
+  const upper = note.toUpperCase();
+  for (const prefix of ["HS", "SS", "OS"]) {
+    if (upper.startsWith(prefix)) {
+      const rest = note.slice(prefix.length).replace(/^[\s\-|:]+/, "").trim();
+      if (rest) return rest.replace(/\s*\([^)]*\)\s*$/, "").trim() || null;
+    }
+  }
+
+  if (!META_SERVICE_CODES.has(cell.service_code)) {
+    return note.replace(/\s*\([^)]*\)\s*$/, "").trim() || null;
+  }
+  return null;
+}
+
 /** True when a schedule cell represents a client session that can be logged. */
 export function isScheduleClientLogCell(cell) {
   if (!cell) return false;
   if (cell.state === "available" || cell.service_code === "AVAILABLE") return false;
-  if (!((cell.child_name || "").trim())) return false;
   if (META_SERVICE_CODES.has(cell.service_code)) return false;
-  return true;
+  return !!scheduleCellChildName(cell);
 }
 
 /** Primary label shown inside a schedule grid cell (preserves full Excel text when stored in note). */

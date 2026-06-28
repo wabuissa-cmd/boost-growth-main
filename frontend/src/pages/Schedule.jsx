@@ -5,7 +5,7 @@ import {
   getCellStyle, MERGE_QUICK, scheduleCellDisplayLabel,
   SERVICE_CELL_COLORS, buildSlotRange, isSlotSelectable, slotIndex, clampMergeSlotCount, clampMergeDuration,
   findCellAt, isHiddenFromSchedule, scheduleDisplaySpan, scheduleCoveredSlotKeys,
-  resolveSelfTherapist, findClientForScheduleCell, isScheduleClientLogCell,
+  resolveSelfTherapist, findClientForScheduleCell, isScheduleClientLogCell, scheduleCellChildName,
 } from "../scheduleUtils";
 import { MAX_SCHEDULE_MERGE_SLOTS } from "../scheduleConstants";
 import { useAuth, showAdminNav, isClientLead, canParentCancellationOps } from "../auth";
@@ -700,14 +700,17 @@ export default function Schedule() {
 
   const openQuickLogFromCell = async (cell, therapist_id, day, time_slot) => {
     if (!isScheduleClientLogCell(cell)) return;
-    let client = findClientForScheduleCell(cell.child_name, clients);
+    const childName = scheduleCellChildName(cell);
+    if (!childName) return;
+    let client = findClientForScheduleCell(childName, clients);
     if (!client) {
       try {
         const { data } = await api.get("/clients/resolve-schedule-name", {
-          params: { child_name: cell.child_name.trim() },
+          params: { child_name: childName },
         });
         client = data;
       } catch {
+        alert(`Could not match "${childName}" to a client record. Please ask admin to verify file 068 / client name.`);
         return;
       }
     }

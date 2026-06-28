@@ -1,5 +1,5 @@
 import { addDays, toISODate } from "./api";
-import { findClientForScheduleCell, isScheduleClientLogCell } from "./scheduleUtils";
+import { findClientForScheduleCell, isScheduleClientLogCell, scheduleCellChildName } from "./scheduleUtils";
 
 /** Build lookup keys for a prep record returned by the API. */
 export function prepRecordKeys(rec) {
@@ -31,7 +31,7 @@ export function prepKeysForCell(cell, therapistId, day, weekStart, clientId) {
 
 export function isCellPrepComplete(prepLookup, cell, therapistId, day, weekStart, clients) {
   if (!isScheduleClientLogCell(cell)) return false;
-  const client = findClientForScheduleCell(cell.child_name, clients);
+  const client = findClientForScheduleCell(scheduleCellChildName(cell), clients);
   if (!client) return false;
   const keys = prepKeysForCell(cell, therapistId, day, weekStart, client.id);
   return keys.some((k) => prepLookup.has(k));
