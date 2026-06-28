@@ -133,6 +133,7 @@ export const SCHEDULE_LEGEND_ITEMS = [
   { bg: "#E8F0E8", border: "#A8C0A8", label: "Supervision" },
   { bg: "#FFEAE0", border: "#F0B89F", label: "AVC" },
   { bg: "#FFF8D6", border: "#E6C96A", label: "Holiday" },
+  { bg: "#5C8A47", border: "#FFFFFF", label: "Prepared ✓", dot: true },
 ];
 
 /** Official closure / holiday row styling (light yellow + dark purple text). */

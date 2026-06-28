@@ -8,7 +8,7 @@ import {
   resolveSelfTherapist, findClientForScheduleCell, isScheduleClientLogCell, scheduleCellChildName,
 } from "../scheduleUtils";
 import { MAX_SCHEDULE_MERGE_SLOTS } from "../scheduleConstants";
-import { useAuth, showAdminNav, isClientLead, canParentCancellationOps } from "../auth";
+import { useAuth, showAdminNav, isClientLead, canParentCancellationOps, hasFullClientAccess } from "../auth";
 import {
   CaretLeft, CaretRight, CaretDown, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
   CopySimple, Table, CalendarBlank, CheckCircle, PencilSimple, GridFour, Printer, WhatsappLogo, UserPlus,
@@ -26,7 +26,7 @@ import LogSessionModal, { slotToTime24, addHoursToTime } from "../components/Log
 import SchedulePrepBadge from "../components/SchedulePrepBadge";
 import { buildPrepLookup, isCellPrepComplete } from "../schedulePrepUtils";
 import { buildParentMessages } from "../scheduleParentMessages";
-import { sortTherapistsForSchedule, getTherapistScheduleName, scheduleOwnBlockOnly, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
+import { sortTherapistsForSchedule, getTherapistScheduleName, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
 import { cachedGet } from "../dataCache";
 import "../dashboardLayout.css";
 
@@ -101,7 +101,6 @@ function cellClassName(cell, isAdmin, leaveInfo, selected, copied, prepDone = fa
   if (cell) {
     parts.push("has-event");
     if (cell.state === "available" || cell.service_code === "AVAILABLE") parts.push("cell-available");
-    if (prepDone) parts.push("has-prep-badge");
   } else {
     parts.push("cell-empty");
   }
@@ -135,8 +134,9 @@ export default function Schedule() {
   const scheduleAdmin = showAdminNav(user);
   const scheduleLead = isClientLead(user) && !scheduleAdmin;
   const isAdmin = scheduleAdmin;
-  const parentCancelOps = canParentCancellationOps(user);
+  const opsCanSeeAllPreps = hasFullClientAccess(user) || scheduleAdmin;
   const canQuickLog = !scheduleAdmin && !scheduleLead;
+  const parentCancelOps = canParentCancellationOps(user);
   const [view, setView] = useState(() => {
     // Default to "Per Therapist" (blocks) view for all users per business request.
     return "blocks";
@@ -291,14 +291,14 @@ export default function Schedule() {
   };
 
   const loadPreparations = useCallback(async () => {
-    if (!canQuickLog && !scheduleAdmin) return;
+    if (!canQuickLog && !opsCanSeeAllPreps) return;
     try {
       const { data } = await api.get("/schedule/preparations", { params: { week_start: weekStartISO } });
       setPrepLookup(buildPrepLookup(Array.isArray(data) ? data : []));
     } catch {
       setPrepLookup(new Set());
     }
-  }, [weekStartISO, canQuickLog, scheduleAdmin]);
+  }, [weekStartISO, canQuickLog, opsCanSeeAllPreps]);
 
   const load = useCallback(async (force = false) => {
     const yr = weekStart.getFullYear();
@@ -555,12 +555,10 @@ export default function Schedule() {
   };
 
   const blocksTherapists = useMemo(() => {
-    if (scheduleAdmin) return visibleTherapists;
-    // Per Therapist view: ops leads (Walaa, Maha, Fahda, Jenan) and regular therapists see own block only.
-    // Sheet view still uses visibleTherapists for the full team grid.
-    if (scheduleLead && !scheduleOwnBlockOnly(user)) return visibleTherapists;
+    // Ops / admin: all therapist blocks with prep badges. Regular therapists: own block only.
+    if (opsCanSeeAllPreps) return visibleTherapists;
     return selfTherapist ? [selfTherapist] : [];
-  }, [visibleTherapists, scheduleAdmin, scheduleLead, selfTherapist, user]);
+  }, [visibleTherapists, opsCanSeeAllPreps, selfTherapist]);
 
   const isSelected = (therapist_id, day, time_slot) => {
     if (!selection) return false;
@@ -1047,14 +1045,12 @@ export default function Schedule() {
                     const colSpan = scheduleDisplaySpan(cell);
                     const baseStyle = getSheetCellStyle(cell, clients);
                     const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
-                    const showPrepBadge = isScheduleClientLogCell(cell)
-                      && isCellPrepComplete(prepLookup, cell, t.id, di, weekStartISO, clients);
                     return (
                       <td
                         key={ts}
                         colSpan={colSpan}
                         data-testid={`sheet-cell-${t.id}-${di}-${ts}`}
-                        className={cellClassName(cell, canEditRow(t.id), leaveInfo, isSelected(t.id, di, ts), isCopied(t.id, di, ts), showPrepBadge)}
+                        className={cellClassName(cell, canEditRow(t.id), leaveInfo, isSelected(t.id, di, ts), isCopied(t.id, di, ts))}
                         style={cellStyle}
                         onClick={(e) => handleCellClick(e, t.id, di, ts, cell)}
                         onContextMenu={canNotifySchedule ? (e) => onCtx(e, cell, t.id, di, ts) : undefined}
@@ -1063,7 +1059,6 @@ export default function Schedule() {
                         onTouchEnd={onCellTouchEnd}
                       >
                         {renderCellMenuBtn(cell, t.id, di, ts)}
-                        {showPrepBadge && <SchedulePrepBadge />}
                         {cell && <CellContent cell={cell} sc={sc} />}
                       </td>
                     );
@@ -1184,7 +1179,9 @@ export default function Schedule() {
           : scheduleLead && view === "sheet"
             ? "Team schedule — right-click or click therapist name or any cell to edit"
             : view === "blocks"
-              ? "My schedule — click your sessions to log preparation"
+              ? opsCanSeeAllPreps
+                ? "Per therapist — green ✓ = session prepared"
+                : "My schedule — click your sessions to log preparation"
               : "Team schedule — view all therapists"}
         badge={isScheduleNarrow ? (
           <span className="pill text-[10px] px-2 py-0.5 font-bold bg-white/90 text-[#2F4A35] border border-[#D4DEC8] whitespace-nowrap">
