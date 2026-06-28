@@ -629,6 +629,17 @@ class SchedulePreparationIn(BaseModel):
     day: Optional[int] = None
     notes: Optional[str] = None
 
+class SchedulePreparationClearIn(BaseModel):
+    therapist_id: str
+    client_id: str
+    session_date: str
+    schedule_cell_id: Optional[str] = None
+    time_slot: Optional[str] = None
+    """When true, hide the green badge even if a session is still logged (schedule-only fix)."""
+    suppress_badge: bool = True
+    """When true, also remove matching rows from Session Preparation history."""
+    delete_prep_history: bool = False
+
 class PrepHistoryInvoiceLinkIn(BaseModel):
     invoice_id: Optional[str] = None
     notes: Optional[str] = None
@@ -1153,7 +1164,7 @@ async def delete_therapist(tid: str, _=Depends(admin_only)):
 # ------------------- Full Database Backup (admin only) -------------------
 BACKUP_COLLECTIONS = [
     "users", "therapists", "clients", "sessions", "invoices",
-    "leaves", "requests", "progress_reports", "schedule_cells", "schedule_preparations", "prep_history",
+    "leaves", "requests", "progress_reports", "schedule_cells", "schedule_preparations", "schedule_prep_suppressions", "prep_history",
     "intake_pre", "intake_post", "notifications", "attendance_sheets",
     "email_settings", "email_queue",
 ]
@@ -2084,6 +2095,122 @@ def _merge_schedule_preparation_markers(*groups: list) -> list:
     return list(merged.values())
 
 
+def _prep_is_suppressed(
+    suppressions: list,
+    therapist_id: str,
+    client_id: str,
+    session_date: str,
+    schedule_cell_id: Optional[str] = None,
+) -> bool:
+    sd = (session_date or "")[:10]
+    for s in suppressions or []:
+        if s.get("therapist_id") != therapist_id:
+            continue
+        if s.get("client_id") != client_id:
+            continue
+        if (s.get("session_date") or "")[:10] != sd:
+            continue
+        cell_scope = (s.get("schedule_cell_id") or "").strip() or None
+        if cell_scope:
+            if schedule_cell_id and cell_scope == schedule_cell_id:
+                return True
+        else:
+            return True
+    return False
+
+
+def _filter_suppressed_markers(markers: list, suppressions: list) -> list:
+    out = []
+    for m in markers or []:
+        if _prep_is_suppressed(
+            suppressions,
+            m.get("therapist_id"),
+            m.get("client_id"),
+            m.get("session_date"),
+            m.get("schedule_cell_id"),
+        ):
+            continue
+        out.append(m)
+    return out
+
+
+async def _list_prep_suppressions(start: str, end: str, therapist_id: Optional[str] = None) -> list:
+    q: dict = {"session_date": {"$gte": start, "$lte": end}}
+    if therapist_id:
+        q["therapist_id"] = therapist_id
+    return await db.schedule_prep_suppressions.find(q, {"_id": 0}).to_list(2000)
+
+
+async def _clear_schedule_preparation_marker(
+    *,
+    therapist_id: str,
+    client_id: str,
+    session_date: str,
+    schedule_cell_id: Optional[str] = None,
+    time_slot: Optional[str] = None,
+    suppress_badge: bool = True,
+    delete_prep_history: bool = False,
+    suppressed_by: str = "",
+) -> dict:
+    """Remove prep markers and optionally suppress the green schedule badge."""
+    sd = (session_date or "")[:10]
+    slot = (time_slot or "").strip()
+    if schedule_cell_id:
+        await db.schedule_preparations.delete_many({
+            "therapist_id": therapist_id,
+            "client_id": client_id,
+            "session_date": sd,
+            "schedule_cell_id": schedule_cell_id,
+        })
+    else:
+        await db.schedule_preparations.delete_many({
+            "therapist_id": therapist_id,
+            "client_id": client_id,
+            "session_date": sd,
+        })
+    if delete_prep_history:
+        hist_q = {"therapist_id": therapist_id, "client_id": client_id, "session_date": sd}
+        if slot:
+            hist_q["time_slot"] = slot
+        await db.prep_history.delete_many(hist_q)
+    if suppress_badge:
+        doc = {
+            "id": str(uuid.uuid4()),
+            "therapist_id": therapist_id,
+            "client_id": client_id,
+            "session_date": sd,
+            "schedule_cell_id": schedule_cell_id,
+            "suppressed_by": suppressed_by,
+            "suppressed_at": now_iso(),
+        }
+        existing = await db.schedule_prep_suppressions.find_one(
+            {
+                "therapist_id": therapist_id,
+                "client_id": client_id,
+                "session_date": sd,
+                "schedule_cell_id": schedule_cell_id,
+            },
+            {"_id": 0, "id": 1},
+        )
+        if not existing:
+            await db.schedule_prep_suppressions.insert_one(doc)
+    return {"ok": True}
+
+
+async def _cleanup_prep_for_deleted_session(sess: dict) -> None:
+    cid = sess.get("client_id")
+    sd = (sess.get("session_date") or "")[:10]
+    if not cid or not sd:
+        return
+    for tid in sess.get("therapist_ids") or []:
+        await db.schedule_preparations.delete_many({
+            "therapist_id": tid,
+            "client_id": cid,
+            "session_date": sd,
+        })
+    await db.prep_history.delete_many({"client_id": cid, "session_date": sd})
+
+
 async def _sync_schedule_preparations_for_week(start: str, end: str) -> None:
     """Backfill schedule prep markers from completed sessions (idempotent)."""
     sessions = await db.sessions.find(
@@ -2130,7 +2257,33 @@ async def list_schedule_preparations(
     await _sync_schedule_preparations_for_week(start, end)
     db_items = await db.schedule_preparations.find(q, {"_id": 0}).to_list(2000)
     computed = await _computed_schedule_preparation_markers(start, end, tid)
-    return _merge_schedule_preparation_markers(db_items, computed)
+    suppressions = await _list_prep_suppressions(start, end, tid)
+    items = _filter_suppressed_markers(
+        _merge_schedule_preparation_markers(db_items, computed),
+        suppressions,
+    )
+    return {"items": items, "suppressions": suppressions}
+
+
+def _can_manage_schedule_prep(user: dict) -> bool:
+    return _has_full_client_access(user) or _is_hr_ops(user)
+
+
+@api.post("/schedule/preparations/clear")
+async def clear_schedule_preparation(payload: SchedulePreparationClearIn, user=Depends(get_current_user)):
+    """Remove green prep badge / preparation marker (ops and client-lead team)."""
+    if not _can_manage_schedule_prep(user):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return await _clear_schedule_preparation_marker(
+        therapist_id=payload.therapist_id,
+        client_id=payload.client_id,
+        session_date=payload.session_date,
+        schedule_cell_id=payload.schedule_cell_id,
+        time_slot=payload.time_slot,
+        suppress_badge=payload.suppress_badge,
+        delete_prep_history=payload.delete_prep_history,
+        suppressed_by=user["id"],
+    )
 
 
 @api.post("/schedule/preparations")
@@ -2180,6 +2333,28 @@ async def list_client_prep_history(cid: str, user=Depends(get_current_user)):
                 therapists.get(item.get("therapist_id"))
             )
     return items
+
+
+@api.delete("/prep-history/{hid}")
+async def delete_prep_history(hid: str, user=Depends(get_current_user)):
+    """Remove a preparation log entry and clear its schedule badge."""
+    if not _can_manage_schedule_prep(user):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    rec = await db.prep_history.find_one({"id": hid}, {"_id": 0})
+    if not rec:
+        return {"ok": True}
+    await db.prep_history.delete_one({"id": hid})
+    await _clear_schedule_preparation_marker(
+        therapist_id=rec.get("therapist_id"),
+        client_id=rec.get("client_id"),
+        session_date=rec.get("session_date"),
+        schedule_cell_id=rec.get("schedule_cell_id"),
+        time_slot=rec.get("time_slot"),
+        suppress_badge=True,
+        delete_prep_history=False,
+        suppressed_by=user["id"],
+    )
+    return {"ok": True}
 
 
 @api.patch("/prep-history/{hid}")
@@ -5963,6 +6138,10 @@ async def delete_session(sid: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Forbidden")
     if not _session_editable_by_user(user, sess):
         raise HTTPException(status_code=403, detail="Sessions can only be edited on the same day. Contact admin for changes.")
+    try:
+        await _cleanup_prep_for_deleted_session(sess)
+    except Exception:
+        logger.exception("cleanup prep for deleted session %s", sid)
     await db.sessions.delete_one({"id": sid})
     return {"ok": True}
 

@@ -32,6 +32,33 @@ export function buildPrepLookup(preparations) {
   return set;
 }
 
+/** Map suppression rows so badges stay hidden even when sessions exist. */
+export function buildSuppressionLookup(suppressions) {
+  const set = new Set();
+  for (const s of suppressions || []) {
+    const tid = s.therapist_id;
+    const cid = s.client_id;
+    const date = (s.session_date || "").slice(0, 10);
+    if (!tid || !cid || !date) continue;
+    const cellId = (s.schedule_cell_id || "").trim();
+    if (cellId) {
+      set.add(`suppress:cell:${cellId}`);
+      set.add(`suppress:${tid}|${cid}|${date}|${cellId}`);
+    } else {
+      set.add(`suppress:${tid}|${cid}|${date}`);
+    }
+  }
+  return set;
+}
+
+function isPrepSuppressed(suppressionLookup, therapistId, sessionDate, clientId, cell) {
+  if (!suppressionLookup?.size || !clientId) return false;
+  if (cell?.id && suppressionLookup.has(`suppress:cell:${cell.id}`)) return true;
+  if (cell?.id && suppressionLookup.has(`suppress:${therapistId}|${clientId}|${sessionDate}|${cell.id}`)) return true;
+  if (suppressionLookup.has(`suppress:${therapistId}|${clientId}|${sessionDate}`)) return true;
+  return false;
+}
+
 /** Logged sessions → therapist + client + date keys (primary source of truth). */
 export function buildSessionPrepLookup(sessions, weekStartISO, weekEndISO) {
   const set = new Set();
@@ -122,6 +149,7 @@ export function isCellPrepComplete(
   clients,
   preparations = [],
   weekSessions = [],
+  suppressionLookup = null,
 ) {
   if (!cell) return false;
   if (!isScheduleClientLogCell(cell)) return false;
@@ -129,6 +157,10 @@ export function isCellPrepComplete(
   const sessionDate = toISODate(addDays(new Date(weekStart + "T12:00:00"), day));
   const childName = scheduleCellChildName(cell);
   const client = childName ? findClientForScheduleCell(childName, clients) : null;
+
+  if (client && isPrepSuppressed(suppressionLookup, therapistId, sessionDate, client.id, cell)) {
+    return false;
+  }
 
   if (cell.id && prepLookup.has(`cell:${cell.id}`)) return true;
 

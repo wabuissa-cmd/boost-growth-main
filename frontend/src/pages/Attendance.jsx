@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api";
-import { useAuth, showAdminNav, hasOpsAccess } from "../auth";
+import { useAuth, showAdminNav, hasOpsAccess, hasFullClientAccess, isHrOps } from "../auth";
 import {
   MagnifyingGlass, Plus, X, Trash, PencilSimple, ClipboardText, ClockCounterClockwise,
   CheckCircle, Prohibit, Warning, XCircle, Clock, MapPin, Printer, FileXls,
@@ -401,7 +401,7 @@ export default function Attendance() {
   );
 }
 
-function PrepOnlyRow({ rec, findT, bordered = false }) {
+function PrepOnlyRow({ rec, findT, bordered = false, canRemove = false, onRemove }) {
   const cell = bordered ? "p-2 border border-[#E0E8DC]" : "p-2";
   const t = findT(rec.therapist_id);
   const therapistLabel = rec.therapist_name || (t ? getTherapistScheduleName(t) : "—");
@@ -420,6 +420,21 @@ function PrepOnlyRow({ rec, findT, bordered = false }) {
       <td className={cell}>—</td>
       <td className={cell}>—</td>
       <td className={`${cell} italic`} style={{ color: "#5C6853" }}>{rec.notes || ""}</td>
+      {canRemove && (
+        <td className={`${cell} text-right whitespace-nowrap no-print`}>
+          <button
+            type="button"
+            className="btn btn-ghost p-1.5 text-red-700"
+            title="Remove preparation"
+            onClick={async () => {
+              if (!window.confirm("Remove this preparation? The green checkmark will disappear from the schedule.")) return;
+              await onRemove?.(rec);
+            }}
+          >
+            <Trash size={14} />
+          </button>
+        </td>
+      )}
     </tr>
   );
 }
@@ -446,6 +461,7 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
   const selectedInvoice = invoices.find(i => i.id === selectedInvoiceId);
   const invoiceLocked = !!selectedInvoice?.is_closed;
   const cycleWeeks = selectedInvoice?.ss_week_count || 4;
+  const canManagePrep = hasFullClientAccess(user) || isHrOps(user);
 
   const fetchSessionsForInvoice = useCallback(async (invoiceId) => {
     const params = { client_id: client.id };
@@ -873,10 +889,20 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs min-w-[520px] border-collapse">
-                      <HistoryTableHead cols={historySheetCols.filter(c => c.id !== "_action")} bordered />
+                      <HistoryTableHead cols={canManagePrep ? historySheetCols : historySheetCols.filter(c => c.id !== "_action")} bordered />
                       <tbody>
                         {prepOnlyRows.map(rec => (
-                          <PrepOnlyRow key={rec.id} rec={rec} findT={findT} bordered />
+                          <PrepOnlyRow
+                            key={rec.id}
+                            rec={rec}
+                            findT={findT}
+                            bordered
+                            canRemove={canManagePrep}
+                            onRemove={async (row) => {
+                              await api.delete(`/prep-history/${row.id}`);
+                              await fetchPrepHistory();
+                            }}
+                          />
                         ))}
                       </tbody>
                     </table>

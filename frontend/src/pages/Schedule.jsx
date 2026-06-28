@@ -8,7 +8,7 @@ import {
   resolveSelfTherapist, findClientForScheduleCell, isScheduleClientLogCell, scheduleCellChildName,
 } from "../scheduleUtils";
 import { MAX_SCHEDULE_MERGE_SLOTS } from "../scheduleConstants";
-import { useAuth, showAdminNav, isClientLead, canParentCancellationOps, hasFullClientAccess, hasOpsAccess } from "../auth";
+import { useAuth, showAdminNav, isClientLead, canParentCancellationOps, hasFullClientAccess, hasOpsAccess, isHrOps } from "../auth";
 import {
   CaretLeft, CaretRight, CaretDown, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
   CopySimple, Table, CalendarBlank, CheckCircle, PencilSimple, GridFour, Printer, WhatsappLogo, UserPlus,
@@ -24,7 +24,7 @@ import ParentWhatsAppModal from "../components/ParentWhatsAppModal";
 import ParentCancellationModal from "../components/ParentCancellationModal";
 import LogSessionModal, { slotToTime24, addHoursToTime } from "../components/LogSessionModal";
 import SchedulePrepBadge from "../components/SchedulePrepBadge";
-import { buildPrepLookup, buildSessionPrepLookup, isCellPrepComplete, mergePrepLookups } from "../schedulePrepUtils";
+import { buildPrepLookup, buildSessionPrepLookup, buildSuppressionLookup, isCellPrepComplete, mergePrepLookups } from "../schedulePrepUtils";
 import { buildParentMessages } from "../scheduleParentMessages";
 import { sortTherapistsForSchedule, getTherapistScheduleName, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
 import { cachedGet } from "../dataCache";
@@ -138,6 +138,7 @@ export default function Schedule() {
   const opsCanSeeAllPreps = hasFullClientAccess(user) || scheduleAdmin || hasOpsAccess(user);
   const canQuickLog = !scheduleAdmin && !scheduleLead;
   const canSeePrepBadges = !!user && (opsCanSeeAllPreps || canQuickLog);
+  const canManagePrep = !!user && (hasFullClientAccess(user) || isHrOps(user));
   const parentCancelOps = canParentCancellationOps(user);
   const [view, setView] = useState(() => {
     // Default to "Per Therapist" (blocks) view for all users per business request.
@@ -195,6 +196,7 @@ export default function Schedule() {
   const [prepLookup, setPrepLookup] = useState(() => new Set());
   const [preparations, setPreparations] = useState([]);
   const [weekSessions, setWeekSessions] = useState([]);
+  const [suppressionLookup, setSuppressionLookup] = useState(() => new Set());
 
   useEffect(() => {
     if (!adminEditsOpen) return;
@@ -299,12 +301,15 @@ export default function Schedule() {
     if (!canSeePrepBadges) return;
     try {
       const { data } = await api.get("/schedule/preparations", { params: { week_start: weekStartISO } });
-      const rows = Array.isArray(data) ? data : [];
+      const rows = Array.isArray(data) ? data : (data?.items ?? []);
+      const sups = Array.isArray(data) ? [] : (data?.suppressions ?? []);
       setPreparations(rows);
+      setSuppressionLookup(buildSuppressionLookup(sups));
       const sessionKeys = buildSessionPrepLookup(weekSessions, weekStartISO, weekEndISO);
       setPrepLookup(mergePrepLookups(buildPrepLookup(rows), sessionKeys));
     } catch {
       setPreparations([]);
+      setSuppressionLookup(new Set());
       setPrepLookup(buildSessionPrepLookup(weekSessions, weekStartISO, weekEndISO));
     }
   }, [weekStartISO, weekEndISO, weekSessions, canSeePrepBadges, user]);
@@ -855,6 +860,44 @@ export default function Schedule() {
     setPanelForm(f => ({ ...f, duration: 1 }));
   };
 
+  const clearPrepFromCell = async (therapist_id, day, cell, deletePrepHistory = false) => {
+    if (!cell || !canManagePrep) return;
+    const childName = scheduleCellChildName(cell);
+    const client = childName ? findClientForScheduleCell(childName, clients) : null;
+    if (!client) {
+      alert("Could not match this cell to a client record.");
+      return;
+    }
+    const sessionDate = toISODate(addDays(weekStart, day));
+    const msg = deletePrepHistory
+      ? "Remove preparation for this cell and delete it from Session Preparation history?"
+      : "Remove the green prep checkmark from this cell? The logged session (if any) stays in Session Preparation.";
+    if (!window.confirm(msg)) return;
+    try {
+      await api.post("/schedule/preparations/clear", {
+        therapist_id,
+        client_id: client.id,
+        session_date: sessionDate,
+        schedule_cell_id: cell.id || null,
+        time_slot: cell.time_slot || "",
+        suppress_badge: true,
+        delete_prep_history: deletePrepHistory,
+      });
+      await loadPreparations();
+    } catch (err) {
+      alert(err?.response?.data?.detail || "Could not remove preparation marker.");
+    }
+  };
+
+  const cellHasPrepBadge = (cell, therapistId, day) => (
+    canSeePrepBadges
+    && isScheduleClientLogCell(cell)
+    && isCellPrepComplete(
+      prepLookup, cell, therapistId, day, weekStartISO, clients,
+      preparations, weekSessions, suppressionLookup,
+    )
+  );
+
   const saveClientColor = async () => {
     if (!panelForm) return;
     const client = panelForm.child_name
@@ -1083,8 +1126,7 @@ export default function Schedule() {
                     const colSpan = scheduleDisplaySpan(cell);
                     const baseStyle = getSheetCellStyle(cell, clients);
                     const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
-                    const showPrepBadge = canSeePrepBadges && isScheduleClientLogCell(cell)
-                      && isCellPrepComplete(prepLookup, cell, t.id, di, weekStartISO, clients, preparations, weekSessions);
+                    const showPrepBadge = cellHasPrepBadge(cell, t.id, di);
                     return (
                       <td
                         key={ts}
@@ -1180,8 +1222,7 @@ export default function Schedule() {
                   const colSpan = scheduleDisplaySpan(cell);
                   const baseStyle = getSheetCellStyle(cell, clients);
                   const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
-                  const showPrepBadge = canSeePrepBadges && isScheduleClientLogCell(cell)
-                    && isCellPrepComplete(prepLookup, cell, therapist.id, di, weekStartISO, clients, preparations, weekSessions);
+                  const showPrepBadge = cellHasPrepBadge(cell, therapist.id, di);
                   return (
                     <td key={ts} className={cellClassNameBlock(cell, canEditRow(therapist.id), leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts), canQuickLog && therapist.id === selfTherapist?.id, showPrepBadge)}
                       colSpan={colSpan}
@@ -1503,6 +1544,20 @@ export default function Schedule() {
             <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
               onClick={ctxAction(() => copyCell(ctxMenu))}>
               Copy Cell
+            </button>
+          )}
+          {canManagePrep && ctxMenu.cell && cellHasPrepBadge(ctxMenu.cell, ctxMenu.therapist_id, ctxMenu.day) && (
+            <button
+              type="button"
+              data-testid="schedule-remove-prep-badge"
+              className="w-full text-left px-3 py-2 hover:bg-[#FCE0E8]"
+              style={{ color: "#8A3F27" }}
+              onClick={ctxAction(async () => {
+                await clearPrepFromCell(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.cell, false);
+                setCtxMenu(null);
+              })}
+            >
+              Remove prep checkmark ✓
             </button>
           )}
           {!ctxMenu.cell && clipboard && canEditRow(ctxMenu.therapist_id) && (
