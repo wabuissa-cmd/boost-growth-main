@@ -133,7 +133,7 @@ export default function LogSessionModal({
     try {
       if (session?.id) await api.put(`/sessions/${session.id}`, payload);
       else await api.post("/sessions", payload);
-      if (scheduleContext?.therapist_id && client?.id && form.session_date) {
+      if (scheduleContext?.therapist_id && client?.id && form.session_date && payload.status === "Completed") {
         try {
           await api.post("/schedule/preparations", {
             therapist_id: scheduleContext.therapist_id,

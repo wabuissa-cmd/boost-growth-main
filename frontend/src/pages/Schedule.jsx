@@ -6,6 +6,7 @@ import {
   SERVICE_CELL_COLORS, buildSlotRange, isSlotSelectable, slotIndex, clampMergeSlotCount, clampMergeDuration,
   findCellAt, isHiddenFromSchedule, scheduleDisplaySpan, scheduleCoveredSlotKeys,
   resolveSelfTherapist, findClientForScheduleCell, isScheduleClientLogCell, scheduleCellChildName,
+  canSpecialistLogScheduleCell,
 } from "../scheduleUtils";
 import { MAX_SCHEDULE_MERGE_SLOTS } from "../scheduleConstants";
 import { useAuth, showAdminNav, isClientLead, canParentCancellationOps, hasFullClientAccess, hasOpsAccess } from "../auth";
@@ -24,7 +25,7 @@ import ParentWhatsAppModal from "../components/ParentWhatsAppModal";
 import ParentCancellationModal from "../components/ParentCancellationModal";
 import LogSessionModal, { slotToTime24, addHoursToTime } from "../components/LogSessionModal";
 import SchedulePrepBadge from "../components/SchedulePrepBadge";
-import { buildPrepLookup, buildSessionPrepLookup, buildSuppressionLookup, isCellPrepComplete, mergePrepLookups, therapistPrepIdAliases } from "../schedulePrepUtils";
+import { buildPrepLookup, buildSessionPrepLookup, buildSuppressionLookup, getCellStatusBadge, mergePrepLookups, therapistPrepIdAliases } from "../schedulePrepUtils";
 import { buildParentMessages } from "../scheduleParentMessages";
 import { sortTherapistsForSchedule, getTherapistScheduleName, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
 import { cachedGet, invalidateCache } from "../dataCache";
@@ -112,17 +113,18 @@ function cellClassName(cell, isAdmin, leaveInfo, selected, copied, prepDone = fa
   return parts.join(" ");
 }
 
-function cellClassNameBlock(cell, isAdmin, leaveInfo, selected, copied, canQuickLog, prepDone) {
+function cellClassNameBlock(cell, isAdmin, leaveInfo, selected, copied, canQuickLog, statusBadge) {
   const parts = ["cell-base"];
   if (cell) {
     parts.push("has-event");
     if (cell.state === "available" || cell.service_code === "AVAILABLE") parts.push("cell-available");
-    if (prepDone) parts.push("has-prep-badge");
+    if (cell.state === "cancel_therapist") parts.push("schedule-cell-therapist-cancel");
+    if (statusBadge) parts.push("has-prep-badge");
   } else {
     parts.push("cell-empty");
   }
   if (isAdmin) parts.push("editable");
-  if (canQuickLog && isScheduleClientLogCell(cell)) parts.push("schedule-log-clickable");
+  if (canQuickLog && canSpecialistLogScheduleCell(cell)) parts.push("schedule-log-clickable");
   if (leaveInfo) parts.push("on-leave-cell");
   if (selected) parts.push("cell-selected");
   if (copied) parts.push("copied-source");
@@ -792,7 +794,7 @@ export default function Schedule() {
     if (canQuickLog) {
       if (view !== "blocks") return;
       if (!selfTherapist?.id || therapist_id !== selfTherapist.id) return;
-      if (isScheduleClientLogCell(cell)) {
+      if (isScheduleClientLogCell(cell) && canSpecialistLogScheduleCell(cell)) {
         openQuickLogFromCell(cell, therapist_id, day, time_slot);
       }
       return;
@@ -916,13 +918,13 @@ export default function Schedule() {
     }
   };
 
-  const cellHasPrepBadge = (cell, therapistId, day) => (
+  const cellStatusBadge = (cell, therapistId, day) => (
     canSeePrepBadges
-    && isScheduleClientLogCell(cell)
-    && isCellPrepComplete(
-      prepLookup, cell, therapistId, day, weekStartISO, clients,
-      preparations, weekSessions, suppressionLookup,
-    )
+      ? getCellStatusBadge(
+        cell, therapistId, day, weekStartISO, clients,
+        prepLookup, preparations, weekSessions, suppressionLookup,
+      )
+      : null
   );
 
   const saveClientColor = async () => {
@@ -1153,13 +1155,13 @@ export default function Schedule() {
                     const colSpan = scheduleDisplaySpan(cell);
                     const baseStyle = getSheetCellStyle(cell, clients);
                     const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
-                    const showPrepBadge = cellHasPrepBadge(cell, t.id, di);
+                    const statusBadge = cellStatusBadge(cell, t.id, di);
                     return (
                       <td
                         key={ts}
                         colSpan={colSpan}
                         data-testid={`sheet-cell-${t.id}-${di}-${ts}`}
-                        className={cellClassName(cell, canEditRow(t.id), leaveInfo, isSelected(t.id, di, ts), isCopied(t.id, di, ts), showPrepBadge)}
+                        className={cellClassName(cell, canEditRow(t.id), leaveInfo, isSelected(t.id, di, ts), isCopied(t.id, di, ts), !!statusBadge)}
                         style={cellStyle}
                         onClick={(e) => handleCellClick(e, t.id, di, ts, cell)}
                         onContextMenu={canNotifySchedule ? (e) => onCtx(e, cell, t.id, di, ts) : undefined}
@@ -1168,9 +1170,10 @@ export default function Schedule() {
                         onTouchEnd={onCellTouchEnd}
                       >
                         {renderCellMenuBtn(cell, t.id, di, ts)}
-                        {showPrepBadge && (
+                        {statusBadge && (
                           <SchedulePrepBadge
-                            onClear={canManagePrep ? () => clearPrepFromCell(t.id, di, cell, true) : undefined}
+                            variant={statusBadge}
+                            onClear={statusBadge === "prep" && canManagePrep ? () => clearPrepFromCell(t.id, di, cell, true) : undefined}
                           />
                         )}
                         {cell && <CellContent cell={cell} sc={sc} />}
@@ -1253,9 +1256,9 @@ export default function Schedule() {
                   const colSpan = scheduleDisplaySpan(cell);
                   const baseStyle = getSheetCellStyle(cell, clients);
                   const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
-                  const showPrepBadge = cellHasPrepBadge(cell, therapist.id, di);
+                  const statusBadge = cellStatusBadge(cell, therapist.id, di);
                   return (
-                    <td key={ts} className={cellClassNameBlock(cell, canEditRow(therapist.id), leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts), canQuickLog && therapist.id === selfTherapist?.id, showPrepBadge)}
+                    <td key={ts} className={cellClassNameBlock(cell, canEditRow(therapist.id), leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts), canQuickLog && therapist.id === selfTherapist?.id, statusBadge)}
                       colSpan={colSpan}
                       style={cellStyle}
                       data-testid={`cell-${therapist.id}-${di}-${ts}`}
@@ -1265,9 +1268,10 @@ export default function Schedule() {
                       onTouchMove={onCellTouchMove}
                       onTouchEnd={onCellTouchEnd}>
                       {renderCellMenuBtn(cell, therapist.id, di, ts)}
-                      {showPrepBadge && (
+                      {statusBadge && (
                         <SchedulePrepBadge
-                          onClear={canManagePrep ? () => clearPrepFromCell(therapist.id, di, cell, true) : undefined}
+                          variant={statusBadge}
+                          onClear={statusBadge === "prep" && canManagePrep ? () => clearPrepFromCell(therapist.id, di, cell, true) : undefined}
                         />
                       )}
                       {cell && <CellContent cell={cell} sc={sc} />}
@@ -1546,7 +1550,7 @@ export default function Schedule() {
           canParentCancellationOps={parentCancelOps}
           weekStart={weekStartISO}
           canManagePrep={canManagePrep}
-          showPrepBadge={cellHasPrepBadge(panelForm, panelForm.therapist_id, panelForm.day)}
+          showPrepBadge={cellStatusBadge(panelForm, panelForm.therapist_id, panelForm.day) === "prep"}
           onClearPrep={() => clearPrepFromCell(panelForm.therapist_id, panelForm.day, panelForm, true)}
           mergedSlotCount={
             selection?.therapist_id === panelForm.therapist_id && selection?.day === panelForm.day

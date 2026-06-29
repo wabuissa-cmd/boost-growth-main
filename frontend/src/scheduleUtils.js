@@ -318,12 +318,38 @@ export function scheduleCellChildName(cell) {
   return null;
 }
 
+export function buildDefaultCellNote(serviceCode, childName) {
+  const name = (childName || "").trim();
+  if (!name) return "";
+  const code = (serviceCode || "HS").trim();
+  if (code === "HS" || code === "SS" || code === "OS") return `${code} | ${name}`;
+  return name;
+}
+
+/** True when changing client should refresh the grid label automatically. */
+export function shouldAutoUpdateCellNote(note, previousChildName, serviceCode) {
+  const n = (note || "").trim();
+  if (!n) return true;
+  if (previousChildName) {
+    const prevDefault = buildDefaultCellNote(serviceCode, previousChildName);
+    if (n === prevDefault) return true;
+  }
+  return /^(HS|SS|OS)\s*\|\s*.+$/i.test(n);
+}
+
 /** True when a schedule cell represents a client session that can be logged. */
 export function isScheduleClientLogCell(cell) {
   if (!cell) return false;
   if (cell.state === "available" || cell.service_code === "AVAILABLE") return false;
   if (META_SERVICE_CODES.has(cell.service_code)) return false;
   return !!scheduleCellChildName(cell);
+}
+
+/** Specialists cannot log/prepare on therapist-cancelled cells (admins still edit normally). */
+export function canSpecialistLogScheduleCell(cell) {
+  if (!isScheduleClientLogCell(cell)) return false;
+  if (cell.state === "cancel_therapist") return false;
+  return true;
 }
 
 /** Primary label shown inside a schedule grid cell (preserves full Excel text when stored in note). */

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { X, FloppyDisk, BellRinging, WhatsappLogo } from "@phosphor-icons/react";
 import { DAYS_EN, TIME_SLOTS, SERVICE_CODES } from "../api";
 import { DURATION_OPTIONS, getTherapistScheduleName } from "../scheduleConstants";
-import { SERVICE_CELL_COLORS, resolveClientScheduleColor, findClientForScheduleCell, scheduleCellDisplayLabel } from "../scheduleUtils";
+import { SERVICE_CELL_COLORS, resolveClientScheduleColor, findClientForScheduleCell, scheduleCellDisplayLabel, buildDefaultCellNote, shouldAutoUpdateCellNote } from "../scheduleUtils";
 import { ModalBtnPrimary, ModalBtnSecondary } from "./Modal";
 import { buildTherapistCancellationMessage, buildWhatsAppUrl } from "../scheduleParentMessages";
 
@@ -108,11 +108,19 @@ export default function ScheduleCellPanel({
     }
   };
 
-  const pickClient = (name) => {
-    const color = resolveClientScheduleColor(name, clients);
-    setForm(f => ({ ...f, child_name: name, color: color || null }));
+  const applyClientName = (name) => {
+    const trimmed = (name || "").trim();
+    const color = trimmed ? resolveClientScheduleColor(trimmed, clients) : null;
+    setForm((f) => {
+      const note = shouldAutoUpdateCellNote(f.note, f.child_name, f.service_code)
+        ? buildDefaultCellNote(f.service_code, trimmed)
+        : f.note;
+      return { ...f, child_name: trimmed || null, color: color || null, note };
+    });
     setClientOpen(false);
   };
+
+  const pickClient = (name) => applyClientName(name);
 
   const toggleCancelRecipient = (tid) => {
     setCancelNotify(n => {
@@ -186,11 +194,7 @@ export default function ScheduleCellPanel({
                       className="modal-input flex-1 min-w-0"
                       placeholder="Type client name…"
                       value={form.child_name || ""}
-                      onChange={(e) => {
-                        const name = e.target.value;
-                        const color = name.trim() ? resolveClientScheduleColor(name, clients) : null;
-                        setForm(f => ({ ...f, child_name: name || null, color: color || null }));
-                      }}
+                      onChange={(e) => applyClientName(e.target.value)}
                     />
                     <datalist id="schedule-client-suggestions">
                       {clients.map(c => (
@@ -278,10 +282,33 @@ export default function ScheduleCellPanel({
               <input
                 className="modal-input"
                 data-testid="cell-label-input"
-                placeholder="e.g. SS | Mohammed — overrides default display"
+                placeholder="Auto: HS | Client name — or type short label e.g. SS | Abdul Elah"
                 value={form.note || ""}
                 onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
               />
+              {form.child_name && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {["HS", "SS", "OS"].map(code => (
+                    <button
+                      key={code}
+                      type="button"
+                      className="text-[10px] font-bold px-2 py-1 rounded-lg border"
+                      style={{ borderColor: "#C8D4BE", color: "#3D4F35", background: "#F6FAF3" }}
+                      onClick={() => setForm(f => ({ ...f, note: buildDefaultCellNote(code, f.child_name), service_code: code }))}
+                    >
+                      {code} | {form.child_name.split(/\s+/)[0]}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="text-[10px] font-semibold px-2 py-1 rounded-lg border"
+                    style={{ borderColor: "#E2DDD4", color: "#5C6853", background: "#FAFAF7" }}
+                    onClick={() => setForm(f => ({ ...f, note: buildDefaultCellNote(f.service_code, f.child_name) }))}
+                  >
+                    Reset label
+                  </button>
+                </div>
+              )}
             </div>
 
             {form.id && form.state !== "available" && form.service_code !== "AVAILABLE" && (

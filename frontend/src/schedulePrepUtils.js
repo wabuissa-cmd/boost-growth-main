@@ -170,6 +170,76 @@ function sessionMatchesCell(sessions, cell, therapistId, sessionDate, client, cl
   return false;
 }
 
+function findSessionForCell(sessions, cell, therapistId, sessionDate, client, clients = [], suppressionLookup = null) {
+  if (!sessions?.length) return null;
+  const cid = client?.id;
+  if (cid && suppressionLookup?.has(`suppress:${therapistId}|${cid}|${sessionDate}`)) return null;
+  if (cell?.id && suppressionLookup?.has(`suppress:cell:${cell.id}`)) return null;
+
+  const tryMatch = (s) => {
+    if ((s.session_date || "").slice(0, 10) !== sessionDate) return false;
+    if (!(s.therapist_ids || []).includes(therapistId)) return false;
+    return true;
+  };
+
+  for (const s of sessions) {
+    if (!tryMatch(s)) continue;
+    if (client?.id && s.client_id === client.id) return s;
+  }
+
+  const childName = scheduleCellChildName(cell);
+  if (!childName) return null;
+  const bf = normScheduleName(childName).split(/\s+/)[0];
+  if (!bf || bf.length < 3) return null;
+  for (const s of sessions) {
+    if (!tryMatch(s)) continue;
+    const sc = clients.find((c) => c.id === s.client_id);
+    if (!sc) continue;
+    const cf = normScheduleName(sc.name || "").split(/\s+/)[0];
+    if (cf && cf === bf) return s;
+  }
+  return null;
+}
+
+/** Corner badge on schedule cells: prep (green), no_show (red), therapist_cancel (yellow). */
+export function getCellStatusBadge(
+  cell,
+  therapistId,
+  day,
+  weekStart,
+  clients,
+  prepLookup,
+  preparations = [],
+  weekSessions = [],
+  suppressionLookup = null,
+) {
+  if (!cell || !isScheduleClientLogCell(cell)) return null;
+
+  if (cell.state === "cancel_therapist") return "therapist_cancel";
+
+  const sessionDate = toISODate(addDays(new Date(weekStart + "T12:00:00"), day));
+  const childName = scheduleCellChildName(cell);
+  const client = childName ? findClientForScheduleCell(childName, clients) : null;
+
+  if (isPrepSuppressed(suppressionLookup, therapistId, sessionDate, client?.id, cell)) {
+    return null;
+  }
+
+  const session = findSessionForCell(
+    weekSessions, cell, therapistId, sessionDate, client, clients, suppressionLookup,
+  );
+  if (session?.status === "No Show") return "no_show";
+
+  if (isCellPrepComplete(
+    prepLookup, cell, therapistId, day, weekStart, clients,
+    preparations, weekSessions, suppressionLookup,
+  )) {
+    return "prep";
+  }
+
+  return null;
+}
+
 export function isCellPrepComplete(
   prepLookup,
   cell,

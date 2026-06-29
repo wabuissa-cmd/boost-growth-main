@@ -230,6 +230,22 @@ main, .page-enter { min-width: 0; }
     pointer-events: auto;
     cursor: pointer;
 }
+.schedule-status-badge--prep {
+    background: #5C8A47;
+}
+.schedule-status-badge--no-show {
+    background: #C97B5C;
+}
+.schedule-status-badge--therapist-cancel {
+    background: #D4A64A;
+    color: #4A3A10;
+}
+.cell-base.schedule-cell-therapist-cancel {
+    opacity: 0.92;
+}
+.cell-base.schedule-cell-therapist-cancel:not(.editable) {
+    cursor: not-allowed;
+}
 .schedule-prep-badge--clickable:hover {
     background: #4A7038;
     transform: scale(1.08);
