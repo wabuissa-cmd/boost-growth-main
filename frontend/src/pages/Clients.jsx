@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import api from "../api";
 import { cachedGet, peekCache } from "../dataCache";
 import { useAuth, showAdminNav, hasOpsAccess, hasFullClientAccess, isJenan } from "../auth";
-import { Plus, MagnifyingGlass, ArrowSquareOut, Trash, PencilSimple, UsersThree, EnvelopeSimple } from "@phosphor-icons/react";
+import { Plus, MagnifyingGlass, Trash, PencilSimple, UsersThree, EnvelopeSimple } from "@phosphor-icons/react";
 import ClientInfoLayout from "../components/ClientInfoLayout";
 import ClientPickerSheet from "../components/ClientPickerSheet";
 import "../clientInfoLayout.css";
@@ -13,6 +13,7 @@ import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
+import ClientRecordsPanel from "../components/ClientRecordsPanel";
 
 export default function Clients() {
   const navigate = useNavigate();
@@ -237,9 +238,25 @@ export default function Clients() {
         findTherapist={findT}
       />
 
-      {panelClient?.section === "attachments" && (
-        <AttachmentsPanelModal client={panelClient.client} canSyncDrive={hasFullClientAccess(user)} onClose={closePanel} onRefresh={load} onSaved={() => { closePanel(); load(); }} />
-      )}
+      {panelClient?.section === "attachments" && (() => {
+        const pc = panelClient.client;
+        const userTid = user?.therapist_id || therapists.find(
+          (t) => (t.email || "").toLowerCase() === (user?.email || "").toLowerCase()
+        )?.id;
+        const canEditRecords = isAdmin || hasFullClientAccess(user) || (
+          userTid && (pc.main_therapist_id === userTid || (pc.co_therapist_ids || []).includes(userTid))
+        );
+        return (
+          <ClientRecordsPanel
+            client={pc}
+            canEdit={!!canEditRecords}
+            canSyncDrive={hasFullClientAccess(user)}
+            onClose={closePanel}
+            onRefresh={load}
+            onSaved={() => { closePanel(); load(); }}
+          />
+        );
+      })()}
       {panelClient?.section === "details" && (
         <CaseDetailsPanelModal client={panelClient.client} therapists={therapists} user={user} isAdmin={isAdmin}
           onClose={closePanel} onSaved={() => { closePanel(); load(); }} />
@@ -380,144 +397,6 @@ export default function Clients() {
   );
 }
 
-function AttachmentsPanelModal({ client, canSyncDrive, onClose, onSaved, onRefresh }) {
-  const [att, setAtt] = useState({
-    intake_file_url: client.intake_file_url || "",
-    attendance_sheet_url: client.attendance_sheet_url || client.drive_url || "",
-    case_summary_url: client.case_summary_url || "",
-  });
-  const [syncing, setSyncing] = useState(false);
-  const [driveLinks, setDriveLinks] = useState(
-    (client.drive_links || []).filter(l => l.url && !/attendance/i.test(l.title || ""))
-  );
-  const [saving, setSaving] = useState(false);
-
-  const syncFromDrive = async () => {
-    setSyncing(true);
-    try {
-      const { data } = await api.post(`/clients/${client.id}/sync-drive-links`);
-      setDriveLinks((data.links || []).filter(l => l.url && !/attendance/i.test(l.title || "")));
-      if (data.case_summary_url) setAtt(s => ({ ...s, case_summary_url: data.case_summary_url }));
-      if (data.intake_file_url) setAtt(s => ({ ...s, intake_file_url: data.intake_file_url }));
-      await onRefresh?.();
-      const note = data.message || (data.parent_phone ? `Parent phone: ${data.parent_phone}` : "Sync complete — no phone found in Drive files");
-      alert(note);
-    } catch (e) {
-      alert("Drive sync failed: " + (e.response?.data?.detail || e.message));
-    } finally { setSyncing(false); }
-  };
-
-  const saveAttachments = async () => {
-    setSaving(true);
-    try {
-      await api.put(`/clients/${client.id}`, { ...client, ...att, drive_links: driveLinks });
-      onSaved && onSaved();
-    } catch (e) {
-      alert("Save failed: " + (e.response?.data?.detail || e.message));
-    } finally { setSaving(false); }
-  };
-
-  const manualFields = [
-    { key: "intake_file_url", label: "Intake File", hint: "Google Drive link to the intake document" },
-    { key: "case_summary_url", label: "Case Summary", hint: "Google Doc link for case summary" },
-  ];
-
-  const kindLabel = (kind) => {
-    if (kind === "doc") return "Document";
-    if (kind === "sheet") return "Spreadsheet";
-    if (kind === "folder") return "Folder";
-    if (kind === "file") return "File";
-    return "Link";
-  };
-
-  return (
-    <ModalBase title="Records & Files" subtitle={`${client.name} · Google Drive links`} onClose={onClose} size="lg"
-      footer={
-        <>
-          <ModalBtnSecondary type="button" className="records-modal-btn" onClick={onClose}>Close</ModalBtnSecondary>
-          {canSyncDrive && (
-            <ModalBtnSecondary type="button" className="records-modal-btn" onClick={syncFromDrive} disabled={syncing}>
-              {syncing ? "Syncing…" : "Sync from Drive"}
-            </ModalBtnSecondary>
-          )}
-          {canSyncDrive ? (
-            <ModalBtnPrimary data-testid="save-attachments-btn" className="records-modal-btn" type="button" onClick={saveAttachments} disabled={saving}>
-              {saving ? <span className="spinner" /> : "Save Links"}
-            </ModalBtnPrimary>
-          ) : null}
-        </>
-      }>
-      <div className="space-y-4">
-        {driveLinks.length > 0 && (
-          <div>
-            <div className="text-xs font-bold mb-2 tracking-wide" style={{ color: "#8B9E7A" }}>KEY DOCUMENTS</div>
-            <div className="space-y-2">
-              {driveLinks.filter(l => l.group !== "photos").map((link, i) => (
-                <div key={i} className="p-3 rounded-xl border flex items-center justify-between gap-3" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
-                  <div className="min-w-0">
-                    <div className="text-sm font-bold truncate" style={{ color: "#1C2617" }}>{link.title}</div>
-                    <div className="text-[10px]" style={{ color: "#9CA3AF" }}>{kindLabel(link.kind)}</div>
-                  </div>
-                  <a href={link.url} target="_blank" rel="noreferrer" className="text-[11px] underline shrink-0 flex items-center gap-1" style={{ color: "#5C8A47" }}>
-                    Open ↗ <ArrowSquareOut size={12} />
-                  </a>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {driveLinks.some(l => l.group === "photos") && (
-          <div>
-            <div className="text-xs font-bold mb-2 tracking-wide" style={{ color: "#8B9E7A" }}>ATTACHED PHOTOS</div>
-            <div className="space-y-2">
-              {driveLinks.filter(l => l.group === "photos").map((link, i) => (
-                <div key={i} className="p-3 rounded-xl border flex items-center justify-between gap-3" style={{ borderColor: "#E5EBE1", background: "#F5FAF3" }}>
-                  <div className="min-w-0">
-                    <div className="text-sm font-bold truncate" style={{ color: "#1C2617" }}>{link.title}</div>
-                    <div className="text-[10px]" style={{ color: "#6B8270" }}>Open folder — individual photos are not listed here</div>
-                  </div>
-                  <a href={link.url} target="_blank" rel="noreferrer" className="text-[11px] underline shrink-0 flex items-center gap-1" style={{ color: "#5C8A47" }}>
-                    Open folder ↗ <ArrowSquareOut size={12} />
-                  </a>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {driveLinks.length === 0 && (
-          <div className="text-sm py-4 text-center rounded-xl border" style={{ color: "#8B9E7A", borderColor: "#EDE9E3", background: "#FAFAF7" }}>
-            No Drive links synced yet.{canSyncDrive ? " Use Sync from Drive to pull links from the child's folder." : ""}
-          </div>
-        )}
-
-        {canSyncDrive && manualFields.map(f => (
-          <div key={f.key} className="p-3 rounded-xl border" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
-            <div className="flex items-center justify-between mb-1">
-              <div className="text-sm font-bold" style={{ color: "#1C2617" }}>{f.label}</div>
-              {att[f.key] && (
-                <a href={att[f.key]} target="_blank" rel="noreferrer" className="text-[11px] underline flex items-center gap-1" style={{ color: "#5C8A47" }}>
-                  Open ↗ <ArrowSquareOut size={12} />
-                </a>
-              )}
-            </div>
-            <div className="text-[10px] mb-2" style={{ color: "#9CA3AF" }}>{f.hint}</div>
-            <input data-testid={`att-${f.key}`} className="modal-input text-xs" placeholder="https://drive.google.com/..."
-              value={att[f.key]} onChange={e => setAtt(s => ({ ...s, [f.key]: e.target.value }))} />
-          </div>
-        ))}
-
-        {!canSyncDrive && manualFields.map(f => att[f.key] && (
-          <div key={f.key} className="p-3 rounded-xl border" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
-            <div className="text-sm font-bold mb-1" style={{ color: "#1C2617" }}>{f.label}</div>
-            <a href={att[f.key]} target="_blank" rel="noreferrer" className="text-xs underline" style={{ color: "#5C8A47" }}>{att[f.key]}</a>
-          </div>
-        ))}
-      </div>
-    </ModalBase>
-  );
-}
 
 function sectionsToEditableText(sections) {
   const parts = [];
@@ -640,42 +519,6 @@ function resolveKvFromCells(cells, ctx = {}) {
   return { label: pair.label, value: `${pair.value}${tail}`.trim() };
 }
 
-const NARRATIVE_LABEL_RE = /ملخص|summary|goals?|objectives?|skills?|progress|تقرير|أهداف|مهارات|توصيات|خطة|interventions?|recommendations?/i;
-
-function isBasicKvItem(item) {
-  if (item?.kind !== "kv") return false;
-  if (item.bullets?.length) return false;
-  if (item.label === "•") return false;
-  if (NARRATIVE_LABEL_RE.test(String(item.label || ""))) return false;
-  const val = String(item.value || "");
-  if (splitValueLines(val).length > 1) return false;
-  if (isLongParagraph(val)) return false;
-  return val.length <= 120;
-}
-
-function splitCaseSummaryRows(rows) {
-  const basic = [];
-  const narrative = [];
-  let inBasic = true;
-  for (const item of rows) {
-    if (!inBasic) {
-      narrative.push(item);
-      continue;
-    }
-    if (item.kind === "section" || item.kind === "heading" || item.kind === "para") {
-      inBasic = false;
-      narrative.push(item);
-      continue;
-    }
-    if (item.kind === "kv" && isBasicKvItem(item)) {
-      basic.push(item);
-      continue;
-    }
-    inBasic = false;
-    narrative.push(item);
-  }
-  return { basic, narrative };
-}
 
 /** Normalize Doc vs Sheet table shapes into [[cell, ...], ...]. */
 function normalizeSectionTables(tables) {
@@ -796,28 +639,6 @@ function splitValueLines(value) {
     .filter(Boolean);
 }
 
-function CaseSummaryValue({ value, bullets }) {
-  const items = [];
-  (bullets || []).forEach((b) => {
-    const t = String(b || "").trim();
-    if (t) items.push(t);
-  });
-  splitValueLines(value).forEach((line) => {
-    if (!items.includes(line)) items.push(line);
-  });
-  if (items.length > 1) {
-    return (
-      <ul className="case-summary-pr__list">
-        {items.map((item, i) => (
-          <li key={i}>{item}</li>
-        ))}
-      </ul>
-    );
-  }
-  if (items.length === 1) return <>{items[0]}</>;
-  return <>{"—"}</>;
-}
-
 function fixChildNameKvRows(rows, clientName, fileNo) {
   return rows.map((item) => {
     if (item.kind !== "kv" || !isChildNameLabel(item.label)) return item;
@@ -831,11 +652,6 @@ function fixChildNameKvRows(rows, clientName, fileNo) {
 function buildCaseSummaryRows(sections, clientName, fileNo) {
   const ctx = { clientName, fileNo };
   const rows = [];
-  const clientLabel = isMostlyArabic(clientName) ? "العميل" : "Client";
-  const fileLabel = isMostlyArabic(clientName) ? "رقم الملف" : "File #";
-  rows.push({ kind: "kv", label: clientLabel, value: clientName || "—", key: "meta-client" });
-  rows.push({ kind: "kv", label: fileLabel, value: fileNo || "—", key: "meta-file" });
-
   sections.forEach((sec, si) => {
     if (sec.heading) rows.push({ kind: "section", text: sec.heading, key: `sec-${si}` });
     const tableRows = normalizeSectionTables(sec.tables);
@@ -849,6 +665,28 @@ function buildCaseSummaryRows(sections, clientName, fileNo) {
     }
   });
   return fixChildNameKvRows(rows, clientName, fileNo);
+}
+
+function CaseSummarySheetValue({ value, bullets }) {
+  const items = [];
+  (bullets || []).forEach((b) => {
+    const t = String(b || "").trim();
+    if (t) items.push(t);
+  });
+  splitValueLines(value).forEach((line) => {
+    if (!items.includes(line)) items.push(line);
+  });
+  if (items.length > 1) {
+    return (
+      <ul className="case-summary-sheet__bullet-list m-0 p-0 list-none">
+        {items.map((item, i) => (
+          <li key={i}><span className="case-summary-sheet__bullet">•</span>{item}</li>
+        ))}
+      </ul>
+    );
+  }
+  if (items.length === 1) return <>{items[0]}</>;
+  return <>{"—"}</>;
 }
 
 function CaseSummaryView({ sections, clientName, fileNo }) {
@@ -868,68 +706,75 @@ function CaseSummaryView({ sections, clientName, fileNo }) {
   ]).join(" ");
   const rtl = isMostlyArabic(allText);
   const rows = buildCaseSummaryRows(sections, clientName, fileNo);
-  const { basic, narrative } = splitCaseSummaryRows(rows);
 
   return (
-    <div className={`case-summary-pr${rtl ? " case-summary-pr--rtl" : ""}`} dir={rtl ? "rtl" : "ltr"}>
-      {basic.length > 0 && (
-        <div className="case-summary-pr__scroll">
-          <table className="case-summary-pr__table case-summary-pr__table--basic">
-            <tbody>
-              {basic.map((item, i) => (
-                <tr key={item.key || `b-${i}`} className="case-summary-pr__kv-row">
-                  <th scope="row" className="case-summary-pr__label">{item.label}</th>
-                  <td className="case-summary-pr__value">
-                    <CaseSummaryValue value={item.value} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+    <div className={`case-summary-sheet${rtl ? " case-summary-sheet--rtl" : ""}`} dir={rtl ? "rtl" : "ltr"}>
+      <div className="case-summary-sheet__masthead">
+        <div className="case-summary-sheet__brand">
+          <img src="./brand-assets/company-seal.png" alt="" className="case-summary-sheet__logo" />
+          <div>
+            <div className="case-summary-sheet__brand-title">ملخص معلومات الحالة / Case Summary</div>
+            <div className="case-summary-sheet__brand-sub">Boost Growth · Clinical Record</div>
+          </div>
         </div>
-      )}
-      {narrative.length > 0 && (
-        <div className="case-summary-pr__body">
-          {narrative.map((item, i) => {
-            if (item.kind === "section" || item.kind === "heading") {
-              return (
-                <h4 key={item.key || `sec-${i}`} className="case-summary-pr__subtitle">
-                  {item.text}
-                </h4>
-              );
-            }
-            if (item.kind === "para") {
-              const colon = String(item.text || "").split(/[:：]\s*/, 2);
-              if (colon.length === 2 && colon[0].length < 56 && !isLongParagraph(colon[1])) {
-                const pair = resolveLabelValuePair(colon[0], colon[1], { clientName, fileNo });
+        <div className="case-summary-sheet__meta">
+          <div>
+            <span>{rtl ? "العميل" : "Client"}</span>
+            <strong>{clientName || "—"}</strong>
+          </div>
+          <div>
+            <span>{rtl ? "رقم الملف" : "File #"}</span>
+            <strong>{fileNo || "—"}</strong>
+          </div>
+        </div>
+      </div>
+      <div className="case-summary-sheet__table-wrap">
+        <table className="case-summary-sheet__table case-summary-sheet__table--kv">
+          <tbody>
+            {rows.map((item, i) => {
+              if (item.kind === "section" || item.kind === "heading") {
                 return (
-                  <div key={item.key || `p-${i}`} className="case-summary-pr__block">
-                    <div className="case-summary-pr__subtitle">{pair.label}</div>
-                    <div className="case-summary-pr__content">
-                      <CaseSummaryValue value={pair.value} />
-                    </div>
-                  </div>
+                  <tr key={item.key || `sec-${i}`} className="case-summary-sheet__subhead">
+                    <td colSpan={2}>{item.text}</td>
+                  </tr>
                 );
               }
-              return (
-                <p key={item.key || `p-${i}`} className="case-summary-pr__para">
-                  {item.text}
-                </p>
-              );
-            }
-            return (
-              <div key={item.key || `kv-${i}`} className="case-summary-pr__block">
-                {item.label && item.label !== "•" && (
-                  <div className="case-summary-pr__subtitle">{item.label}</div>
-                )}
-                <div className="case-summary-pr__content">
-                  <CaseSummaryValue value={item.value} bullets={item.bullets} />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+              if (item.kind === "para") {
+                const colon = String(item.text || "").split(/[:：]\s*/, 2);
+                if (colon.length === 2 && colon[0].length < 56 && !isLongParagraph(colon[1])) {
+                  const pair = resolveLabelValuePair(colon[0], colon[1], { clientName, fileNo });
+                  return (
+                    <tr key={item.key || `p-${i}`}>
+                      <th scope="row" className="case-summary-sheet__label">{pair.label}</th>
+                      <td className="case-summary-sheet__value">
+                        <CaseSummarySheetValue value={pair.value} />
+                      </td>
+                    </tr>
+                  );
+                }
+                return (
+                  <tr key={item.key || `p-${i}`} className="case-summary-sheet__para-row">
+                    <td colSpan={2}>{item.text}</td>
+                  </tr>
+                );
+              }
+              if (item.kind === "kv") {
+                return (
+                  <tr key={item.key || `kv-${i}`}>
+                    <th scope="row" className="case-summary-sheet__label">
+                      {item.label && item.label !== "•" ? item.label : ""}
+                    </th>
+                    <td className="case-summary-sheet__value">
+                      <CaseSummarySheetValue value={item.value} bullets={item.bullets} />
+                    </td>
+                  </tr>
+                );
+              }
+              return null;
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -946,6 +791,8 @@ function CaseDetailsPanelModal({ client, therapists, user, isAdmin, onClose, onS
   const [summaryText, setSummaryText] = useState("");
   const [saving, setSaving] = useState(false);
   const [reminding, setReminding] = useState(false);
+  const [showRemindForm, setShowRemindForm] = useState(false);
+  const [remindMessage, setRemindMessage] = useState("");
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [summary, setSummary] = useState({
     sections: client.case_summary_sections?.sections || [],
@@ -976,16 +823,19 @@ function CaseDetailsPanelModal({ client, therapists, user, isAdmin, onClose, onS
   };
 
   const sendReminder = async () => {
-    if (!window.confirm(`Send a reminder email to the main therapist to update the case summary for ${client.name}?`)) return;
     setReminding(true);
     try {
-      const r = await api.post(`/clients/${client.id}/case-summary/remind`);
+      const r = await api.post(`/clients/${client.id}/case-summary/remind`, {
+        message: remindMessage.trim() || undefined,
+      });
       const status = r.data?.email_status || "queued";
       if (status === "sent") {
         alert(`Reminder sent to ${r.data?.to}`);
       } else {
         alert(`Reminder queued for ${r.data?.to} (status: ${status}${r.data?.error ? ` — ${r.data.error}` : ""})`);
       }
+      setShowRemindForm(false);
+      setRemindMessage("");
     } catch (e) {
       alert(e.response?.data?.detail || e.message);
     } finally { setReminding(false); }
@@ -1002,9 +852,9 @@ function CaseDetailsPanelModal({ client, therapists, user, isAdmin, onClose, onS
         ) : (
           <>
             <ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>
-            {canRemind && (
-              <ModalBtnSecondary type="button" onClick={sendReminder} disabled={reminding}>
-                <EnvelopeSimple size={14} className="inline mr-1" /> {reminding ? "Sending…" : "Remind therapist"}
+            {canRemind && !showRemindForm && (
+              <ModalBtnSecondary type="button" onClick={() => setShowRemindForm(true)} disabled={reminding}>
+                <EnvelopeSimple size={14} className="inline mr-1" /> Remind therapist
               </ModalBtnSecondary>
             )}
             {canEdit && (
@@ -1022,11 +872,35 @@ function CaseDetailsPanelModal({ client, therapists, user, isAdmin, onClose, onS
         summaryLoading ? (
           <div className="text-sm italic py-8 text-center" style={{ color: "#8B9E7A" }}>Loading case summary…</div>
         ) : (
-          <CaseSummaryView
-            sections={summary.sections}
-            clientName={client.name}
-            fileNo={client.file_no}
-          />
+          <>
+            {showRemindForm && canRemind && (
+              <div className="mb-4 p-3 rounded-xl border space-y-2" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+                <div className="text-xs font-semibold" style={{ color: "#5C6853" }}>
+                  Message to main therapist (optional)
+                </div>
+                <textarea
+                  className="modal-input text-sm"
+                  rows={3}
+                  placeholder={`Please update the case summary for ${client.name}…`}
+                  value={remindMessage}
+                  onChange={(e) => setRemindMessage(e.target.value)}
+                />
+                <div className="flex gap-2 justify-end">
+                  <ModalBtnSecondary type="button" onClick={() => { setShowRemindForm(false); setRemindMessage(""); }}>
+                    Cancel
+                  </ModalBtnSecondary>
+                  <ModalBtnPrimary type="button" onClick={sendReminder} disabled={reminding}>
+                    {reminding ? "Sending…" : "Send reminder"}
+                  </ModalBtnPrimary>
+                </div>
+              </div>
+            )}
+            <CaseSummaryView
+              sections={summary.sections}
+              clientName={client.name}
+              fileNo={client.file_no}
+            />
+          </>
         )
       ) : (
         <div className="space-y-3">

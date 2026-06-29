@@ -714,6 +714,7 @@ class ClientIn(BaseModel):
     case_summary_url: Optional[str] = None
     drive_folder_id: Optional[str] = None
     drive_links: Optional[List[dict]] = None
+    record_files: Optional[List[dict]] = None
     case_summary_sections: Optional[dict] = None
 
 class InvoiceIn(BaseModel):
@@ -3076,11 +3077,53 @@ async def create_client(payload: ClientIn, _=Depends(client_lead_or_admin)):
     doc.pop("_id", None)
     return doc
 
+async def _user_can_edit_client_records(user: dict, client: dict) -> bool:
+    if _is_portal_admin(user) or _is_client_lead(user) or _is_hr_ops(user):
+        return True
+    tid = await _resolve_user_therapist_id(user)
+    if not tid:
+        return False
+    return client.get("main_therapist_id") == tid or tid in (client.get("co_therapist_ids") or [])
+
+
 @api.put("/clients/{cid}")
-async def update_client(cid: str, payload: ClientIn, _=Depends(client_lead_or_admin)):
+async def update_client(cid: str, payload: ClientIn, user=Depends(get_current_user)):
+    client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    is_lead = _is_portal_admin(user) or _is_client_lead(user) or _is_hr_ops(user)
+    can_edit_records = await _user_can_edit_client_records(user, client)
+
+    if not is_lead:
+        if not can_edit_records:
+            raise HTTPException(status_code=403, detail="Admin access required")
+        patch: dict = {}
+        if payload.drive_links is not None:
+            patch["drive_links"] = payload.drive_links
+        if payload.record_files is not None:
+            clean = []
+            for rf in payload.record_files or []:
+                if not isinstance(rf, dict):
+                    continue
+                entry = {k: v for k, v in rf.items() if k != "file_data"}
+                if entry.get("id"):
+                    clean.append(entry)
+            patch["record_files"] = clean
+        if not patch:
+            raise HTTPException(status_code=403, detail="Therapists can only update drive links and record files")
+        await db.clients.update_one({"id": cid}, {"$set": patch})
+        return await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
+
     data = payload.model_dump()
     data["locations"] = [l for l in (data.get("locations") or [])]
     data["status"] = _normalize_client_status(data.get("status"))
+    if data.get("record_files") is not None:
+        data["record_files"] = [
+            {k: v for k, v in (rf or {}).items() if k != "file_data"}
+            for rf in (data.get("record_files") or [])
+            if isinstance(rf, dict) and rf.get("id")
+        ]
     await db.clients.update_one({"id": cid}, {"$set": data})
     return await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
 
@@ -4871,8 +4914,16 @@ async def update_client_case_summary(cid: str, body: CaseSummaryUpdateIn, user=D
     return {"url": url or None, "sections": [], "cached": False}
 
 
+class CaseSummaryRemindIn(BaseModel):
+    message: Optional[str] = None
+
+
 @api.post("/clients/{cid}/case-summary/remind")
-async def remind_case_summary_update(cid: str, user=Depends(get_current_user)):
+async def remind_case_summary_update(
+    cid: str,
+    body: Optional[CaseSummaryRemindIn] = None,
+    user=Depends(get_current_user),
+):
     """Email the main therapist to update the case summary (supervisors / ops)."""
     if not (_has_full_client_access(user) or _is_jenan(user) or _is_portal_admin(user) or _is_hr_ops(user)):
         raise HTTPException(status_code=403, detail="Reminder not allowed")
@@ -4890,14 +4941,85 @@ async def remind_case_summary_update(cid: str, user=Depends(get_current_user)):
     fno = client.get("file_no") or "—"
     sender = user.get("name") or user.get("email") or "Supervisor"
     subj = f"Please update case summary · {cname}"
-    body = (
+    custom = ((body.message if body else None) or "").strip()
+    body_text = (
         f"Hello {therapist.get('name') or 'there'},\n\n"
         f"Please review and update the case summary for {cname} (File #{fno}) in the staff portal.\n\n"
-        f"Requested by: {sender}\n\n"
-        f"— Boost Growth Staff Portal"
     )
-    result = await _send_email_stub(to, subj, body)
+    if custom:
+        body_text += f"Message from {sender}:\n{custom}\n\n"
+    body_text += f"Requested by: {sender}\n\n— Boost Growth Staff Portal"
+    result = await _send_email_stub(to, subj, body_text)
     return {"ok": True, "to": to, "email_status": result.get("status"), "error": result.get("error")}
+
+
+async def _user_can_access_client_records(user: dict, client: dict) -> bool:
+    if _has_full_client_access(user) or _is_portal_admin(user) or _is_hr_ops(user):
+        return True
+    return await _user_can_edit_client_records(user, client)
+
+
+@api.post("/clients/{cid}/records/upload")
+async def upload_client_record(
+    cid: str,
+    file: UploadFile = File(...),
+    title: str = Form(""),
+    user=Depends(get_current_user),
+):
+    """Upload a session file to the client's records (therapist with caseload access or ops)."""
+    client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if not await _user_can_access_client_records(user, client):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="File required")
+    content = await file.read()
+    if len(content) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 15MB)")
+    fid = str(uuid.uuid4())
+    ext = Path(file.filename).suffix.lower() or ""
+    stored = f"client_record_{cid}_{fid}{ext}"
+    file_data = _persist_upload(stored, content)
+    entry = {
+        "id": fid,
+        "title": (title or "").strip() or file.filename,
+        "file_name": file.filename,
+        "stored": stored,
+        "file_data": file_data,
+        "uploaded_at": now_iso(),
+        "uploaded_by": user.get("id"),
+    }
+    await db.client_record_files.update_one(
+        {"client_id": cid, "id": fid},
+        {"$set": {"client_id": cid, **entry}},
+        upsert=True,
+    )
+    meta = {k: v for k, v in entry.items() if k != "file_data"}
+    records = list(client.get("record_files") or [])
+    records.append(meta)
+    await db.clients.update_one({"id": cid}, {"$set": {"record_files": records}})
+    return meta
+
+
+@api.get("/clients/{cid}/records/{fid}")
+async def download_client_record(cid: str, fid: str, user=Depends(get_current_user)):
+    client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if not await _user_can_access_client_records(user, client):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    meta = next((r for r in (client.get("record_files") or []) if r.get("id") == fid), None)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Record file not found")
+    stored_doc = await db.client_record_files.find_one({"client_id": cid, "id": fid}, {"_id": 0})
+    content = _load_upload(
+        meta.get("stored") or (stored_doc or {}).get("stored"),
+        (stored_doc or {}).get("file_data"),
+    )
+    if not content:
+        raise HTTPException(status_code=404, detail=FILE_UNAVAILABLE_DETAIL)
+    return _bytes_file_response(content, meta.get("file_name") or meta.get("stored") or "file")
 
 
 class SyncActiveClientsIn(BaseModel):

@@ -1296,6 +1296,10 @@
   font-weight: 700;
   margin-inline-end: 0.35rem;
 }
+.case-summary-sheet__bullet-list li {
+  margin-bottom: 0.25rem;
+  line-height: 1.5;
+}
 .case-summary-sheet__table--kv {
   table-layout: fixed;
 }
