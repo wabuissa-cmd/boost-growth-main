@@ -204,7 +204,20 @@ export default function Shell() {
 
   const useSidebar = navLayout === "sidebar";
 
+  const [notifyingTherapist, setNotifyingTherapist] = useState(null);
   const markAllRead = async () => { await api.post("/notifications/read-all"); loadNotifs(); };
+  const notifyTherapistFromAlert = async (nid, e) => {
+    e?.stopPropagation();
+    setNotifyingTherapist(nid);
+    try {
+      await api.post(`/notifications/${nid}/notify-therapist`);
+      loadNotifs();
+    } catch (err) {
+      alert(err?.response?.data?.detail || "Could not notify therapist");
+    } finally {
+      setNotifyingTherapist(null);
+    }
+  };
   const acknowledge = async (nid) => {
     await api.post(`/notifications/${nid}/acknowledge`);
     loadNotifs();
@@ -217,6 +230,10 @@ export default function Shell() {
     }
     if (n.type === "parent_cancel_pending") {
       navigate("/schedule?parentCancel=1");
+      return;
+    }
+    if (n.type === "unprepared_session") {
+      navigate("/attendance");
     }
   };
 
@@ -396,6 +413,16 @@ export default function Shell() {
                         )}
                         <div className="text-xs mt-0.5" style={{color: "#5C6853"}}>{n.message}</div>
                         <div className="text-[10px] mt-1" style={{color: "#8B9E7A"}}>{new Date(n.created_at).toLocaleString('en-US')}</div>
+                        {n.type === "unprepared_session" && n.therapist_id && (portalAdmin || walaaOps || clientLead) && (
+                          <button
+                            type="button"
+                            onClick={(e) => notifyTherapistFromAlert(n.id, e)}
+                            disabled={notifyingTherapist === n.id || !!n.therapist_notified_at}
+                            className="btn btn-outline text-[10px] mt-2 py-1 px-2"
+                          >
+                            {n.therapist_notified_at ? "Therapist notified" : notifyingTherapist === n.id ? "Sending…" : "Notify therapist"}
+                          </button>
+                        )}
                         {n.requires_ack && !n.acknowledged && (
                           <span
                             role="button"

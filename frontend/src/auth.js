@@ -149,7 +149,15 @@ export function canManageLeaves(user) {
 }
 
 export function canManagePurchaseStatus(user) {
-  return isJenan(user);
+  return isJenan(user) || isClientLead(user) || isPortalAdmin(user) || isHrOps(user) || isWalaaOps(user);
+}
+
+export function canSupervisorReviewPurchases(user) {
+  return (isClientLead(user) && !isJenan(user)) || isPortalAdmin(user) || isHrOps(user) || isWalaaOps(user);
+}
+
+export function canManagerFinalizePurchases(user) {
+  return isJenan(user) || isPortalAdmin(user);
 }
 
 /** Reports & analytics — portal admin, Walaa ops, HR ops, Jenan */

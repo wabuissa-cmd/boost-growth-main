@@ -765,7 +765,7 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
                 style={{ background: "#FFF8E6", borderColor: "#E6C983", color: "#6B5218" }}
                 role="note"
               >
-                You cannot edit preparation after 24 hours from the session.
+                You cannot edit preparation after 1 hour from logging. Request an edit from admin if needed.
               </p>
             )}
           </div>

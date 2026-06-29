@@ -353,7 +353,7 @@ export default function TherapistRequests() {
               <div className="req-leave-stat-grid req-leave-stat-grid--six">
                 <div className="req-leave-stat-box">
                   <div className="req-leave-stat-val">{balance.remaining}</div>
-                  <div className="req-leave-stat-lbl">Remaining paid</div>
+                  <div className="req-leave-stat-lbl">Current Balance</div>
                 </div>
                 <div className="req-leave-stat-box">
                   <div className="req-leave-stat-val">{balance.used_annual || 0}</div>
@@ -365,7 +365,7 @@ export default function TherapistRequests() {
                 </div>
                 <div className="req-leave-stat-box">
                   <div className="req-leave-stat-val">{balance.used_unpaid || 0}</div>
-                  <div className="req-leave-stat-lbl">Unpaid days</div>
+                  <div className="req-leave-stat-lbl">Unpaid Leaves</div>
                 </div>
                 <div className="req-leave-stat-box">
                   <div className="req-leave-stat-val">{balance.used_sick || 0}</div>

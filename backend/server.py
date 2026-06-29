@@ -463,14 +463,45 @@ def _has_full_client_access(user: dict) -> bool:
 
 
 def _session_editable_by_user(user: dict, session: dict) -> bool:
-    """Therapists may edit/delete only same-day sessions; ops/admin always."""
+    """Therapists may edit/delete only within 1 hour of logging; ops/admin always."""
+    if _has_full_client_access(user) or _is_hr_ops(user):
+        return True
     if _is_portal_admin(user) and not _is_client_lead(user):
         return True
     if _is_walaa_ops(user):
         return True
-    today = datetime.now(timezone.utc).date().isoformat()
-    sd = (session.get("session_date") or "")[:10]
-    return sd == today
+    if user.get("role") != "therapist":
+        return False
+    created = session.get("created_at") or ""
+    if not created:
+        return False
+    try:
+        ts = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - ts) <= timedelta(hours=1)
+    except Exception:
+        return False
+
+
+def _normalize_client_status(status: Optional[str]) -> str:
+    s = (status or "Active").strip()
+    if s.upper() == "OK":
+        return "Active"
+    return s or "Active"
+
+
+def _can_supervisor_review_purchases(user: dict) -> bool:
+    return (
+        _is_portal_admin(user)
+        or _is_hr_ops(user)
+        or _is_walaa_ops(user)
+        or (_is_client_lead(user) and not _is_jenan(user))
+    )
+
+
+def _can_manager_finalize_purchases(user: dict) -> bool:
+    return _is_jenan(user) or _is_portal_admin(user)
 
 
 def _is_hr_ops(user: dict) -> bool:
@@ -654,6 +685,7 @@ class LocationIn(BaseModel):
 class ClientIn(BaseModel):
     name: str
     file_no: Optional[str] = None
+    birth_date: Optional[str] = None  # ISO yyyy-mm-dd
     age: Optional[str] = None
     parent_name: Optional[str] = None
     parent_phone: Optional[str] = None
@@ -764,7 +796,23 @@ PURCHASE_CATEGORIES = [
     "Miscellaneous",
 ]
 
-PURCHASE_STATUSES = ("pending", "approved", "reimbursed")
+PURCHASE_STATUSES = (
+    "pending",
+    "supervisor_approved",
+    "supervisor_rejected",
+    "pending_manager",
+    "manager_approved",
+    "manager_rejected",
+    "approved",
+    "rejected",
+    "reimbursed",
+)
+
+class PurchaseLineItemIn(BaseModel):
+    item: str
+    qty: Optional[str] = "1"
+    unit_price: Optional[str] = ""
+    total: Optional[float] = None
 
 class PurchaseIn(BaseModel):
     item: str
@@ -776,6 +824,7 @@ class PurchaseIn(BaseModel):
     purchase_date: Optional[str] = None
     notes: Optional[str] = None
     therapist_id: Optional[str] = None
+    line_items: Optional[List[PurchaseLineItemIn]] = None
 
 class PurchaseUpdate(BaseModel):
     item: Optional[str] = None
@@ -788,6 +837,8 @@ class PurchaseUpdate(BaseModel):
     reimbursement_date: Optional[str] = None
     purchase_date: Optional[str] = None
     notes: Optional[str] = None
+    supervisor_note: Optional[str] = None
+    forward_to_manager: Optional[bool] = None
 
 class PurchaseReminderSettingsIn(BaseModel):
     day_of_month: int = 25
@@ -1764,7 +1815,30 @@ async def _upsert_prep_history(
     return doc
 
 
-async def _sync_schedule_preparations_to_prep_history(client_id: Optional[str] = None) -> None:
+async def _log_therapist_cancel_prep_history(cell: dict, user_id: str) -> None:
+    """Auto-log therapist cancellation to prep history with timestamp."""
+    if not cell or cell.get("state") != "cancel_therapist":
+        return
+    child = (cell.get("child_name") or "").strip()
+    tid = cell.get("therapist_id")
+    slot_date = _schedule_cell_date_iso(cell)
+    if not child or not tid or not slot_date:
+        return
+    client = await _find_client_by_schedule_child_name(child)
+    if not client:
+        return
+    note = f"Therapist cancellation — logged {now_iso()[:16].replace('T', ' ')} UTC"
+    await _upsert_prep_history(
+        therapist_id=tid,
+        client_id=client["id"],
+        session_date=slot_date,
+        prepared_by=user_id or "",
+        time_slot=cell.get("time_slot") or "",
+        client_name=client.get("name") or child,
+        notes=note,
+        schedule_cell_id=cell.get("id"),
+        source="therapist_cancel",
+    )
     """One-time backfill: legacy schedule_preparations → prep_history."""
     q: dict = {}
     if client_id:
@@ -2020,7 +2094,7 @@ def _require_same_day_session(user: dict, session_date: str) -> None:
     if sd != today:
         raise HTTPException(
             status_code=400,
-            detail="Preparation is only allowed on the session day (today).",
+            detail="Preparation is only allowed on the session day until 11:59 PM.",
         )
 
 
@@ -2778,6 +2852,7 @@ async def update_schedule_cell(cid: str, payload: ScheduleCellIn, user=Depends(s
     if cell and cell.get("state") == "cancel_therapist":
         await _mark_parent_cancel_pending(cid)
         await _notify_parent_cancel_pending(cell, actor)
+        await _log_therapist_cancel_prep_history(cell, user.get("id") or "")
     if cell and cell.get("therapist_id"):
         title = "Schedule update"
         detail = f"{cell.get('service_code')} | {cell.get('child_name') or ''} at {cell.get('time_slot')}"
@@ -2992,6 +3067,7 @@ async def create_client(payload: ClientIn, _=Depends(client_lead_or_admin)):
     cid = str(uuid.uuid4())
     data = payload.model_dump()
     data["locations"] = [l for l in (data.get("locations") or [])]
+    data["status"] = _normalize_client_status(data.get("status"))
     doc = {"id": cid, **data, "created_at": now_iso()}
     await db.clients.insert_one(doc)
     doc.pop("_id", None)
@@ -3001,6 +3077,7 @@ async def create_client(payload: ClientIn, _=Depends(client_lead_or_admin)):
 async def update_client(cid: str, payload: ClientIn, _=Depends(client_lead_or_admin)):
     data = payload.model_dump()
     data["locations"] = [l for l in (data.get("locations") or [])]
+    data["status"] = _normalize_client_status(data.get("status"))
     await db.clients.update_one({"id": cid}, {"$set": data})
     return await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
 
@@ -6231,7 +6308,10 @@ async def update_session(sid: str, payload: SessionIn, user=Depends(get_current_
     if not _has_full_client_access(user) and not await _user_in_session_therapists(user, sess.get("therapist_ids") or []):
         raise HTTPException(status_code=403, detail="Forbidden")
     if not _session_editable_by_user(user, sess):
-        raise HTTPException(status_code=403, detail="Sessions can only be edited on the same day. Contact admin for changes.")
+        raise HTTPException(
+            status_code=403,
+            detail="Sessions can only be edited within 1 hour of logging. Request an edit from admin if needed.",
+        )
     if (payload.status or "").strip() == "No Service":
         raise HTTPException(status_code=400, detail="No Service is no longer available")
     _require_same_day_session(user, payload.session_date)
@@ -6256,7 +6336,10 @@ async def delete_session(sid: str, user=Depends(get_current_user)):
     if not _has_full_client_access(user) and not await _user_in_session_therapists(user, sess.get("therapist_ids") or []):
         raise HTTPException(status_code=403, detail="Forbidden")
     if not _session_editable_by_user(user, sess):
-        raise HTTPException(status_code=403, detail="Sessions can only be edited on the same day. Contact admin for changes.")
+        raise HTTPException(
+            status_code=403,
+            detail="Sessions can only be edited within 1 hour of logging. Request an edit from admin if needed.",
+        )
     try:
         await _cleanup_prep_for_deleted_session(sess)
     except Exception:
@@ -6363,9 +6446,38 @@ def _normalize_purchase_status(s: str) -> str:
         return v
     if v == "reimbursed":
         return "reimbursed"
+    if v == "rejected":
+        return "supervisor_rejected"
     if v == "approved":
-        return "approved"
+        return "supervisor_approved"
     return "pending"
+
+
+def _purchase_status_label(status: str) -> str:
+    labels = {
+        "pending": "Pending supervisor review",
+        "supervisor_approved": "Approved by supervisor",
+        "supervisor_rejected": "Rejected by supervisor",
+        "pending_manager": "With manager Jenan",
+        "manager_approved": "Approved by manager",
+        "manager_rejected": "Rejected by manager",
+        "approved": "Approved by supervisor",
+        "rejected": "Rejected",
+        "reimbursed": "Reimbursed",
+    }
+    return labels.get(status or "pending", status or "pending")
+
+
+def _append_purchase_trail(existing: dict, user: dict, action: str, note: Optional[str] = None) -> list:
+    trail = list(existing.get("approval_trail") or [])
+    trail.append({
+        "action": action,
+        "by": user.get("id"),
+        "by_name": _actor_display(user),
+        "note": (note or "").strip() or None,
+        "at": now_iso(),
+    })
+    return trail
 
 
 _PURCHASE_MONTH_MAP = {
@@ -6635,23 +6747,29 @@ def _schedule_cell_date_iso(cell: dict) -> Optional[str]:
 
 
 async def _process_unprepared_session_alerts(force: bool = False) -> dict:
-    """Notify ops leads when a scheduled session was 24h+ ago with no completed log."""
-    today = now_iso()[:10]
+    """After midnight: alert ops leads about yesterday's scheduled sessions not prepared/logged."""
+    now = datetime.now(timezone.utc)
+    today = now.date().isoformat()
+    yesterday = (now.date() - timedelta(days=1)).isoformat()
     meta = await db.meta.find_one({"key": "unprepared_alerts_last_run"})
     if not force and meta and (meta.get("date") or "")[:10] == today:
         return {"skipped": "already_ran_today", "alerts": 0}
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    target_date = yesterday
     cells = await db.schedule_cells.find(
         {
             "child_name": {"$exists": True, "$nin": ["", None]},
             "state": {"$nin": ["cancel_therapist", "cancel_child"]},
-            "service_code": {"$nin": ["LEAVE", "BREAK", "AVC", ""]},
+            "service_code": {"$nin": ["LEAVE", "BREAK", "AVC", "AVAILABLE", ""]},
         },
         {"_id": 0},
     ).to_list(8000)
     sessions = await db.sessions.find(
-        {"status": "Completed"},
+        {"status": "Completed", "session_date": target_date},
         {"_id": 0, "session_date": 1, "client_id": 1, "therapist_ids": 1},
+    ).to_list(25000)
+    preps = await db.prep_history.find(
+        {"session_date": target_date},
+        {"_id": 0, "client_id": 1, "therapist_id": 1, "session_date": 1},
     ).to_list(25000)
     logged = set()
     for s in sessions:
@@ -6659,18 +6777,21 @@ async def _process_unprepared_session_alerts(force: bool = False) -> dict:
         cid = s.get("client_id")
         for tid in s.get("therapist_ids") or []:
             logged.add((sd, tid, cid))
+    for p in preps:
+        logged.add((
+            (p.get("session_date") or "")[:10],
+            p.get("therapist_id"),
+            p.get("client_id"),
+        ))
     clients = await db.clients.find(_active_client_filter(), {"_id": 0, "id": 1, "name": 1}).to_list(600)
     name_to_id = {_normalize_intake_name(c.get("name") or ""): c["id"] for c in clients}
+    id_to_name = {c["id"]: c.get("name") or "" for c in clients}
+    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1}).to_list(300)
+    t_names = {t["id"]: therapist_schedule_display_name(t) for t in therapists}
     alerts = 0
     for cell in cells:
         slot_date = _schedule_cell_date_iso(cell)
-        if not slot_date:
-            continue
-        try:
-            slot_end = datetime.fromisoformat(f"{slot_date}T17:00:00").replace(tzinfo=timezone.utc)
-        except ValueError:
-            continue
-        if slot_end > cutoff:
+        if slot_date != target_date:
             continue
         child = (cell.get("child_name") or "").strip()
         if not child:
@@ -6685,15 +6806,27 @@ async def _process_unprepared_session_alerts(force: bool = False) -> dict:
         if await db.notifications.find_one({"type": "unprepared_session", "link": dedupe}):
             continue
         slot = cell.get("time_slot") or ""
-        msg = f"{child} — {slot_date} {slot}".strip() + " · no session logged 24h+ after scheduled time"
-        await _notify_ops_leads("unprepared_session", "Session not prepared / logged", msg, link=dedupe)
+        tname = t_names.get(tid) or "Therapist"
+        cname = id_to_name.get(cid) or child
+        msg = f"{tname} did not prepare/log {cname} — {slot_date} {slot}".strip()
+        await _notify_ops_leads(
+            "unprepared_session",
+            "Unprepared session (end of day)",
+            msg,
+            link=dedupe,
+            therapist_id=tid,
+            client_id=cid,
+            session_date=slot_date,
+            schedule_cell_id=cell.get("id"),
+        )
+        await _notify_admins("unprepared_session", "Unprepared session (end of day)", msg)
         alerts += 1
     await db.meta.update_one(
         {"key": "unprepared_alerts_last_run"},
-        {"$set": {"date": today, "at": now_iso(), "alerts": alerts}},
+        {"$set": {"date": today, "at": now_iso(), "alerts": alerts, "target_date": target_date}},
         upsert=True,
     )
-    return {"alerts": alerts, "date": today}
+    return {"alerts": alerts, "date": today, "target_date": target_date}
 
 
 async def _get_purchase_reminder_settings() -> dict:
@@ -6878,6 +7011,24 @@ async def create_purchase(payload: PurchaseIn, user=Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="item and category required")
     purchase_date = (payload.purchase_date or now_iso()[:10])[:10]
     purchase_date, purchase_month = _walaa_emergent_website_month(purchase_date, item, purchaser_name or "")
+    line_items = []
+    if payload.line_items:
+        for li in payload.line_items:
+            li_item = (li.item or "").strip()
+            if not li_item:
+                continue
+            line_items.append({
+                "item": li_item,
+                "qty": (li.qty or "1").strip(),
+                "unit_price": (li.unit_price or "").strip(),
+                "total": float(li.total) if li.total is not None else None,
+            })
+    if line_items and not item:
+        item = " · ".join(x["item"] for x in line_items[:3])
+        if len(line_items) > 3:
+            item += f" (+{len(line_items) - 3} more)"
+    line_total = sum(float(x["total"] or 0) for x in line_items if x.get("total") is not None)
+    doc_total = float(payload.total) if payload.total is not None else (line_total or None)
     doc = {
         "id": str(uuid.uuid4()),
         "therapist_id": tid,
@@ -6888,13 +7039,17 @@ async def create_purchase(payload: PurchaseIn, user=Depends(get_current_user)):
         "description": (payload.description or "").strip(),
         "qty": (payload.qty or "1").strip(),
         "unit_price": (payload.unit_price or "").strip(),
-        "total": float(payload.total) if payload.total is not None else None,
-        "total_display": str(payload.total) if payload.total is not None else "",
+        "total": doc_total,
+        "total_display": str(doc_total) if doc_total is not None else "",
+        "line_items": line_items or None,
         "status": "pending",
+        "approval_trail": [],
         "reimbursement_date": None,
         "purchase_date": purchase_date,
         "purchase_month": purchase_month,
         "notes": (payload.notes or "").strip() or None,
+        "invoice_file_path": None,
+        "invoice_file_name": None,
         "created_at": now_iso(),
         "updated_at": now_iso(),
     }
@@ -6911,15 +7066,58 @@ async def update_purchase(pid: str, payload: PurchaseUpdate, user=Depends(get_cu
         raise HTTPException(status_code=404, detail="Purchase not found")
     tid = await _resolve_user_therapist_id(user) or user.get("id")
     is_owner = existing.get("therapist_id") == tid
-    if not is_owner and not _is_jenan(user):
+    is_supervisor = _can_supervisor_review_purchases(user)
+    is_manager = _can_manager_finalize_purchases(user)
+    if not is_owner and not is_supervisor and not is_manager:
         raise HTTPException(status_code=403, detail="Forbidden")
-    if is_owner and not _is_jenan(user) and existing.get("status") != "pending":
+    if is_owner and not is_supervisor and not is_manager and existing.get("status") != "pending":
         raise HTTPException(status_code=403, detail="Only pending entries can be edited")
-    patch = {k: v for k, v in payload.model_dump().items() if v is not None}
-    if "status" in patch:
-        if not _is_jenan(user):
-            raise HTTPException(status_code=403, detail="Only Jenan can update purchase status")
-        patch["status"] = _normalize_purchase_status(patch["status"])
+    patch = {k: v for k, v in payload.model_dump().items() if v is not None and k not in ("forward_to_manager", "supervisor_note")}
+    prev_status = existing.get("status") or "pending"
+    new_status = patch.get("status")
+    note = payload.supervisor_note
+    trail = list(existing.get("approval_trail") or [])
+    if new_status is not None:
+        new_status = _normalize_purchase_status(new_status)
+        if is_manager and not is_supervisor:
+            if new_status in ("manager_approved", "approved", "reimbursed"):
+                new_status = "manager_approved" if new_status != "reimbursed" else "reimbursed"
+            elif new_status in ("manager_rejected", "rejected"):
+                new_status = "manager_rejected"
+            elif prev_status not in ("pending_manager", "manager_approved", "supervisor_approved", "approved"):
+                raise HTTPException(status_code=403, detail="Manager can only act on forwarded purchases")
+        elif is_supervisor and not is_manager:
+            if new_status in ("supervisor_approved", "approved"):
+                new_status = "supervisor_approved"
+            elif new_status in ("supervisor_rejected", "rejected"):
+                new_status = "supervisor_rejected"
+            elif new_status == "pending":
+                new_status = "pending"
+            else:
+                raise HTTPException(status_code=400, detail="Supervisor: use approved, rejected, or pending")
+        elif not (is_supervisor or is_manager):
+            raise HTTPException(status_code=403, detail="Status updates require supervisor or manager access")
+        patch["status"] = new_status
+        trail = _append_purchase_trail(existing, user, new_status, note)
+        patch["approval_trail"] = trail
+        if note:
+            patch["supervisor_note"] = note
+    if payload.forward_to_manager and is_supervisor:
+        if prev_status not in ("supervisor_approved", "approved", "pending_manager") and patch.get("status") not in ("supervisor_approved",):
+            if patch.get("status") != "supervisor_approved":
+                patch["status"] = "supervisor_approved"
+        patch["status"] = "pending_manager"
+        trail = _append_purchase_trail({**existing, "approval_trail": trail}, user, "forwarded_to_manager", note)
+        patch["approval_trail"] = trail
+        jenan_id = await _jenan_therapist_id()
+        if jenan_id:
+            await _notify(
+                jenan_id,
+                "purchase_forwarded",
+                "Purchase forwarded for final approval",
+                f"{existing.get('purchaser_name') or 'Therapist'}: {existing.get('item')} — awaiting your review",
+                link="/purchases",
+            )
     if "purchase_date" in patch:
         item_name = patch.get("item") or existing.get("item") or ""
         purchaser = existing.get("purchaser_name") or existing.get("therapist_name") or ""
@@ -6929,14 +7127,76 @@ async def update_purchase(pid: str, payload: PurchaseUpdate, user=Depends(get_cu
     patch["updated_at"] = now_iso()
     await db.staff_purchases.update_one({"id": pid}, {"$set": patch})
     updated = await db.staff_purchases.find_one({"id": pid}, {"_id": 0})
-    if _is_jenan(user) and patch.get("status") == "reimbursed" and existing.get("status") != "reimbursed":
+    final_status = updated.get("status") or prev_status
+    if final_status != prev_status and existing.get("therapist_id"):
+        trail_text = " → ".join(
+            _purchase_status_label(t.get("action")) for t in (updated.get("approval_trail") or [])[-3:]
+        )
+        await _notify(
+            existing["therapist_id"],
+            "purchase_update",
+            "Purchase status updated",
+            f"\"{existing.get('item')}\" — {_purchase_status_label(final_status)}"
+            + (f" ({trail_text})" if trail_text else ""),
+            link="/requests",
+        )
+    if is_manager and patch.get("status") == "reimbursed" and prev_status != "reimbursed":
         await _notify(
             existing["therapist_id"],
             "purchase_reimbursed",
             "Purchase reimbursed",
             f"Your purchase \"{existing.get('item')}\" has been marked reimbursed.",
         )
+    if updated:
+        updated["status_label"] = _purchase_status_label(updated.get("status"))
     return updated
+
+
+@api.post("/purchases/{pid}/invoice")
+async def upload_purchase_invoice(pid: str, file: UploadFile = File(...), user=Depends(get_current_user)):
+    existing = await db.staff_purchases.find_one({"id": pid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Purchase not found")
+    tid = await _resolve_user_therapist_id(user) or user.get("id")
+    if existing.get("therapist_id") != tid and not _can_view_all_purchases(user):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="File required")
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 10MB)")
+    ext = Path(file.filename).suffix.lower() or ".pdf"
+    if ext not in (".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif"):
+        raise HTTPException(status_code=400, detail="PDF or image only")
+    stored = f"purchase_{pid}{ext}"
+    file_data = _persist_upload(stored, content)
+    await db.staff_purchases.update_one(
+        {"id": pid},
+        {"$set": {
+            "invoice_file_path": stored,
+            "invoice_file_name": file.filename,
+            "invoice_file_data": file_data,
+            "updated_at": now_iso(),
+        }},
+    )
+    updated = await db.staff_purchases.find_one({"id": pid}, {"_id": 0, "invoice_file_data": 0})
+    if updated:
+        updated["invoice_url"] = f"/api/purchases/{pid}/invoice"
+    return updated
+
+
+@api.get("/purchases/{pid}/invoice")
+async def get_purchase_invoice(pid: str, user=Depends(get_current_user)):
+    existing = await db.staff_purchases.find_one({"id": pid}, {"_id": 0})
+    if not existing or not existing.get("invoice_file_data"):
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    tid = await _resolve_user_therapist_id(user) or user.get("id")
+    if existing.get("therapist_id") != tid and not _can_view_all_purchases(user):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return _file_response_from_data(
+        existing.get("invoice_file_data"),
+        existing.get("invoice_file_name") or "invoice",
+    )
 
 
 @api.delete("/purchases/{pid}")
@@ -7613,6 +7873,11 @@ async def delete_request(rid: str, user=Depends(get_current_user)):
 # ------------------- Notifications -------------------
 @api.get("/notifications")
 async def list_notifications(user=Depends(get_current_user)):
+    if _has_full_client_access(user) or _is_walaa_ops(user) or _is_portal_admin(user) or _is_hr_ops(user):
+        try:
+            await _process_unprepared_session_alerts(force=False)
+        except Exception:
+            logger.exception("unprepared session alert check on notifications load")
     uids = await _notification_user_ids(user)
     return await db.notifications.find({"user_id": {"$in": uids}}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
 
@@ -7630,6 +7895,26 @@ async def acknowledge_notification(nid: str, user=Depends(get_current_user)):
         {"$set": {"read": True, "acknowledged": True, "acknowledged_at": now_iso()}},
     )
     return {"ok": True}
+
+@api.post("/notifications/{nid}/notify-therapist")
+async def notify_therapist_from_alert(nid: str, user=Depends(get_current_user)):
+    """Admin/Walaa: send unprepared-session reminder to the assigned therapist."""
+    if not (_is_portal_admin(user) or _is_hr_ops(user) or _is_walaa_ops(user) or _has_full_client_access(user)):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    rec = await db.notifications.find_one({"id": nid}, {"_id": 0})
+    if not rec:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    tid = rec.get("therapist_id")
+    if not tid:
+        raise HTTPException(status_code=400, detail="No therapist linked to this alert")
+    title = "Reminder: session not prepared"
+    message = rec.get("message") or "Please prepare or log your scheduled session."
+    await _notify(tid, "unprepared_reminder", title, message, link="/attendance")
+    await db.notifications.update_one(
+        {"id": nid},
+        {"$set": {"therapist_notified_at": now_iso(), "therapist_notified_by": user.get("id")}},
+    )
+    return {"ok": True, "therapist_id": tid}
 
 @api.post("/notifications/read-all")
 async def mark_all_read(user=Depends(get_current_user)):
@@ -9164,6 +9449,7 @@ async def schedule_cancel_notify(payload: CancelNotifyIn, user=Depends(schedule_
             cell = await db.schedule_cells.find_one({"id": payload.cell_id}, {"_id": 0})
             if cell:
                 await _notify_parent_cancel_pending(cell, actor)
+                await _log_therapist_cancel_prep_history(cell, user.get("id") or "")
     recipients = payload.recipient_ids or ([cell["therapist_id"]] if cell.get("therapist_id") else [])
     title = f"Notice from {actor}"
     if payload.state == "cancel_therapist":

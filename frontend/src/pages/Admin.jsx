@@ -488,7 +488,7 @@ export default function Admin() {
         </div>
         <ToolRow
           title="Set unified launch password"
-          desc="Set Boost@2026 for every specialist with email. They must choose a new password on first login. Deploys will NOT reset this — run only when you are ready to send credentials."
+          desc="Set Boost@2026 for every therapist with email. They must choose a new password on first login. Deploys will NOT reset this — run only when you are ready to send credentials."
         >
           <button
             type="button"

@@ -6,7 +6,7 @@ import {
 import LocationLink from "./LocationLink";
 import { formatLocationLabel, getMapsHref } from "../mapsUtils";
 import { getChildColor, readable } from "../childColors";
-import { prepTrackMeta, cardStatusMeta } from "../attendanceUtils";
+import { prepTrackMeta, cardStatusMeta, formatClientStatus, computeAgeFromBirthDate, formatBirthDateDisplay } from "../attendanceUtils";
 import { getTherapistScheduleName } from "../scheduleConstants";
 import { formatPkgBadge, pkgStatusStyle, formatPkgUsedRemaining } from "../packageStatusUtils";
 import "../clientInfoLayout.css";
@@ -210,7 +210,7 @@ export default function ClientInfoLayout({
                   <h1>{selected.name}</h1>
                   <dl className="ci-profile-grid">
                     <dt>File</dt><dd>#{selected.file_no || "—"}</dd>
-                    <dt>Status</dt><dd>{selected.status || "Active"}</dd>
+                    <dt>Status</dt><dd>{formatClientStatus(selected.status)}</dd>
                     <dt>Therapist</dt><dd>{therapistName || "—"}</dd>
                     <dt>Phone</dt>
                     <dd>
@@ -239,7 +239,8 @@ export default function ClientInfoLayout({
                         </span>
                       )}
                     </dd>
-                    <dt>Age</dt><dd>{selected.age || "—"}</dd>
+                    <dt>Birth date</dt><dd>{formatBirthDateDisplay(selected.birth_date)}</dd>
+                    <dt>Age</dt><dd>{computeAgeFromBirthDate(selected.birth_date) || selected.age || "—"}</dd>
                     <dt>Supervisor</dt><dd>{selected.supervisor || "—"}</dd>
                   </dl>
                   {isAdmin && selected.cardStatus && selected.cardStatus !== "ok" && statusMeta && (

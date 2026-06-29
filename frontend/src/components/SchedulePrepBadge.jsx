@@ -14,7 +14,7 @@ const VARIANTS = {
   therapist_cancel: {
     icon: X,
     className: "schedule-status-badge--therapist-cancel",
-    title: "Therapist cancellation — cell locked for specialist / إلغاء المعالج",
+    title: "Therapist cancellation — cell locked / إلغاء المعالج",
   },
 };
 

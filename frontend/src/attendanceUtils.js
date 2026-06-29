@@ -93,14 +93,55 @@ export function fmtWeekRange(startISO, endISO) {
   return `${fmt(s)} - ${fmt(e)}`;
 }
 
-/** Therapists may edit only same-day sessions; ops/admin always. */
+/** Therapists may edit only within 1 hour of logging; ops/admin always. */
 export function sessionEditableByUser(session, user, isOpsAdmin) {
   if (!session || !user) return false;
-  if (isOpsAdmin) return true;
+  if (isOpsAdmin || user.role === "admin") return true;
+  if (user.client_lead || user.hr_ops || user.walaa_ops) return true;
   if (user.role !== "therapist") return false;
-  const today = new Date().toISOString().slice(0, 10);
-  const d = (session.session_date || "").slice(0, 10);
-  return d === today;
+  const created = session.created_at;
+  if (!created) return false;
+  const ts = new Date(created);
+  if (Number.isNaN(ts.getTime())) return false;
+  return (Date.now() - ts.getTime()) <= 60 * 60 * 1000;
+}
+
+/** Display label for client Active/Inactive status (maps legacy OK → Active). */
+export function formatClientStatus(status) {
+  const s = (status || "Active").trim();
+  if (s.toUpperCase() === "OK") return "Active";
+  return s || "Active";
+}
+
+/** Age in years and months from ISO birth date (computed at render time). */
+export function computeAgeFromBirthDate(birthDateISO) {
+  if (!birthDateISO) return null;
+  const key = (birthDateISO || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return null;
+  const birth = new Date(`${key}T12:00:00`);
+  if (Number.isNaN(birth.getTime())) return null;
+  const today = new Date();
+  let years = today.getFullYear() - birth.getFullYear();
+  let months = today.getMonth() - birth.getMonth();
+  if (today.getDate() < birth.getDate()) months -= 1;
+  if (months < 0) {
+    years -= 1;
+    months += 12;
+  }
+  if (years < 0) return null;
+  const yLabel = years === 1 ? "year" : "years";
+  const mLabel = months === 1 ? "month" : "months";
+  if (years === 0) return `${months} ${mLabel}`;
+  if (months === 0) return `${years} ${yLabel}`;
+  return `${years} ${yLabel}, ${months} ${mLabel}`;
+}
+
+export function formatBirthDateDisplay(birthDateISO) {
+  if (!birthDateISO) return "—";
+  const key = (birthDateISO || "").slice(0, 10);
+  const d = new Date(`${key}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
 }
 
 /** Default therapist(s) for a logged session by service type (HS = main, SS = co). */

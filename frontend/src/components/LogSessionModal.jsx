@@ -114,7 +114,7 @@ export default function LogSessionModal({
     e.preventDefault();
     if (saving) return;
     if (!canPickAnyDate && (form.session_date || "").slice(0, 10) !== todayISO) {
-      alert("التحضير مسموح فقط في يوم الجلسة.\nPreparation is only allowed on the session day.");
+      alert("Preparation is only allowed on the session day until 11:59 PM.\nالتحضير مسموح فقط في يوم الجلسة حتى 11:59 مساءً.");
       return;
     }
     if (form.status === "No Service") {

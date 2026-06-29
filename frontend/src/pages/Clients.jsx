@@ -7,7 +7,7 @@ import { Plus, MagnifyingGlass, ArrowSquareOut, Trash, PencilSimple, UsersThree,
 import ClientInfoLayout from "../components/ClientInfoLayout";
 import ClientPickerSheet from "../components/ClientPickerSheet";
 import "../clientInfoLayout.css";
-import { enrichClientForCardView } from "../attendanceUtils";
+import { enrichClientForCardView, formatClientStatus } from "../attendanceUtils";
 import { getTherapistScheduleName } from "../scheduleConstants";
 import {
   ModalBase, FormSection, FormField,
@@ -266,8 +266,11 @@ export default function Clients() {
               <FormField label="File number">
                 <input className="modal-input" value={edit.file_no || ""} onChange={e => setEdit({ ...edit, file_no: e.target.value })} placeholder="009" />
               </FormField>
-              <FormField label="Age">
-                <input className="modal-input" value={edit.age || ""} onChange={e => setEdit({ ...edit, age: e.target.value })} />
+              <FormField label="Birth date">
+                <input type="date" className="modal-input" value={edit.birth_date || ""} onChange={e => setEdit({ ...edit, birth_date: e.target.value })} />
+              </FormField>
+              <FormField label="Age (legacy text)">
+                <input className="modal-input" value={edit.age || ""} onChange={e => setEdit({ ...edit, age: e.target.value })} placeholder="Optional if birth date set" />
               </FormField>
               <FormField label="Parent name">
                 <input className="modal-input" value={edit.parent_name || ""} onChange={e => setEdit({ ...edit, parent_name: e.target.value })} />
@@ -1001,7 +1004,7 @@ function CaseDetailsPanelModal({ client, therapists, user, isAdmin, onClose, onS
             <ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>
             {canRemind && (
               <ModalBtnSecondary type="button" onClick={sendReminder} disabled={reminding}>
-                <EnvelopeSimple size={14} className="inline mr-1" /> {reminding ? "Sending…" : "Remind specialist"}
+                <EnvelopeSimple size={14} className="inline mr-1" /> {reminding ? "Sending…" : "Remind therapist"}
               </ModalBtnSecondary>
             )}
             {canEdit && (

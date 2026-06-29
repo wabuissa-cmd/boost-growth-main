@@ -265,7 +265,7 @@ export default function ScheduleCellPanel({
                   ))}
                 </datalist>
                 <p className="text-[10px] mt-1 m-0 leading-relaxed" style={{ color: "#8B9E7A" }}>
-                  Admin-only note: specialist covered at another client while keeping this cell.
+                  Admin-only note: therapist covered at another client while keeping this cell.
                 </p>
               </div>
             )}

@@ -345,12 +345,15 @@ export function isScheduleClientLogCell(cell) {
   return !!scheduleCellChildName(cell);
 }
 
-/** Specialists cannot log/prepare on therapist-cancelled cells (admins still edit normally). */
-export function canSpecialistLogScheduleCell(cell) {
+/** Therapists cannot log/prepare on therapist-cancelled cells (admins still edit normally). */
+export function canTherapistLogScheduleCell(cell) {
   if (!isScheduleClientLogCell(cell)) return false;
   if (cell.state === "cancel_therapist") return false;
   return true;
 }
+
+/** @deprecated use canTherapistLogScheduleCell */
+export const canSpecialistLogScheduleCell = canTherapistLogScheduleCell;
 
 /** Primary label shown inside a schedule grid cell (preserves full Excel text when stored in note). */
 export function scheduleCellDisplayLabel(cell, serviceShort) {

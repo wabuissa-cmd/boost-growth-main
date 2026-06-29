@@ -241,7 +241,10 @@ main, .page-enter { min-width: 0; }
     color: #4A3A10;
 }
 .cell-base.schedule-cell-therapist-cancel {
-    opacity: 0.92;
+    background: var(--yellow-cancel) !important;
+    border-color: var(--yellow-cancel-border) !important;
+    color: #6B5218 !important;
+    opacity: 0.95;
 }
 .cell-base.schedule-cell-therapist-cancel:not(.editable) {
     cursor: not-allowed;

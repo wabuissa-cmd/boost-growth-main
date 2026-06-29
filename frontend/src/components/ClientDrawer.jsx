@@ -4,6 +4,7 @@ import { formatLocationLabel } from "../mapsUtils";
 import { PackageStatusBadge } from "./PackageStatusBadge";
 import { useNavigate } from "react-router-dom";
 import { useAuth, hasOpsAccess } from "../auth";
+import { formatClientStatus } from "../attendanceUtils";
 
 export default function ClientDrawer({
   client,
@@ -39,7 +40,7 @@ export default function ClientDrawer({
             </div>
             <div className="min-w-0">
               <h2 className="ui-title-sm m-0 truncate">{client.name}</h2>
-              <div className="ui-caption mt-0.5">File #{client.file_no || "—"} · {client.status || "Active"}</div>
+              <div className="ui-caption mt-0.5">File #{client.file_no || "—"} · {formatClientStatus(client.status)}</div>
               {therapistName && (
                 <div className="ui-caption mt-1">Main therapist · {therapistName}</div>
               )}

@@ -761,7 +761,7 @@ export default function Schedule() {
     const sessionDate = toISODate(addDays(weekStart, day));
     const today = toISODate(new Date());
     if (sessionDate !== today) {
-      alert("التحضير مسموح فقط في يوم الجلسة.\nPreparation is only allowed on the session day.");
+      alert("Preparation is only allowed on the session day until 11:59 PM.\nالتحضير مسموح فقط في يوم الجلسة حتى 11:59 مساءً.");
       return;
     }
     const childName = scheduleCellChildName(cell);
@@ -803,6 +803,9 @@ export default function Schedule() {
   const handleCellClick = (e, therapist_id, day, time_slot, existing) => {
     if (e) e.stopPropagation();
     const cell = existing || findCellAt(therapist_id, day, time_slot, cellMap, cells);
+    if (canQuickLog && cell?.state === "cancel_therapist") {
+      return;
+    }
     if (canQuickLog) {
       if (view !== "blocks") return;
       if (!selfTherapist?.id || therapist_id !== selfTherapist.id) return;
@@ -1416,7 +1419,7 @@ export default function Schedule() {
                 className="btn btn-outline text-[11px] flex items-center gap-1 px-2 py-1 min-h-0 shrink-0"
               >
                 <UserPlus size={13} />
-                Add specialist
+                Add therapist
               </button>
               <div className="relative ml-auto shrink-0" ref={adminEditsRef}>
                 <button
@@ -1434,7 +1437,7 @@ export default function Schedule() {
                   <div className="schedule-admin-edits-menu absolute right-0 top-[calc(100%+6px)] z-[200] card p-2.5 min-w-[228px] shadow-lg border border-[#E2DDD4] flex flex-col gap-2 bg-white">
                     {manuallyShownTherapists.length > 0 && (
                       <div className="border-b pb-2 mb-1 space-y-1" style={{ borderColor: "#EDE9E3" }}>
-                        <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "#8B9E7A" }}>Added specialists</div>
+                        <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "#8B9E7A" }}>Added therapists</div>
                         {manuallyShownTherapists.map((t) => (
                           <div key={t.id} className="flex items-center justify-between gap-1 text-[10px]">
                             <span className="truncate" style={{ color: "#2C3625" }}>{getTherapistScheduleName(t)}</span>
@@ -1479,7 +1482,7 @@ export default function Schedule() {
 
       {addSpecialistOpen && (
         <ModalBase
-          title="Add specialist"
+          title="Add therapist"
           subtitle="Choose a therapist to show as a column on the weekly schedule"
           onClose={() => setAddSpecialistOpen(false)}
           size="sm"
@@ -1498,7 +1501,7 @@ export default function Schedule() {
           )}
         >
           <FormSection title="Therapist">
-            <FormField label="Select specialist">
+            <FormField label="Select therapist">
               <select
                 className="modal-input"
                 value={addTherapistId}

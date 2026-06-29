@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import api, { formatErr } from "../api";
 import {
-  ShoppingBag, Bell, CheckCircle, Hourglass, Clock, FloppyDisk, PaperPlaneTilt, ArrowsClockwise, Plus, Trash,
+  ShoppingBag, Bell, CheckCircle, Hourglass, Clock, FloppyDisk, PaperPlaneTilt, ArrowsClockwise, Plus, Trash, XCircle,
 } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
 import {
@@ -10,14 +10,20 @@ import {
 } from "../components/Modal";
 import { getTherapistScheduleName } from "../scheduleConstants";
 import { yearMonthTabs, formatMonthValue } from "../monthTabs";
-import { canAccessPurchases, canManagePurchaseStatus, isJenan, isWalaaOps, showAdminNav, showSystemAdmin, useAuth } from "../auth";
+import { canAccessPurchases, canManagePurchaseStatus, canSupervisorReviewPurchases, canManagerFinalizePurchases, isJenan, isWalaaOps, showAdminNav, showSystemAdmin, useAuth } from "../auth";
 import "../clientInfoLayout.css";
 
 const PURCHASES_SHEET_URL = "https://docs.google.com/spreadsheets/d/10ZGq3ABQ1t-w32jrGZIu6Gxa2wevIJU2GLe9YWGdkIQ/edit";
 
 const STATUS_META = {
-  pending: { label: "Pending", cls: "bg-[#FAF0D1] text-[#6B5218]", icon: <Hourglass size={14} weight="duotone"/> },
+  pending: { label: "Pending supervisor", cls: "bg-[#FAF0D1] text-[#6B5218]", icon: <Hourglass size={14} weight="duotone"/> },
+  supervisor_approved: { label: "Supervisor approved", cls: "bg-[#EAF0F3] text-[#375568]", icon: <Clock size={14} weight="duotone"/> },
+  supervisor_rejected: { label: "Supervisor rejected", cls: "bg-[#F8EBE7] text-[#8A3F27]", icon: <XCircle size={14} weight="duotone"/> },
+  pending_manager: { label: "With manager Jenan", cls: "bg-[#FAF0D1] text-[#6B5218]", icon: <Hourglass size={14} weight="duotone"/> },
+  manager_approved: { label: "Manager approved", cls: "bg-[#EAF0F3] text-[#375568]", icon: <CheckCircle size={14} weight="duotone"/> },
+  manager_rejected: { label: "Manager rejected", cls: "bg-[#F8EBE7] text-[#8A3F27]", icon: <XCircle size={14} weight="duotone"/> },
   approved: { label: "Approved", cls: "bg-[#EAF0F3] text-[#375568]", icon: <Clock size={14} weight="duotone"/> },
+  rejected: { label: "Rejected", cls: "bg-[#F8EBE7] text-[#8A3F27]", icon: <XCircle size={14} weight="duotone"/> },
   reimbursed: { label: "Reimbursed", cls: "bg-[#E5EBE1] text-[#3D4F35]", icon: <CheckCircle size={14} weight="duotone"/> },
 };
 
@@ -50,6 +56,8 @@ function emptyPurchaseForm() {
 export default function Purchases({ embedded = false }) {
   const { user } = useAuth();
   const canManageStatus = canManagePurchaseStatus(user);
+  const canSupervisorReview = canSupervisorReviewPurchases(user);
+  const canManagerFinalize = canManagerFinalizePurchases(user);
   const canDelete = showSystemAdmin(user);
   const canSyncSheet = isJenan(user) || isWalaaOps(user) || showAdminNav(user);
   const [items, setItems] = useState([]);
@@ -168,12 +176,17 @@ export default function Purchases({ embedded = false }) {
     }
   };
 
-  const updateStatus = async (id, status) => {
+  const [reviewNote, setReviewNote] = useState("");
+
+  const updateStatus = async (id, status, opts = {}) => {
     try {
       await api.put(`/purchases/${id}`, {
         status,
+        supervisor_note: opts.note || reviewNote || undefined,
+        forward_to_manager: opts.forward || false,
         reimbursement_date: status === "reimbursed" ? new Date().toISOString().slice(0, 10) : undefined,
       });
+      setReviewNote("");
       load();
     } catch (e) {
       alert(formatErr(e.response?.data?.detail) || e.message);
@@ -282,10 +295,32 @@ export default function Purchases({ embedded = false }) {
               );
             })}
           </div>
-          {selected && selected.status === "pending" && (
-            <div className="mt-3 pt-3 border-t flex flex-wrap gap-2" style={{ borderColor: "#EDE9E3" }}>
-              <button type="button" className="btn btn-secondary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "approved")}>Approve</button>
-              <button type="button" className="btn btn-primary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "reimbursed")}>Reimburse</button>
+          {selected && (
+            <div className="mt-3 pt-3 border-t flex flex-col gap-2" style={{ borderColor: "#EDE9E3" }}>
+              {(selected.approval_trail || []).length > 0 && (
+                <div className="text-[10px]" style={{ color: "#5C6853" }}>
+                  {(selected.approval_trail || []).map((t, i) => (
+                    <div key={i}>{t.by_name}: {t.action}{t.note ? ` — ${t.note}` : ""}</div>
+                  ))}
+                </div>
+              )}
+              {canSupervisorReview && ["pending", "supervisor_approved"].includes(selected.status) && (
+                <>
+                  <textarea className="modal-input text-xs" rows={2} placeholder="Note to therapist (optional)" value={reviewNote} onChange={e => setReviewNote(e.target.value)} />
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" className="btn btn-secondary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "supervisor_approved")}>Approve</button>
+                    <button type="button" className="btn btn-outline text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "supervisor_rejected")}>Reject</button>
+                    <button type="button" className="btn btn-primary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "supervisor_approved", { forward: true })}>Forward to Jenan</button>
+                  </div>
+                </>
+              )}
+              {canManagerFinalize && ["pending_manager", "supervisor_approved", "manager_approved"].includes(selected.status) && (
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className="btn btn-secondary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "manager_approved")}>Final approve</button>
+                  <button type="button" className="btn btn-outline text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "manager_rejected")}>Reject</button>
+                  <button type="button" className="btn btn-primary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "reimbursed")}>Mark reimbursed</button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -375,10 +410,10 @@ export default function Purchases({ embedded = false }) {
                     <td><span className={`pill text-[10px] ${st.cls}`}>{st.icon} {st.label}</span></td>
                     <td>{fmtDate(p.reimbursement_date)}</td>
                     <td>
-                      {canManageStatus && p.status !== "approved" && (
-                        <button type="button" className="text-[10px] underline mr-2" onClick={() => updateStatus(p.id, "approved")}>Approve</button>
+                      {canSupervisorReview && selected?.id === p.id && ["pending", "supervisor_approved"].includes(p.status) && (
+                        <button type="button" className="text-[10px] underline mr-2" onClick={() => updateStatus(p.id, "supervisor_approved")}>Approve</button>
                       )}
-                      {canManageStatus && p.status !== "reimbursed" && (
+                      {canManagerFinalize && ["pending_manager", "manager_approved"].includes(p.status) && (
                         <button type="button" className="text-[10px] underline" onClick={() => updateStatus(p.id, "reimbursed")}>Reimburse</button>
                       )}
                       {canDelete && (

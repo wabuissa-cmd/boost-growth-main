@@ -245,7 +245,7 @@ export default function PlatformUpdates({
             if (e.target.checked) setImportant(true);
           }}
         />
-        Email all specialists (urgent)
+        Email all therapists (urgent)
       </label>
     </div>
   );
