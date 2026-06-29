@@ -5049,11 +5049,21 @@ async def sync_birth_dates_from_drive(body: SyncBirthDatesIn, user=Depends(clien
             })
             continue
         if not birth_iso:
-            skipped += 1
-            results.append({
-                "file_no": file_no, "name": name, "status": "skipped",
-                "reason": "no birth date found in Drive files",
-            })
+            if body.overwrite and existing:
+                if not body.dry_run:
+                    await db.clients.update_one({"id": client["id"]}, {"$unset": {"birth_date": ""}})
+                updated += 1
+                results.append({
+                    "file_no": file_no, "name": name,
+                    "status": "cleared" if not body.dry_run else "would_clear",
+                    "reason": "no birth date found in Drive files",
+                })
+            else:
+                skipped += 1
+                results.append({
+                    "file_no": file_no, "name": name, "status": "skipped",
+                    "reason": "no birth date found in Drive files",
+                })
             continue
         if birth_iso == existing:
             skipped += 1

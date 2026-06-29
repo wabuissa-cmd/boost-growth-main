@@ -222,7 +222,7 @@ def extract_birth_date_from_text(text: str) -> Optional[str]:
             continue
         if _BIRTH_LABEL_RE.search(line):
             after = _BIRTH_LABEL_RE.split(line, maxsplit=1)[-1].strip(" :\t")
-            if after and not _BIRTH_LABEL_RE.search(after):
+            if after and not _BIRTH_LABEL_RE.search(after) and "تحديث" not in after:
                 iso = parse_birth_date_text(after)
                 if iso:
                     return iso
@@ -232,17 +232,11 @@ def extract_birth_date_from_text(text: str) -> Optional[str]:
                     continue
                 if re.match(r"^العمر\s*:", nxt) or re.match(r"^age\s*:", nxt, re.I):
                     break
+                if "تحديث" in nxt or re.search(r"updated\s+on|last\s+updated", nxt, re.I):
+                    break
                 iso = parse_birth_date_text(nxt)
                 if iso:
                     return iso
-    for raw in lines:
-        line = raw.strip()
-        if not line or _BIRTH_LABEL_RE.search(line):
-            continue
-        if _DATE_TOKEN_RE.search(westernize_digits(line)):
-            iso = parse_birth_date_text(line)
-            if iso:
-                return iso
     return None
 
 

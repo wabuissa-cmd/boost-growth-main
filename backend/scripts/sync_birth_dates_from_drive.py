@@ -81,9 +81,18 @@ def sync_local(api: Api, *, dry_run: bool, overwrite: bool):
             intake_file_url=client.get("intake_file_url"),
             case_summary_sections=client.get("case_summary_sections"),
         )
-        if not birth_iso or birth_iso == existing:
+        if not birth_iso:
+            if overwrite and existing:
+                if not dry_run:
+                    put_client(api, client, birth_date=None)
+                print(f"  cleared {file_no} {name}")
+                updated += 1
+            else:
+                skipped += 1
+                print(f"  skip {file_no} {name}: not found")
+            continue
+        if birth_iso == existing:
             skipped += 1
-            print(f"  skip {file_no} {name}: {birth_iso or 'not found'}")
             continue
         if dry_run:
             print(f"  would update {file_no} {name}: {birth_iso}")
