@@ -144,6 +144,187 @@ def extract_parent_phone_from_text(text: str) -> Optional[str]:
     return None
 
 
+_ARABIC_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+_AR_MONTHS = {
+    "يناير": 1, "فبراير": 2, "مارس": 3, "أبريل": 4, "ابريل": 4,
+    "مايو": 5, "يونيو": 6, "يوليو": 7, "أغسطس": 8, "اغسطس": 8,
+    "سبتمبر": 9, "أكتوبر": 10, "اكتوبر": 10, "نوفمبر": 11, "ديسمبر": 12,
+}
+_BIRTH_LABEL_RE = re.compile(
+    r"(?:تاريخ\s*الميلاد|date\s*of\s*birth|\bdob\b|birth\s*date)",
+    re.I,
+)
+_DATE_TOKEN_RE = re.compile(
+    r"(\d{1,4})\s*[/\-.]\s*(\d{1,2})\s*[/\-.]\s*(\d{1,4})",
+)
+_AR_MONTH_DATE_RE = re.compile(
+    r"(\d{1,2})\s+([^\d\s/]+?)\s+(\d{4})",
+)
+
+
+def westernize_digits(text: str) -> str:
+    return (text or "").translate(_ARABIC_DIGITS)
+
+
+def parse_birth_date_text(raw: str) -> Optional[str]:
+    """Parse Boost Growth birth-date strings (Arabic/Western digits, D/M/Y) → ISO yyyy-mm-dd."""
+    if not raw:
+        return None
+    s = westernize_digits(str(raw).strip())
+    s = re.sub(r"\s+", " ", s)
+    s = re.sub(r"\s*م\.?\s*$", "", s, flags=re.I).strip()
+    if not s or "date[" in s.lower() or s.lower() in ("—", "-", "n/a", "na"):
+        return None
+
+    m = _AR_MONTH_DATE_RE.search(s)
+    if m:
+        day = int(m.group(1))
+        month_name = m.group(2).strip().lower()
+        year = int(m.group(3))
+        month = _AR_MONTHS.get(month_name)
+        if month and 1 <= day <= 31 and 1990 <= year <= 2035:
+            try:
+                from datetime import datetime
+                return datetime(year, month, day).strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+
+    m = _DATE_TOKEN_RE.search(s)
+    if m:
+        a, b, c = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if a > 31:
+            year, month, day = a, b, c
+        elif c > 31:
+            day, month, year = a, b, c
+        elif c < 100:
+            day, month, year = a, b, 2000 + c
+        else:
+            day, month, year = a, b, c
+        if year < 100:
+            year += 2000
+        if 1990 <= year <= 2035 and 1 <= month <= 12 and 1 <= day <= 31:
+            try:
+                from datetime import datetime
+                return datetime(year, month, day).strftime("%Y-%m-%d")
+            except ValueError:
+                return None
+    return None
+
+
+def extract_birth_date_from_text(text: str) -> Optional[str]:
+    """Find child birth date in case summary / intake plain text."""
+    if not text:
+        return None
+    lines = [ln.strip() for ln in text.splitlines()]
+    for i, raw in enumerate(lines):
+        line = westernize_digits(raw).strip()
+        if not line:
+            continue
+        if _BIRTH_LABEL_RE.search(line):
+            after = _BIRTH_LABEL_RE.split(line, maxsplit=1)[-1].strip(" :\t")
+            if after and not _BIRTH_LABEL_RE.search(after):
+                iso = parse_birth_date_text(after)
+                if iso:
+                    return iso
+            for j in range(i + 1, min(i + 4, len(lines))):
+                nxt = lines[j].strip().replace("\t", " ").strip()
+                if not nxt:
+                    continue
+                if re.match(r"^العمر\s*:", nxt) or re.match(r"^age\s*:", nxt, re.I):
+                    break
+                iso = parse_birth_date_text(nxt)
+                if iso:
+                    return iso
+    for raw in lines:
+        line = raw.strip()
+        if not line or _BIRTH_LABEL_RE.search(line):
+            continue
+        if _DATE_TOKEN_RE.search(westernize_digits(line)):
+            iso = parse_birth_date_text(line)
+            if iso:
+                return iso
+    return None
+
+
+def extract_birth_date_from_sections(sections: Dict[str, Any]) -> Optional[str]:
+    """Scan structured case-summary sections for a birth date."""
+    if not sections:
+        return None
+    blob_parts: List[str] = []
+    for sec in sections.get("sections") or []:
+        blob_parts.extend(sec.get("paragraphs") or [])
+        for tbl in sec.get("tables") or []:
+            for row in tbl:
+                if isinstance(row, list):
+                    blob_parts.extend(str(c) for c in row)
+    raw = sections.get("raw_preview") or ""
+    if raw:
+        blob_parts.append(raw)
+    return extract_birth_date_from_text("\n".join(blob_parts))
+
+
+def fetch_intake_birth_date(drive_url: str) -> Optional[str]:
+    """Extract birth date from intake Google Doc or Sheet."""
+    url = (drive_url or "").strip()
+    if not url:
+        return None
+    if "document" in url or "/file/d/" in url:
+        doc_id = extract_doc_id(url)
+        if not doc_id:
+            m = re.search(r"/file/d/([a-zA-Z0-9-_]+)", url)
+            doc_id = m.group(1) if m else None
+        if doc_id:
+            try:
+                text = _fetch_doc_text_by_id(doc_id)
+                return extract_birth_date_from_text(text)
+            except Exception:
+                pass
+    if "spreadsheets" in url:
+        import openpyxl
+        wb = fetch_workbook_from_url(url)
+        for ws in wb.worksheets:
+            for row in ws.iter_rows(min_row=1, max_row=120, values_only=True):
+                cells = [str(c).strip() if c is not None else "" for c in row]
+                joined = " ".join(cells)
+                if _BIRTH_LABEL_RE.search(joined) or "ميلاد" in joined:
+                    iso = extract_birth_date_from_text(joined)
+                    if iso:
+                        return iso
+                    for c in cells:
+                        iso = parse_birth_date_text(c)
+                        if iso:
+                            return iso
+    return None
+
+
+def resolve_client_birth_date(
+    case_summary_url: Optional[str] = None,
+    intake_file_url: Optional[str] = None,
+    case_summary_sections: Optional[Dict[str, Any]] = None,
+) -> Optional[str]:
+    """Prefer case summary birth date; fall back to intake form."""
+    if case_summary_sections:
+        iso = extract_birth_date_from_sections(case_summary_sections)
+        if iso:
+            return iso
+    cs_url = (case_summary_url or "").strip()
+    if cs_url:
+        try:
+            content = fetch_case_summary_content(cs_url)
+            iso = extract_birth_date_from_sections(content)
+            if iso:
+                return iso
+        except Exception:
+            pass
+    intake_url = (intake_file_url or "").strip()
+    if intake_url:
+        try:
+            return fetch_intake_birth_date(intake_url)
+        except Exception:
+            pass
+    return None
+
+
 def _fetch_doc_text_by_id(doc_id: str) -> str:
     raw = _fetch_bytes(doc_export_url(doc_id, "txt"))
     return raw.decode("utf-8", errors="replace").strip()

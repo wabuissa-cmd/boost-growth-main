@@ -865,6 +865,7 @@ class IntakeIn(BaseModel):
     notes: Optional[str] = None
     status: Optional[str] = "new"
     intake_date: Optional[str] = None
+    birth_date: Optional[str] = None  # ISO yyyy-mm-dd
     age: Optional[str] = None
     service: Optional[str] = None          # HS / SS / HS / SS
     district: Optional[str] = None          # Dis column
@@ -4661,7 +4662,13 @@ async def sync_invoices_from_drive(cid: str, payload: SyncFromDriveIn, user=Depe
 
 def _merge_drive_client_meta(link_meta: dict, client: dict) -> dict:
     """Build client patch from Drive folder crawl (case summary, intake phone, links)."""
-    from drive_sync import fetch_case_summary_content, fetch_intake_parent_phone, extract_parent_phone_from_text, resolve_parent_phone_from_links
+    from drive_sync import (
+        fetch_case_summary_content,
+        fetch_intake_parent_phone,
+        extract_parent_phone_from_text,
+        resolve_parent_phone_from_links,
+        resolve_client_birth_date,
+    )
 
     patch = {
         "drive_folder_id": link_meta.get("folder_id"),
@@ -4712,6 +4719,16 @@ def _merge_drive_client_meta(link_meta: dict, client: dict) -> dict:
                 patch["parent_phone"] = ph
         except Exception as exc:
             logger.warning(f"Case summary phone fallback failed: {exc}")
+    try:
+        birth_iso = resolve_client_birth_date(
+            case_summary_url=patch.get("case_summary_url") or client.get("case_summary_url"),
+            intake_file_url=patch.get("intake_file_url") or client.get("intake_file_url"),
+            case_summary_sections=patch.get("case_summary_sections") or client.get("case_summary_sections"),
+        )
+        if birth_iso:
+            patch["birth_date"] = birth_iso
+    except Exception as exc:
+        logger.warning(f"Birth date resolve failed: {exc}")
     return patch
 
 
@@ -4985,6 +5002,83 @@ async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends
         "skipped": skipped,
         "errors": errors,
         "message": f"{synced} attendance synced · {meta_synced} drive-only (phones/links) · {skipped} skipped · {errors} errors",
+        "results": results,
+    }
+
+
+class SyncBirthDatesIn(BaseModel):
+    file_nos: Optional[List[str]] = None
+    dry_run: bool = False
+    overwrite: bool = False
+
+
+@api.post("/admin/sync-birth-dates-from-drive")
+async def sync_birth_dates_from_drive(body: SyncBirthDatesIn, user=Depends(client_lead_or_admin)):
+    """Bulk-sync child birth dates from case summaries and intake forms on Drive."""
+    from drive_sync import resolve_client_birth_date
+
+    query = _active_client_filter({"status": {"$ne": "Inactive"}})
+    if body.file_nos:
+        file_nos = [str(f).strip().zfill(3) for f in body.file_nos if str(f).strip()]
+        query["file_no"] = {"$in": file_nos}
+    clients = await db.clients.find(query, {"_id": 0}).sort("file_no", 1).to_list(500)
+
+    updated = 0
+    skipped = 0
+    results: List[dict] = []
+    for client in clients:
+        name = client.get("name") or ""
+        file_no = client.get("file_no") or ""
+        existing = (client.get("birth_date") or "").strip()
+        if existing and not body.overwrite:
+            skipped += 1
+            results.append({
+                "file_no": file_no, "name": name, "status": "skipped",
+                "birth_date": existing, "reason": "already set",
+            })
+            continue
+        try:
+            birth_iso = resolve_client_birth_date(
+                case_summary_url=client.get("case_summary_url"),
+                intake_file_url=client.get("intake_file_url"),
+                case_summary_sections=client.get("case_summary_sections"),
+            )
+        except Exception as exc:
+            results.append({
+                "file_no": file_no, "name": name, "status": "error", "error": str(exc),
+            })
+            continue
+        if not birth_iso:
+            skipped += 1
+            results.append({
+                "file_no": file_no, "name": name, "status": "skipped",
+                "reason": "no birth date found in Drive files",
+            })
+            continue
+        if birth_iso == existing:
+            skipped += 1
+            results.append({
+                "file_no": file_no, "name": name, "status": "skipped",
+                "birth_date": birth_iso, "reason": "unchanged",
+            })
+            continue
+        if not body.dry_run:
+            await db.clients.update_one({"id": client["id"]}, {"$set": {"birth_date": birth_iso}})
+        updated += 1
+        results.append({
+            "file_no": file_no, "name": name, "status": "updated" if not body.dry_run else "would_update",
+            "birth_date": birth_iso,
+        })
+
+    return {
+        "ok": True,
+        "dry_run": body.dry_run,
+        "total": len(clients),
+        "updated": updated,
+        "skipped": skipped,
+        "message": (
+            f"{'Would update' if body.dry_run else 'Updated'} {updated} client(s) · {skipped} skipped"
+        ),
         "results": results,
     }
 
@@ -9836,6 +9930,10 @@ def _normalize_table_column(name) -> str:
         return "time_pref"
     if s in ("diagnosis_age", "diagnosis_age", "diag_age"):
         return "diagnosis_age"
+    if s in ("birth_date", "date_of_birth", "dob", "child_dob", "birthdate"):
+        return "birth_date"
+    if s in ("dob_age", "age_dob", "age_year_of_birth"):
+        return "dob_age"
     return s
 
 
@@ -10046,6 +10144,19 @@ def _parse_intake_record(r: dict, sheet_name: str = "") -> Optional[dict]:
 
     diagnosis, age_from_da = _split_diagnosis_age(r.get("diagnosis_age"))
     notes, language = _extract_notes_and_language(r)
+    birth_raw = _clean_str(r.get("birth_date") or r.get("date_of_birth") or r.get("dob"))
+    birth_iso = _normalize_date(birth_raw) if birth_raw else None
+    if not birth_iso:
+        dob_age = _clean_str(r.get("dob_age"))
+        if dob_age:
+            birth_iso = _normalize_date(dob_age) or (
+                f"{dob_age}-01-01" if _re_top.match(r"^\d{4}$", dob_age) else None
+            )
+    age_val = _clean_str(r.get("age")) or age_from_da
+    if not age_val:
+        da = _clean_str(r.get("dob_age"))
+        if da and da != birth_raw and (not birth_iso or da not in (birth_iso, birth_iso[:4])):
+            age_val = da
 
     doc = {
         "child_name": name,
@@ -10056,7 +10167,8 @@ def _parse_intake_record(r: dict, sheet_name: str = "") -> Optional[dict]:
         "status": (_clean_str(r.get("status")) or "new").lower(),
         "notes": notes,
         "intake_date": _clean_str(r.get("intake_date") or r.get("date")),
-        "age": _clean_str(r.get("age") or r.get("dob_age") or r.get("dob")) or age_from_da,
+        "birth_date": birth_iso,
+        "age": age_val,
         "service": service,
         "district": _clean_str(
             r.get("district") or r.get("dis") or r.get("location") or r.get("area") or r.get("school_name")

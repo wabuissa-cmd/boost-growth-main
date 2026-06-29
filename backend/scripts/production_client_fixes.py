@@ -51,7 +51,7 @@ class Api:
 
 def put_client(api: Api, client: dict, **patch):
     payload = {k: client.get(k) for k in (
-        "name", "file_no", "age", "parent_name", "parent_phone", "package_hours",
+        "name", "file_no", "birth_date", "age", "parent_name", "parent_phone", "package_hours",
         "billing_mode", "cycle_weeks", "cycle_start_date", "package_end_date",
         "payment_status", "package_reset_at", "notes", "main_therapist_id",
         "co_therapist_ids", "supervisor", "locations", "color", "drive_url",

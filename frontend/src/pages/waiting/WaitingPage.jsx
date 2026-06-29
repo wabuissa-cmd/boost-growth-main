@@ -23,7 +23,7 @@ function emptyItem(type, category = "intake") {
     child_name: "", parent_name: "", phone: "", intake_type: type,
     list_category: category,
     status: "new",
-    notes: "", intake_date: "", age: "", service: type === "school" ? "SS" : "HS", district: "",
+    notes: "", intake_date: "", birth_date: "", age: "", service: type === "school" ? "SS" : "HS", district: "",
     time_pref: "", diagnosis: "", language: "", priority: false, school_start_date: "",
   };
 }
@@ -482,7 +482,15 @@ export default function WaitingPage({ mode }) {
               <input data-testid="intake-name-input" className="modal-input" value={edit.child_name} onChange={e => setEdit({ ...edit, child_name: e.target.value })} />
             </FormField>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormField label="Age / year of birth">
+              <FormField label="Birth date">
+                <input
+                  type="date"
+                  className="modal-input"
+                  value={edit.birth_date || ""}
+                  onChange={e => setEdit({ ...edit, birth_date: e.target.value })}
+                />
+              </FormField>
+              <FormField label="Age (text)" hint="Optional if birth date is set">
                 <input className="modal-input" value={edit.age || ""} onChange={e => setEdit({ ...edit, age: e.target.value })} />
               </FormField>
               <FormField label={isSchool ? "School start date" : "Intake date"}>
