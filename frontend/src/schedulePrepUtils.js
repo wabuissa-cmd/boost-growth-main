@@ -201,6 +201,9 @@ function findSessionForCell(sessions, cell, therapistId, sessionDate, client, cl
   return null;
 }
 
+/** Session statuses that show the red corner badge (no attendance). */
+const NO_ATTENDANCE_SESSION_STATUSES = new Set(["No Show", "Cancelled"]);
+
 /** Corner badge on schedule cells: prep (green), no_show (red), therapist_cancel (yellow). */
 export function getCellStatusBadge(
   cell,
@@ -228,7 +231,9 @@ export function getCellStatusBadge(
   const session = findSessionForCell(
     weekSessions, cell, therapistId, sessionDate, client, clients, suppressionLookup,
   );
-  if (session?.status === "No Show") return "no_show";
+  if (session && NO_ATTENDANCE_SESSION_STATUSES.has(session.status)) return "no_show";
+
+  if (cell.state === "cancel_child") return "no_show";
 
   if (isCellPrepComplete(
     prepLookup, cell, therapistId, day, weekStart, clients,
@@ -261,6 +266,13 @@ export function isCellPrepComplete(
   if (isPrepSuppressed(suppressionLookup, therapistId, sessionDate, client?.id, cell)) {
     return false;
   }
+
+  const session = findSessionForCell(
+    weekSessions, cell, therapistId, sessionDate, client, clients, suppressionLookup,
+  );
+  if (session && NO_ATTENDANCE_SESSION_STATUSES.has(session.status)) return false;
+
+  if (cell.state === "cancel_child") return false;
 
   if (cell.id && prepLookup.has(`cell:${cell.id}`)) return true;
 

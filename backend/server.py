@@ -1968,7 +1968,9 @@ async def _cell_matches_session_client(cell: dict, client_id: str) -> bool:
 
 
 async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) -> None:
-    """When a session is logged, mark matching schedule cells as prepared."""
+    """When a completed session is logged, mark matching schedule cells as prepared."""
+    if (sess.get("status") or "").strip() != "Completed":
+        return
     client_id = sess.get("client_id")
     session_date = (sess.get("session_date") or "")[:10]
     if not client_id or not session_date:
@@ -6354,9 +6356,20 @@ async def create_session(payload: SessionIn, user=Depends(get_current_user)):
         await _auto_mark_schedule_preparation_for_session(doc, user["id"])
     except Exception:
         logger.exception("Auto-mark schedule preparation failed")
+    if payload.status in ("Cancelled", "No Show"):
+        for tid in therapist_ids:
+            try:
+                await _clear_schedule_preparation_marker(
+                    therapist_id=tid,
+                    client_id=payload.client_id,
+                    session_date=payload.session_date,
+                    suppress_badge=False,
+                )
+            except Exception:
+                logger.exception("Clear prep marker after %s session", payload.status)
     try:
         primary_tid = (therapist_ids or [None])[0]
-        if primary_tid:
+        if primary_tid and payload.status == "Completed":
             await _upsert_prep_history(
                 therapist_id=primary_tid,
                 client_id=payload.client_id,
