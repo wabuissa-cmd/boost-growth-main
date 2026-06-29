@@ -160,10 +160,118 @@ _DATE_TOKEN_RE = re.compile(
 _AR_MONTH_DATE_RE = re.compile(
     r"(\d{1,2})\s+([^\d\s/]+?)\s+(\d{4})",
 )
+_AGE_LINE_RE = re.compile(r"^(?:العمر|age)\s*:", re.I)
+_AGE_YEARS_RE = re.compile(r"(\d+)\s*(?:سنة|سنوات|year|years?)", re.I)
+_AGE_MONTHS_RE = re.compile(r"(\d+)\s*(?:شهر|أشهر|اشهر|month|months?)", re.I)
 
 
 def westernize_digits(text: str) -> str:
     return (text or "").translate(_ARABIC_DIGITS)
+
+
+def _today_date():
+    from datetime import date
+    return date.today()
+
+
+def _age_years_on(iso: str, ref=None) -> Optional[int]:
+    from datetime import datetime
+    ref = ref or _today_date()
+    try:
+        d = datetime.strptime(iso, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    return ref.year - d.year - ((ref.month, ref.day) < (d.month, d.day))
+
+
+def extract_age_parts_from_text(text: str) -> Optional[Tuple[int, int]]:
+    """Parse child age from case summary / intake (years + optional months)."""
+    if not text:
+        return None
+    lines = [westernize_digits(ln).strip() for ln in text.splitlines()]
+    for i, line in enumerate(lines):
+        if not _AGE_LINE_RE.match(line):
+            continue
+        chunk = line.split(":", 1)[-1].strip()
+        if not chunk and i + 1 < len(lines):
+            chunk = lines[i + 1].strip()
+        m = _AGE_YEARS_RE.search(chunk)
+        if not m:
+            continue
+        years = int(m.group(1))
+        mo = _AGE_MONTHS_RE.search(chunk)
+        months = int(mo.group(1)) if mo else 0
+        return years, months
+    return None
+
+
+def estimate_birth_date_from_age(years: int, months: int = 0, ref=None) -> str:
+    """Approximate birth date when only age is documented (day = 1st of month)."""
+    from datetime import date
+    ref = ref or _today_date()
+    y = ref.year - years
+    m = ref.month - months
+    while m <= 0:
+        m += 12
+        y -= 1
+    return date(y, m, 1).strftime("%Y-%m-%d")
+
+
+def reconcile_birth_date_with_age(iso: str, text: str, ref=None) -> Optional[str]:
+    """Reject impossible dates and fix common year typos using العمر in the same doc."""
+    from datetime import datetime
+    if not iso:
+        return None
+    ref = ref or _today_date()
+    try:
+        d = datetime.strptime(iso, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+    age_parts = extract_age_parts_from_text(text)
+    max_year = ref.year
+
+    if d.year > max_year:
+        if age_parts:
+            doc_years, doc_months = age_parts
+            for delta in (-10, -20, -1):
+                try:
+                    alt = d.replace(year=d.year + delta)
+                except ValueError:
+                    continue
+                if alt <= ref and abs(_age_years_on(alt.strftime("%Y-%m-%d"), ref) - doc_years) <= 1:
+                    return alt.strftime("%Y-%m-%d")
+            return estimate_birth_date_from_age(doc_years, doc_months, ref)
+        return None
+
+    if age_parts:
+        doc_years, _ = age_parts
+        calc = _age_years_on(iso, ref)
+        if calc is not None and abs(calc - doc_years) >= 3:
+            for delta in (-10, 10, -1, 1):
+                try:
+                    alt = d.replace(year=d.year + delta)
+                except ValueError:
+                    continue
+                if alt <= ref and abs(_age_years_on(alt.strftime("%Y-%m-%d"), ref) - doc_years) <= 1:
+                    return alt.strftime("%Y-%m-%d")
+    return iso
+
+
+def sections_to_text(sections: Dict[str, Any]) -> str:
+    if not sections:
+        return ""
+    blob_parts: List[str] = []
+    for sec in sections.get("sections") or []:
+        blob_parts.extend(sec.get("paragraphs") or [])
+        for tbl in sec.get("tables") or []:
+            for row in tbl:
+                if isinstance(row, list):
+                    blob_parts.extend(str(c) for c in row)
+    raw = sections.get("raw_preview") or ""
+    if raw:
+        blob_parts.append(raw)
+    return "\n".join(blob_parts)
 
 
 def parse_birth_date_text(raw: str) -> Optional[str]:
@@ -225,36 +333,27 @@ def extract_birth_date_from_text(text: str) -> Optional[str]:
             if after and not _BIRTH_LABEL_RE.search(after) and "تحديث" not in after:
                 iso = parse_birth_date_text(after)
                 if iso:
-                    return iso
+                    return reconcile_birth_date_with_age(iso, text)
             for j in range(i + 1, min(i + 4, len(lines))):
                 nxt = lines[j].strip().replace("\t", " ").strip()
                 if not nxt:
                     continue
-                if re.match(r"^العمر\s*:", nxt) or re.match(r"^age\s*:", nxt, re.I):
+                if _AGE_LINE_RE.match(westernize_digits(nxt)):
                     break
                 if "تحديث" in nxt or re.search(r"updated\s+on|last\s+updated", nxt, re.I):
                     break
                 iso = parse_birth_date_text(nxt)
                 if iso:
-                    return iso
+                    return reconcile_birth_date_with_age(iso, text)
+    age_parts = extract_age_parts_from_text(text)
+    if age_parts:
+        return estimate_birth_date_from_age(age_parts[0], age_parts[1])
     return None
 
 
 def extract_birth_date_from_sections(sections: Dict[str, Any]) -> Optional[str]:
     """Scan structured case-summary sections for a birth date."""
-    if not sections:
-        return None
-    blob_parts: List[str] = []
-    for sec in sections.get("sections") or []:
-        blob_parts.extend(sec.get("paragraphs") or [])
-        for tbl in sec.get("tables") or []:
-            for row in tbl:
-                if isinstance(row, list):
-                    blob_parts.extend(str(c) for c in row)
-    raw = sections.get("raw_preview") or ""
-    if raw:
-        blob_parts.append(raw)
-    return extract_birth_date_from_text("\n".join(blob_parts))
+    return extract_birth_date_from_text(sections_to_text(sections))
 
 
 def fetch_intake_birth_date(drive_url: str) -> Optional[str]:
@@ -296,16 +395,20 @@ def resolve_client_birth_date(
     intake_file_url: Optional[str] = None,
     case_summary_sections: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
-    """Prefer case summary birth date; fall back to intake form."""
+    """Prefer case summary birth date; fall back to intake form; estimate from age if needed."""
+    texts: List[str] = []
     if case_summary_sections:
-        iso = extract_birth_date_from_sections(case_summary_sections)
+        texts.append(sections_to_text(case_summary_sections))
+        iso = extract_birth_date_from_text(texts[-1])
         if iso:
             return iso
     cs_url = (case_summary_url or "").strip()
     if cs_url:
         try:
             content = fetch_case_summary_content(cs_url)
-            iso = extract_birth_date_from_sections(content)
+            text = sections_to_text(content)
+            texts.append(text)
+            iso = extract_birth_date_from_text(text)
             if iso:
                 return iso
         except Exception:
@@ -313,9 +416,22 @@ def resolve_client_birth_date(
     intake_url = (intake_file_url or "").strip()
     if intake_url:
         try:
-            return fetch_intake_birth_date(intake_url)
+            iso = fetch_intake_birth_date(intake_url)
+            if iso:
+                combined = "\n".join(texts)
+                return reconcile_birth_date_with_age(iso, combined) if combined else iso
+            if "document" in intake_url:
+                text = fetch_doc_text(intake_url)
+                texts.append(text)
+                iso = extract_birth_date_from_text(text)
+                if iso:
+                    return iso
         except Exception:
             pass
+    for text in texts:
+        age_parts = extract_age_parts_from_text(text)
+        if age_parts:
+            return estimate_birth_date_from_age(age_parts[0], age_parts[1])
     return None
 
 
