@@ -241,7 +241,6 @@ def reconcile_birth_date_with_age(iso: str, text: str, ref=None) -> Optional[str
                     continue
                 if alt <= ref and abs(_age_years_on(alt.strftime("%Y-%m-%d"), ref) - doc_years) <= 1:
                     return alt.strftime("%Y-%m-%d")
-            return estimate_birth_date_from_age(doc_years, doc_months, ref)
         return None
 
     if age_parts:
@@ -345,9 +344,6 @@ def extract_birth_date_from_text(text: str) -> Optional[str]:
                 iso = parse_birth_date_text(nxt)
                 if iso:
                     return reconcile_birth_date_with_age(iso, text)
-    age_parts = extract_age_parts_from_text(text)
-    if age_parts:
-        return estimate_birth_date_from_age(age_parts[0], age_parts[1])
     return None
 
 
@@ -395,7 +391,7 @@ def resolve_client_birth_date(
     intake_file_url: Optional[str] = None,
     case_summary_sections: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
-    """Prefer case summary birth date; fall back to intake form; estimate from age if needed."""
+    """Prefer case summary birth date; fall back to intake form. No age-only estimates."""
     texts: List[str] = []
     if case_summary_sections:
         texts.append(sections_to_text(case_summary_sections))
@@ -428,10 +424,6 @@ def resolve_client_birth_date(
                     return iso
         except Exception:
             pass
-    for text in texts:
-        age_parts = extract_age_parts_from_text(text)
-        if age_parts:
-            return estimate_birth_date_from_age(age_parts[0], age_parts[1])
     return None
 
 
