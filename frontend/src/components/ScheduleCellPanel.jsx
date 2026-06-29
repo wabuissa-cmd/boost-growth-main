@@ -48,6 +48,7 @@ export default function ScheduleCellPanel({
   canParentCancellationOps = false,
   weekStart,
   canManagePrep = false,
+  canManageCover = false,
   showPrepBadge = false,
   onClearPrep,
   mergedSlotCount = 0,
@@ -241,6 +242,31 @@ export default function ScheduleCellPanel({
                     </>
                   )}
                 </div>
+              </div>
+            )}
+
+            {canManageCover && !META_CODES.has(form.service_code) && form.state !== "available" && form.child_name && (
+              <div data-testid="cell-cover-section">
+                <label className="block text-xs font-semibold mb-1.5" style={{ color: "#374151" }}>
+                  Cover at / تغطية عند
+                </label>
+                <input
+                  type="text"
+                  className="modal-input"
+                  list="schedule-cover-client-suggestions"
+                  placeholder="Client they covered for (no session log needed)"
+                  value={form.cover_child_name || ""}
+                  onChange={(e) => setForm((f) => ({ ...f, cover_child_name: e.target.value.trim() || null }))}
+                  data-testid="cell-cover-input"
+                />
+                <datalist id="schedule-cover-client-suggestions">
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.name} />
+                  ))}
+                </datalist>
+                <p className="text-[10px] mt-1 m-0 leading-relaxed" style={{ color: "#8B9E7A" }}>
+                  Admin-only note: specialist covered at another client while keeping this cell.
+                </p>
               </div>
             )}
 

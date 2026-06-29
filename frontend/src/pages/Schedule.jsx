@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef, useLayoutEffect } fr
 import { useSearchParams } from "react-router-dom";
 import api, { DAYS_EN, DAYS_SHORT, TIME_SLOTS, SERVICE_CODES, startOfWeek, addDays, toISODate, formatDateRange } from "../api";
 import {
-  getCellStyle, MERGE_QUICK, scheduleCellDisplayLabel,
+  getCellStyle, MERGE_QUICK, scheduleCellDisplayLabel, buildScheduleCellPayload,
   SERVICE_CELL_COLORS, buildSlotRange, isSlotSelectable, slotIndex, clampMergeSlotCount, clampMergeDuration,
   findCellAt, isHiddenFromSchedule, scheduleDisplaySpan, scheduleCoveredSlotKeys,
   resolveSelfTherapist, findClientForScheduleCell, isScheduleClientLogCell, scheduleCellChildName,
@@ -81,17 +81,23 @@ function positionContextMenu(x, y, menuWidth, menuHeight) {
   return { left, top };
 }
 
-function CellContent({ cell, sc }) {
+function CellContent({ cell, sc, showCoverTag = false }) {
   if (!cell) return null;
   if (cell.state === "available" || cell.service_code === "AVAILABLE") {
     return <div className="text-[10px] font-semibold opacity-70">Available</div>;
   }
   const label = scheduleCellDisplayLabel(cell, sc?.short);
+  const coverName = (cell.cover_child_name || "").trim();
   return (
     <div className="leading-tight text-center w-full flex flex-col items-center justify-center">
       <div className="font-bold text-[11px] text-center w-full">
         {label}
       </div>
+      {showCoverTag && coverName && (
+        <div className="schedule-cell-cover-tag" title={`Cover at / تغطية عند ${coverName}`}>
+          ↪ {coverName}
+        </div>
+      )}
       {cell.custom_time && <div className="text-[9px] opacity-80 text-center w-full">({cell.custom_time})</div>}
     </div>
   );
@@ -141,6 +147,7 @@ export default function Schedule() {
   const canQuickLog = !scheduleAdmin && !scheduleLead;
   const canSeePrepBadges = !!user && (opsCanSeeAllPreps || canQuickLog);
   const canManagePrep = !!user && (hasOpsAccess(user) || scheduleAdmin || hasFullClientAccess(user));
+  const canManageCover = !!user && (hasOpsAccess(user) || scheduleAdmin || hasFullClientAccess(user));
   const parentCancelOps = canParentCancellationOps(user);
   const [view, setView] = useState(() => {
     // Default to "Per Therapist" (blocks) view for all users per business request.
@@ -199,6 +206,11 @@ export default function Schedule() {
   const [preparations, setPreparations] = useState([]);
   const [weekSessions, setWeekSessions] = useState([]);
   const [suppressionLookup, setSuppressionLookup] = useState(() => new Set());
+  const [ctxCoverDraft, setCtxCoverDraft] = useState("");
+
+  useEffect(() => {
+    setCtxCoverDraft((ctxMenu?.cell?.cover_child_name || "").trim());
+  }, [ctxMenu?.cell?.id, ctxMenu?.cell?.cover_child_name]);
 
   useEffect(() => {
     if (!adminEditsOpen) return;
@@ -639,7 +651,7 @@ export default function Schedule() {
     const form = existing ? { ...existing } : {
       therapist_id, day, time_slot,
       service_code: "SS", child_name: "", state: "normal",
-      week_start: weekStartISO, color: null, duration: 1,
+      week_start: weekStartISO, color: null, duration: 1, cover_child_name: null,
     };
     if (selectionDuration != null) {
       form.duration = selectionDuration;
@@ -927,6 +939,18 @@ export default function Schedule() {
       : null
   );
 
+  const saveCoverFromCtx = async (coverName) => {
+    const cell = ctxMenu?.cell;
+    if (!cell?.id) return;
+    const trimmed = (coverName || "").trim();
+    await api.put(`/schedule/${cell.id}`, buildScheduleCellPayload(cell, weekStartISO, {
+      cover_child_name: trimmed || null,
+    }));
+    invalidateCache("/schedule");
+    await load(true);
+    setCtxMenu(null);
+  };
+
   const saveClientColor = async () => {
     if (!panelForm) return;
     const client = panelForm.child_name
@@ -1176,7 +1200,7 @@ export default function Schedule() {
                             onClear={statusBadge === "prep" && canManagePrep ? () => clearPrepFromCell(t.id, di, cell, true) : undefined}
                           />
                         )}
-                        {cell && <CellContent cell={cell} sc={sc} />}
+                        {cell && <CellContent cell={cell} sc={sc} showCoverTag={canManageCover} />}
                       </td>
                     );
                   })}
@@ -1274,7 +1298,7 @@ export default function Schedule() {
                           onClear={statusBadge === "prep" && canManagePrep ? () => clearPrepFromCell(therapist.id, di, cell, true) : undefined}
                         />
                       )}
-                      {cell && <CellContent cell={cell} sc={sc} />}
+                      {cell && <CellContent cell={cell} sc={sc} showCoverTag={canManageCover} />}
                     </td>
                   );
                 })}
@@ -1550,6 +1574,7 @@ export default function Schedule() {
           canParentCancellationOps={parentCancelOps}
           weekStart={weekStartISO}
           canManagePrep={canManagePrep}
+          canManageCover={canManageCover}
           showPrepBadge={cellStatusBadge(panelForm, panelForm.therapist_id, panelForm.day) === "prep"}
           onClearPrep={() => clearPrepFromCell(panelForm.therapist_id, panelForm.day, panelForm, true)}
           mergedSlotCount={
@@ -1601,6 +1626,63 @@ export default function Schedule() {
             >
               Remove prep checkmark ✓
             </button>
+          )}
+          {canManageCover && ctxMenu.cell && isScheduleClientLogCell(ctxMenu.cell) && (
+            <div
+              className="px-3 py-2 border-t"
+              style={{ borderColor: "#EDE9E3" }}
+              data-testid="schedule-cover-section"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "#8B9E7A" }}>
+                Cover / تغطية
+              </div>
+              {(ctxMenu.cell.cover_child_name || "").trim() ? (
+                <p className="text-[11px] mb-1.5 m-0" style={{ color: "#5C6853" }}>
+                  Current: <strong>{ctxMenu.cell.cover_child_name.trim()}</strong>
+                </p>
+              ) : (
+                <p className="text-[11px] mb-1.5 m-0" style={{ color: "#9CA3AF" }}>
+                  No cover recorded
+                </p>
+              )}
+              <input
+                type="text"
+                className="modal-input text-xs w-full mb-2"
+                list="schedule-ctx-cover-clients"
+                placeholder="Cover at client name…"
+                value={ctxCoverDraft}
+                onChange={(e) => setCtxCoverDraft(e.target.value)}
+                data-testid="schedule-cover-input"
+              />
+              <datalist id="schedule-ctx-cover-clients">
+                {clients.map((c) => (
+                  <option key={c.id} value={c.name} />
+                ))}
+              </datalist>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  className="flex-1 text-xs font-semibold rounded-lg px-2 py-2 min-h-[40px]"
+                  style={{ background: "#E5EBE1", color: "#2C3625" }}
+                  data-testid="schedule-cover-save"
+                  onClick={ctxAction(() => saveCoverFromCtx(ctxCoverDraft))}
+                >
+                  Save cover
+                </button>
+                {(ctxCoverDraft || (ctxMenu.cell.cover_child_name || "").trim()) && (
+                  <button
+                    type="button"
+                    className="text-xs font-semibold rounded-lg px-2 py-2 min-h-[40px]"
+                    style={{ background: "#FCE0E8", color: "#8A3F27" }}
+                    data-testid="schedule-cover-clear"
+                    onClick={ctxAction(() => saveCoverFromCtx(""))}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
           )}
           {!ctxMenu.cell && clipboard && canEditRow(ctxMenu.therapist_id) && (
             <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}

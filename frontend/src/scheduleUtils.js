@@ -363,6 +363,25 @@ export function scheduleCellDisplayLabel(cell, serviceShort) {
   return short;
 }
 
+/** Build API payload for PUT/POST /schedule from an existing cell row. */
+export function buildScheduleCellPayload(cell, weekStartISO, overrides = {}) {
+  return {
+    therapist_id: cell.therapist_id,
+    day: cell.day,
+    time_slot: cell.time_slot,
+    service_code: cell.service_code || "SS",
+    child_name: cell.child_name || null,
+    note: cell.note || null,
+    cover_child_name: cell.cover_child_name || null,
+    custom_time: cell.custom_time || null,
+    state: cell.state || "normal",
+    color: cell.color || null,
+    duration: cell.duration || 1,
+    week_start: weekStartISO,
+    ...overrides,
+  };
+}
+
 export function findCellAt(therapistId, day, timeSlot, cellMap, cells) {
   const key = `${therapistId}_${day}_${timeSlot}`;
   if (cellMap[key]) return cellMap[key];

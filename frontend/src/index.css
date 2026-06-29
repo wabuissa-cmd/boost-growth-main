@@ -246,6 +246,17 @@ main, .page-enter { min-width: 0; }
 .cell-base.schedule-cell-therapist-cancel:not(.editable) {
     cursor: not-allowed;
 }
+.schedule-cell-cover-tag {
+    font-size: 9px;
+    font-weight: 600;
+    color: #4A5F42;
+    margin-top: 1px;
+    line-height: 1.15;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .schedule-prep-badge--clickable:hover {
     background: #4A7038;
     transform: scale(1.08);

@@ -613,6 +613,7 @@ class ScheduleCellIn(BaseModel):
     service_code: Optional[str] = "SS"
     child_name: Optional[str] = None
     note: Optional[str] = None
+    cover_child_name: Optional[str] = None  # ops: specialist covered at another client (no session log required)
     custom_time: Optional[str] = None
     state: Optional[str] = "normal"
     color: Optional[str] = None
