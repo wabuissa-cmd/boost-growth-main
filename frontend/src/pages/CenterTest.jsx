@@ -314,7 +314,7 @@ export default function CenterTest() {
                   </span>
                 </p>
                 <p className="center-test-fail-note">
-                  You may retake the test one more time. Review the material, then try again when you are ready.
+                  You may retake the assessment again when you are ready.
                 </p>
                 <button type="button" className="btn btn-primary center-test-btn center-test-btn-primary" onClick={resetTest}>
                   <ArrowCounterClockwise size={20} weight="bold" /> Retake assessment

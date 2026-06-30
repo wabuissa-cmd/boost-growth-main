@@ -25,7 +25,7 @@ export default function AdminCenterTests() {
     (async () => {
       try {
         const { data } = await api.get("/center-test/attempts");
-        setRows(data || []);
+        setRows(Array.isArray(data) ? data : []);
       } catch (e) {
         const detail = e.response?.data?.detail;
         const msg = formatErr(detail) || e.message;
@@ -50,6 +50,7 @@ export default function AdminCenterTests() {
       <PageBanner
         title="Training Assessment Results"
         subtitle="View trainee answers and scores"
+        variant="classic"
       />
 
       {loading && <div className="card p-6 text-center"><div className="spinner" /></div>}
@@ -88,10 +89,11 @@ export default function AdminCenterTests() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row) => {
+                    {rows.map((row, idx) => {
                       const open = openId === row.id;
+                      const rowKey = row.id || `attempt-${idx}`;
                       return (
-                        <Fragment key={row.id}>
+                        <Fragment key={rowKey}>
                           <tr className="border-b hover:bg-[var(--bg-warm)]">
                             <td className="p-3 font-medium">{row.student_name}</td>
                             <td className="p-3">{row.percentage}% ({row.score}/{row.total})</td>

@@ -7,7 +7,7 @@ import { getPortalDisplayName } from "../scheduleConstants";
 import {
   House, CalendarBlank,   ClipboardText, UsersThree, Receipt,
   Bell, SignOut,   ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, CaretDown, Folder, UserCircle,
-  SidebarSimple, Rows, ShoppingBag, FileText, Buildings, Hourglass, Eye, Exam,
+  SidebarSimple, Rows, ShoppingBag, FileText, Buildings, Hourglass, Eye,
 } from "@phosphor-icons/react";
 
 import SidebarNav from "../components/SidebarNav";
@@ -162,7 +162,7 @@ export default function Shell() {
       : []),
     ...(canViewCenterTests(user)
       ? [
-          { to: "/admin/center-tests", label: "Training Tests", testid: "nav-center-tests", icon: <Exam size={17} weight="duotone"/> },
+          { to: "/admin/center-tests", label: "Training Tests", testid: "nav-center-tests", icon: <FileText size={17} weight="duotone"/> },
         ]
       : []),
     ...(canViewReports(user)
