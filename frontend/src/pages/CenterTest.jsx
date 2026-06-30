@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import api, { formatErr } from "../api";
-import { CheckCircle, XCircle, ArrowCounterClockwise, ArrowLeft, ArrowRight } from "@phosphor-icons/react";
+import {
+  CheckCircle, XCircle, ArrowCounterClockwise, ArrowLeft, ArrowRight,
+  GraduationCap, Clock, Target, User,
+} from "@phosphor-icons/react";
 
-const LOGO_SRC = "/bg-logo.png";
+const LOGO_SRC = `${process.env.PUBLIC_URL || ""}/brand-assets/boost-growth-logo.png`.replace(/\/\//g, "/");
 const QUESTIONS_URL = `${process.env.PUBLIC_URL || ""}/data/center-test-questions.json`.replace(/\/\//g, "/");
 
 async function loadTestMeta() {
@@ -14,6 +17,15 @@ async function loadTestMeta() {
   }
   const { data } = await api.get("/center-test/questions");
   return data;
+}
+
+function StepPill({ n, label, active, done }) {
+  return (
+    <div className={`center-test-step${active ? " active" : ""}${done ? " done" : ""}`}>
+      <span className="center-test-step-num">{done ? "✓" : n}</span>
+      <span className="center-test-step-label">{label}</span>
+    </div>
+  );
 }
 
 export default function CenterTest() {
@@ -68,6 +80,7 @@ export default function CenterTest() {
   };
 
   const allAnswered = questions.every((q) => answers[q.id]);
+  const answeredCount = Object.keys(answers).length;
 
   const submitTest = async () => {
     if (!allAnswered) {
@@ -86,7 +99,7 @@ export default function CenterTest() {
     } catch (e) {
       const msg = formatErr(e.response?.data?.detail);
       if (!e.response) {
-        setError("Could not save your results — the server is not running. Please contact your supervisor.");
+        setError("Could not save your results. Please contact your supervisor.");
       } else {
         setError(msg || "Could not submit your answers. Please try again.");
       }
@@ -97,16 +110,28 @@ export default function CenterTest() {
 
   const q = questions[currentIdx];
   const threshold = meta?.passThreshold ?? 80;
+  const progressPct = questions.length ? Math.round((answeredCount / questions.length) * 100) : 0;
 
   return (
     <div className="center-test-page" dir="ltr">
       <header className="center-test-header">
-        <img src={LOGO_SRC} alt="Boost Growth" className="center-test-logo" />
-        <div className="center-test-header-text">
-          <div className="center-test-brand">Boost Growth</div>
-          <div className="center-test-sub">Applied Behavior Analysis Services</div>
+        <div className="center-test-header-inner">
+          <div className="center-test-brand-lockup">
+            <img src={LOGO_SRC} alt="Boost Growth — تعزيز النمو" className="center-test-logo-full" />
+          </div>
+          <div className="center-test-header-tag">Training Portal</div>
         </div>
       </header>
+
+      {!loading && meta && step !== "result" && (
+        <div className="center-test-steps-bar">
+          <StepPill n="1" label="Your details" active={step === "name"} done={step === "quiz"} />
+          <div className="center-test-step-line" />
+          <StepPill n="2" label="Assessment" active={step === "quiz"} done={false} />
+          <div className="center-test-step-line" />
+          <StepPill n="3" label="Results" active={false} done={false} />
+        </div>
+      )}
 
       <main className="center-test-main">
         {loading && (
@@ -121,45 +146,73 @@ export default function CenterTest() {
         )}
 
         {!loading && meta && step === "name" && (
-          <div className="center-test-card">
-            <div className="center-test-badge">TRAINING ASSESSMENT</div>
+          <div className="center-test-card center-test-intro-card">
+            <div className="center-test-intro-icon">
+              <GraduationCap size={32} weight="duotone" />
+            </div>
+            <div className="center-test-badge">POST-TRAINING ASSESSMENT</div>
             <h1 className="center-test-title">{meta.title}</h1>
             {meta.courseTopic && <p className="center-test-topic">{meta.courseTopic}</p>}
-            {meta.instructor && <p className="center-test-instructor">Instructor: {meta.instructor}</p>}
-            <p className="center-test-hint">
-              {questions.length} questions · Pass score: {threshold}%
-            </p>
+            {meta.instructor && (
+              <p className="center-test-instructor">
+                <User size={16} weight="duotone" /> Instructor: {meta.instructor}
+              </p>
+            )}
+
+            <div className="center-test-meta-grid">
+              <div className="center-test-meta-item">
+                <Clock size={20} weight="duotone" />
+                <div>
+                  <div className="center-test-meta-val">{questions.length}</div>
+                  <div className="center-test-meta-lbl">Questions</div>
+                </div>
+              </div>
+              <div className="center-test-meta-item">
+                <Target size={20} weight="duotone" />
+                <div>
+                  <div className="center-test-meta-val">{threshold}%</div>
+                  <div className="center-test-meta-lbl">Pass score</div>
+                </div>
+              </div>
+            </div>
+
             <form onSubmit={startQuiz} className="center-test-name-form">
               <label className="label">Full name</label>
               <input
-                className="input"
+                className="input center-test-input"
                 value={studentName}
                 onChange={(e) => setStudentName(e.target.value)}
                 placeholder="e.g. Sara Ahmed"
                 required
                 autoFocus
               />
+              <p className="center-test-field-hint">Enter your first and last name as registered with the center.</p>
               {error && <div className="center-test-inline-error">{error}</div>}
-              <button type="submit" className="btn btn-primary center-test-btn">
-                Start assessment
+              <button type="submit" className="btn btn-primary center-test-btn center-test-btn-primary">
+                Start assessment <ArrowRight size={18} weight="bold" />
               </button>
             </form>
           </div>
         )}
 
         {!loading && step === "quiz" && q && (
-          <div className="center-test-card">
-            <div className="center-test-progress">
-              <span>Question {currentIdx + 1} of {questions.length}</span>
+          <div className="center-test-card center-test-quiz-card">
+            <div className="center-test-quiz-top">
+              <div className="center-test-progress-head">
+                <span className="center-test-q-label">Question {currentIdx + 1} of {questions.length}</span>
+                <span className="center-test-answered">{answeredCount}/{questions.length} answered</span>
+              </div>
               <div className="center-test-progress-bar">
-                <div
-                  className="center-test-progress-fill"
-                  style={{ width: `${((currentIdx + 1) / questions.length) * 100}%` }}
-                />
+                <div className="center-test-progress-fill" style={{ width: `${progressPct}%` }} />
               </div>
             </div>
-            <p className="center-test-student">Trainee: {studentName}</p>
+
+            <div className="center-test-trainee-chip">
+              <User size={14} weight="bold" /> {studentName}
+            </div>
+
             <h2 className="center-test-question">{q.text}</h2>
+
             <div className="center-test-choices">
               {q.choices.map((ch) => (
                 <button
@@ -169,15 +222,17 @@ export default function CenterTest() {
                   onClick={() => selectAnswer(q.id, ch.id)}
                 >
                   <span className="center-test-choice-id">{ch.id.toUpperCase()}</span>
-                  <span>{ch.text}</span>
+                  <span className="center-test-choice-text">{ch.text}</span>
                 </button>
               ))}
             </div>
+
             {error && <div className="center-test-inline-error">{error}</div>}
+
             <div className="center-test-nav">
               <button
                 type="button"
-                className="btn btn-secondary"
+                className="btn btn-secondary center-test-nav-btn"
                 disabled={currentIdx === 0}
                 onClick={() => setCurrentIdx((i) => i - 1)}
               >
@@ -186,7 +241,7 @@ export default function CenterTest() {
               {currentIdx < questions.length - 1 ? (
                 <button
                   type="button"
-                  className="btn btn-primary"
+                  className="btn btn-primary center-test-nav-btn"
                   disabled={!answers[q.id]}
                   onClick={() => setCurrentIdx((i) => i + 1)}
                 >
@@ -195,11 +250,11 @@ export default function CenterTest() {
               ) : (
                 <button
                   type="button"
-                  className="btn btn-primary"
+                  className="btn btn-primary center-test-nav-btn"
                   disabled={!allAnswered || submitting}
                   onClick={submitTest}
                 >
-                  {submitting ? <span className="spinner" /> : "Submit assessment"}
+                  {submitting ? <span className="spinner" /> : <>Submit <CheckCircle size={18} weight="bold" /></>}
                 </button>
               )}
             </div>
@@ -207,28 +262,43 @@ export default function CenterTest() {
         )}
 
         {!loading && step === "result" && result && (
-          <div className="center-test-card center-test-result">
+          <div className={`center-test-card center-test-result${result.passed ? " pass" : " fail"}`}>
+            <div className="center-test-score-ring">
+              <svg viewBox="0 0 120 120" className="center-test-ring-svg">
+                <circle cx="60" cy="60" r="52" fill="none" stroke="var(--border-light)" strokeWidth="8" />
+                <circle
+                  cx="60" cy="60" r="52" fill="none"
+                  stroke={result.passed ? "#16a34a" : "#d97706"}
+                  strokeWidth="8" strokeLinecap="round"
+                  strokeDasharray={`${2 * Math.PI * 52}`}
+                  strokeDashoffset={`${2 * Math.PI * 52 * (1 - result.percentage / 100)}`}
+                  transform="rotate(-90 60 60)"
+                />
+              </svg>
+              <div className="center-test-score-center">
+                <span className="center-test-score-pct">{result.percentage}%</span>
+              </div>
+            </div>
+
             {result.passed ? (
               <>
-                <CheckCircle size={64} weight="fill" className="center-test-icon pass" />
+                <CheckCircle size={48} weight="fill" className="center-test-icon pass" />
                 <h2>Congratulations — you passed!</h2>
-                <p className="center-test-score">{result.percentage}%</p>
                 <p className="center-test-result-detail">
-                  {result.score} of {result.total} correct
+                  {result.score} of {result.total} correct answers
                 </p>
                 <p className="center-test-success-note">
-                  Your result has been saved. Thank you, {result.student_name}.
+                  Your result has been recorded. Thank you, <strong>{result.student_name}</strong>.
                 </p>
               </>
             ) : (
               <>
-                <XCircle size={64} weight="fill" className="center-test-icon fail" />
-                <h2>You did not reach the pass score</h2>
-                <p className="center-test-score">{result.percentage}%</p>
+                <XCircle size={48} weight="fill" className="center-test-icon fail" />
+                <h2>Not quite there yet</h2>
                 <p className="center-test-result-detail">
-                  {result.score} of {result.total} — required to pass: {threshold}%
+                  {result.score} of {result.total} correct — you need {threshold}% to pass
                 </p>
-                <button type="button" className="btn btn-primary center-test-btn" onClick={resetTest}>
+                <button type="button" className="btn btn-primary center-test-btn center-test-btn-primary" onClick={resetTest}>
                   <ArrowCounterClockwise size={20} /> Retake assessment
                 </button>
               </>
@@ -236,6 +306,13 @@ export default function CenterTest() {
           </div>
         )}
       </main>
+
+      <footer className="center-test-footer">
+        <img src={LOGO_SRC} alt="" className="center-test-footer-logo" aria-hidden />
+        <span>Boost Growth · Applied Behavior Analysis Services</span>
+        <span className="center-test-footer-dot">·</span>
+        <span>boost-growthsa.com</span>
+      </footer>
     </div>
   );
 }
