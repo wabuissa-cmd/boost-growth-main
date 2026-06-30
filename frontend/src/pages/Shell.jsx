@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, Suspense, useMemo } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData, isWalaaOps, showMyPortalNav, showMyReportsNav, isJenan, canViewReports, canViewCenterTests, directManagerLabel, canViewSupervisionCaseload } from "../auth";
+import { useAuth, showAdminNav, isClientLead, isWalaaOps, isHrOps, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, showSystemAdmin, canImportData, showMyPortalNav, showMyReportsNav, isJenan, canViewReports, directManagerLabel, canViewSupervisionCaseload } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch, cachedGet } from "../dataCache";
 import { getPortalDisplayName } from "../scheduleConstants";
@@ -150,6 +150,10 @@ export default function Shell() {
     financeItems.push({ to: "/purchases", label: "Purchases", testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> });
   }
 
+  const showTrainingTests = Boolean(
+    user && (canViewReports(user) || isWalaaOps(user) || isClientLead(user) || isJenan(user) || isHrOps(user))
+  );
+
   // Admin tools — Reports always last (Jenan + portal admin); Import/Admin before Reports for admins
   const adminTools = [
     ...(canImportData(user)
@@ -160,7 +164,7 @@ export default function Shell() {
           { to: "/admin", label: "Admin", testid: "nav-admin", icon: <Gear size={17} weight="duotone"/> },
         ]
       : []),
-    ...(canViewCenterTests(user)
+    ...(showTrainingTests
       ? [
           { to: "/admin/center-tests", label: "Training Tests", testid: "nav-center-tests", icon: <FileText size={17} weight="duotone"/> },
         ]

@@ -1,7 +1,6 @@
 import { useEffect, useState, Fragment } from "react";
 import api, { formatErr } from "../api";
-import PageBanner from "../components/PageBanner";
-import { CaretDown, CaretUp, CheckCircle, XCircle } from "@phosphor-icons/react";
+import { CaretDown, CaretUp, CheckCircle, XCircle, ClipboardText } from "@phosphor-icons/react";
 
 function fmtWhen(iso) {
   if (!iso) return "—";
@@ -22,59 +21,86 @@ export default function AdminCenterTests() {
   const [openId, setOpenId] = useState(null);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
         const { data } = await api.get("/center-test/attempts");
-        setRows(Array.isArray(data) ? data : []);
+        if (!cancelled) setRows(Array.isArray(data) ? data : []);
       } catch (e) {
+        if (cancelled) return;
         const detail = e.response?.data?.detail;
         const msg = formatErr(detail) || e.message;
         if (e.response?.status === 403) {
-          setError("You do not have permission to view training results. Please sign in as admin or ops lead.");
+          setError("You do not have permission to view training results.");
         } else if (e.response?.status === 401) {
           setError("Session expired — please sign out and sign in again.");
         } else {
-          setError(msg || "Could not load results. Try refreshing the page.");
+          setError(msg || "Could not load results.");
         }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+    return () => { cancelled = true; };
   }, []);
 
   const passedCount = rows.filter((r) => r.passed).length;
   const failedCount = rows.length - passedCount;
 
   return (
-    <div className="page-enter" dir="ltr">
-      <PageBanner
-        title="Training Assessment Results"
-        subtitle="View trainee answers and scores"
-        variant="classic"
-      />
+    <div className="page-enter p-4 md:p-6" dir="ltr">
+      <div className="card p-5 mb-4" style={{ background: "var(--bg-warm)" }}>
+        <div className="flex items-center gap-3">
+          <div
+            className="w-11 h-11 rounded-xl flex items-center justify-center"
+            style={{ background: "var(--brand-light)", color: "var(--brand-dark)" }}
+          >
+            <ClipboardText size={24} weight="duotone" />
+          </div>
+          <div>
+            <h1 className="font-display text-xl m-0" style={{ color: "var(--brand-dark)" }}>
+              Training Assessment Results
+            </h1>
+            <p className="text-sm m-0 mt-0.5" style={{ color: "var(--text-muted)" }}>
+              View trainee answers and scores
+            </p>
+          </div>
+        </div>
+      </div>
 
-      {loading && <div className="card p-6 text-center"><div className="spinner" /></div>}
-      {error && <div className="card p-4 text-red-700 bg-red-50 border border-red-200">{error}</div>}
+      {loading && (
+        <div className="card p-8 text-center">
+          <div className="spinner mx-auto" />
+        </div>
+      )}
+
+      {error && (
+        <div className="card p-4 text-red-800 bg-red-50 border border-red-200 rounded-xl">
+          {error}
+        </div>
+      )}
 
       {!loading && !error && (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
             <div className="card p-4 text-center">
               <div className="text-2xl font-bold" style={{ color: "var(--brand-dark)" }}>{rows.length}</div>
-              <div className="text-sm text-muted">Total attempts</div>
+              <div className="text-sm" style={{ color: "var(--text-muted)" }}>Total attempts</div>
             </div>
             <div className="card p-4 text-center">
               <div className="text-2xl font-bold text-green-700">{passedCount}</div>
-              <div className="text-sm text-muted">Passed</div>
+              <div className="text-sm" style={{ color: "var(--text-muted)" }}>Passed</div>
             </div>
             <div className="card p-4 text-center">
               <div className="text-2xl font-bold text-amber-700">{failedCount}</div>
-              <div className="text-sm text-muted">Retake needed</div>
+              <div className="text-sm" style={{ color: "var(--text-muted)" }}>Retake needed</div>
             </div>
           </div>
 
           {rows.length === 0 ? (
-            <div className="card p-8 text-center text-muted">No results yet</div>
+            <div className="card p-8 text-center" style={{ color: "var(--text-muted)" }}>
+              No results yet — trainees can take the assessment at /center-test
+            </div>
           ) : (
             <div className="card overflow-hidden">
               <div className="overflow-x-auto">
@@ -90,13 +116,13 @@ export default function AdminCenterTests() {
                   </thead>
                   <tbody>
                     {rows.map((row, idx) => {
-                      const open = openId === row.id;
-                      const rowKey = row.id || `attempt-${idx}`;
+                      const rowKey = row.id || `row-${idx}`;
+                      const isOpen = openId === rowKey;
                       return (
                         <Fragment key={rowKey}>
                           <tr className="border-b hover:bg-[var(--bg-warm)]">
-                            <td className="p-3 font-medium">{row.student_name}</td>
-                            <td className="p-3">{row.percentage}% ({row.score}/{row.total})</td>
+                            <td className="p-3 font-medium">{row.student_name || "—"}</td>
+                            <td className="p-3">{row.percentage ?? 0}% ({row.score ?? 0}/{row.total ?? 0})</td>
                             <td className="p-3">
                               {row.passed ? (
                                 <span className="inline-flex items-center gap-1 text-green-700">
@@ -113,19 +139,19 @@ export default function AdminCenterTests() {
                               <button
                                 type="button"
                                 className="btn btn-secondary text-xs py-1 px-2"
-                                onClick={() => setOpenId(open ? null : row.id)}
+                                onClick={() => setOpenId(isOpen ? null : rowKey)}
                               >
-                                {open ? <><CaretUp size={14} /> Hide</> : <><CaretDown size={14} /> Answers</>}
+                                {isOpen ? <><CaretUp size={14} /> Hide</> : <><CaretDown size={14} /> Answers</>}
                               </button>
                             </td>
                           </tr>
-                          {open && (
-                            <tr className="border-b bg-[var(--bg-surface)]">
+                          {isOpen && (
+                            <tr key={`${rowKey}-answers`} className="border-b bg-[var(--bg-surface)]">
                               <td colSpan={5} className="p-4">
                                 <div className="space-y-3">
-                                  {(row.answers || []).map((a, i) => (
+                                  {(Array.isArray(row.answers) ? row.answers : []).map((a, i) => (
                                     <div
-                                      key={a.question_id}
+                                      key={`${rowKey}-q-${i}`}
                                       className="p-3 rounded-xl border"
                                       style={{
                                         borderColor: a.is_correct ? "#86efac" : "#fcd34d",

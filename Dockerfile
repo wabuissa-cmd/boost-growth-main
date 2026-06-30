@@ -9,7 +9,7 @@ ENV CI=true \
     DISABLE_ESLINT_PLUGIN=true \
     SKIP_PREFLIGHT_CHECK=true \
     NODE_OPTIONS=--max-old-space-size=2048
-ENV RAILWAY_DEPLOY_REV=schedule-status-badges-v1
+ENV RAILWAY_DEPLOY_REV=center-test-admin-v3
 RUN npm run build
 
 FROM python:3.11-slim
@@ -23,6 +23,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ .
 COPY --from=frontend /app/frontend/build ./static
+ARG GIT_COMMIT=dev
+RUN echo "${GIT_COMMIT}" > BUILD_VERSION.txt
 
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8080

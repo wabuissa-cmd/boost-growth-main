@@ -1,6 +1,6 @@
 import { Component, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth, isJenan, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, hasFullClientAccess, showSystemAdmin, canImportData, canViewReports, canViewCenterTests, showMyReportsNav, canViewSupervisionCaseload } from "./auth";
+import { AuthProvider, useAuth, isJenan, isClientLead, isWalaaOps, isHrOps, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, hasFullClientAccess, showSystemAdmin, canImportData, canViewReports, showMyReportsNav, canViewSupervisionCaseload } from "./auth";
 import Login from "./pages/Login";
 import Shell from "./pages/Shell";
 import AuthenticatedFileViewer from "./components/AuthenticatedFileViewer";
@@ -30,7 +30,7 @@ const Purchases = lazy(() => import("./pages/Purchases"));
 const SupervisionCaseload = lazy(() => import("./pages/SupervisionCaseload"));
 const DesignPreview = lazy(() => import("./pages/DesignPreview"));
 const CenterTest = lazy(() => import("./pages/CenterTest"));
-const AdminCenterTests = lazy(() => import("./pages/AdminCenterTests"));
+import AdminCenterTests from "./pages/AdminCenterTests";
 
 function Loading() {
   return <div className="min-h-screen flex items-center justify-center bg-organic"><div className="spinner"/></div>;
@@ -112,11 +112,17 @@ function ReportsAccess({ children }) {
   return children;
 }
 
+function canOpenCenterTests(user) {
+  if (!user) return false;
+  if (user.can_view_reports) return true;
+  return canViewReports(user) || isWalaaOps(user) || isClientLead(user) || isJenan(user) || isHrOps(user);
+}
+
 function CenterTestsAdminAccess({ children }) {
   const { user } = useAuth();
   if (user === null) return <Loading/>;
   if (!user) return <Navigate to="/login" replace />;
-  if (!canViewCenterTests(user)) return <Navigate to="/home" replace />;
+  if (!canOpenCenterTests(user)) return <Navigate to="/home" replace />;
   return children;
 }
 
