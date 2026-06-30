@@ -191,6 +191,7 @@ export default function Schedule() {
   const [addTherapistId, setAddTherapistId] = useState("");
   const [scheduleTherapistBusy, setScheduleTherapistBusy] = useState(false);
   const adminEditsRef = useRef(null);
+  const scheduleInitialLoadRef = useRef(true);
   const [showHolidays, setShowHolidays] = useState(false);
   const [closures, setClosures] = useState([]);
   const [quickLog, setQuickLog] = useState(null);
@@ -203,6 +204,8 @@ export default function Schedule() {
   const [parentCancelOpen, setParentCancelOpen] = useState(false);
   const [parentCancelFocus, setParentCancelFocus] = useState(null);
   const [pendingCancellations, setPendingCancellations] = useState([]);
+  const [scheduleLoading, setScheduleLoading] = useState(true);
+  const [scheduleError, setScheduleError] = useState(null);
   const [prepLookup, setPrepLookup] = useState(() => new Set());
   const [preparations, setPreparations] = useState([]);
   const [weekSessions, setWeekSessions] = useState([]);
@@ -341,29 +344,38 @@ export default function Schedule() {
     const yr = weekStart.getFullYear();
     const ws = weekStartISO;
     const we = weekEndISO;
-    const [c, t, cl, lv, sess] = await Promise.all([
-      cachedGet("/schedule", { params: { week_start: weekStartISO }, force }),
-      cachedGet("/therapists", { force }).catch(() => []),
-      cachedGet("/clients", { force }).catch(() => []),
-      cachedGet("/leaves", { params: { year: yr }, force }).catch(() => []),
-      canSeePrepBadges
-        ? cachedGet("/sessions", { force }).catch(() => [])
-        : Promise.resolve([]),
-    ]);
-    setCells(Array.isArray(c) ? c : []);
-    setTherapists(Array.isArray(t) ? t : []);
-    setClients(Array.isArray(cl) ? cl : []);
-    setLeaves(Array.isArray(lv) ? lv : []);
-    const inWeek = (Array.isArray(sess) ? sess : []).filter((s) => {
-      const d = (s.session_date || "").slice(0, 10);
-      return d >= ws && d <= we;
-    });
-    setWeekSessions(inWeek);
+    if (scheduleInitialLoadRef.current) setScheduleLoading(true);
+    setScheduleError(null);
     try {
-      const st = await cachedGet("/schedule/week-status", { params: { week_start: weekStartISO }, force });
-      setWeekStatus(st?.status || "published");
-    } catch (_) { setWeekStatus("published"); }
-  }, [weekStartISO, weekStart, weekEndISO, canSeePrepBadges, user]);
+      const [c, t, cl, lv, sess] = await Promise.all([
+        cachedGet("/schedule", { params: { week_start: weekStartISO }, force }),
+        cachedGet("/therapists", { force }).catch(() => []),
+        cachedGet("/clients", { force }).catch(() => []),
+        cachedGet("/leaves", { params: { year: yr }, force }).catch(() => []),
+        canSeePrepBadges
+          ? cachedGet("/sessions", { force }).catch(() => [])
+          : Promise.resolve([]),
+      ]);
+      setCells(Array.isArray(c) ? c : []);
+      setTherapists(Array.isArray(t) ? t : []);
+      setClients(Array.isArray(cl) ? cl : []);
+      setLeaves(Array.isArray(lv) ? lv : []);
+      const inWeek = (Array.isArray(sess) ? sess : []).filter((s) => {
+        const d = (s.session_date || "").slice(0, 10);
+        return d >= ws && d <= we;
+      });
+      setWeekSessions(inWeek);
+      try {
+        const st = await cachedGet("/schedule/week-status", { params: { week_start: weekStartISO }, force });
+        setWeekStatus(st?.status || "published");
+      } catch (_) { setWeekStatus("published"); }
+      scheduleInitialLoadRef.current = false;
+    } catch (err) {
+      setScheduleError(err?.response?.data?.detail || "Could not load schedule. Please try again.");
+    } finally {
+      setScheduleLoading(false);
+    }
+  }, [weekStartISO, weekStart, weekEndISO, canSeePrepBadges]);
 
   useEffect(() => {
     if (!user || !canSeePrepBadges) return;
@@ -1116,8 +1128,7 @@ export default function Schedule() {
 
   // === SHEET VIEW === (matches Google Sheet: # | Therapist | Day | 10 time slots)
   const renderSheet = () => (
-    <div className="card p-0 overflow-hidden">
-      <div className="table-scroll overflow-x-auto">
+    <div className="table-scroll overflow-x-auto">
         <table className="text-xs border-collapse sched-sheet sched-sheet-v2" style={{ minWidth: 980 }}>
           {visibleTherapists.map((t, ti) => (
             <tbody key={t.id} className="sheet-therapist-group">
@@ -1226,7 +1237,6 @@ export default function Schedule() {
           )}
         </table>
       </div>
-    </div>
   );
 
   // === BLOCKS VIEW (per-therapist) ===
@@ -1320,11 +1330,27 @@ export default function Schedule() {
 
   // === MASTER VIEW removed (was "By Day"). Keeping renderTherapistBlock + renderSheet only. ===
 
+  if (scheduleLoading && therapists.length === 0 && !scheduleError) {
+    return (
+      <div className="page-enter schedule-page" dir="ltr">
+        <div className="schedule-page-loading"><div className="spinner" /></div>
+      </div>
+    );
+  }
+
+  const schedulePanelTitle = view === "sheet" ? "Team schedule" : "My schedule";
+  const schedulePanelDesc = view === "sheet"
+    ? "All therapists in one table — swipe horizontally on smaller screens"
+    : "Sessions grouped by therapist — tap any cell to log or edit";
+
   return (
-    <div className="relative">
-        <div className={`transition-all ${panelOpen && isAdmin ? "lg:mr-[420px]" : ""}`}>
+    <div className="page-enter schedule-page" dir="ltr">
+      <div className={`relative transition-all ${panelOpen && isAdmin ? "lg:mr-[420px]" : ""}`}>
       <SchedulePageHeader
         className="no-print"
+        view={view}
+        onViewChange={setView}
+        canSwitchView
         toolbarPlacement={isScheduleNarrow ? "outside" : "inline"}
         subtitle={isAdmin
           ? "Right-click any cell for actions · Click to edit · Green ✓ = session prepared"
@@ -1360,10 +1386,6 @@ export default function Schedule() {
         ]}
         toolbar={(
           <div className="flex items-center gap-1.5 flex-wrap schedule-toolbar schedule-toolbar--wrap relative">
-            <div className="inline-flex items-center rounded-lg border border-[#E2DDD4] p-0.5 bg-[#FAFAF7] shrink-0 schedule-view-toggle">
-              <button data-testid="view-sheet-btn" onClick={() => setView("sheet")} className={`btn ${view === "sheet" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`} title="جدول الفريق" aria-label="Team schedule"><Table size={13} /> Team schedule</button>
-              <button data-testid="view-blocks-btn" onClick={() => setView("blocks")} className={`btn ${view === "blocks" ? "btn-primary" : "btn-ghost"} text-[11px] px-2 py-1 min-h-0`} title="جدولي" aria-label="My schedule"><GridFour size={13} /> My schedule</button>
-            </div>
             <div className="inline-flex items-center rounded-lg border border-[#E2DDD4] px-0.5 bg-[#FAFAF7] shrink-0 schedule-toolbar-week-nav">
               <button data-testid="prev-week-btn" onClick={() => setWeekStart(addDays(weekStart, -7))} className="btn btn-ghost p-1 min-h-0"><CaretLeft size={14} /></button>
               <div className="px-2 text-[11px] font-bold whitespace-nowrap" style={{ color: "#2C3625" }}>{formatDateRange(weekStart)}</div>
@@ -1526,48 +1548,81 @@ export default function Schedule() {
       )}
 
       {clipboard && (isAdmin || (scheduleLead && view === "sheet")) && (
-        <div className="card p-3 mb-4 flex items-center gap-3 text-sm no-print" style={{ background: "#FFF7E1", borderColor: "#E8C572" }} data-testid="clipboard-banner">
-          <Copy size={18} weight="duotone" style={{ color: "#8B6918" }} />
-          <div className="flex-1">
-            <div className="font-bold" style={{ color: "#6B5218" }}>📋 Cell copied — right-click empty slot → Paste Here</div>
-            <div className="text-xs" style={{ color: "#8B6918" }}>{clipboard.service_code}{clipboard.child_name && ` | ${clipboard.child_name}`}{clipboard.custom_time && ` (${clipboard.custom_time})`} {clipboard.duration > 1 && `· ${clipboard.duration}h`}</div>
+        <div className="schedule-page-clipboard no-print" data-testid="clipboard-banner">
+          <Copy size={18} weight="duotone" style={{ color: "#8B6918", flexShrink: 0 }} />
+          <div className="flex-1 min-w-0">
+            <div className="schedule-page-clipboard-title">Cell copied — right-click empty slot → Paste Here</div>
+            <div className="schedule-page-clipboard-detail">
+              {clipboard.service_code}{clipboard.child_name && ` | ${clipboard.child_name}`}{clipboard.custom_time && ` (${clipboard.custom_time})`}{clipboard.duration > 1 && ` · ${clipboard.duration}h`}
+            </div>
           </div>
-          <button onClick={() => setClipboard(null)} className="btn btn-ghost p-1.5"><X size={16} /></button>
+          <button type="button" onClick={() => setClipboard(null)} className="btn btn-ghost p-1.5" aria-label="Clear clipboard"><X size={16} /></button>
         </div>
       )}
+
+      {scheduleError && (
+        <div className="card schedule-page-error no-print" role="alert">
+          {scheduleError}
+        </div>
+      )}
+
+      <section className="card schedule-page-panel no-print">
+        <div className="schedule-page-panel-head">
+          <div className="schedule-page-hero-icon" style={{ width: 40, height: 40, borderRadius: 10 }}>
+            {view === "sheet" ? <Table size={22} weight="duotone" /> : <GridFour size={22} weight="duotone" />}
+          </div>
+          <div className="min-w-0">
+            <h2>{schedulePanelTitle}</h2>
+            <p>{schedulePanelDesc}</p>
+          </div>
+        </div>
 
       <div className="dash-schedule-wrap schedule-printable">
       <div className="schedule-print-title hidden print:block font-display text-lg font-semibold mb-2" style={{ color: "#2F4A35" }}>
         Weekly Schedule · {formatDateRange(weekStart)}
       </div>
       <div className="sched-zoom" style={{ "--sched-zoom": SCHEDULE_ZOOM / 100 }}>
-        {cells.length === 0 && (
-          <div className="card p-10 text-center mb-4" style={{ background: "linear-gradient(135deg, #FAF5E8 0%, #F0E9D8 100%)", borderColor: "#E8C572" }}>
-            <CalendarBlank size={42} weight="duotone" className="mx-auto mb-3" style={{ color: "#8B6918" }} />
-            <div className="font-display text-xl mb-2" style={{ color: "#2C3625" }}>No schedule for this week yet</div>
-            <div className="text-sm mb-4" style={{ color: "#5C6853" }}>Choose how to fill this week:</div>
+        {cells.length === 0 && !scheduleLoading && (
+          <div className="schedule-page-empty">
+            <div className="schedule-page-empty-icon">
+              <CalendarBlank size={28} weight="duotone" />
+            </div>
+            <h3 className="schedule-page-empty-title">No schedule for this week yet</h3>
+            <p className="schedule-page-empty-text">Choose how to fill this week, or jump to a week that already has sessions.</p>
             <div className="flex gap-2 justify-center flex-wrap">
-              <button onClick={() => setWeekStart(addDays(weekStart, -7))} className="btn btn-outline text-sm">← Go to previous week</button>
+              <button type="button" onClick={() => setWeekStart(addDays(weekStart, -7))} className="btn btn-outline text-sm">← Previous week</button>
               {isAdmin && (
-                <button onClick={() => openDupModal(toISODate(addDays(weekStart, -7)), weekStartISO)} className="btn btn-gold text-sm">
+                <button type="button" onClick={() => openDupModal(toISODate(addDays(weekStart, -7)), weekStartISO)} className="btn btn-gold text-sm">
                   <CopySimple size={14} /> Duplicate previous week here
                 </button>
               )}
             </div>
           </div>
         )}
+        {scheduleLoading && cells.length > 0 && (
+          <div className="schedule-page-loading" style={{ padding: "2rem 0" }}><div className="spinner" /></div>
+        )}
+        {cells.length > 0 && (
+          <div className="schedule-page-grid-wrap">
         {view === "sheet" && isScheduleTablet && (
           <p className="schedule-sheet-hint no-print">Swipe table horizontally to see all time slots</p>
         )}
         {view === "sheet" && renderSheet()}
         {view === "blocks" && (
-          <div className="space-y-6 stagger">
-            {blocksTherapists.length === 0 && <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>No therapists found</div>}
+          <div className="space-y-4 p-3 sm:p-4">
+            {blocksTherapists.length === 0 && (
+              <div className="schedule-page-empty" style={{ padding: "2rem 1rem" }}>
+                <p className="schedule-page-empty-text m-0">No therapists found for this view.</p>
+              </div>
+            )}
             {blocksTherapists.map((t, i) => renderTherapistBlock(t, i))}
+          </div>
+        )}
           </div>
         )}
       </div>
       </div>
+      </section>
 
       {panelOpen && panelForm && (
         <ScheduleCellPanel

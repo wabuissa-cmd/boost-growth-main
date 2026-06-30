@@ -29,7 +29,7 @@ import {
 } from "../attendanceUtils";
 import { PackageAlertBanner } from "../components/PackageStatusBadge";
 import PreparationPrepLayout from "../components/PreparationPrepLayout";
-import PageBanner from "../components/PageBanner";
+import AttendancePageHeader from "../components/AttendancePageHeader";
 import LogSessionModal from "../components/LogSessionModal";
 import SsWeekStatusRow, { SsWeekLegend } from "../components/SsWeekStatusRow";
 import ExportColumnsModal, { buildInvoiceSheetColumns, EXPORT_COLUMN_DEFS, EXPORT_EXTRA_COLUMN_DEFS } from "../components/ExportColumnsModal";
@@ -220,7 +220,8 @@ export default function Attendance() {
   const [therapists, setTherapists] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [packageRows, setPackageRows] = useState([]);
-  const [cardsReady, setCardsReady] = useState(true);
+  const [attendanceLoading, setAttendanceLoading] = useState(true);
+  const [attendanceError, setAttendanceError] = useState(null);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [logFor, setLogFor] = useState(null); // client OR null OR "__pick__"
@@ -234,34 +235,41 @@ export default function Attendance() {
     const stalePkg = peekCache("/clients/package-status");
     if (Array.isArray(staleClients) && staleClients.length) {
       setClients(staleClients);
-      setCardsReady(true);
     }
     if (Array.isArray(stalePkg)) setPackageRows(stalePkg);
 
+    setAttendanceError(null);
     try {
       const c = await cachedGet("/clients", { force }).catch(() => staleClients || []);
       setClients(Array.isArray(c) ? c : []);
-      setCardsReady(true);
-    } catch {
-      if (!staleClients?.length) setCardsReady(true);
+    } catch (err) {
+      if (!staleClients?.length) {
+        setAttendanceError(err?.response?.data?.detail || "Could not load clients. Please try again.");
+        setAttendanceLoading(false);
+        return;
+      }
     }
 
-    Promise.all([
-      cachedGet("/therapists", { force }).catch(() => peekCache("/therapists") || []),
-      cachedGet("/clients/package-status", { force }).catch(() => peekCache("/clients/package-status") || []),
-      cachedGet("/sessions", { force }).catch(() => peekCache("/sessions") || []),
-    ]).then(([t, pkg, s]) => {
+    try {
+      const [t, pkg, s] = await Promise.all([
+        cachedGet("/therapists", { force }).catch(() => peekCache("/therapists") || []),
+        cachedGet("/clients/package-status", { force }).catch(() => peekCache("/clients/package-status") || []),
+        cachedGet("/sessions", { force }).catch(() => peekCache("/sessions") || []),
+      ]);
       setTherapists(Array.isArray(t) ? t : []);
       setPackageRows(Array.isArray(pkg) ? pkg : []);
       setSessions(Array.isArray(s) ? s : []);
-    });
+    } catch (err) {
+      setAttendanceError(err?.response?.data?.detail || "Could not load session data. Please try again.");
+    } finally {
+      setAttendanceLoading(false);
+    }
   }, []);
   useEffect(() => {
     const staleClients = peekCache("/clients");
     const stalePkg = peekCache("/clients/package-status");
     if (Array.isArray(staleClients) && staleClients.length) setClients(staleClients);
     if (Array.isArray(stalePkg)) setPackageRows(stalePkg);
-    setCardsReady(true);
     load();
   }, [load]);
 
@@ -342,23 +350,45 @@ export default function Attendance() {
     </div>
   );
 
+  if (attendanceLoading && clients.length === 0 && !attendanceError) {
+    return (
+      <div className="page-enter attendance-page" dir="ltr">
+        <div className="attendance-page-loading"><div className="spinner" /></div>
+      </div>
+    );
+  }
+
   return (
-    <div>
-      <PageBanner
-        title="Session Preparation"
-        subtitle="Log sessions and track package progress"
+    <div className="page-enter attendance-page" dir="ltr">
+      <AttendancePageHeader
+        subtitle="Log sessions, track package progress, and open invoice sheets"
         stats={showPrepStats ? [
           { label: "Total", n: counts.all, color: "#2C3625" },
           { label: "Urgent", n: counts.urgent, color: "#8A3F27" },
           { label: "Warning", n: counts.warning, color: "#6B5218" },
           { label: "Safe", n: counts.ok, color: "#3D4F35" },
-        ] : undefined}
+        ] : [
+          { label: "Clients", n: counts.all, color: "#2C3625" },
+          { label: "On track", n: counts.ok, color: "#3D4F35" },
+        ]}
         toolbar={prepToolbar}
       />
 
-      {/* Client list — design preview layout */}
+      {attendanceError && (
+        <div className="card attendance-page-error" role="alert">{attendanceError}</div>
+      )}
+
+      <section className="card attendance-page-panel">
+        <div className="attendance-page-panel-head">
+          <ClipboardText size={22} weight="duotone" />
+          <div>
+            <h2>Client roster</h2>
+            <p>Select a client to log a session, view history, or open their invoice sheet</p>
+          </div>
+        </div>
+
       <div className="stagger">
-        {(cardsReady || clients.length > 0) ? (
+        {!attendanceLoading || clients.length > 0 ? (
           <PreparationPrepLayout
             clients={filtered}
             selectedId={selectedPrepId}
@@ -371,11 +401,10 @@ export default function Attendance() {
             findTherapist={id => findT(id)}
           />
         ) : (
-          <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>
-            <div className="spinner mx-auto mb-3" /> Loading clients…
-          </div>
+          <div className="attendance-page-loading"><div className="spinner" /></div>
         )}
       </div>
+      </section>
 
       {/* Picker modal */}
       {logFor === "__pick__" && (

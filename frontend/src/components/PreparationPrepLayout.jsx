@@ -57,8 +57,12 @@ export default function PreparationPrepLayout({
 
   if (!clients.length) {
     return (
-      <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>
-        No clients match your search.
+      <div className="attendance-page-empty">
+        <div className="attendance-page-empty-icon">
+          <ClipboardText size={28} weight="duotone" />
+        </div>
+        <h3 className="attendance-page-empty-title">No clients match your search</h3>
+        <p className="attendance-page-empty-text">Try clearing filters or adjusting your search terms.</p>
       </div>
     );
   }

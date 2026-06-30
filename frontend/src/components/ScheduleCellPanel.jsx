@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, FloppyDisk, BellRinging, WhatsappLogo } from "@phosphor-icons/react";
+import { X, FloppyDisk, BellRinging, WhatsappLogo, PencilSimple } from "@phosphor-icons/react";
 import { DAYS_EN, SERVICE_CODES } from "../api";
 import { DURATION_OPTIONS, getTherapistScheduleName } from "../scheduleConstants";
 import { SERVICE_CELL_COLORS, resolveClientScheduleColor, findClientForScheduleCell, scheduleCellDisplayLabel, buildDefaultCellNote, shouldAutoUpdateCellNote } from "../scheduleUtils";
@@ -148,20 +148,19 @@ export default function ScheduleCellPanel({
         style={{ background: "#FFFFFF", borderLeft: "1px solid #EDE9E3" }}
       >
         <div className="px-5 pt-5 pb-4 border-b flex-shrink-0 schedule-cell-panel__header">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <h2 className="font-bold text-lg leading-tight" style={{ color: "#1C2617" }}>
-                {form.id ? "Edit Session" : "Add Session"}
-              </h2>
-              <p className="text-xs mt-1" style={{ color: "#8B9E7A" }}>
-                {therapist?.name} · {DAYS_EN[form.day]} · {form.time_slot}
-              </p>
+          <div className="schedule-page-panel-head" style={{ marginBottom: "0.85rem" }}>
+            <div className="schedule-page-hero-icon" style={{ width: 40, height: 40, borderRadius: 10 }}>
+              <PencilSimple size={20} weight="duotone" />
             </div>
-            <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-white transition" style={{ color: "#9CA3AF" }}>
+            <div className="min-w-0 flex-1">
+              <h2>{form.id ? "Edit Session" : "Add Session"}</h2>
+              <p>{therapist?.name} · {DAYS_EN[form.day]} · {form.time_slot}</p>
+            </div>
+            <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-white transition shrink-0" style={{ color: "#9CA3AF" }} aria-label="Close panel">
               <X size={22} weight="bold" />
             </button>
           </div>
-          <div className="mt-3 flex items-center gap-2">
+          <div className="flex items-center gap-2">
             <div className="w-10 h-10 rounded-lg border flex-shrink-0" style={{ background: previewColor, borderColor: "#DDD8D0" }} />
             <div className="text-xs flex items-center gap-1.5 min-w-0" style={{ color: "#5C6853" }}>
               {form.child_name && clientColor && <ClientColorDot color={clientColor} size={10} />}
