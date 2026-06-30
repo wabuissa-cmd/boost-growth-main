@@ -5,6 +5,7 @@ import {
   getCellStyle, MERGE_QUICK, scheduleCellDisplayLabel, buildScheduleCellPayload,
   SERVICE_CELL_COLORS, buildSlotRange, isSlotSelectable, slotIndex, clampMergeSlotCount, clampMergeDuration,
   findCellAt, isHiddenFromSchedule, scheduleDisplaySpan, scheduleCoveredSlotKeys,
+  scheduleCellSlotKey,
   resolveSelfTherapist, findClientForScheduleCell, isScheduleClientLogCell, scheduleCellChildName,
   canSpecialistLogScheduleCell,
 } from "../scheduleUtils";
@@ -348,7 +349,7 @@ export default function Schedule() {
     setScheduleError(null);
     try {
       const [c, t, cl, lv, sess] = await Promise.all([
-        cachedGet("/schedule", { params: { week_start: weekStartISO }, force }),
+        cachedGet("/schedule", { params: { week_start: weekStartISO }, force: true }),
         cachedGet("/therapists", { force }).catch(() => []),
         cachedGet("/clients", { force }).catch(() => []),
         cachedGet("/leaves", { params: { year: yr }, force }).catch(() => []),
@@ -503,7 +504,7 @@ export default function Schedule() {
 
   const cellMap = useMemo(() => {
     const m = {};
-    cells.forEach(c => { m[`${c.therapist_id}_${c.day}_${c.time_slot}`] = c; });
+    cells.forEach(c => { m[scheduleCellSlotKey(c.therapist_id, c.day, c.time_slot)] = c; });
     return m;
   }, [cells]);
 
@@ -752,7 +753,7 @@ export default function Schedule() {
 
   const pasteAt = async (therapist_id, day, time_slot) => {
     if (!clipboard) return;
-    if (cellMap[`${therapist_id}_${day}_${time_slot}`]) {
+    if (cellMap[scheduleCellSlotKey(therapist_id, day, time_slot)]) {
       alert("This slot is occupied");
       return;
     }
@@ -1190,8 +1191,8 @@ export default function Schedule() {
                       onTouchEnd={onCellTouchEnd}
                     />
                   ) : TIME_SLOTS.map(ts => {
-                    const cell = cellMap[`${t.id}_${di}_${ts}`];
-                    const covered = coveredSet.has(`${t.id}_${di}_${ts}`);
+                    const cell = findCellAt(t.id, di, ts, cellMap, cells);
+                    const covered = coveredSet.has(scheduleCellSlotKey(t.id, di, ts));
                     if (covered) return null;
                     const sc = SERVICE_CODES.find(s => s.id === cell?.service_code);
                     const colSpan = scheduleDisplaySpan(cell);
@@ -1290,8 +1291,8 @@ export default function Schedule() {
                     onTouchEnd={onCellTouchEnd}
                   />
                 ) : TIME_SLOTS.map(ts => {
-                  const cell = cellMap[`${therapist.id}_${di}_${ts}`];
-                  const isCovered = coveredSet.has(`${therapist.id}_${di}_${ts}`);
+                  const cell = findCellAt(therapist.id, di, ts, cellMap, cells);
+                  const isCovered = coveredSet.has(scheduleCellSlotKey(therapist.id, di, ts));
                   if (isCovered) return null;
                   const sc = SERVICE_CODES.find(s => s.id === cell?.service_code);
                   const colSpan = scheduleDisplaySpan(cell);

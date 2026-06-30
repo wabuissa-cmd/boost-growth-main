@@ -2,6 +2,17 @@ import { getChildColor, readable } from "./childColors";
 import { TIME_SLOTS } from "./api";
 import { MAX_SCHEDULE_MERGE_SLOTS } from "./scheduleConstants";
 
+/** Normalize schedule day index (API may return number or string). */
+export function scheduleSlotDay(day) {
+  const n = Number(day);
+  return Number.isFinite(n) ? n : day;
+}
+
+/** Stable lookup key for therapist + day + time slot. */
+export function scheduleCellSlotKey(therapistId, day, timeSlot) {
+  return `${therapistId}_${scheduleSlotDay(day)}_${(timeSlot || "").trim()}`;
+}
+
 /** Slots covered horizontally (supports 1.5h, 2.5h, …). */
 export function durationSlotSpan(dur) {
   const d = parseFloat(dur) || 1;
@@ -20,14 +31,14 @@ export function scheduleDisplaySpan(cell) {
 /** Slot keys hidden because another cell spans over them. */
 export function scheduleCoveredSlotKeys(cell) {
   if (!cell) return [];
-  const startIdx = TIME_SLOTS.indexOf(cell.time_slot);
+  const startIdx = TIME_SLOTS.indexOf((cell.time_slot || "").trim());
   if (startIdx < 0) return [];
   const span = scheduleDisplaySpan(cell);
   const keys = [];
   for (let k = 1; k < span; k++) {
     const idx = startIdx + k;
     if (idx < TIME_SLOTS.length) {
-      keys.push(`${cell.therapist_id}_${cell.day}_${TIME_SLOTS[idx]}`);
+      keys.push(scheduleCellSlotKey(cell.therapist_id, cell.day, TIME_SLOTS[idx]));
     }
   }
   return keys;
@@ -142,7 +153,7 @@ export function clampMergeDuration(dur) {
 }
 
 export function isSlotSelectable(therapistId, day, timeSlot, cellMap, coveredSet) {
-  const key = `${therapistId}_${day}_${timeSlot}`;
+  const key = scheduleCellSlotKey(therapistId, day, timeSlot);
   if (coveredSet.has(key)) return false;
   if (cellMap[key]) return false;
   return true;
@@ -386,13 +397,15 @@ export function buildScheduleCellPayload(cell, weekStartISO, overrides = {}) {
 }
 
 export function findCellAt(therapistId, day, timeSlot, cellMap, cells) {
-  const key = `${therapistId}_${day}_${timeSlot}`;
+  const normDay = scheduleSlotDay(day);
+  const slot = (timeSlot || "").trim();
+  const key = scheduleCellSlotKey(therapistId, normDay, slot);
   if (cellMap[key]) return cellMap[key];
-  const idx = slotIndex(timeSlot, TIME_SLOTS);
+  const idx = slotIndex(slot, TIME_SLOTS);
   if (idx < 0) return null;
   return cells.find(c => {
-    if (c.therapist_id !== therapistId || c.day !== day) return false;
-    const start = slotIndex(c.time_slot, TIME_SLOTS);
+    if (c.therapist_id !== therapistId || scheduleSlotDay(c.day) !== normDay) return false;
+    const start = slotIndex((c.time_slot || "").trim(), TIME_SLOTS);
     if (start < 0) return false;
     const dur = parseFloat(c.duration) || 1;
     return start <= idx && start + dur > idx;
