@@ -4,7 +4,7 @@ import api, { formatErr } from "../api";
 import { useAuth } from "../auth";
 import {
   CheckCircle, XCircle, ArrowCounterClockwise, ArrowLeft, ArrowRight,
-  GraduationCap, Clock, Target, User, Certificate,
+  GraduationCap, Clock, Target, User, Certificate, House,
 } from "@phosphor-icons/react";
 
 const LOGO_SRC = `${process.env.PUBLIC_URL || ""}/brand-assets/boost-growth-logo.png`.replace(/\/\//g, "/");
@@ -75,6 +75,14 @@ export default function CenterTest() {
       setStudentName(raw);
     }
   }, [fromPortal, user, studentName]);
+
+  const retakeQuiz = () => {
+    setStep("quiz");
+    setCurrentIdx(0);
+    setAnswers({});
+    setResult(null);
+    setError("");
+  };
 
   const resetTest = () => {
     setStep("name");
@@ -347,17 +355,20 @@ export default function CenterTest() {
                   </span>
                 </p>
                 <p className="center-test-fail-note">
-                  You may retake the assessment when you are ready.
-                  Answer review unlocks in <strong>My Learning</strong> once you reach {threshold}% or higher.
+                  You may retake when you are ready, or return to the portal and try again later.
+                  Correct answers appear in <strong>My Learning</strong> only on attempts where you score {threshold}% or higher.
                 </p>
-                {fromPortal && (
-                  <Link to="/my-learning" className="btn btn-secondary center-test-btn mt-2">
-                    <GraduationCap size={18} weight="duotone" /> Back to My Learning
+                <div className="center-test-fail-actions">
+                  <button type="button" className="btn btn-primary center-test-nav-btn" onClick={retakeQuiz}>
+                    <ArrowCounterClockwise size={20} weight="bold" /> Retake assessment
+                  </button>
+                  <Link
+                    to={fromPortal ? "/home" : "/login"}
+                    className="btn btn-secondary center-test-nav-btn"
+                  >
+                    <House size={18} weight="duotone" /> Return to site
                   </Link>
-                )}
-                <button type="button" className="btn btn-primary center-test-btn center-test-btn-primary mt-2" onClick={resetTest}>
-                  <ArrowCounterClockwise size={20} weight="bold" /> Retake assessment
-                </button>
+                </div>
               </>
             )}
           </div>

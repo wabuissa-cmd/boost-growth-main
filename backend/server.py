@@ -12393,7 +12393,7 @@ async def _attempts_for_user(user: dict) -> List[dict]:
 
 
 def _prepare_learning_attempts(attempts: List[dict]) -> List[dict]:
-    """Hide answer keys until the trainee passes; number attempts chronologically per test."""
+    """Number attempts per test; only passed attempts (80%+) include correct answer keys."""
     by_test: Dict[str, List[dict]] = {}
     for a in attempts:
         tid = a.get("test_id") or "default"
@@ -12401,14 +12401,25 @@ def _prepare_learning_attempts(attempts: List[dict]) -> List[dict]:
 
     prepared: List[dict] = []
     for _tid, group in by_test.items():
-        has_passed = any(a.get("passed") for a in group)
         chronological = sorted(group, key=lambda x: x.get("created_at") or "")
         for idx, a in enumerate(chronological, 1):
             row = dict(a)
             row["attempt_number"] = idx
-            row["answers_unlocked"] = has_passed
-            if not has_passed:
-                row["answers"] = []
+            passed = bool(a.get("passed"))
+            row["answers_unlocked"] = passed
+            if passed:
+                row["answers"] = list(a.get("answers") or [])
+            else:
+                row["answers"] = [
+                    {
+                        "question_id": ans.get("question_id"),
+                        "question_text": ans.get("question_text"),
+                        "selected": ans.get("selected"),
+                        "selected_text": ans.get("selected_text"),
+                        "is_correct": ans.get("is_correct"),
+                    }
+                    for ans in (a.get("answers") or [])
+                ]
             prepared.append(row)
     prepared.sort(key=lambda x: x.get("created_at") or "", reverse=True)
     return prepared

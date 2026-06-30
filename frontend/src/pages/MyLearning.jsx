@@ -28,9 +28,10 @@ function StepPill({ n, label, active, done }) {
 
 function AttemptCard({ attempt, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
-  const unlocked = attempt.answers_unlocked !== false;
-  const correct = attempt.score ?? (attempt.answers || []).filter((a) => a.is_correct).length;
-  const total = attempt.total ?? (attempt.answers || []).length;
+  const passed = Boolean(attempt.passed);
+  const answers = attempt.answers || [];
+  const correct = attempt.score ?? answers.filter((a) => a.is_correct).length;
+  const total = attempt.total ?? answers.length;
   const wrong = Math.max(0, total - correct);
 
   return (
@@ -44,10 +45,10 @@ function AttemptCard({ attempt, defaultOpen = false }) {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className={`my-learning-score-pill${attempt.passed ? " pass" : " fail"}`}>
+          <span className={`my-learning-score-pill${passed ? " pass" : " fail"}`}>
             {attempt.percentage}%
           </span>
-          {attempt.passed ? (
+          {passed ? (
             <CheckCircle size={18} weight="fill" className="text-green-700" />
           ) : (
             <XCircle size={18} weight="fill" className="text-amber-600" />
@@ -57,30 +58,26 @@ function AttemptCard({ attempt, defaultOpen = false }) {
       </button>
       {open && (
         <div className="my-learning-attempt-body">
-          {!unlocked ? (
-            <div className="my-learning-locked-note">
-              <LockKey size={20} weight="duotone" />
-              <p>
-                Answer review is locked until you pass this assessment (80% or higher).
-                <span className="block mt-1">Retake the test — once you pass, all your attempts and correct answers will appear here.</span>
-              </p>
+          {!passed && (
+            <div className="my-learning-locked-note my-learning-locked-note--inline">
+              <LockKey size={18} weight="duotone" />
+              <p>Correct answers are hidden for this attempt so retakes stay fair.</p>
             </div>
-          ) : (
-            (attempt.answers || []).map((a, i) => (
-              <div
-                key={`${attempt.id}-a-${i}`}
-                className={`my-learning-answer${a.is_correct ? " correct" : " wrong"}`}
-              >
-                <div className="font-medium text-sm mb-1">Q{i + 1}. {a.question_text}</div>
-                <div className="text-sm">
-                  Your answer: <strong>{a.selected_text || "—"}</strong>
-                  {!a.is_correct && (
-                    <span className="block mt-1 text-green-800">Correct: {a.correct_text}</span>
-                  )}
-                </div>
-              </div>
-            ))
           )}
+          {answers.map((a, i) => (
+            <div
+              key={`${attempt.id}-a-${i}`}
+              className={`my-learning-answer${a.is_correct ? " correct" : " wrong"}`}
+            >
+              <div className="font-medium text-sm mb-1">Q{i + 1}. {a.question_text}</div>
+              <div className="text-sm">
+                Your answer: <strong>{a.selected_text || "—"}</strong>
+                {passed && !a.is_correct && a.correct_text && (
+                  <span className="block mt-1 text-green-800">Correct: {a.correct_text}</span>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
