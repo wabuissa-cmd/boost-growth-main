@@ -149,13 +149,43 @@ async def _find_therapist_by_email(email: str) -> Optional[dict]:
     return scored[0][2]
 
 
+# Old/simple emails → canonical work email (login accepts either form).
+THERAPIST_LOGIN_EMAIL_ALIASES: Dict[str, str] = {
+    "maha@boostgrowthsa.com": "msalthunayan@boostgrowthsa.com",
+    "fahda@boostgrowthsa.com": "falghadeeb@boostgrowthsa.com",
+    "fahdah@boostgrowthsa.com": "falghadeeb@boostgrowthsa.com",
+    "jenan@boostgrowthsa.com": "jsalmuhaisin@boostgrowthsa.com",
+    "genan@boostgrowthsa.com": "jsalmuhaisin@boostgrowthsa.com",
+    "razan@boostgrowthsa.com": "ralshatery@boostgrowthsa.com",
+    "ralshatri@boostgrowthsa.com": "ralshatery@boostgrowthsa.com",
+    "shatha@boostgrowthsa.com": "shalhammami@boostgrowthsa.com",
+    "salhammamy@boostgrowthsa.com": "shalhammami@boostgrowthsa.com",
+    "manal@boostgrowthsa.com": "maldosery@boostgrowthsa.com",
+    "hajer@boostgrowthsa.com": "halfulaij@boostgrowthsa.com",
+    "hajar@boostgrowthsa.com": "halfulaij@boostgrowthsa.com",
+}
+
+
 def _login_email_variants(email: str) -> List[str]:
-    """All login emails that should resolve to the same Walaa ops account."""
+    """All login emails that should resolve to the same account."""
     email_l = email.lower().strip()
     variants = [email_l]
+    alias = THERAPIST_LOGIN_EMAIL_ALIASES.get(email_l)
+    if alias:
+        variants.append(alias)
+    for old, new in THERAPIST_LOGIN_EMAIL_ALIASES.items():
+        if new == email_l:
+            variants.append(old)
     if email_l in WALAA_LOGIN_EMAILS:
         variants.extend(sorted(WALAA_LOGIN_EMAILS))
     return list(dict.fromkeys(variants))
+
+
+def _is_client_lead_login_email(email: str) -> bool:
+    for em in _login_email_variants(email):
+        if em in CLIENT_LEAD_EMAILS:
+            return True
+    return False
 
 
 async def _find_user_by_login_email(email: str) -> Optional[dict]:
@@ -1121,9 +1151,9 @@ async def therapist_email_login(payload: TherapistEmailLogin, response: Response
     """Login a therapist using their email + password (new flow). PIN flow remains available."""
     email = payload.email.lower().strip()
     # Ops / supervisors / HR should use the Admin & Supervisor login entry
-    if email in CLIENT_LEAD_EMAILS or email == HR_OPS_EMAIL:
+    if _is_client_lead_login_email(email) or email == HR_OPS_EMAIL:
         raise HTTPException(status_code=403, detail="Please use Admin / Supervisor login for this account")
-    t = await _find_therapist_by_email(email)
+    t = await _find_therapist_by_login_email(email)
     if not t or not t.get("password_hash") or not verify_password(payload.password, t["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     token = create_token({"sub": t["id"], "role": "therapist", "name": t["name"]})

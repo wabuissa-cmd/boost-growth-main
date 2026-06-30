@@ -85,6 +85,9 @@ function TherapistForm({ tEmail, setTEmail, tPassword, setTPassword, err, loadin
       <button type="button" onClick={onBack} className="text-sm hover:underline mb-3 min-h-[44px]" style={{ color: "#5C6853" }}>← Back</button>
       <h2 className="font-display text-xl md:text-2xl mb-1" style={{ color: "#2C3625" }}>Therapist Login</h2>
       <div className="text-sm mb-5" style={{ color: "#5C6853" }}>Sign in with your work email and password</div>
+      <p className="text-xs mb-4 rounded-lg px-3 py-2" style={{ background: "#F5F0E6", color: "#5C6853" }}>
+        Supervisors (Maha, Fahda, Jenan): use <strong>Admin / Supervisor</strong> login instead.
+      </p>
       <label className="label">Email</label>
       <input data-testid="therapist-email-input" className="input mb-3 min-h-[44px] text-base md:text-sm" type="email" required autoFocus
         placeholder="yourname@boostgrowthsa.com" value={tEmail} onChange={e => setTEmail(e.target.value)} />
