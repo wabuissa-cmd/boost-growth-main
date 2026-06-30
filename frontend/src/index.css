@@ -1726,3 +1726,193 @@ textarea.modal-input {
 .modal-input-error {
     border-color: #FCA5A5;
 }
+
+/* Center training test (public /center-test) */
+.center-test-page {
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: var(--bg-base);
+    display: flex;
+    flex-direction: column;
+}
+.center-test-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem 1.25rem;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-light);
+    box-shadow: 0 1px 0 rgba(47, 74, 53, 0.06);
+}
+.center-test-logo {
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+}
+.center-test-brand {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--brand-dark);
+}
+.center-test-sub {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+}
+.center-test-main {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    padding: 1.5rem 1rem 2.5rem;
+}
+.center-test-card {
+    width: 100%;
+    max-width: 640px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-card);
+    padding: 1.75rem 1.5rem;
+    box-shadow: 0 8px 32px rgba(47, 74, 53, 0.08);
+}
+.center-test-loading {
+    text-align: center;
+    padding: 3rem 1.5rem;
+}
+.center-test-badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    padding: 0.35rem 0.75rem;
+    border-radius: var(--radius-pill);
+    background: var(--brand-light);
+    color: var(--brand-dark);
+    margin-bottom: 0.75rem;
+}
+.center-test-title {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    color: var(--brand-dark);
+    margin: 0 0 0.5rem;
+}
+.center-test-topic, .center-test-instructor {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin: 0.25rem 0;
+    white-space: pre-line;
+}
+.center-test-hint {
+    margin: 1rem 0 1.25rem;
+    padding: 0.75rem 1rem;
+    background: var(--bg-warm);
+    border-radius: 0.75rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+.center-test-name-form .label { display: block; margin-bottom: 0.35rem; }
+.center-test-btn { width: 100%; margin-top: 1rem; min-height: 48px; }
+.center-test-inline-error, .center-test-error {
+    color: #b91c1c;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 0.75rem;
+    padding: 0.65rem 0.85rem;
+    font-size: 0.875rem;
+    margin-top: 0.75rem;
+}
+.center-test-progress {
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+.center-test-progress-bar {
+    height: 6px;
+    background: var(--border-light);
+    border-radius: 999px;
+    margin-top: 0.5rem;
+    overflow: hidden;
+}
+.center-test-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--brand) 0%, var(--brand-dark) 100%);
+    border-radius: 999px;
+    transition: width 0.25s ease;
+}
+.center-test-student {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 0.75rem;
+}
+.center-test-question {
+    font-size: 1.05rem;
+    line-height: 1.6;
+    color: var(--text-primary);
+    margin: 0 0 1.25rem;
+    white-space: pre-line;
+}
+.center-test-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+.center-test-choice {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    text-align: left;
+    width: 100%;
+    padding: 0.85rem 1rem;
+    border: 1.5px solid var(--border-default);
+    border-radius: 0.85rem;
+    background: var(--bg-warm);
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    font: inherit;
+    color: var(--text-primary);
+}
+.center-test-choice:hover {
+    border-color: var(--brand-sage);
+}
+.center-test-choice.selected {
+    border-color: var(--brand);
+    background: var(--brand-light);
+}
+.center-test-choice-id {
+    flex-shrink: 0;
+    width: 1.75rem;
+    height: 1.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--bg-surface);
+    font-weight: 700;
+    font-size: 0.75rem;
+    color: var(--brand-dark);
+}
+.center-test-nav {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+}
+.center-test-result {
+    text-align: center;
+}
+.center-test-icon.pass { color: #16a34a; }
+.center-test-icon.fail { color: #d97706; }
+.center-test-score {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--brand-dark);
+    margin: 0.5rem 0;
+}
+.center-test-result-detail {
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+}
+.center-test-success-note {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+}

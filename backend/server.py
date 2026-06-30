@@ -11829,6 +11829,7 @@ async def _run_startup():
         await db.clients.create_index("id")
         await db.clients.create_index([("deleted", 1), ("file_no", 1)])
         await db.invoices.create_index([("client_id", 1), ("start_date", -1)])
+        await db.center_test_attempts.create_index("created_at")
 
         admin_email = os.environ["ADMIN_EMAIL"].lower()
         admin_password = os.environ["ADMIN_PASSWORD"]
@@ -12159,6 +12160,107 @@ async def _run_startup():
 async def startup():
     asyncio.create_task(_run_startup())
     logger.info("API ready; database init running in background")
+
+
+# ------------------- Center training test (public quiz + admin results) -------------------
+import json as _json
+
+_CENTER_TEST_PATH = ROOT_DIR / "center_test_questions.json"
+_center_test_cache: Optional[dict] = None
+
+
+def _load_center_test_data() -> dict:
+    global _center_test_cache
+    if _center_test_cache is None:
+        if not _CENTER_TEST_PATH.is_file():
+            raise HTTPException(status_code=500, detail="Test questions file missing")
+        _center_test_cache = _json.loads(_CENTER_TEST_PATH.read_text(encoding="utf-8"))
+    return _center_test_cache
+
+
+class CenterTestSubmitIn(BaseModel):
+    student_name: str
+    answers: Dict[str, str]
+
+
+@api.get("/center-test/questions")
+async def get_center_test_questions():
+    data = _load_center_test_data()
+    public_questions = []
+    for q in data.get("questions", []):
+        public_questions.append({
+            "id": q["id"],
+            "text": q["text"],
+            "choices": q["choices"],
+        })
+    return {
+        "passThreshold": data.get("passThreshold", 70),
+        "title": data.get("title", ""),
+        "courseTopic": data.get("courseTopic", ""),
+        "instructor": data.get("instructor", ""),
+        "questions": public_questions,
+    }
+
+
+@api.post("/center-test/attempts")
+async def submit_center_test_attempt(payload: CenterTestSubmitIn):
+    name = (payload.student_name or "").strip()
+    if len(name) < 3:
+        raise HTTPException(status_code=400, detail="Please enter your full name")
+    data = _load_center_test_data()
+    questions = data.get("questions", [])
+    if not questions:
+        raise HTTPException(status_code=500, detail="No questions configured")
+    threshold = int(data.get("passThreshold", 70))
+    answer_rows = []
+    correct_count = 0
+    for q in questions:
+        qid = q["id"]
+        selected = (payload.answers.get(qid) or "").strip().lower()
+        correct = (q.get("correct") or "").strip().lower()
+        is_correct = bool(selected) and selected == correct
+        if is_correct:
+            correct_count += 1
+        selected_label = ""
+        correct_label = ""
+        for ch in q.get("choices", []):
+            if ch["id"] == selected:
+                selected_label = ch.get("text", "")
+            if ch["id"] == correct:
+                correct_label = ch.get("text", "")
+        answer_rows.append({
+            "question_id": qid,
+            "question_text": q.get("text", ""),
+            "selected": selected,
+            "selected_text": selected_label,
+            "correct": correct,
+            "correct_text": correct_label,
+            "is_correct": is_correct,
+        })
+    total = len(questions)
+    percentage = round((correct_count / total) * 100) if total else 0
+    passed = percentage >= threshold
+    doc = {
+        "id": str(uuid.uuid4()),
+        "student_name": name,
+        "answers": answer_rows,
+        "score": correct_count,
+        "total": total,
+        "percentage": percentage,
+        "passed": passed,
+        "pass_threshold": threshold,
+        "test_title": data.get("title", ""),
+        "created_at": now_iso(),
+    }
+    await db.center_test_attempts.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.get("/center-test/attempts")
+async def list_center_test_attempts(_=Depends(manager_reports_access)):
+    rows = await db.center_test_attempts.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    return rows
 
 
 app.include_router(api)

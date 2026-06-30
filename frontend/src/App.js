@@ -29,6 +29,8 @@ const ManagerHub = lazy(() => import("./pages/ManagerHub"));
 const Purchases = lazy(() => import("./pages/Purchases"));
 const SupervisionCaseload = lazy(() => import("./pages/SupervisionCaseload"));
 const DesignPreview = lazy(() => import("./pages/DesignPreview"));
+const CenterTest = lazy(() => import("./pages/CenterTest"));
+const AdminCenterTests = lazy(() => import("./pages/AdminCenterTests"));
 
 function Loading() {
   return <div className="min-h-screen flex items-center justify-center bg-organic"><div className="spinner"/></div>;
@@ -110,6 +112,10 @@ function ReportsAccess({ children }) {
   return children;
 }
 
+function CenterTestsAdminAccess({ children }) {
+  return <ReportsAccess>{children}</ReportsAccess>;
+}
+
 function ManagerHubAccess({ children }) {
   const { user } = useAuth();
   if (user === null) return <Loading/>;
@@ -152,6 +158,11 @@ function AppRoutes() {
           <DesignPreview/>
         </Suspense>
       }/>
+      <Route path="/center-test" element={
+        <Suspense fallback={<Loading/>}>
+          <CenterTest/>
+        </Suspense>
+      }/>
       <Route element={<Protected><Shell/></Protected>}>
         <Route path="/" element={<Navigate to="/home" replace/>}/>
         <Route path="/home" element={<Home/>}/>
@@ -172,6 +183,7 @@ function AppRoutes() {
         <Route path="/resources" element={<Resources/>}/>
         <Route path="/manager" element={<ManagerHubAccess><ManagerHub/></ManagerHubAccess>}/>
         <Route path="/reports" element={<ReportsAccess><Reports/></ReportsAccess>}/>
+        <Route path="/admin/center-tests" element={<CenterTestsAdminAccess><AdminCenterTests/></CenterTestsAdminAccess>}/>
         <Route path="/import" element={<ImportAccess><ImportPage/></ImportAccess>}/>
         <Route path="/admin" element={<SystemAdminOnly><Admin/></SystemAdminOnly>}/>
         <Route path="/leave-balance" element={<Navigate to="/staff-leave?tab=vacation" replace/>}/>
