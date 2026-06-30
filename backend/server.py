@@ -2622,6 +2622,37 @@ async def _email_hr_ops_urgent(subject: str, body: str) -> List[dict]:
     return results
 
 
+MANAGER_HR_NOTIFY_STATUSES = frozenset({"pending_hr", "pending_manager", "rejected"})
+
+
+async def _notify_hr_manager_decision(
+    *,
+    ntype: str,
+    therapist_name: str,
+    summary: str,
+    decision_status: str,
+    admin_note: Optional[str],
+):
+    """HR in-app + email when the direct manager saves any review outcome."""
+    decision_labels = {
+        "pending_hr": "Approve & forward to HR",
+        "pending_manager": "Pending manager review",
+        "rejected": "Rejected by manager",
+    }
+    decision_label = decision_labels.get(decision_status, decision_status)
+    hr_title = f"Manager review — {decision_label}"
+    hr_msg = f"{therapist_name or 'Staff'}: {summary}"
+    await _notify_hr_ops(ntype, hr_title, hr_msg)
+    hr_body = f"{hr_msg}\n\nManager decision: {decision_label}"
+    if admin_note:
+        hr_body += f"\n\nManager note: {admin_note}"
+    portal = _portal_base_url()
+    if portal:
+        hr_body += f"\n\nReview in portal: {portal}/requests"
+    hr_body += "\n\n— Boost Growth Portal"
+    await _email_hr_ops_urgent(hr_title, hr_body)
+
+
 async def _notify_request_submitted(title: str, message: str, *, email_subject: Optional[str] = None):
     """Jenan and HR both get in-app + urgent email when a therapist submits a request."""
     jenan_id = await _jenan_therapist_id()
@@ -8062,18 +8093,14 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
         "status": new_status, "admin_note": payload.admin_note,
         "updated_at": now_iso(), "timeline": timeline,
     }})
-    if new_status == "pending_hr" and effective_prev in MANAGER_ACTIVE_REQUEST_STATUSES:
-        hr_title = "Staff request awaiting HR approval"
-        hr_msg = f"{req.get('therapist_name') or 'Staff'}: {req.get('title') or 'Request'}"
-        await _notify_hr_ops("request", hr_title, hr_msg)
-        hr_body = hr_msg
-        if payload.admin_note:
-            hr_body += f"\n\nManager note: {payload.admin_note}"
-        portal = _portal_base_url()
-        if portal:
-            hr_body += f"\n\nReview in portal: {portal}/requests"
-        hr_body += "\n\n— Boost Growth Portal"
-        await _email_hr_ops_urgent(hr_title, hr_body)
+    if is_jenan_mgr and effective_prev in MANAGER_ACTIVE_REQUEST_STATUSES and new_status in MANAGER_HR_NOTIFY_STATUSES:
+        await _notify_hr_manager_decision(
+            ntype="request",
+            therapist_name=req.get("therapist_name") or "Staff",
+            summary=req.get("title") or "Request",
+            decision_status=new_status,
+            admin_note=payload.admin_note,
+        )
     status_map = {
         "pending": "Pending", "pending_manager": "Pending manager review",
         "pending_hr": "Pending HR review", "in_progress": "In Progress",
@@ -9171,22 +9198,19 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
         "is_paid": is_paid,
         "timeline": timeline,
     }})
-    if new_status == "pending_hr" and effective_prev in MANAGER_FORWARD_HR_LEAVE_SOURCES:
+    if is_jenan_mgr and effective_prev in MANAGER_FORWARD_HR_LEAVE_SOURCES and new_status in MANAGER_HR_NOTIFY_STATUSES:
         tname = leave.get("leave_type") or "Leave"
-        hr_title = "Leave awaiting HR approval"
-        hr_msg = (
-            f"{leave.get('therapist_name') or 'Therapist'}: {tname} {leave.get('days')}d "
+        summary = (
+            f"{tname} {leave.get('days')}d "
             f"({leave.get('start_date')} → {leave.get('end_date')})"
         )
-        await _notify_hr_ops("leave_request", hr_title, hr_msg)
-        hr_body = hr_msg
-        if payload.admin_note:
-            hr_body += f"\n\nManager note: {payload.admin_note}"
-        portal = _portal_base_url()
-        if portal:
-            hr_body += f"\n\nReview in portal: {portal}/requests"
-        hr_body += "\n\n— Boost Growth Portal"
-        await _email_hr_ops_urgent(hr_title, hr_body)
+        await _notify_hr_manager_decision(
+            ntype="leave_request",
+            therapist_name=leave.get("therapist_name") or "Therapist",
+            summary=summary,
+            decision_status=new_status,
+            admin_note=payload.admin_note,
+        )
     # Deduct balance when newly approved (skip unpaid / absence)
     if new_status == "approved" and prev_status != "approved" and leave.get("therapist_id"):
         lt = (leave.get("leave_type") or "").lower()

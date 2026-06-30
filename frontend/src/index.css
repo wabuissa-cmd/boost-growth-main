@@ -1303,27 +1303,60 @@ main, .page-enter { min-width: 0; }
 
 /* Print styles for Attendance invoice + Schedule */
 @media print {
-    @page { margin: 6mm; size: A4 portrait; }
+    @page { margin: 8mm; size: A4 portrait; }
+    html, body {
+        margin: 0 !important;
+        padding: 0 !important;
+        height: auto !important;
+        overflow: visible !important;
+        background: white !important;
+    }
+    body.printing-invoice #root {
+        display: none !important;
+    }
+    body.printing-invoice #invoice-print-portal {
+        display: block !important;
+        position: static !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
     body * { visibility: hidden; }
+    body.printing-invoice #invoice-print-portal,
+    body.printing-invoice #invoice-print-portal *,
+    body.printing-invoice .invoice-print-shell,
+    body.printing-invoice .invoice-print-shell *,
     .invoice-print-root, .invoice-print-root *,
     .printable, .printable *,
     .schedule-printable, .schedule-printable * { visibility: visible; }
     .modal-backdrop:not(.invoice-print-shell),
     .fixed.inset-0.no-print { display: none !important; }
-    .invoice-print-shell {
+    body.printing-invoice .invoice-print-shell {
         display: block !important;
         position: static !important;
+        visibility: visible !important;
         background: white !important;
+        box-shadow: none !important;
         min-height: 0 !important;
         padding: 0 !important;
+        margin: 0 !important;
+        width: 100% !important;
+        height: auto !important;
+        overflow: visible !important;
+        inset: auto !important;
         align-items: flex-start !important;
+        justify-content: flex-start !important;
+        flex: none !important;
+    }
+    .invoice-print-shell.modal-backdrop {
+        background: white !important;
     }
     .invoice-print-root,
     .printable,
     .schedule-printable {
-        position: absolute !important;
-        left: 0 !important;
-        top: 0 !important;
+        position: relative !important;
+        left: auto !important;
+        top: auto !important;
         width: 100% !important;
         max-width: none !important;
         max-height: none !important;
@@ -1336,6 +1369,17 @@ main, .page-enter { min-width: 0; }
         padding: 0 !important;
         page-break-before: avoid !important;
         page-break-after: avoid !important;
+        display: block !important;
+        flex: none !important;
+    }
+    .invoice-print-root > .flex-1,
+    .invoice-print-body {
+        overflow: visible !important;
+        max-height: none !important;
+        min-height: 0 !important;
+        height: auto !important;
+        flex: none !important;
+        display: block !important;
     }
     .schedule-printable {
         padding: 0 !important;

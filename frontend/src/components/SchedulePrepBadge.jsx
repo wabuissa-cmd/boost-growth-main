@@ -9,7 +9,7 @@ const VARIANTS = {
   no_show: {
     icon: XCircle,
     className: "schedule-status-badge--no-show",
-    title: "No Show / Cancelled — لم يحضر أو أُلغيت الجلسة",
+    title: "No Show — لم يحضر الطفل",
   },
   therapist_cancel: {
     icon: X,

@@ -29,18 +29,36 @@ const PENDING_HR_STATUS = "pending_hr";
 const MANAGER_APPROVE_KEY = "manager_approve";
 
 const MANAGER_REVIEW_STATUS_MAP = {
-  pending_manager: STATUS_MAP.pending_manager,
+  pending_manager: {
+    label: "Pending — notify HR",
+    cls: "bg-[#FAF0D1] text-[#6B5218] border-[#E6C983]",
+    icon: <Hourglass size={14} weight="duotone"/>,
+    color: "#E6C983",
+  },
   [MANAGER_APPROVE_KEY]: {
     label: "Approve & forward to HR",
     cls: "bg-[#E5EBE1] text-[#3D4F35] border-[#B4C2A9]",
     icon: <CheckCircle size={14} weight="duotone"/>,
     color: "#B4C2A9",
   },
-  rejected: STATUS_MAP.rejected,
+  rejected: {
+    label: "Reject — notify HR",
+    cls: "bg-[#F8EBE7] text-[#8A3F27] border-[#ECA6A6]",
+    icon: <XCircle size={14} weight="duotone"/>,
+    color: "#ECA6A6",
+  },
 };
 
 function isPendingManagerStatus(status) {
   return PENDING_MANAGER_STATUSES.has(status);
+}
+
+function isManagerReviewableItem(item) {
+  if (!item) return false;
+  if (item._queueKind === "leave") {
+    return isPendingManagerStatus(item.status) || item.status === "pending_attachment";
+  }
+  return isPendingManagerStatus(item.status) || item.status === "in_progress";
 }
 
 function managerReviewStatusOptions(currentStatus) {
@@ -259,7 +277,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
 
   const openManagerReview = (r) => {
     const keepStatus = isPendingManagerStatus(r.status) ? "pending_manager" : r.status;
-    setStatusEdit({ ...r, status: keepStatus });
+    setStatusEdit({ ...r, status: keepStatus, _managerReviewable: isManagerReviewableItem(r) });
   };
 
   const closeStatusModal = () => {
@@ -270,6 +288,10 @@ export default function Requests({ personal = false, embedded = false, managerVi
     if (!statusEdit) return;
     if (queueItemAwaitingAttachment(statusEdit)) {
       alert("This request is awaiting an attachment from the therapist and cannot be reviewed yet.");
+      return;
+    }
+    if (isManager && statusEdit._managerReviewable && !(statusEdit.admin_note || "").trim()) {
+      alert("Please add a manager note before sending to HR.");
       return;
     }
     if (statusEdit._queueKind === "leave") {
@@ -883,15 +905,11 @@ export default function Requests({ personal = false, embedded = false, managerVi
           onClose={closeStatusModal}
           size="md"
           footer={
-            managerView && isManager && (
-              statusEdit._queueKind === "leave"
-                ? isPendingManagerStatus(statusEdit.status)
-                : (isPendingManagerStatus(statusEdit.status) || statusEdit.status === "in_progress")
-            ) ? (
+            managerView && isManager && statusEdit._managerReviewable && !queueItemAwaitingAttachment(statusEdit) ? (
               <>
                 <ModalBtnSecondary type="button" onClick={closeStatusModal}>Cancel</ModalBtnSecondary>
                 <ModalBtnPrimary data-testid="status-save-btn" type="button" onClick={handleManagerStatusSave}>
-                  Save & submit
+                  Save & send to HR
                 </ModalBtnPrimary>
               </>
             ) : (
@@ -910,7 +928,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
               )}
               {managerView && (
                 <p className="text-sm -mt-2 mb-2" style={{ color: "#5C6853" }}>
-                  Request details are read-only. Choose Pending, Approve & forward to HR, or Reject — add an optional note, then Save & submit. Approve always sends the request to HR.
+                  Request details are read-only. Choose a status, add your manager note, then Save & send to HR. HR is notified for all three outcomes (pending, approve, or reject).
                 </p>
               )}
               {queueItemAwaitingAttachment(statusEdit) && (
@@ -1043,15 +1061,13 @@ export default function Requests({ personal = false, embedded = false, managerVi
                 )}
               </FormSection>
 
-              {(!managerView || (isManager && (
-                statusEdit._queueKind === "leave"
-                  ? isPendingManagerStatus(statusEdit.status)
-                  : (isPendingManagerStatus(statusEdit.status) || statusEdit.status === "in_progress")
-              ))) && !queueItemAwaitingAttachment(statusEdit) && (
+              {(!managerView || (isManager && statusEdit._managerReviewable)) && !queueItemAwaitingAttachment(statusEdit) && (
                 <FormSection title="Status">
                   <div className="grid grid-cols-1 gap-2">
                     {(managerView && isManager
-                      ? managerReviewStatusOptions(statusEdit.status)
+                      ? managerReviewStatusOptions(
+                          isPendingManagerStatus(statusEdit.status) ? "pending_manager" : statusEdit.status
+                        )
                       : allowedStatusOptions(user, statusEdit.status)
                     ).map(k => {
                       const v = MANAGER_REVIEW_STATUS_MAP[k] || STATUS_MAP[k] || STATUS_MAP.pending;
@@ -1067,26 +1083,30 @@ export default function Requests({ personal = false, embedded = false, managerVi
                       );
                     })}
                   </div>
-                  <FormField label={managerView ? "Manager note" : "Response / note"} hint="Optional">
+                  <FormField
+                    label={managerView ? "Manager note" : "Response / note"}
+                    hint={managerView && isManager ? "Required — reason for HR" : "Optional"}
+                    required={managerView && isManager && statusEdit._managerReviewable}
+                  >
                     <textarea
                       className="modal-input"
                       rows={3}
                       value={statusEdit.admin_note || ""}
                       onChange={e => setStatusEdit({ ...statusEdit, admin_note: e.target.value })}
-                      readOnly={managerView && statusEdit._queueKind !== "leave" && !isPendingManagerStatus(statusEdit.status) && statusEdit.status !== "in_progress"}
+                      placeholder={managerView && isManager ? "Write the reason for your decision…" : ""}
                     />
                   </FormField>
 
                 </FormSection>
               )}
 
-              {managerView && isManager && statusEdit._queueKind !== "leave" && !isPendingManagerStatus(statusEdit.status) && statusEdit.status !== "in_progress" && (
+              {managerView && isManager && !statusEdit._managerReviewable && statusEdit._queueKind !== "leave" && (
                 <div className="text-sm rounded-xl p-3" style={{ background: "#FAF0D1", color: "#6B5218" }}>
                   This request has been forwarded to HR. Further status changes are handled by HR.
                 </div>
               )}
 
-              {managerView && isManager && statusEdit._queueKind === "leave" && statusEdit.status === "pending_hr" && (
+              {managerView && isManager && !statusEdit._managerReviewable && statusEdit._queueKind === "leave" && statusEdit.status === "pending_hr" && (
                 <div className="text-sm rounded-xl p-3" style={{ background: "#FAF0D1", color: "#6B5218" }}>
                   This leave request has been forwarded to HR. Further status changes are handled by HR.
                 </div>

@@ -41,7 +41,51 @@ import { cachedGet, peekCache } from "../dataCache";
 const EXPORT_COLS_KEY = "bg_export_columns";
 const INVOICE_SEAL_KEY = "bg_invoice_pdf_seal";
 /** Placeholder path — upload seal to frontend/public/brand-assets/company-seal.png */
-const COMPANY_SEAL_SRC = "/brand-assets/company-seal.png";
+const COMPANY_SEAL_SRC = `${process.env.PUBLIC_URL || ""}/brand-assets/company-seal.png`.replace(/\/\//g, "/");
+
+function triggerInvoicePrint() {
+  const shell = document.querySelector(".invoice-print-shell");
+  if (!shell) {
+    window.print();
+    return;
+  }
+
+  document.body.classList.add("printing-invoice");
+
+  const portalId = "invoice-print-portal";
+  let portal = document.getElementById(portalId);
+  let placeholder = null;
+  let moved = false;
+
+  if (!portal) {
+    portal = document.createElement("div");
+    portal.id = portalId;
+    document.body.appendChild(portal);
+  }
+
+  if (shell.parentElement !== portal) {
+    placeholder = document.createComment("invoice-print-placeholder");
+    shell.parentNode.insertBefore(placeholder, shell);
+    portal.appendChild(shell);
+    moved = true;
+  }
+
+  const cleanup = () => {
+    document.body.classList.remove("printing-invoice");
+    if (moved && placeholder?.parentNode) {
+      placeholder.parentNode.insertBefore(shell, placeholder);
+      placeholder.remove();
+    }
+    if (portal && portal.childElementCount === 0) {
+      portal.remove();
+    }
+  };
+
+  window.addEventListener("afterprint", cleanup, { once: true });
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => window.print());
+  });
+}
 
 const SUPERVISOR_CLIENTS = {
   msMaha: ["035", "037", "038", "040", "041", "042", "047", "052", "054", "060", "063", "065", "070"],
@@ -1626,7 +1670,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto bg-white min-h-0">
+        <div className="flex-1 overflow-y-auto bg-white min-h-0 invoice-print-body">
           {/* Logo + Title */}
           <div className="px-4 pt-3 pb-2 flex items-center justify-between border-b-2 relative invoice-print-header" style={{borderColor: "#7A8A6A"}}>
             {pdfSeal?.includeSeal && sealImageOk && (
@@ -1639,7 +1683,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
             )}
             <div className="flex items-center gap-2">
               <div className="w-10 h-10 rounded-lg flex items-center justify-center p-1.5" style={{background: "#7A8A6A"}}>
-                <img src="/bg-logo.png" alt="" className="w-full h-full object-contain"/>
+                <img src={`${process.env.PUBLIC_URL || ""}/bg-logo.png`.replace(/\/\//g, "/")} alt="" className="w-full h-full object-contain"/>
               </div>
               <div>
                 <div className="font-display text-lg font-semibold leading-tight" style={{color: "#2C3625"}}>Boost Growth</div>
@@ -2054,7 +2098,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
                 setPdfSeal(nextSeal);
                 setSealImageOk(true);
                 try { localStorage.setItem(INVOICE_SEAL_KEY, JSON.stringify(nextSeal)); } catch { /* ignore */ }
-                setTimeout(() => window.print(), 150);
+                setTimeout(() => triggerInvoicePrint(), 250);
               } else {
                 exportExcel(cols);
               }

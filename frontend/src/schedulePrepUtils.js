@@ -202,7 +202,33 @@ function findSessionForCell(sessions, cell, therapistId, sessionDate, client, cl
 }
 
 /** Session statuses that show the red corner badge (no attendance). */
-const NO_ATTENDANCE_SESSION_STATUSES = new Set(["No Show", "Cancelled"]);
+const NO_ATTENDANCE_SESSION_STATUSES = new Set(["No Show"]);
+
+function isCellPreparedMark(
+  prepLookup,
+  cell,
+  therapistId,
+  day,
+  weekStart,
+  clients,
+  preparations = [],
+) {
+  if (!cell || !isScheduleClientLogCell(cell)) return false;
+  const sessionDate = toISODate(addDays(new Date(weekStart + "T12:00:00"), day));
+  const childName = scheduleCellChildName(cell);
+  const client = childName ? findClientForScheduleCell(childName, clients) : null;
+
+  // Explicit prep marks (from prep-history / preparations API)
+  if (cell.id && prepLookup?.has(`cell:${cell.id}`)) return true;
+  if (client) {
+    const keys = prepKeysForCell(cell, therapistId, day, weekStart, client.id, client.name);
+    if (keys.some((k) => prepLookup?.has(k))) return true;
+  }
+  for (const rec of preparations || []) {
+    if (prepRecordMatchesCell(rec, cell, therapistId, sessionDate, childName, client)) return true;
+  }
+  return false;
+}
 
 /** Corner badge on schedule cells: prep (green), no_show (red), therapist_cancel (yellow). */
 export function getCellStatusBadge(
@@ -231,9 +257,16 @@ export function getCellStatusBadge(
   const session = findSessionForCell(
     weekSessions, cell, therapistId, sessionDate, client, clients, suppressionLookup,
   );
-  if (session && NO_ATTENDANCE_SESSION_STATUSES.has(session.status)) return "no_show";
+  if (session && NO_ATTENDANCE_SESSION_STATUSES.has(session.status)) {
+    // Only show "no_show" corner badge when the therapist explicitly marked prep for this cell.
+    if (isCellPreparedMark(prepLookup, cell, therapistId, day, weekStart, clients, preparations)) {
+      return "no_show";
+    }
+    return null;
+  }
 
-  if (cell.state === "cancel_child") return "no_show";
+  // Client cancellation should not show the red corner badge by default.
+  if (cell.state === "cancel_child") return null;
 
   if (isCellPrepComplete(
     prepLookup, cell, therapistId, day, weekStart, clients,

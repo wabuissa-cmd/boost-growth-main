@@ -81,19 +81,20 @@ function positionContextMenu(x, y, menuWidth, menuHeight) {
   return { left, top };
 }
 
-function CellContent({ cell, sc, showCoverTag = false }) {
+function CellContent({ cell, sc }) {
   if (!cell) return null;
   if (cell.state === "available" || cell.service_code === "AVAILABLE") {
     return <div className="text-[10px] font-semibold opacity-70">Available</div>;
   }
   const label = scheduleCellDisplayLabel(cell, sc?.short);
   const coverName = (cell.cover_child_name || "").trim();
+  const showCover = cell.state === "cancel_child" && coverName;
   return (
     <div className="leading-tight text-center w-full flex flex-col items-center justify-center">
       <div className="font-bold text-[11px] text-center w-full">
         {label}
       </div>
-      {showCoverTag && coverName && (
+      {showCover && (
         <div className="schedule-cell-cover-tag" title={`Cover at / تغطية عند ${coverName}`}>
           ↪ {coverName}
         </div>
@@ -944,7 +945,7 @@ export default function Schedule() {
 
   const saveCoverFromCtx = async (coverName) => {
     const cell = ctxMenu?.cell;
-    if (!cell?.id) return;
+    if (!cell?.id || cell.state !== "cancel_child") return;
     const trimmed = (coverName || "").trim();
     await api.put(`/schedule/${cell.id}`, buildScheduleCellPayload(cell, weekStartISO, {
       cover_child_name: trimmed || null,
@@ -1028,6 +1029,9 @@ export default function Schedule() {
     const wasCancelTherapist = panelForm.state === "cancel_therapist";
     try {
       const payload = { ...panelForm, week_start: weekStartISO };
+      if (payload.state !== "cancel_child") {
+        payload.cover_child_name = null;
+      }
       if (payload.service_code !== "LEAVE" && payload.duration) {
         payload.duration = clampMergeDuration(payload.duration);
       }
@@ -1203,7 +1207,7 @@ export default function Schedule() {
                             onClear={statusBadge === "prep" && canManagePrep ? () => clearPrepFromCell(t.id, di, cell, true) : undefined}
                           />
                         )}
-                        {cell && <CellContent cell={cell} sc={sc} showCoverTag={canManageCover} />}
+                        {cell && <CellContent cell={cell} sc={sc} />}
                       </td>
                     );
                   })}
@@ -1301,7 +1305,7 @@ export default function Schedule() {
                           onClear={statusBadge === "prep" && canManagePrep ? () => clearPrepFromCell(therapist.id, di, cell, true) : undefined}
                         />
                       )}
-                      {cell && <CellContent cell={cell} sc={sc} showCoverTag={canManageCover} />}
+                      {cell && <CellContent cell={cell} sc={sc} />}
                     </td>
                   );
                 })}
@@ -1630,7 +1634,7 @@ export default function Schedule() {
               Remove prep checkmark ✓
             </button>
           )}
-          {canManageCover && ctxMenu.cell && isScheduleClientLogCell(ctxMenu.cell) && (
+          {canManageCover && ctxMenu.cell?.state === "cancel_child" && isScheduleClientLogCell(ctxMenu.cell) && (
             <div
               className="px-3 py-2 border-t"
               style={{ borderColor: "#EDE9E3" }}

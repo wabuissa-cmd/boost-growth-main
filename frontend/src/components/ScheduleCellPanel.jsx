@@ -251,14 +251,14 @@ export default function ScheduleCellPanel({
               </div>
             )}
 
-            {canManageCover && !META_CODES.has(form.service_code) && form.state !== "available" && form.child_name && (
+            {canManageCover && form.state === "cancel_child" && form.child_name && (
               <div className="log-session-field" data-testid="cell-cover-section">
                 <label className="log-session-label">Cover at / تغطية عند</label>
                 <input
                   type="text"
                   className="modal-input log-session-input"
                   list="schedule-cover-client-suggestions"
-                  placeholder="Client they covered for (no session log needed)"
+                  placeholder="اسم الطفل الذي غطّت عنده الأخصائية"
                   value={form.cover_child_name || ""}
                   onChange={(e) => setForm((f) => ({ ...f, cover_child_name: e.target.value.trim() || null }))}
                   data-testid="cell-cover-input"
@@ -269,7 +269,7 @@ export default function ScheduleCellPanel({
                   ))}
                 </datalist>
                 <p className="text-[10px] mt-1 m-0 leading-relaxed" style={{ color: "#8B9E7A" }}>
-                  Admin-only note: therapist covered at another client while keeping this cell.
+                  يظهر فقط عند إلغاء الطفل — سجّلي عند أي عميل غطّت الأخصائية هذه الجلسة.
                 </p>
               </div>
             )}
@@ -349,7 +349,11 @@ export default function ScheduleCellPanel({
                     <button
                       key={s.id}
                       type="button"
-                      onClick={() => setForm(f => ({ ...f, state: s.id }))}
+                      onClick={() => setForm(f => ({
+                        ...f,
+                        state: s.id,
+                        cover_child_name: s.id === "cancel_child" ? f.cover_child_name : null,
+                      }))}
                       className={`pill text-xs px-2 py-1 ${form.state === s.id ? "ring-2 ring-[#5C8A47]" : ""}`}
                       style={{ background: s.swatch, color: "#2C3625" }}
                     >
