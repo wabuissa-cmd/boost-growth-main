@@ -17,6 +17,7 @@ import AdminRemindersPanel, { buildAdminReminders } from "../components/AdminRem
 import HrInboxPanel from "../components/HrInboxPanel";
 import { saudiGreetingParts, saudiDateString } from "../saudiGreeting";
 import { getPortalDisplayName } from "../scheduleConstants";
+import { resolveSelfTherapist } from "../scheduleUtils";
 import "../dashboardLayout.css";
 
 const HERO_OPTIONS = [
@@ -139,6 +140,8 @@ export default function Home() {
         const clientsList = asList({ data: c });
         const therapists = asList({ data: t });
         setTherapistRows(therapists);
+        const selfTherapist = resolveSelfTherapist(user, therapists);
+        const myTherapistId = selfTherapist?.id || user?.id;
         const requests = asList({ data: r });
         const schedule = asList({ data: s });
         const sessions = asList({ data: sess });
@@ -161,7 +164,7 @@ export default function Home() {
 
         const myCells = showOpsHome
           ? schedule
-          : schedule.filter(x => x.therapist_id === user?.id);
+          : schedule.filter(x => x.therapist_id === myTherapistId);
         const real = myCells.filter(x => !["LEAVE", "BREAK", "AVC"].includes(x.service_code));
         const scheduledHours = real.reduce((acc, x) => acc + (x.duration || 1), 0);
         const cancelledThisWeek = myCells.filter(x => x.state === "cancel_therapist" || x.state === "cancel_child").length;
@@ -170,7 +173,7 @@ export default function Home() {
         const weekEndDate = toISODate(addDays(new Date(weekISO), 7));
         const mySessions = showOpsHome
           ? sessions
-          : sessions.filter(x => (x.therapist_ids || []).includes(user?.id));
+          : sessions.filter(x => (x.therapist_ids || []).includes(myTherapistId));
         const sessionsThisWeek = mySessions.filter(x =>
           x.session_date >= weekISO && x.session_date < weekEndDate
         );
@@ -530,7 +533,7 @@ export default function Home() {
                 closures={closures}
                 personalEvents={personalEvents}
                 onPersonalChange={loadPersonal}
-                therapistId={user?.id}
+                therapistId={resolveSelfTherapist(user, therapistRows)?.id || user?.id}
               />
               </div>
             </section>

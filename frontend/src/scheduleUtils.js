@@ -1,6 +1,35 @@
 import { getChildColor, readable } from "./childColors";
-import { TIME_SLOTS } from "./api";
+import { TIME_SLOTS, startOfWeek, addDays, toISODate } from "./api";
 import { MAX_SCHEDULE_MERGE_SLOTS } from "./scheduleConstants";
+
+const COMPLETED_SESSION = "Completed";
+
+/** Most recent N calendar dates (≤ today) with completed sessions. */
+export function recentCompletedSessionDates(sessions, limit = 3, asOf = new Date()) {
+  const today = toISODate(asOf);
+  const dates = new Set();
+  for (const s of sessions || []) {
+    if (s.status !== COMPLETED_SESSION) continue;
+    const d = (s.session_date || "").slice(0, 10);
+    if (d && d <= today) dates.add(d);
+  }
+  return [...dates].sort().reverse().slice(0, limit);
+}
+
+/** Map ISO dates to day indices (0=Sun … 4=Thu) within a displayed week. */
+export function dayIndicesForDates(weekStart, dateISOs) {
+  const want = new Set(dateISOs || []);
+  const out = new Set();
+  for (let d = 0; d < 5; d++) {
+    if (want.has(toISODate(addDays(weekStart, d)))) out.add(d);
+  }
+  return out;
+}
+
+/** Sunday week_start for any ISO date. */
+export function weekStartISOForDate(dateISO) {
+  return toISODate(startOfWeek(new Date(`${dateISO}T12:00:00`)));
+}
 
 /** Normalize schedule day index (API may return number or string). */
 export function scheduleSlotDay(day) {

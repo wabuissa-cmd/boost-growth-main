@@ -8,6 +8,7 @@ import {
   scheduleCellSlotKey,
   resolveSelfTherapist, findClientForScheduleCell, isScheduleClientLogCell, scheduleCellChildName,
   canSpecialistLogScheduleCell,
+  recentCompletedSessionDates, dayIndicesForDates, weekStartISOForDate,
 } from "../scheduleUtils";
 import { MAX_SCHEDULE_MERGE_SLOTS } from "../scheduleConstants";
 import { useAuth, showAdminNav, isClientLead, canParentCancellationOps, hasFullClientAccess, hasOpsAccess } from "../auth";
@@ -193,6 +194,8 @@ export default function Schedule() {
   const [scheduleTherapistBusy, setScheduleTherapistBusy] = useState(false);
   const adminEditsRef = useRef(null);
   const scheduleInitialLoadRef = useRef(true);
+  const recentWeekProbeRef = useRef(false);
+  const [jumpedToWeekISO, setJumpedToWeekISO] = useState(null);
   const [showHolidays, setShowHolidays] = useState(false);
   const [closures, setClosures] = useState([]);
   const [quickLog, setQuickLog] = useState(null);
@@ -210,6 +213,7 @@ export default function Schedule() {
   const [prepLookup, setPrepLookup] = useState(() => new Set());
   const [preparations, setPreparations] = useState([]);
   const [weekSessions, setWeekSessions] = useState([]);
+  const [allSessions, setAllSessions] = useState([]);
   const [suppressionLookup, setSuppressionLookup] = useState(() => new Set());
   const [ctxCoverDraft, setCtxCoverDraft] = useState("");
 
@@ -354,14 +358,16 @@ export default function Schedule() {
         cachedGet("/clients", { force }).catch(() => []),
         cachedGet("/leaves", { params: { year: yr }, force }).catch(() => []),
         canSeePrepBadges
-          ? cachedGet("/sessions", { force }).catch(() => [])
+          ? cachedGet("/sessions", { force: true }).catch(() => [])
           : Promise.resolve([]),
       ]);
       setCells(Array.isArray(c) ? c : []);
       setTherapists(Array.isArray(t) ? t : []);
       setClients(Array.isArray(cl) ? cl : []);
       setLeaves(Array.isArray(lv) ? lv : []);
-      const inWeek = (Array.isArray(sess) ? sess : []).filter((s) => {
+      const sessList = Array.isArray(sess) ? sess : [];
+      setAllSessions(sessList);
+      const inWeek = sessList.filter((s) => {
         const d = (s.session_date || "").slice(0, 10);
         return d >= ws && d <= we;
       });
@@ -394,6 +400,30 @@ export default function Schedule() {
 
   useEffect(() => { loadClosures(); }, [loadClosures]);
   useEffect(() => { load(); }, [load]);
+
+  // When landing on an empty week, jump once to the most recent week that has cells.
+  useEffect(() => {
+    if (scheduleLoading || recentWeekProbeRef.current) return;
+    if (cells.length > 0 || scheduleError) return;
+    recentWeekProbeRef.current = true;
+    (async () => {
+      const start = new Date(`${weekStartISO}T12:00:00`);
+      for (let w = 0; w < 8; w++) {
+        const ws = toISODate(addDays(start, -w * 7));
+        try {
+          const { data } = await api.get("/schedule", { params: { week_start: ws } });
+          if (Array.isArray(data) && data.length > 0) {
+            if (ws !== weekStartISO) {
+              setJumpedToWeekISO(ws);
+              setWeekStart(startOfWeek(new Date(`${ws}T12:00:00`)));
+            }
+            return;
+          }
+        } catch { /* try older week */ }
+      }
+    })();
+  }, [scheduleLoading, cells.length, scheduleError, weekStartISO]);
+
   useEffect(() => {
     const refreshPrep = () => loadPreparations();
     window.addEventListener("focus", refreshPrep);
@@ -621,8 +651,33 @@ export default function Schedule() {
   const blocksTherapists = useMemo(() => {
     // Ops / admin: all therapist blocks with prep badges. Regular therapists: own block only.
     if (opsCanSeeAllPreps) return visibleTherapists;
-    return selfTherapist ? [selfTherapist] : [];
-  }, [visibleTherapists, opsCanSeeAllPreps, selfTherapist]);
+    if (selfTherapist) return [selfTherapist];
+    const fallback = visibleTherapists.filter((t) =>
+      t.id === user?.id
+      || (t.email || "").toLowerCase() === (user?.email || "").toLowerCase()
+    );
+    return fallback.length ? fallback : [];
+  }, [visibleTherapists, opsCanSeeAllPreps, selfTherapist, user?.id, user?.email]);
+
+  const recentActiveDates = useMemo(
+    () => recentCompletedSessionDates(allSessions, 3),
+    [allSessions],
+  );
+
+  const recentActiveDayIndices = useMemo(
+    () => dayIndicesForDates(weekStart, recentActiveDates),
+    [weekStart, recentActiveDates],
+  );
+
+  const recentActiveHint = useMemo(() => {
+    if (!recentActiveDates.length) return "";
+    return recentActiveDates
+      .map((iso) => {
+        const d = new Date(`${iso}T12:00:00`);
+        return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+      })
+      .join(" · ");
+  }, [recentActiveDates]);
 
   const isSelected = (therapist_id, day, time_slot) => {
     if (!selection) return false;
@@ -1169,7 +1224,7 @@ export default function Schedule() {
                       </td>
                     </>
                   )}
-                  <td className="sheet-td sheet-day font-bold text-center" style={leaveInfo && !closureLabel ? { background: "#FEF9C3" } : {}}>
+                  <td className={`sheet-td sheet-day font-bold text-center${recentActiveDayIndices.has(di) ? " schedule-day-recent" : ""}`} style={leaveInfo && !closureLabel ? { background: "#FEF9C3" } : {}}>
                     <div className="text-[11px] tracking-wider" style={{ color: "#2C3625" }}>{DAYS_SHORT[di].toUpperCase()}</div>
                     <div className="text-[9px] font-normal" style={{ color: "var(--brand-sage)" }}>{addDays(weekStart, di).getDate()}/{addDays(weekStart, di).getMonth() + 1}</div>
                     {leaveInfo && !closureLabel && (
@@ -1269,7 +1324,7 @@ export default function Schedule() {
               const closureLabel = closureLabelFor(therapist.id, dayISO);
               return (
               <tr key={di} className={leaveInfo ? "schedule-leave-row" : ""}>
-                <td className="cell-base text-center font-bold" style={{ background: leaveInfo && !closureLabel ? "#FEF9C3" : "#F6F4F0", color: "#2C3625", position: "relative" }}>
+                <td className={`cell-base text-center font-bold${recentActiveDayIndices.has(di) ? " schedule-day-recent" : ""}`} style={{ background: leaveInfo && !closureLabel ? "#FEF9C3" : "#F6F4F0", color: "#2C3625", position: "relative" }}>
                   <div className="text-[11px] tracking-wider">{DAYS_SHORT[di].toUpperCase()}</div>
                   <div className="text-[10px] font-normal" style={{ color: "var(--brand-sage)" }}>{addDays(weekStart, di).getDate()}/{addDays(weekStart, di).getMonth() + 1}</div>
                   {leaveInfo && !closureLabel && (
@@ -1567,6 +1622,42 @@ export default function Schedule() {
         </div>
       )}
 
+      {!scheduleLoading && weekStatus === "draft" && !isAdmin && cells.length === 0 && (
+        <div className="card schedule-recent-activity-banner no-print" role="status">
+          <strong>مسودة / Draft week</strong>
+          <span> — الجدول غير منشور بعد. اطلبي من الإدارة نشر الأسبوع.</span>
+        </div>
+      )}
+
+      {!scheduleLoading && recentActiveHint && (
+        <div className="card schedule-recent-activity-banner no-print" role="status">
+          <CheckCircle size={16} weight="fill" className="shrink-0" style={{ color: "var(--brand)" }} />
+          <div className="flex-1 min-w-0">
+            <div className="font-bold text-sm" style={{ color: "#2C3625" }}>
+              {jumpedToWeekISO === weekStartISO
+                ? `Showing last week with schedule · ${formatDateRange(weekStart)}`
+                : "Recent session days"}
+            </div>
+            <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+              {recentActiveHint} — green ✓ = preparation logged
+            </div>
+          </div>
+          {recentActiveDates.some((d) => d < weekStartISO || d > weekEndISO) && (
+            <button
+              type="button"
+              className="btn btn-outline text-xs shrink-0"
+              onClick={() => {
+                const ws = weekStartISOForDate(recentActiveDates[0]);
+                setJumpedToWeekISO(ws);
+                setWeekStart(startOfWeek(new Date(`${ws}T12:00:00`)));
+              }}
+            >
+              Jump to last active week
+            </button>
+          )}
+        </div>
+      )}
+
       <section className="card schedule-page-panel no-print">
         <div className="schedule-page-panel-head">
           <div className="schedule-page-hero-icon" style={{ width: 40, height: 40, borderRadius: 10 }}>
@@ -1583,7 +1674,7 @@ export default function Schedule() {
         Weekly Schedule · {formatDateRange(weekStart)}
       </div>
       <div className="sched-zoom" style={{ "--sched-zoom": SCHEDULE_ZOOM / 100 }}>
-        {cells.length === 0 && !scheduleLoading && (
+        {cells.length === 0 && !scheduleLoading && weekStatus !== "draft" && (
           <div className="schedule-page-empty no-print">
             <div className="schedule-page-empty-icon">
               <CalendarBlank size={28} weight="duotone" />

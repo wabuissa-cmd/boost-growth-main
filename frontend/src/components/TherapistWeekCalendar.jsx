@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { CaretLeft, CaretRight, MapPin, VideoCamera, Plus } from "@phosphor-icons/react";
 import LocationLink from "./LocationLink";
 import { DAYS_SHORT, TIME_SLOTS, addDays, toISODate, formatDateRange } from "../api";
-import { getCellStyle, scheduleCellDisplayLabel } from "../scheduleUtils";
+import { getCellStyle, scheduleCellDisplayLabel, scheduleSlotDay } from "../scheduleUtils";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -81,7 +81,8 @@ export default function TherapistWeekCalendar({
     );
     real.sort((a, b) => TIME_SLOTS.indexOf(a.time_slot) - TIME_SLOTS.indexOf(b.time_slot));
     for (const cell of real) {
-      if (cell.day >= 0 && cell.day < 5) map[cell.day].push(cell);
+      const di = scheduleSlotDay(cell.day);
+      if (di >= 0 && di < 5) map[di].push(cell);
     }
     return map;
   }, [cells, therapistId]);
