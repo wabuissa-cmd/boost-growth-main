@@ -118,8 +118,10 @@ async def _dedupe_duplicate_clients() -> dict:
 
 
 def _therapist_record_score(t: dict) -> int:
-    """Higher = canonical therapist row; prefer keyed records with passwords."""
+    """Higher = canonical therapist row; prefer user-chosen passwords, then keyed records."""
     score = 0
+    if t.get("password_hash") and not t.get("must_change_password"):
+        score += 1000
     if t.get("key"):
         score += 100
     if t.get("password_hash"):
@@ -200,7 +202,7 @@ async def _remove_therapists_without_nationality() -> dict:
 
 
 async def _dedupe_duplicate_therapists() -> dict:
-    """Delete duplicate therapist rows that share the same email; keep keyed/passworded record."""
+    """Delete duplicate therapist rows that share the same email; keep user-chosen passwords."""
     therapists = await db.therapists.find({}, {"_id": 0}).to_list(500)
     by_email: dict = {}
     for t in therapists:
@@ -208,7 +210,7 @@ async def _dedupe_duplicate_therapists() -> dict:
         if em:
             by_email.setdefault(em, []).append(t)
 
-    to_delete: List[str] = []
+    to_delete: List[tuple] = []
     actions: List[dict] = []
     for em, group in by_email.items():
         if len(group) < 2:
@@ -216,10 +218,34 @@ async def _dedupe_duplicate_therapists() -> dict:
         scored = [(_therapist_record_score(t), t.get("created_at") or "", t) for t in group]
         scored.sort(key=lambda x: (-x[0], x[1]))
         winner = scored[0][2]
+
+        user_ready = [
+            t for t in group
+            if t.get("password_hash") and not t.get("must_change_password")
+        ]
+        if user_ready and (
+            not winner.get("password_hash")
+            or winner.get("must_change_password")
+        ):
+            best = max(user_ready, key=lambda t: _therapist_record_score(t))
+            if best["id"] != winner["id"]:
+                await db.therapists.update_one({"id": winner["id"]}, {"$set": {
+                    "password_hash": best["password_hash"],
+                    "must_change_password": False,
+                    "temp_password_set_at": None,
+                    "launch_credentials_generated_at": best.get("launch_credentials_generated_at"),
+                }})
+                actions.append({
+                    "email": em,
+                    "action": "merged_user_password",
+                    "kept_id": winner["id"],
+                    "from_id": best["id"],
+                })
+
         for _, _, loser in scored[1:]:
-            if loser["id"] == winner["id"] or loser["id"] in to_delete:
+            if loser["id"] == winner["id"] or any(loser["id"] == lid for lid, _ in to_delete):
                 continue
-            to_delete.append(loser["id"])
+            to_delete.append((loser["id"], winner["id"]))
             actions.append({
                 "email": em,
                 "kept_id": winner["id"],
@@ -228,10 +254,13 @@ async def _dedupe_duplicate_therapists() -> dict:
                 "removed_name": loser.get("name"),
             })
 
-    for tid in to_delete:
-        await db.schedule_cells.delete_many({"therapist_id": tid})
-        await db.users.delete_many({"therapist_id": tid})
-        await db.therapists.delete_one({"id": tid})
+    for loser_id, winner_id in to_delete:
+        await db.schedule_cells.update_many(
+            {"therapist_id": loser_id},
+            {"$set": {"therapist_id": winner_id}},
+        )
+        await db.users.delete_many({"therapist_id": loser_id})
+        await db.therapists.delete_one({"id": loser_id})
     return {"removed": len(to_delete), "actions": actions}
 
 
@@ -11842,8 +11871,8 @@ async def _run_startup():
                                        "password_hash": hash_password(admin_password),
                                        "name": admin_name, "role": "admin", "created_at": now_iso()})
             logger.info(f"Admin seeded: {admin_email}")
-        elif not verify_password(admin_password, existing["password_hash"]):
-            await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
+        # Never overwrite an existing admin password from ADMIN_PASSWORD on deploy —
+        # specialists and ops leads change passwords in-app; resetting breaks login.
 
         hr_email = HR_OPS_EMAIL
         hr_existing = await db.users.find_one({"email": hr_email})

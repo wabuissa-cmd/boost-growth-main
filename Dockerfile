@@ -9,7 +9,7 @@ ENV CI=true \
     DISABLE_ESLINT_PLUGIN=true \
     SKIP_PREFLIGHT_CHECK=true \
     NODE_OPTIONS=--max-old-space-size=2048
-ENV RAILWAY_DEPLOY_REV=center-test-admin-v3
+ENV RAILWAY_DEPLOY_REV=login-password-preserve-v1
 RUN npm run build
 
 FROM python:3.11-slim
