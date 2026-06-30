@@ -26,8 +26,8 @@ function StepPill({ n, label, active, done }) {
   );
 }
 
-function AttemptCard({ attempt, defaultOpen = false }) {
-  const [open, setOpen] = useState(defaultOpen);
+function AttemptCard({ attempt }) {
+  const [open, setOpen] = useState(false);
   const passed = Boolean(attempt.passed);
   const answers = attempt.answers || [];
   const correct = attempt.score ?? answers.filter((a) => a.is_correct).length;
@@ -193,7 +193,7 @@ export default function MyLearning() {
           ) : (
             <div className="space-y-2">
               {attempts.map((a, i) => (
-                <AttemptCard key={a.id || i} attempt={a} defaultOpen={i === 0} />
+                <AttemptCard key={a.id || i} attempt={a} />
               ))}
             </div>
           )}

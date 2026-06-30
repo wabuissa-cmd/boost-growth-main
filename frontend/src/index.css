@@ -2447,6 +2447,44 @@ textarea.modal-input {
     border: 1px dashed var(--border-light);
     background: var(--bg-warm);
 }
+@media (max-width: 900px) {
+    .my-learning-hero > .flex {
+        flex-direction: column;
+    }
+    .my-learning-grid {
+        gap: 0.75rem;
+    }
+}
+@media (max-width: 768px) {
+    .my-learning-available-card,
+    .my-learning-cert-card {
+        flex-wrap: wrap;
+        gap: 0.65rem;
+    }
+    .my-learning-attempt-head {
+        min-height: 44px;
+    }
+}
+@media (max-width: 390px) {
+    .my-learning-steps {
+        max-width: none;
+    }
+    .my-learning-panel {
+        padding: 0.85rem 0.65rem;
+    }
+    .my-learning-available-card {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .my-learning-available-card .btn {
+        width: 100%;
+        justify-content: center;
+    }
+    .my-learning-cert-card .btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
 .center-test-portal-link {
     display: inline-flex;
     align-items: center;
@@ -3186,7 +3224,8 @@ textarea.modal-input {
     .schedule-page,
     .attendance-page,
     .requests-page,
-    .home-page {
+    .home-page,
+    .my-learning-page {
         padding-left: 0;
         padding-right: 0;
         max-width: 100%;
@@ -3224,12 +3263,14 @@ textarea.modal-input {
 @media (max-width: 768px) {
     .schedule-page-title,
     .attendance-page-title,
-    .requests-page-title {
+    .requests-page-title,
+    .my-learning-title {
         font-size: 1.15rem;
     }
     .schedule-page-subtitle,
     .attendance-page-subtitle,
-    .requests-page-subtitle {
+    .requests-page-subtitle,
+    .my-learning-subtitle {
         font-size: 0.8rem;
     }
     .schedule-page-stat-val,
@@ -3245,18 +3286,21 @@ textarea.modal-input {
     .schedule-page-panel-head h2,
     .attendance-page-panel-head h2,
     .requests-page-panel-head h2,
-    .home-page-panel-head h2 {
+    .home-page-panel-head h2,
+    .my-learning-panel-head h2 {
         font-size: 0.95rem;
     }
     .schedule-page-hero,
     .attendance-page-hero,
-    .requests-page-hero {
+    .requests-page-hero,
+    .my-learning-hero {
         padding: 0.85rem 0.75rem;
     }
     .schedule-page-steps,
     .requests-page-steps,
     .center-test-steps-bar.schedule-page-steps,
-    .center-test-steps-bar.requests-page-steps {
+    .center-test-steps-bar.requests-page-steps,
+    .center-test-steps-bar.my-learning-steps {
         max-width: 100%;
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
@@ -3264,7 +3308,8 @@ textarea.modal-input {
         padding-bottom: 0.2rem;
     }
     .schedule-page-steps::-webkit-scrollbar,
-    .requests-page-steps::-webkit-scrollbar {
+    .requests-page-steps::-webkit-scrollbar,
+    .my-learning-steps::-webkit-scrollbar {
         display: none;
     }
     .center-test-step {
@@ -3288,18 +3333,21 @@ textarea.modal-input {
     }
     .schedule-page-title,
     .attendance-page-title,
-    .requests-page-title {
+    .requests-page-title,
+    .my-learning-title {
         font-size: 1.05rem;
     }
     .schedule-page-hero-icon,
     .attendance-page-hero-icon,
-    .requests-page-hero-icon {
+    .requests-page-hero-icon,
+    .my-learning-hero-icon {
         width: 40px;
         height: 40px;
     }
     .schedule-page-hero-icon svg,
     .attendance-page-hero-icon svg,
-    .requests-page-hero-icon svg {
+    .requests-page-hero-icon svg,
+    .my-learning-hero-icon svg {
         width: 22px;
         height: 22px;
     }
