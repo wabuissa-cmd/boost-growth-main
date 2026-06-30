@@ -1751,6 +1751,7 @@ textarea.modal-input {
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
+    flex-wrap: wrap;
 }
 .center-test-brand-lockup {
     display: flex;
@@ -2222,4 +2223,173 @@ textarea.modal-input {
         font-size: 0.58rem;
         padding: 0.3rem 0.5rem;
     }
+}
+
+/* My Learning portfolio */
+.my-learning-page {
+    padding: 1rem 1.25rem 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+.my-learning-hero {
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1rem;
+    background: linear-gradient(135deg, var(--bg-warm) 0%, #fff 100%);
+}
+.my-learning-hero-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--brand-light);
+    color: var(--brand-dark);
+    flex-shrink: 0;
+}
+.my-learning-title {
+    font-family: var(--font-display);
+    font-size: 1.35rem;
+    margin: 0;
+    color: var(--brand-dark);
+}
+.my-learning-subtitle {
+    margin: 0.25rem 0 0;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+.my-learning-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    align-items: start;
+}
+@media (max-width: 900px) {
+    .my-learning-grid { grid-template-columns: 1fr; }
+}
+.my-learning-panel {
+    padding: 1.15rem 1.25rem;
+}
+.my-learning-panel-head {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+    color: var(--brand-dark);
+}
+.my-learning-panel-head h2 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-family: var(--font-display);
+}
+.my-learning-panel-head p {
+    margin: 0.15rem 0 0;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+.my-learning-available-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.85rem 1rem;
+    border-radius: 0.75rem;
+    border: 1px solid var(--border-light);
+    background: var(--bg-warm);
+    margin-bottom: 0.5rem;
+}
+.my-learning-attempt-card {
+    border: 1px solid var(--border-light);
+    border-radius: 0.75rem;
+    overflow: hidden;
+}
+.my-learning-attempt-head {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: #fff;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+}
+.my-learning-attempt-head:hover {
+    background: var(--bg-warm);
+}
+.my-learning-course-name {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--brand-dark);
+}
+.my-learning-score-pill {
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+}
+.my-learning-score-pill.pass {
+    background: #dcfce7;
+    color: #166534;
+}
+.my-learning-score-pill.fail {
+    background: #fef3c7;
+    color: #b45309;
+}
+.my-learning-attempt-body {
+    padding: 0.5rem 1rem 1rem;
+    border-top: 1px solid var(--border-light);
+    background: var(--bg-warm);
+}
+.my-learning-answer {
+    padding: 0.65rem 0.75rem;
+    border-radius: 0.5rem;
+    margin-bottom: 0.4rem;
+    font-size: 0.85rem;
+    background: #fff;
+    border-left: 3px solid var(--border-light);
+}
+.my-learning-answer.correct { border-left-color: var(--brand); }
+.my-learning-answer.wrong { border-left-color: #b45309; }
+.my-learning-cert-card {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+    border-radius: 0.75rem;
+    border: 1px solid var(--border-light);
+    background: #fff;
+}
+.my-learning-cert-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--brand-light);
+    color: var(--brand-dark);
+    flex-shrink: 0;
+}
+.my-learning-upload-card {
+    border: 1px dashed var(--border-light);
+    background: var(--bg-warm);
+}
+.center-test-portal-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--brand-dark);
+    text-decoration: none;
+    padding: 0.35rem 0.65rem;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.85);
+    border: 1px solid var(--border-light);
+    margin-left: auto;
+}
+.center-test-portal-link:hover {
+    background: #fff;
 }

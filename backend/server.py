@@ -11830,6 +11830,8 @@ async def _run_startup():
         await db.clients.create_index([("deleted", 1), ("file_no", 1)])
         await db.invoices.create_index([("client_id", 1), ("start_date", -1)])
         await db.center_test_attempts.create_index("created_at")
+        await db.center_test_attempts.create_index("therapist_id")
+        await db.therapist_certificates.create_index("therapist_id")
 
         admin_email = os.environ["ADMIN_EMAIL"].lower()
         admin_password = os.environ["ADMIN_PASSWORD"]
@@ -12162,30 +12164,76 @@ async def startup():
     logger.info("API ready; database init running in background")
 
 
-# ------------------- Center training test (public quiz + admin results) -------------------
+# ------------------- Center training test + academic portfolio -------------------
 import json as _json
 
 _CENTER_TEST_PATH = ROOT_DIR / "center_test_questions.json"
 _center_test_cache: Optional[dict] = None
 
 
-def _load_center_test_data() -> dict:
+def _load_center_test_data(test_id: Optional[str] = None) -> dict:
     global _center_test_cache
     if _center_test_cache is None:
         if not _CENTER_TEST_PATH.is_file():
             raise HTTPException(status_code=500, detail="Test questions file missing")
         _center_test_cache = _json.loads(_CENTER_TEST_PATH.read_text(encoding="utf-8"))
-    return _center_test_cache
+    data = _center_test_cache
+    tid = (test_id or data.get("testId") or "default").strip()
+    if tid and data.get("testId") and data.get("testId") != tid:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    return data
+
+
+def _center_test_catalog_entry(data: dict) -> dict:
+    return {
+        "testId": data.get("testId", "default"),
+        "courseName": data.get("courseName") or data.get("courseTopic", ""),
+        "title": data.get("title", ""),
+        "courseTopic": data.get("courseTopic", ""),
+        "instructor": data.get("instructor", ""),
+        "passThreshold": int(data.get("passThreshold", 70)),
+        "questionCount": len(data.get("questions", [])),
+    }
+
+
+async def _optional_current_user(request: Request) -> Optional[dict]:
+    try:
+        return await get_current_user(request)
+    except HTTPException:
+        return None
+
+
+async def _attempts_for_user(user: dict) -> List[dict]:
+    tid = await _resolve_user_therapist_id(user)
+    email = (user.get("email") or "").lower().strip()
+    or_clauses: List[dict] = []
+    if tid:
+        or_clauses.append({"therapist_id": tid})
+    if email:
+        or_clauses.append({"therapist_email": email})
+    if not or_clauses:
+        return []
+    rows = await db.center_test_attempts.find(
+        {"$or": or_clauses}, {"_id": 0}
+    ).sort([("created_at", -1)]).to_list(500)
+    return rows
 
 
 class CenterTestSubmitIn(BaseModel):
     student_name: str
     answers: Dict[str, str]
+    test_id: Optional[str] = None
+
+
+@api.get("/center-test/catalog")
+async def get_center_test_catalog():
+    data = _load_center_test_data()
+    return {"tests": [_center_test_catalog_entry(data)]}
 
 
 @api.get("/center-test/questions")
-async def get_center_test_questions():
-    data = _load_center_test_data()
+async def get_center_test_questions(test_id: Optional[str] = None):
+    data = _load_center_test_data(test_id)
     public_questions = []
     for q in data.get("questions", []):
         public_questions.append({
@@ -12193,21 +12241,20 @@ async def get_center_test_questions():
             "text": q["text"],
             "choices": q["choices"],
         })
+    entry = _center_test_catalog_entry(data)
     return {
-        "passThreshold": data.get("passThreshold", 70),
-        "title": data.get("title", ""),
-        "courseTopic": data.get("courseTopic", ""),
-        "instructor": data.get("instructor", ""),
+        **entry,
+        "passThreshold": entry["passThreshold"],
         "questions": public_questions,
     }
 
 
 @api.post("/center-test/attempts")
-async def submit_center_test_attempt(payload: CenterTestSubmitIn):
+async def submit_center_test_attempt(payload: CenterTestSubmitIn, request: Request):
     name = (payload.student_name or "").strip()
     if len(name) < 3:
         raise HTTPException(status_code=400, detail="Please enter your full name")
-    data = _load_center_test_data()
+    data = _load_center_test_data(payload.test_id)
     questions = data.get("questions", [])
     if not questions:
         raise HTTPException(status_code=500, detail="No questions configured")
@@ -12240,16 +12287,28 @@ async def submit_center_test_attempt(payload: CenterTestSubmitIn):
     total = len(questions)
     percentage = round((correct_count / total) * 100) if total else 0
     passed = percentage >= threshold
+    user = await _optional_current_user(request)
+    therapist_id = None
+    therapist_email = None
+    if user:
+        therapist_id = await _resolve_user_therapist_id(user) or (
+            user.get("id") if user.get("role") == "therapist" else None
+        )
+        therapist_email = (user.get("email") or "").lower().strip() or None
     doc = {
         "id": str(uuid.uuid4()),
         "student_name": name,
+        "test_id": data.get("testId", "default"),
+        "course_name": data.get("courseName") or data.get("courseTopic", ""),
+        "test_title": data.get("title", ""),
+        "therapist_id": therapist_id,
+        "therapist_email": therapist_email,
         "answers": answer_rows,
         "score": correct_count,
         "total": total,
         "percentage": percentage,
         "passed": passed,
         "pass_threshold": threshold,
-        "test_title": data.get("title", ""),
         "created_at": now_iso(),
     }
     await db.center_test_attempts.insert_one(doc)
@@ -12276,6 +12335,113 @@ async def center_test_results_access(user: dict = Depends(get_current_user)) -> 
 async def list_center_test_attempts(_=Depends(center_test_results_access)):
     rows = await db.center_test_attempts.find({}, {"_id": 0}).sort([("created_at", -1)]).to_list(2000)
     return rows
+
+
+@api.get("/my-learning")
+async def get_my_learning(user=Depends(get_current_user)):
+    """Academic portfolio — available assessments, my attempts, my certificates."""
+    tid = await _resolve_user_therapist_id(user) or (
+        user.get("id") if user.get("role") == "therapist" else None
+    )
+    catalog = [_center_test_catalog_entry(_load_center_test_data())]
+    attempts = await _attempts_for_user(user)
+    cert_q: dict = {}
+    if tid:
+        cert_q["therapist_id"] = tid
+    else:
+        cert_q["therapist_id"] = "__none__"
+    certs = await db.therapist_certificates.find(cert_q, {"_id": 0, "file_data": 0}).sort(
+        [("issued_at", -1)]
+    ).to_list(100)
+    for c in certs:
+        c["download_url"] = f"/api/therapist-certificates/{c['id']}/file"
+    therapists = []
+    can_upload = False
+    try:
+        await center_test_results_access(user)
+        can_upload = True
+        therapists = await db.therapists.find(
+            {}, {"_id": 0, "id": 1, "name": 1, "email": 1}
+        ).sort("name", 1).to_list(500)
+    except HTTPException:
+        pass
+    return {
+        "catalog": catalog,
+        "attempts": attempts,
+        "certificates": certs,
+        "can_upload_certificates": can_upload,
+        "therapists": therapists if can_upload else [],
+        "user": {
+            "id": user.get("id"),
+            "name": user.get("name"),
+            "email": user.get("email"),
+            "therapist_id": tid,
+        },
+    }
+
+
+@api.post("/therapist-certificates")
+async def upload_therapist_certificate(
+    therapist_id: str = Form(...),
+    course_name: str = Form(...),
+    title: str = Form(""),
+    issued_at: Optional[str] = Form(None),
+    file: UploadFile = File(...),
+    user=Depends(center_test_results_access),
+):
+    t = await db.therapists.find_one({"id": therapist_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(status_code=404, detail="Therapist not found")
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="File required")
+    content = await file.read()
+    if len(content) > 12 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 12MB)")
+    ext = Path(file.filename).suffix.lower() or ".pdf"
+    if ext not in (".pdf", ".png", ".jpg", ".jpeg", ".webp"):
+        raise HTTPException(status_code=400, detail="PDF or image only")
+    cert_id = str(uuid.uuid4())
+    stored = f"cert_{cert_id}{ext}"
+    file_data = _persist_upload(stored, content)
+    doc = {
+        "id": cert_id,
+        "therapist_id": therapist_id,
+        "therapist_name": t.get("name"),
+        "course_name": course_name.strip(),
+        "title": (title or course_name).strip(),
+        "file_path": stored,
+        "file_name": file.filename,
+        "file_data": file_data,
+        "issued_at": issued_at or now_iso()[:10],
+        "uploaded_by": user.get("email") or user.get("name"),
+        "created_at": now_iso(),
+    }
+    await db.therapist_certificates.insert_one(doc)
+    doc.pop("file_data", None)
+    doc.pop("_id", None)
+    doc["download_url"] = f"/api/therapist-certificates/{cert_id}/file"
+    return doc
+
+
+@api.get("/therapist-certificates/{cert_id}/file")
+async def get_therapist_certificate_file(cert_id: str, user=Depends(get_current_user)):
+    cert = await db.therapist_certificates.find_one({"id": cert_id}, {"_id": 0})
+    if not cert:
+        raise HTTPException(status_code=404, detail="Certificate not found")
+    tid = await _resolve_user_therapist_id(user)
+    is_owner = tid and cert.get("therapist_id") == tid
+    is_admin = False
+    try:
+        await center_test_results_access(user)
+        is_admin = True
+    except HTTPException:
+        pass
+    if not is_owner and not is_admin:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    content = _load_upload(cert.get("file_path"), cert.get("file_data"))
+    if not content:
+        raise HTTPException(status_code=404, detail=FILE_UNAVAILABLE_DETAIL)
+    return _bytes_file_response(content, cert.get("file_name") or "certificate.pdf")
 
 
 app.include_router(api)

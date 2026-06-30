@@ -1,13 +1,13 @@
 import { useEffect, useState, useRef, Suspense, useMemo } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { useAuth, showAdminNav, isClientLead, isWalaaOps, isHrOps, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, showSystemAdmin, canImportData, showMyPortalNav, showMyReportsNav, isJenan, canViewReports, directManagerLabel, canViewSupervisionCaseload } from "../auth";
+import { useAuth, showAdminNav, isClientLead, isWalaaOps, isHrOps, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, showSystemAdmin, canImportData, showMyPortalNav, showMyReportsNav, showAcademicPortfolioNav, isJenan, canViewReports, directManagerLabel, canViewSupervisionCaseload } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch, cachedGet } from "../dataCache";
 import { getPortalDisplayName } from "../scheduleConstants";
 import {
   House, CalendarBlank,   ClipboardText, UsersThree, Receipt,
   Bell, SignOut,   ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, CaretDown, Folder, UserCircle,
-  SidebarSimple, Rows, ShoppingBag, FileText, Buildings, Hourglass, Eye,
+  SidebarSimple, Rows, ShoppingBag, FileText, Buildings, Hourglass, Eye, GraduationCap,
 } from "@phosphor-icons/react";
 
 import SidebarNav from "../components/SidebarNav";
@@ -46,6 +46,7 @@ const ROUTE_PREFETCH = {
   "/waiting/intake": () => { prefetch("/intake"); },
   "/waiting/school": () => { prefetch("/intake"); },
   "/admin/center-tests": () => { prefetch("/center-test/attempts"); },
+  "/my-learning": () => { prefetch("/my-learning"); },
 };
 
 function warmRoute(path) {
@@ -77,6 +78,7 @@ export default function Shell() {
   const intakeAccess = canEditIntake(user);
   const showMyPortal = showMyPortalNav(user);
   const showMyReports = showMyReportsNav(user);
+  const showMyLearning = showAcademicPortfolioNav(user);
   const showBilling = hasOpsAccess(user);
   const therapistOnly = Boolean(user && !portalAdmin && !hrOps && !walaaOps);
   const profileRole = hrOps ? "HR" : walaaOps ? "Coordination" : portalAdmin ? "Admin" : "Therapist";
@@ -131,6 +133,7 @@ export default function Shell() {
   const myPortalItems = showMyPortal ? [
     { to: "/my-requests", label: jenanManager ? "My Requests" : "Request", testid: "nav-my-requests" },
     ...(showMyReports ? [{ to: "/my-reports", label: "My Report", testid: "nav-my-reports" }] : []),
+    ...(showMyLearning ? [{ to: "/my-learning", label: "My Learning", testid: "nav-my-learning" }] : []),
   ] : [];
 
   // Direct manager — Jenan: Manager Hub + Payments; others: Staff & Leave under HR
@@ -194,7 +197,9 @@ export default function Shell() {
     ...it,
     icon: it.to === "/my-reports"
       ? <FileText size={17} weight="duotone"/>
-      : <ListChecks size={17} weight="duotone"/>,
+      : it.to === "/my-learning"
+        ? <GraduationCap size={17} weight="duotone"/>
+        : <ListChecks size={17} weight="duotone"/>,
   }));
   const waitingNavItems = waitingItems;
 

@@ -99,7 +99,7 @@ export default function AdminCenterTests() {
 
           {rows.length === 0 ? (
             <div className="card p-8 text-center" style={{ color: "var(--text-muted)" }}>
-              No results yet — trainees can take the assessment at /center-test
+              No results yet — trainees can start assessments from My Learning
             </div>
           ) : (
             <div className="card overflow-hidden">
@@ -108,6 +108,7 @@ export default function AdminCenterTests() {
                   <thead>
                     <tr className="border-b" style={{ background: "var(--bg-warm)" }}>
                       <th className="p-3 text-left">Name</th>
+                      <th className="p-3 text-left">Course</th>
                       <th className="p-3 text-left">Score</th>
                       <th className="p-3 text-left">Result</th>
                       <th className="p-3 text-left">Date</th>
@@ -122,6 +123,9 @@ export default function AdminCenterTests() {
                         <Fragment key={rowKey}>
                           <tr className="border-b hover:bg-[var(--bg-warm)]">
                             <td className="p-3 font-medium">{row.student_name || "—"}</td>
+                            <td className="p-3 text-sm" style={{ color: "var(--text-muted)" }}>
+                              {row.course_name || row.test_title || "—"}
+                            </td>
                             <td className="p-3">{row.percentage ?? 0}% ({row.score ?? 0}/{row.total ?? 0})</td>
                             <td className="p-3">
                               {row.passed ? (

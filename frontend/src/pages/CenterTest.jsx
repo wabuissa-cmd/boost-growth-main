@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import api, { formatErr } from "../api";
+import { useAuth } from "../auth";
 import {
   CheckCircle, XCircle, ArrowCounterClockwise, ArrowLeft, ArrowRight,
   GraduationCap, Clock, Target, User, EnvelopeSimple,
@@ -8,15 +10,21 @@ import {
 const LOGO_SRC = `${process.env.PUBLIC_URL || ""}/brand-assets/boost-growth-logo.png`.replace(/\/\//g, "/");
 const QUESTIONS_URL = `${process.env.PUBLIC_URL || ""}/data/center-test-questions.json`.replace(/\/\//g, "/");
 
-async function loadTestMeta() {
+async function loadTestMeta(testId) {
+  const qs = testId ? `?test_id=${encodeURIComponent(testId)}` : "";
+  try {
+    const { data } = await api.get(`/center-test/questions${qs}`);
+    return data;
+  } catch {
+    /* API unavailable — try static file */
+  }
   try {
     const res = await fetch(QUESTIONS_URL);
     if (res.ok) return res.json();
   } catch {
-    /* static file unavailable — try API */
+    /* static file unavailable */
   }
-  const { data } = await api.get("/center-test/questions");
-  return data;
+  throw new Error("Could not load assessment");
 }
 
 function StepPill({ n, label, active, done }) {
@@ -29,6 +37,10 @@ function StepPill({ n, label, active, done }) {
 }
 
 export default function CenterTest() {
+  const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const testId = searchParams.get("test") || searchParams.get("test_id") || null;
+  const fromPortal = Boolean(user);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [meta, setMeta] = useState(null);
@@ -42,8 +54,10 @@ export default function CenterTest() {
 
   useEffect(() => {
     (async () => {
+      setLoading(true);
+      setError("");
       try {
-        const data = await loadTestMeta();
+        const data = await loadTestMeta(testId);
         setMeta(data);
         setQuestions(data.questions || []);
       } catch {
@@ -52,7 +66,15 @@ export default function CenterTest() {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [testId]);
+
+  useEffect(() => {
+    if (!fromPortal || studentName.trim()) return;
+    const raw = (user?.name || "").replace(/^Ms\.?\s*/i, "").trim();
+    if (raw.split(/\s+/).filter(Boolean).length >= 2) {
+      setStudentName(raw);
+    }
+  }, [fromPortal, user, studentName]);
 
   const resetTest = () => {
     setStep("name");
@@ -93,6 +115,7 @@ export default function CenterTest() {
       const { data } = await api.post("/center-test/attempts", {
         student_name: studentName.trim(),
         answers,
+        test_id: testId || meta?.testId || undefined,
       });
       setResult(data);
       setStep("result");
@@ -120,6 +143,11 @@ export default function CenterTest() {
             <img src={LOGO_SRC} alt="Boost Growth — تعزيز النمو" className="center-test-logo-full" />
           </div>
           <div className="center-test-header-tag">Training Portal</div>
+          {fromPortal && (
+            <Link to="/my-learning" className="center-test-portal-link">
+              <GraduationCap size={16} weight="duotone" /> My Learning
+            </Link>
+          )}
         </div>
       </header>
 
@@ -302,6 +330,11 @@ export default function CenterTest() {
                 <p className="center-test-success-note">
                   Well done, <strong>{result.student_name}</strong>. Your result has been recorded.
                 </p>
+                {fromPortal && (
+                  <Link to="/my-learning" className="btn btn-secondary center-test-btn mt-3">
+                    <GraduationCap size={18} weight="duotone" /> Back to My Learning
+                  </Link>
+                )}
               </>
             ) : (
               <>

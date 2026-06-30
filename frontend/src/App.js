@@ -1,6 +1,6 @@
 import { Component, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth, isJenan, isClientLead, isWalaaOps, isHrOps, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, hasFullClientAccess, showSystemAdmin, canImportData, canViewReports, showMyReportsNav, canViewSupervisionCaseload } from "./auth";
+import { AuthProvider, useAuth, isJenan, isClientLead, isWalaaOps, isHrOps, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, hasFullClientAccess, showSystemAdmin, canImportData, canViewReports, showMyReportsNav, showAcademicPortfolioNav, canViewSupervisionCaseload } from "./auth";
 import Login from "./pages/Login";
 import Shell from "./pages/Shell";
 import AuthenticatedFileViewer from "./components/AuthenticatedFileViewer";
@@ -30,6 +30,7 @@ const Purchases = lazy(() => import("./pages/Purchases"));
 const SupervisionCaseload = lazy(() => import("./pages/SupervisionCaseload"));
 const DesignPreview = lazy(() => import("./pages/DesignPreview"));
 const CenterTest = lazy(() => import("./pages/CenterTest"));
+const MyLearning = lazy(() => import("./pages/MyLearning"));
 import AdminCenterTests from "./pages/AdminCenterTests";
 
 function Loading() {
@@ -142,6 +143,14 @@ function MyReportsAccess({ children }) {
   return children;
 }
 
+function MyLearningAccess({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <Loading/>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!showAcademicPortfolioNav(user)) return <Navigate to="/home" replace />;
+  return children;
+}
+
 function SupervisionAccess({ children }) {
   const { user } = useAuth();
   if (user === null) return <Loading/>;
@@ -186,6 +195,7 @@ function AppRoutes() {
         <Route path="/waiting/school" element={<IntakeAccess><SchoolWaiting/></IntakeAccess>}/>
         <Route path="/my-requests" element={<TherapistRequests/>}/>
         <Route path="/my-reports" element={<MyReportsAccess><TherapistMyReports/></MyReportsAccess>}/>
+        <Route path="/my-learning" element={<MyLearningAccess><MyLearning/></MyLearningAccess>}/>
         <Route path="/my-leaves" element={<Navigate to="/my-requests" replace/>}/>
         <Route path="/staff-leave" element={<StaffLeaveAccess><StaffLeave/></StaffLeaveAccess>}/>
         <Route path="/requests" element={<Navigate to="/staff-leave?tab=other" replace/>}/>

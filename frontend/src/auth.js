@@ -174,6 +174,13 @@ export function canViewCenterTests(user) {
   return showSystemAdmin(user) || isHrOps(user) || isJenan(user) || isWalaaOps(user) || isClientLead(user);
 }
 
+/** My Learning — therapists, Walaa, and client-lead team */
+export function showAcademicPortfolioNav(user) {
+  if (!user || isHrOps(user)) return false;
+  if (isPortalAdmin(user) && !isClientLead(user) && !isWalaaOps(user)) return false;
+  return user.role === "therapist" || isWalaaOps(user) || isClientLead(user);
+}
+
 /** Purchases page — Jenan, Walaa, Maha, Fahda + HR + portal admin */
 export function canAccessPurchases(user) {
   return hasOpsAccess(user) || isClientLead(user);
