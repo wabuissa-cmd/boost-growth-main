@@ -1583,7 +1583,7 @@ export default function Schedule() {
       </div>
       <div className="sched-zoom" style={{ "--sched-zoom": SCHEDULE_ZOOM / 100 }}>
         {cells.length === 0 && !scheduleLoading && (
-          <div className="schedule-page-empty">
+          <div className="schedule-page-empty no-print">
             <div className="schedule-page-empty-icon">
               <CalendarBlank size={28} weight="duotone" />
             </div>
@@ -1600,10 +1600,9 @@ export default function Schedule() {
           </div>
         )}
         {scheduleLoading && cells.length > 0 && (
-          <div className="schedule-page-loading" style={{ padding: "2rem 0" }}><div className="spinner" /></div>
+          <div className="schedule-page-loading no-print" style={{ padding: "2rem 0" }}><div className="spinner" /></div>
         )}
-        {cells.length > 0 && (
-          <div className="schedule-page-grid-wrap">
+        <div className="schedule-page-grid-wrap">
         {view === "sheet" && isScheduleTablet && (
           <p className="schedule-sheet-hint no-print">Swipe table horizontally to see all time slots</p>
         )}
@@ -1618,8 +1617,7 @@ export default function Schedule() {
             {blocksTherapists.map((t, i) => renderTherapistBlock(t, i))}
           </div>
         )}
-          </div>
-        )}
+        </div>
       </div>
       </div>
       </section>

@@ -56,26 +56,6 @@ export default function SchedulePageHeader({
         {badge && <div className="schedule-page-status-badge">{badge}</div>}
       </div>
 
-      {canSwitchView && onViewChange && (
-        <div className="center-test-steps-bar schedule-page-steps">
-          <ViewStepPill
-            label="Team schedule"
-            icon={Table}
-            active={view === "sheet"}
-            onClick={() => onViewChange("sheet")}
-            testId="view-sheet-btn"
-          />
-          <div className="center-test-step-line" />
-          <ViewStepPill
-            label="My schedule"
-            icon={GridFour}
-            active={view === "blocks"}
-            onClick={() => onViewChange("blocks")}
-            testId="view-blocks-btn"
-          />
-        </div>
-      )}
-
       <div className="schedule-page-hero card">
         <div className="schedule-page-hero-row">
           <div className="schedule-page-hero-icon">
@@ -96,6 +76,26 @@ export default function SchedulePageHeader({
             )}
           </div>
         </div>
+
+        {canSwitchView && onViewChange && (
+          <div className="center-test-steps-bar schedule-page-steps schedule-page-steps--in-hero">
+            <ViewStepPill
+              label="Team schedule"
+              icon={Table}
+              active={view === "sheet"}
+              onClick={() => onViewChange("sheet")}
+              testId="view-sheet-btn"
+            />
+            <div className="center-test-step-line" />
+            <ViewStepPill
+              label="My schedule"
+              icon={GridFour}
+              active={view === "blocks"}
+              onClick={() => onViewChange("blocks")}
+              testId="view-blocks-btn"
+            />
+          </div>
+        )}
 
         {toolbar && !stackedToolbar && (
           <div className="schedule-page-toolbar">{toolbar}</div>

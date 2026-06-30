@@ -2507,6 +2507,12 @@ textarea.modal-input {
     padding-right: 0;
     margin: 0.65rem 0 0.75rem;
 }
+.schedule-page-steps--in-hero {
+    margin: 0.85rem 0 0;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--border-light);
+    max-width: 100%;
+}
 .schedule-page-view-step {
     border: none;
     background: transparent;

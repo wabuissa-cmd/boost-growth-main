@@ -38,8 +38,7 @@ function ChooseButtons({ onAdmin, onTherapist }) {
       >
         <ShieldCheck size={28} weight="duotone" />
         <div className="flex-1 text-left">
-          <div className="font-bold">Admin / Supervisor</div>
-          <div className="text-xs opacity-80">Admin · Jenan (manager) · Walaa · HR — use this login</div>
+          <div className="font-bold">Admin</div>
         </div>
         <ArrowRight size={20} />
       </button>
@@ -52,7 +51,6 @@ function ChooseButtons({ onAdmin, onTherapist }) {
         <UserCircle size={28} weight="duotone" color="#6B8F71" />
         <div className="flex-1 text-left">
           <div className="font-bold">Therapist</div>
-          <div className="text-xs" style={{ color: "#6B6650" }}>Client sessions · My tools</div>
         </div>
         <ArrowRight size={20} />
       </button>
