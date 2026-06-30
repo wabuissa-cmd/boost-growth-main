@@ -9,7 +9,7 @@ ENV CI=true \
     DISABLE_ESLINT_PLUGIN=true \
     SKIP_PREFLIGHT_CHECK=true \
     NODE_OPTIONS=--max-old-space-size=2048
-ENV RAILWAY_DEPLOY_REV=admin-delete-attempts-v1
+ENV RAILWAY_DEPLOY_REV=admin-cert-upload-panel-v1
 RUN npm run build
 
 FROM python:3.11-slim

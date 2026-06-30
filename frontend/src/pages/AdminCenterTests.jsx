@@ -1,6 +1,7 @@
 import { useEffect, useState, Fragment, useCallback } from "react";
 import api, { formatErr } from "../api";
 import { CaretDown, CaretUp, CheckCircle, XCircle, ClipboardText, Trash } from "@phosphor-icons/react";
+import CertificateUploadForm from "../components/CertificateUploadForm";
 
 function fmtWhen(iso) {
   if (!iso) return "—";
@@ -17,6 +18,8 @@ function fmtWhen(iso) {
 export default function AdminCenterTests() {
   const [rows, setRows] = useState([]);
   const [canDelete, setCanDelete] = useState(false);
+  const [canUpload, setCanUpload] = useState(false);
+  const [therapists, setTherapists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [openId, setOpenId] = useState(null);
@@ -29,9 +32,13 @@ export default function AdminCenterTests() {
       if (Array.isArray(data)) {
         setRows(data);
         setCanDelete(false);
+        setCanUpload(false);
+        setTherapists([]);
       } else {
         setRows(Array.isArray(data?.attempts) ? data.attempts : []);
         setCanDelete(Boolean(data?.can_delete_attempts));
+        setCanUpload(Boolean(data?.can_upload_certificates));
+        setTherapists(Array.isArray(data?.therapists) ? data.therapists : []);
       }
     } catch (e) {
       const detail = e.response?.data?.detail;
@@ -93,6 +100,10 @@ export default function AdminCenterTests() {
           </div>
         </div>
       </div>
+
+      {canUpload && (
+        <CertificateUploadForm therapists={therapists} />
+      )}
 
       {loading && (
         <div className="card p-8 text-center">

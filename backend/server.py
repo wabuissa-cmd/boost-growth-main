@@ -12566,9 +12566,17 @@ async def center_test_manage_access(user: dict = Depends(get_current_user)) -> d
 @api.get("/center-test/attempts")
 async def list_center_test_attempts(user=Depends(center_test_results_access)):
     rows = await db.center_test_attempts.find({}, {"_id": 0}).sort([("created_at", -1)]).to_list(2000)
+    can_upload = _can_upload_therapist_certificates(user)
+    therapists = []
+    if can_upload:
+        therapists = await db.therapists.find(
+            {}, {"_id": 0, "id": 1, "name": 1, "email": 1}
+        ).sort("name", 1).to_list(500)
     return {
         "attempts": rows,
         "can_delete_attempts": _can_manage_center_test_attempts(user),
+        "can_upload_certificates": can_upload,
+        "therapists": therapists,
     }
 
 
