@@ -91,7 +91,7 @@ export function getPortalDisplayName(user, therapistRow = null) {
   const key = (user.key || therapistRow?.key || "").toLowerCase();
   if (PORTAL_GREETING_OVERRIDES[key]) return PORTAL_GREETING_OVERRIDES[key];
   const email = (user.email || therapistRow?.email || "").toLowerCase();
-  if (email === "walaa@boostgrowthsa.com") return PORTAL_GREETING_OVERRIDES.mswalaa;
+  if (email === "wabuissa@boostgrowthsa.com" || email === "walaa@boostgrowthsa.com") return PORTAL_GREETING_OVERRIDES.mswalaa;
   if (email === "msalthunayan@boostgrowthsa.com") return PORTAL_GREETING_OVERRIDES.msmaha;
   if (email === "falghadeeb@boostgrowthsa.com") return PORTAL_GREETING_OVERRIDES.msfahda;
   if (email === "jsalmuhaisin@boostgrowthsa.com") return PORTAL_GREETING_OVERRIDES.msjenan;
