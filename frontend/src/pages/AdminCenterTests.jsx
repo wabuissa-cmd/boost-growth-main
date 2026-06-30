@@ -1,6 +1,6 @@
-import { useEffect, useState, Fragment } from "react";
+import { useEffect, useState, Fragment, useCallback } from "react";
 import api, { formatErr } from "../api";
-import { CaretDown, CaretUp, CheckCircle, XCircle, ClipboardText } from "@phosphor-icons/react";
+import { CaretDown, CaretUp, CheckCircle, XCircle, ClipboardText, Trash } from "@phosphor-icons/react";
 
 function fmtWhen(iso) {
   if (!iso) return "—";
@@ -16,33 +16,58 @@ function fmtWhen(iso) {
 
 export default function AdminCenterTests() {
   const [rows, setRows] = useState([]);
+  const [canDelete, setCanDelete] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [openId, setOpenId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+
+  const load = useCallback(async () => {
+    setError("");
+    try {
+      const { data } = await api.get("/center-test/attempts");
+      if (Array.isArray(data)) {
+        setRows(data);
+        setCanDelete(false);
+      } else {
+        setRows(Array.isArray(data?.attempts) ? data.attempts : []);
+        setCanDelete(Boolean(data?.can_delete_attempts));
+      }
+    } catch (e) {
+      const detail = e.response?.data?.detail;
+      const msg = formatErr(detail) || e.message;
+      if (e.response?.status === 403) {
+        setError("You do not have permission to view training results.");
+      } else if (e.response?.status === 401) {
+        setError("Session expired — please sign out and sign in again.");
+      } else {
+        setError(msg || "Could not load results.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { data } = await api.get("/center-test/attempts");
-        if (!cancelled) setRows(Array.isArray(data) ? data : []);
-      } catch (e) {
-        if (cancelled) return;
-        const detail = e.response?.data?.detail;
-        const msg = formatErr(detail) || e.message;
-        if (e.response?.status === 403) {
-          setError("You do not have permission to view training results.");
-        } else if (e.response?.status === 401) {
-          setError("Session expired — please sign out and sign in again.");
-        } else {
-          setError(msg || "Could not load results.");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+    load();
+  }, [load]);
+
+  const onDelete = async (row) => {
+    const id = row.id;
+    if (!id) return;
+    const label = `${row.student_name || "Trainee"} · ${row.percentage ?? 0}% · ${fmtWhen(row.created_at)}`;
+    if (!window.confirm(`Delete this attempt?\n\n${label}\n\nThis cannot be undone.`)) return;
+    setDeletingId(id);
+    try {
+      await api.delete(`/center-test/attempts/${encodeURIComponent(id)}`);
+      setOpenId((cur) => (cur === id ? null : cur));
+      await load();
+    } catch (e) {
+      window.alert(formatErr(e.response?.data?.detail) || "Could not delete this attempt.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const passedCount = rows.filter((r) => r.passed).length;
   const failedCount = rows.length - passedCount;
@@ -63,6 +88,7 @@ export default function AdminCenterTests() {
             </h1>
             <p className="text-sm m-0 mt-0.5" style={{ color: "var(--text-muted)" }}>
               View trainee answers and scores
+              {canDelete && " · You can delete old attempts"}
             </p>
           </div>
         </div>
@@ -112,7 +138,7 @@ export default function AdminCenterTests() {
                       <th className="p-3 text-left">Score</th>
                       <th className="p-3 text-left">Result</th>
                       <th className="p-3 text-left">Date</th>
-                      <th className="p-3 text-left">Details</th>
+                      <th className="p-3 text-left">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -140,18 +166,35 @@ export default function AdminCenterTests() {
                             </td>
                             <td className="p-3 whitespace-nowrap">{fmtWhen(row.created_at)}</td>
                             <td className="p-3">
-                              <button
-                                type="button"
-                                className="btn btn-secondary text-xs py-1 px-2"
-                                onClick={() => setOpenId(isOpen ? null : rowKey)}
-                              >
-                                {isOpen ? <><CaretUp size={14} /> Hide</> : <><CaretDown size={14} /> Answers</>}
-                              </button>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary text-xs py-1 px-2"
+                                  onClick={() => setOpenId(isOpen ? null : rowKey)}
+                                >
+                                  {isOpen ? <><CaretUp size={14} /> Hide</> : <><CaretDown size={14} /> Answers</>}
+                                </button>
+                                {canDelete && row.id && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary text-xs py-1 px-2 text-red-800 border-red-200 hover:bg-red-50"
+                                    disabled={deletingId === row.id}
+                                    onClick={() => onDelete(row)}
+                                    title="Delete this attempt"
+                                  >
+                                    {deletingId === row.id ? (
+                                      <span className="spinner" />
+                                    ) : (
+                                      <><Trash size={14} /> Delete</>
+                                    )}
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                           {isOpen && (
                             <tr key={`${rowKey}-answers`} className="border-b bg-[var(--bg-surface)]">
-                              <td colSpan={5} className="p-4">
+                              <td colSpan={6} className="p-4">
                                 <div className="space-y-3">
                                   {(Array.isArray(row.answers) ? row.answers : []).map((a, i) => (
                                     <div

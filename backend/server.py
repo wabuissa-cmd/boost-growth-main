@@ -12550,10 +12550,34 @@ async def certificate_upload_access(user: dict = Depends(get_current_user)) -> d
     return user
 
 
+def _can_manage_center_test_attempts(user: dict) -> bool:
+    """Delete training attempts — portal admin, Walaa ops, HR, and Jenan."""
+    if _is_portal_admin(user) or _is_walaa_ops(user) or _is_hr_ops(user) or _is_jenan(user):
+        return True
+    return False
+
+
+async def center_test_manage_access(user: dict = Depends(get_current_user)) -> dict:
+    if not _can_manage_center_test_attempts(user):
+        raise HTTPException(status_code=403, detail="Training test management access required")
+    return user
+
+
 @api.get("/center-test/attempts")
-async def list_center_test_attempts(_=Depends(center_test_results_access)):
+async def list_center_test_attempts(user=Depends(center_test_results_access)):
     rows = await db.center_test_attempts.find({}, {"_id": 0}).sort([("created_at", -1)]).to_list(2000)
-    return rows
+    return {
+        "attempts": rows,
+        "can_delete_attempts": _can_manage_center_test_attempts(user),
+    }
+
+
+@api.delete("/center-test/attempts/{attempt_id}")
+async def delete_center_test_attempt(attempt_id: str, _=Depends(center_test_manage_access)):
+    res = await db.center_test_attempts.delete_one({"id": attempt_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Attempt not found")
+    return {"ok": True, "deleted_id": attempt_id}
 
 
 @api.get("/my-learning")
