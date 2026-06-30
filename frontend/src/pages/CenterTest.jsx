@@ -4,7 +4,7 @@ import api, { formatErr } from "../api";
 import { useAuth } from "../auth";
 import {
   CheckCircle, XCircle, ArrowCounterClockwise, ArrowLeft, ArrowRight,
-  GraduationCap, Clock, Target, User, EnvelopeSimple,
+  GraduationCap, Clock, Target, User, Certificate,
 } from "@phosphor-icons/react";
 
 const LOGO_SRC = `${process.env.PUBLIC_URL || ""}/brand-assets/boost-growth-logo.png`.replace(/\/\//g, "/");
@@ -151,13 +151,13 @@ export default function CenterTest() {
         </div>
       </header>
 
-      {!loading && meta && step !== "result" && (
+      {!loading && meta && (
         <div className="center-test-steps-bar">
-          <StepPill n="1" label="Your details" active={step === "name"} done={step === "quiz"} />
+          <StepPill n="1" label="Your details" active={step === "name"} done={step === "quiz" || step === "result"} />
           <div className="center-test-step-line" />
-          <StepPill n="2" label="Assessment" active={step === "quiz"} done={false} />
+          <StepPill n="2" label="Assessment" active={step === "quiz"} done={step === "result"} />
           <div className="center-test-step-line" />
-          <StepPill n="3" label="Results" active={false} done={false} />
+          <StepPill n="3" label="Results" active={step === "result"} done={step === "result"} />
         </div>
       )}
 
@@ -319,11 +319,11 @@ export default function CenterTest() {
                   </span>
                 </p>
                 <div className="center-test-certificate-note">
-                  <EnvelopeSimple size={22} weight="duotone" />
+                  <Certificate size={22} weight="duotone" />
                   <p>
-                    Your certificate will be sent to you by email.
+                    Your certificate will be published in your staff portal.
                     <span className="center-test-certificate-sub">
-                      Please check your inbox over the next few days.
+                      Go to <strong>My Learning → My Certificates</strong> once your supervisor has uploaded it.
                     </span>
                   </p>
                 </div>
@@ -347,9 +347,15 @@ export default function CenterTest() {
                   </span>
                 </p>
                 <p className="center-test-fail-note">
-                  You may retake the assessment again when you are ready.
+                  You may retake the assessment when you are ready.
+                  Answer review unlocks in <strong>My Learning</strong> once you reach {threshold}% or higher.
                 </p>
-                <button type="button" className="btn btn-primary center-test-btn center-test-btn-primary" onClick={resetTest}>
+                {fromPortal && (
+                  <Link to="/my-learning" className="btn btn-secondary center-test-btn mt-2">
+                    <GraduationCap size={18} weight="duotone" /> Back to My Learning
+                  </Link>
+                )}
+                <button type="button" className="btn btn-primary center-test-btn center-test-btn-primary mt-2" onClick={resetTest}>
                   <ArrowCounterClockwise size={20} weight="bold" /> Retake assessment
                 </button>
               </>

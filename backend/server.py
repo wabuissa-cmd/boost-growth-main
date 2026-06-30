@@ -12392,6 +12392,28 @@ async def _attempts_for_user(user: dict) -> List[dict]:
     return rows
 
 
+def _prepare_learning_attempts(attempts: List[dict]) -> List[dict]:
+    """Hide answer keys until the trainee passes; number attempts chronologically per test."""
+    by_test: Dict[str, List[dict]] = {}
+    for a in attempts:
+        tid = a.get("test_id") or "default"
+        by_test.setdefault(tid, []).append(a)
+
+    prepared: List[dict] = []
+    for _tid, group in by_test.items():
+        has_passed = any(a.get("passed") for a in group)
+        chronological = sorted(group, key=lambda x: x.get("created_at") or "")
+        for idx, a in enumerate(chronological, 1):
+            row = dict(a)
+            row["attempt_number"] = idx
+            row["answers_unlocked"] = has_passed
+            if not has_passed:
+                row["answers"] = []
+            prepared.append(row)
+    prepared.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+    return prepared
+
+
 class CenterTestSubmitIn(BaseModel):
     student_name: str
     answers: Dict[str, str]
@@ -12530,7 +12552,13 @@ async def get_my_learning(user=Depends(get_current_user)):
         user.get("id") if user.get("role") == "therapist" else None
     )
     catalog = [_center_test_catalog_entry(_load_center_test_data())]
-    attempts = await _attempts_for_user(user)
+    raw_attempts = await _attempts_for_user(user)
+    attempts = _prepare_learning_attempts(raw_attempts)
+    passed_test_ids = sorted({
+        a.get("test_id") or "default"
+        for a in raw_attempts
+        if a.get("passed")
+    })
     cert_q: dict = {}
     if tid:
         cert_q["therapist_id"] = tid
@@ -12550,6 +12578,7 @@ async def get_my_learning(user=Depends(get_current_user)):
     return {
         "catalog": catalog,
         "attempts": attempts,
+        "passed_test_ids": passed_test_ids,
         "certificates": certs,
         "can_upload_certificates": can_upload,
         "therapists": therapists if can_upload else [],

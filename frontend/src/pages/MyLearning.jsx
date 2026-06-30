@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import api, { formatErr, openAuthenticatedFile } from "../api";
 import {
   GraduationCap, Certificate, ClipboardText, CheckCircle, XCircle,
-  CaretDown, CaretUp, ArrowRight, UploadSimple, Sparkle,
+  CaretDown, CaretUp, ArrowRight, UploadSimple, Sparkle, LockKey,
 } from "@phosphor-icons/react";
 
 function fmtDate(iso) {
@@ -17,15 +17,30 @@ function fmtDate(iso) {
   }
 }
 
+function StepPill({ n, label, active, done }) {
+  return (
+    <div className={`center-test-step${active ? " active" : ""}${done ? " done" : ""}`}>
+      <span className="center-test-step-num">{done ? "✓" : n}</span>
+      <span className="center-test-step-label">{label}</span>
+    </div>
+  );
+}
+
 function AttemptCard({ attempt, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
+  const unlocked = attempt.answers_unlocked !== false;
+  const correct = attempt.score ?? (attempt.answers || []).filter((a) => a.is_correct).length;
+  const total = attempt.total ?? (attempt.answers || []).length;
+  const wrong = Math.max(0, total - correct);
+
   return (
     <div className="my-learning-attempt-card">
       <button type="button" className="my-learning-attempt-head" onClick={() => setOpen((o) => !o)}>
         <div className="min-w-0 text-left">
+          <div className="my-learning-attempt-badge">Attempt {attempt.attempt_number || "—"}</div>
           <div className="my-learning-course-name">{attempt.course_name || attempt.test_title || "Assessment"}</div>
           <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
-            {attempt.test_title} · {fmtDate(attempt.created_at)}
+            {fmtDate(attempt.created_at)} · {correct} correct · {wrong} incorrect
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -42,20 +57,30 @@ function AttemptCard({ attempt, defaultOpen = false }) {
       </button>
       {open && (
         <div className="my-learning-attempt-body">
-          {(attempt.answers || []).map((a, i) => (
-            <div
-              key={`${attempt.id}-a-${i}`}
-              className={`my-learning-answer${a.is_correct ? " correct" : " wrong"}`}
-            >
-              <div className="font-medium text-sm mb-1">Q{i + 1}. {a.question_text}</div>
-              <div className="text-sm">
-                Your answer: <strong>{a.selected_text || "—"}</strong>
-                {!a.is_correct && (
-                  <span className="block mt-1 text-green-800">Correct: {a.correct_text}</span>
-                )}
-              </div>
+          {!unlocked ? (
+            <div className="my-learning-locked-note">
+              <LockKey size={20} weight="duotone" />
+              <p>
+                Answer review is locked until you pass this assessment (80% or higher).
+                <span className="block mt-1">Retake the test — once you pass, all your attempts and correct answers will appear here.</span>
+              </p>
             </div>
-          ))}
+          ) : (
+            (attempt.answers || []).map((a, i) => (
+              <div
+                key={`${attempt.id}-a-${i}`}
+                className={`my-learning-answer${a.is_correct ? " correct" : " wrong"}`}
+              >
+                <div className="font-medium text-sm mb-1">Q{i + 1}. {a.question_text}</div>
+                <div className="text-sm">
+                  Your answer: <strong>{a.selected_text || "—"}</strong>
+                  {!a.is_correct && (
+                    <span className="block mt-1 text-green-800">Correct: {a.correct_text}</span>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       )}
     </div>
@@ -118,7 +143,7 @@ export default function MyLearning() {
 
   if (loading) {
     return (
-      <div className="page-enter p-6 flex justify-center">
+      <div className="page-enter my-learning-page flex justify-center py-16">
         <div className="spinner" />
       </div>
     );
@@ -126,7 +151,7 @@ export default function MyLearning() {
 
   if (error) {
     return (
-      <div className="page-enter p-6">
+      <div className="page-enter my-learning-page p-6">
         <div className="card p-4 text-red-800 bg-red-50 border border-red-200">{error}</div>
       </div>
     );
@@ -139,6 +164,16 @@ export default function MyLearning() {
 
   return (
     <div className="page-enter my-learning-page" dir="ltr">
+      <div className="my-learning-top-bar">
+        <div className="my-learning-badge">TRAINING PORTFOLIO</div>
+      </div>
+
+      <div className="center-test-steps-bar my-learning-steps">
+        <StepPill n="1" label="Assessments" active done />
+        <div className="center-test-step-line" />
+        <StepPill n="2" label="My Certificates" active={false} done={certificates.length > 0} />
+      </div>
+
       <div className="my-learning-hero card">
         <div className="flex items-start gap-3">
           <div className="my-learning-hero-icon">
@@ -234,7 +269,7 @@ export default function MyLearning() {
 
           {catalog.length > 0 && (
             <div className="my-learning-available mb-4">
-              <div className="text-xs font-bold tracking-wider uppercase mb-2" style={{ color: "var(--brand-dark)" }}>
+              <div className="my-learning-section-label">
                 <Sparkle size={14} className="inline mr-1" /> Available now
               </div>
               {catalog.map((test) => (
@@ -257,9 +292,7 @@ export default function MyLearning() {
             </div>
           )}
 
-          <div className="text-xs font-bold tracking-wider uppercase mb-2" style={{ color: "var(--text-muted)" }}>
-            Completed attempts
-          </div>
+          <div className="my-learning-section-label">Completed attempts</div>
           {attempts.length === 0 ? (
             <p className="text-sm py-6 text-center" style={{ color: "var(--text-muted)" }}>
               No assessments completed yet. Start an available assessment above.
@@ -278,13 +311,13 @@ export default function MyLearning() {
             <Certificate size={22} weight="duotone" />
             <div>
               <h2>My Certificates</h2>
-              <p>Certificates issued by Boost Growth for your completed training</p>
+              <p>Certificates for completed training — available here in your portal</p>
             </div>
           </div>
 
           {certificates.length === 0 ? (
             <p className="text-sm py-8 text-center" style={{ color: "var(--text-muted)" }}>
-              No certificates yet. Certificates will appear here once uploaded by your supervisor.
+              No certificates yet. Once you pass an assessment, your certificate will be published here by your supervisor.
             </p>
           ) : (
             <div className="space-y-3">

@@ -2227,9 +2227,64 @@ textarea.modal-input {
 
 /* My Learning portfolio */
 .my-learning-page {
-    padding: 1rem 1.25rem 2rem;
+    padding: 0 1.25rem 2rem;
     max-width: 1200px;
     margin: 0 auto;
+}
+.my-learning-top-bar {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 1rem 0 0;
+}
+.my-learning-badge {
+    display: inline-block;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--brand-dark);
+    background: var(--brand-light);
+    padding: 0.3rem 0.6rem;
+    border-radius: var(--radius-pill);
+    border: 1px solid rgba(92, 107, 82, 0.2);
+}
+.my-learning-steps {
+    max-width: 520px;
+    padding-left: 0;
+    padding-right: 0;
+    margin-bottom: 0.5rem;
+}
+.my-learning-section-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+    color: var(--brand-dark);
+}
+.my-learning-attempt-badge {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 0.15rem;
+}
+.my-learning-locked-note {
+    display: flex;
+    gap: 0.65rem;
+    align-items: flex-start;
+    padding: 0.75rem;
+    border-radius: 0.65rem;
+    background: #fff;
+    border: 1px dashed var(--border-light);
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+}
+.my-learning-locked-note svg {
+    flex-shrink: 0;
+    color: var(--brand);
+    margin-top: 0.1rem;
 }
 .my-learning-hero {
     padding: 1.25rem 1.5rem;
