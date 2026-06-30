@@ -27,7 +27,15 @@ export default function AdminCenterTests() {
         const { data } = await api.get("/center-test/attempts");
         setRows(data || []);
       } catch (e) {
-        setError(formatErr(e.response?.data?.detail) || "Could not load results");
+        const detail = e.response?.data?.detail;
+        const msg = formatErr(detail) || e.message;
+        if (e.response?.status === 403) {
+          setError("You do not have permission to view training results. Please sign in as admin or ops lead.");
+        } else if (e.response?.status === 401) {
+          setError("Session expired — please sign out and sign in again.");
+        } else {
+          setError(msg || "Could not load results. Try refreshing the page.");
+        }
       } finally {
         setLoading(false);
       }

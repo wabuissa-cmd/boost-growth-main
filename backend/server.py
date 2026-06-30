@@ -12257,9 +12257,24 @@ async def submit_center_test_attempt(payload: CenterTestSubmitIn):
     return doc
 
 
+async def center_test_results_access(user: dict = Depends(get_current_user)) -> dict:
+    """Training test results — ops leads, admin, HR, Jenan, Walaa, and can_view_reports."""
+    if user.get("can_view_reports"):
+        return user
+    if (
+        _is_portal_admin(user)
+        or _is_walaa_ops(user)
+        or _is_hr_ops(user)
+        or _is_jenan(user)
+        or _is_client_lead(user)
+    ):
+        return user
+    raise HTTPException(status_code=403, detail="Training results access required")
+
+
 @api.get("/center-test/attempts")
-async def list_center_test_attempts(_=Depends(manager_reports_access)):
-    rows = await db.center_test_attempts.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+async def list_center_test_attempts(_=Depends(center_test_results_access)):
+    rows = await db.center_test_attempts.find({}, {"_id": 0}).sort([("created_at", -1)]).to_list(2000)
     return rows
 
 

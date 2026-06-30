@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, Suspense, useMemo } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData, isWalaaOps, showMyPortalNav, showMyReportsNav, isJenan, canViewReports, directManagerLabel, canViewSupervisionCaseload } from "../auth";
+import { useAuth, showAdminNav, isClientLead, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, isHrOps, showSystemAdmin, canImportData, isWalaaOps, showMyPortalNav, showMyReportsNav, isJenan, canViewReports, canViewCenterTests, directManagerLabel, canViewSupervisionCaseload } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch, cachedGet } from "../dataCache";
 import { getPortalDisplayName } from "../scheduleConstants";
@@ -160,9 +160,13 @@ export default function Shell() {
           { to: "/admin", label: "Admin", testid: "nav-admin", icon: <Gear size={17} weight="duotone"/> },
         ]
       : []),
-    ...(canViewReports(user)
+    ...(canViewCenterTests(user)
       ? [
           { to: "/admin/center-tests", label: "Training Tests", testid: "nav-center-tests", icon: <Exam size={17} weight="duotone"/> },
+        ]
+      : []),
+    ...(canViewReports(user)
+      ? [
           { to: "/reports", label: "Reports", testid: "nav-reports", icon: <ChartBar size={17} weight="duotone"/> },
         ]
       : []),

@@ -167,6 +167,13 @@ export function canViewReports(user) {
   return showSystemAdmin(user) || isHrOps(user) || isJenan(user);
 }
 
+/** Training assessment results — ops leads + anyone with reports access */
+export function canViewCenterTests(user) {
+  if (!user) return false;
+  if (user.can_view_reports) return true;
+  return showSystemAdmin(user) || isHrOps(user) || isJenan(user) || isWalaaOps(user) || isClientLead(user);
+}
+
 /** Purchases page — Jenan, Walaa, Maha, Fahda + HR + portal admin */
 export function canAccessPurchases(user) {
   return hasOpsAccess(user) || isClientLead(user);
