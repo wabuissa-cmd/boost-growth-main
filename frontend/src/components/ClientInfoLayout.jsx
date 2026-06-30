@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import {
   Paperclip, ClipboardText, MapPin,
-  Leaf, PencilSimple, Trash, CaretRight,
+  Leaf, PencilSimple, Trash, CaretRight, UsersThree,
 } from "@phosphor-icons/react";
 import LocationLink from "./LocationLink";
 import { formatLocationLabel, getMapsHref } from "../mapsUtils";
@@ -155,7 +155,13 @@ export default function ClientInfoLayout({
   };
 
   if (!clients.length) {
-    return <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>No clients match your filters.</div>;
+    return (
+      <div className="clients-page-empty">
+        <div className="clients-page-empty-icon"><UsersThree size={28} weight="duotone" /></div>
+        <h3 className="clients-page-empty-title">No clients match your filters</h3>
+        <p className="clients-page-empty-text">Try another tab or clear your search.</p>
+      </div>
+    );
   }
 
   return (

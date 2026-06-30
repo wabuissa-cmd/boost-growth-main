@@ -13,7 +13,7 @@ import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
-import ClientRecordsPanel from "../components/ClientRecordsPanel";
+import PortalPageHeader from "../components/PortalPageHeader";
 
 export default function Clients() {
   const navigate = useNavigate();
@@ -30,6 +30,7 @@ export default function Clients() {
   const [panelClient, setPanelClient] = useState(null); // { client, section }
   const [pkgByClient, setPkgByClient] = useState({});
   const [pageReady, setPageReady] = useState(false);
+  const [pageError, setPageError] = useState(null);
 
   const closePanel = () => setPanelClient(null);
 
@@ -37,6 +38,7 @@ export default function Clients() {
 
   const load = async ({ background = false } = {}) => {
     if (!background) setPageReady(false);
+    setPageError(null);
     try {
       const [c, t] = await Promise.all([
         cachedGet("/clients").catch(() => peekCache("/clients") || []),
@@ -50,9 +52,13 @@ export default function Clients() {
         const fresh = clients.find((x) => x.id === pc.client.id);
         return fresh ? { ...pc, client: fresh } : pc;
       });
-    } catch {
+    } catch (err) {
       const stale = peekCache("/clients");
-      if (Array.isArray(stale) && stale.length) setItems(stale);
+      if (Array.isArray(stale) && stale.length) {
+        setItems(stale);
+      } else {
+        setPageError(err?.response?.data?.detail || "Could not load clients. Please try again.");
+      }
     } finally {
       setPageReady(true);
     }
@@ -146,68 +152,80 @@ export default function Clients() {
     setPanelClient({ client: selectedClient, section });
   };
 
-  if (!pageReady && !items.length) {
+  if (!pageReady && !items.length && !pageError) {
     return (
-      <div className="card p-12 text-center">
-        <div className="spinner mx-auto" />
-        <p className="text-sm mt-3" style={{ color: "#8B9E7A" }}>Loading clients…</p>
+      <div className="page-enter clients-page" dir="ltr">
+        <div className="clients-page-loading"><div className="spinner" /></div>
       </div>
     );
   }
 
+  const clientsToolbar = (
+    <div className="flex flex-wrap items-center gap-2">
+      {isAdmin && (
+        <button
+          type="button"
+          data-testid="add-client-btn"
+          onClick={() => setEdit({ name: "", file_no: "", package_hours: 24, color: "#A2C4C9", main_therapist_id: "", co_therapist_ids: [], locations: [] })}
+          className="btn btn-primary text-sm"
+        >
+          <Plus size={16} /> New Child
+        </button>
+      )}
+      <button
+        type="button"
+        data-testid="all-clients-btn"
+        className="btn btn-outline text-sm"
+        onClick={() => setClientPickerOpen(true)}
+      >
+        <UsersThree size={16} weight="duotone" /> {selectedClient ? selectedClient.name : "All Clients"}
+      </button>
+      <div className="search-pill-wrap flex-1 min-w-[160px] max-w-xs">
+        <MagnifyingGlass size={16} className="search-pill-icon" />
+        <input
+          className="input search-pill py-2 text-sm w-full"
+          placeholder="Search name or file #…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+      </div>
+    </div>
+  );
+
   return (
-    <div>
-      <section className="client-info-strip">
-        <div className="client-info-strip__head">
-          <h1 className="client-info-strip__title">Client Info</h1>
-          <nav className="client-info-strip__tabs" aria-label="Client status">
-            {[
-              { id: "active", label: "Active", count: activeCount },
-              { id: "inactive", label: "Inactive", count: items.length - activeCount },
-            ].map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                className={`client-info-strip__tab${statusTab === t.id ? " is-active" : ""}`}
-                onClick={() => setStatusTab(t.id)}
-              >
-                {t.label} ({t.count})
-              </button>
-            ))}
-          </nav>
+    <div className="page-enter clients-page" dir="ltr">
+      <PortalPageHeader
+        prefix="clients"
+        badge="CLIENTS"
+        title="Client Portfolios"
+        subtitle="Profiles, packages, locations, and progress — select a child to view details"
+        icon={UsersThree}
+        stats={[
+          { label: "Total", n: items.length, color: "#2C3625" },
+          { label: "Active", n: activeCount, color: "#3D4F35" },
+          { label: "Attention", n: attentionCount, color: "#8A3F27" },
+        ]}
+        tabs={[
+          { id: "active", label: "Active", count: activeCount },
+          { id: "inactive", label: "Inactive", count: items.length - activeCount },
+        ]}
+        activeTab={statusTab}
+        onTabChange={setStatusTab}
+        toolbar={clientsToolbar}
+      />
+
+      {pageError && (
+        <div className="card clients-page-error" role="alert">{pageError}</div>
+      )}
+
+      <section className="card clients-page-panel">
+        <div className="clients-page-panel-head">
+          <UsersThree size={22} weight="duotone" className="shrink-0" />
+          <div>
+            <h2>{statusTab === "active" ? "Active clients" : "Inactive clients"}</h2>
+            <p>{filtered.length} {filtered.length === 1 ? "child" : "children"} in this view</p>
+          </div>
         </div>
-        <div className="client-info-strip__tools">
-          {isAdmin && (
-            <button
-              type="button"
-              data-testid="add-client-btn"
-              onClick={() => setEdit({ name: "", file_no: "", package_hours: 24, color: "#A2C4C9", main_therapist_id: "", co_therapist_ids: [], locations: [] })}
-              className="client-info-tool"
-            >
-              <Plus size={16} weight="duotone" />
-              <span>New Child</span>
-            </button>
-          )}
-          <button
-            type="button"
-            data-testid="all-clients-btn"
-            className="client-info-tool"
-            onClick={() => setClientPickerOpen(true)}
-          >
-            <UsersThree size={16} weight="duotone" />
-            <span>{selectedClient ? selectedClient.name : "All Clients"}</span>
-          </button>
-          <label className="client-info-tool client-info-tool--search">
-            <MagnifyingGlass size={15} weight="duotone" />
-            <input
-              className="client-info-tool__input"
-              placeholder="Search name or file #…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-          </label>
-        </div>
-      </section>
 
       <ClientInfoLayout
         clients={filtered}
@@ -228,6 +246,7 @@ export default function Clients() {
           await load();
         }}
       />
+      </section>
 
       <ClientPickerSheet
         open={clientPickerOpen}

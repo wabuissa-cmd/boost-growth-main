@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { Plus, X, Trash, Phone, Envelope, PencilSimple, IdentificationCard } from "@phosphor-icons/react";
-import PageBanner from "../components/PageBanner";
+import PortalPageHeader from "../components/PortalPageHeader";
 
 const ROLE_COLORS = {
   "Direct Manager": "#D4A64A",
@@ -24,8 +24,20 @@ export default function Directory() {
   const isAdmin = user?.role === "admin";
   const [items, setItems] = useState([]);
   const [edit, setEdit] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState(null);
 
-  const load = async () => { const { data } = await api.get("/directory"); setItems(data); };
+  const load = async () => {
+    setPageError(null);
+    try {
+      const { data } = await api.get("/directory");
+      setItems(data);
+    } catch (err) {
+      setPageError(err?.response?.data?.detail || "Could not load directory. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
   useEffect(() => { load(); }, []);
   const save = async () => {
     if (!edit.name) return;
@@ -38,23 +50,60 @@ export default function Directory() {
     await api.delete(`/directory/${id}`); load();
   };
 
+  if (loading && items.length === 0 && !pageError) {
+    return (
+      <div className="page-enter directory-page" dir="ltr">
+        <div className="directory-page-loading"><div className="spinner" /></div>
+      </div>
+    );
+  }
+
   return (
-    <div>
-      <PageBanner
+    <div className="page-enter directory-page" dir="ltr">
+      <PortalPageHeader
+        prefix="directory"
+        badge="DIRECTORY"
         title="Directory"
-        subtitle="Internal contacts · managers · supervisors · coordinators"
-        badge={isAdmin ? (
-          <button data-testid="add-contact-btn" onClick={() => setEdit({ name: "", role: "", phone: "", email: "" })} className="btn btn-primary text-sm">
+        subtitle="Internal contacts — managers, supervisors, and coordinators"
+        icon={IdentificationCard}
+        stats={[
+          { label: "Contacts", n: items.length, color: "#2C3625" },
+        ]}
+        toolbar={isAdmin ? (
+          <button
+            type="button"
+            data-testid="add-contact-btn"
+            onClick={() => setEdit({ name: "", role: "", phone: "", email: "" })}
+            className="btn btn-primary text-sm"
+          >
             <Plus size={16} /> New Contact
           </button>
         ) : null}
       />
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 stagger">
+      {pageError && (
+        <div className="card directory-page-error" role="alert">{pageError}</div>
+      )}
+
+      <section className="card directory-page-panel">
+        <div className="directory-page-panel-head">
+          <IdentificationCard size={22} weight="duotone" className="shrink-0" />
+          <div>
+            <h2>Team contacts</h2>
+            <p>Tap phone or email to reach someone directly</p>
+          </div>
+        </div>
+
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 stagger px-1 sm:px-2 pb-2">
         {items.length === 0 && (
-          <div className="card p-12 text-center col-span-full" style={{ color: "#8B9E7A" }}>
-            <IdentificationCard size={42} weight="duotone" className="mx-auto mb-2 opacity-60" />
-            No contacts yet
+          <div className="directory-page-empty col-span-full">
+            <div className="directory-page-empty-icon">
+              <IdentificationCard size={28} weight="duotone" />
+            </div>
+            <h3 className="directory-page-empty-title">No contacts yet</h3>
+            <p className="directory-page-empty-text">
+              {isAdmin ? "Add your first contact using the button above." : "Contacts will appear here when added."}
+            </p>
           </div>
         )}
         {items.map(c => (
@@ -83,6 +132,7 @@ export default function Directory() {
           </div>
         ))}
       </div>
+      </section>
 
       {edit && (
         <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={() => setEdit(null)}>

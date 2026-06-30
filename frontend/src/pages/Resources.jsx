@@ -5,7 +5,7 @@ import {
   Folders, Files, Notebook, ArrowSquareOut, Plus, X, Trash, PencilSimple, GraduationCap,
   FileText, Books, Question
 } from "@phosphor-icons/react";
-import PageBanner from "../components/PageBanner";
+import PortalPageHeader from "../components/PortalPageHeader";
 
 const ICON_MAP = {
   Folders: Folders, Files: Files, Notebook: Notebook,
@@ -42,6 +42,8 @@ export default function Resources() {
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState("all");
   const [previewItem, setPreviewItem] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState(null);
 
   const matchesFilter = (r) => {
     const matchSearch = !search || r.title?.toLowerCase().includes(search.toLowerCase()) || r.description?.toLowerCase().includes(search.toLowerCase());
@@ -50,8 +52,15 @@ export default function Resources() {
   };
 
   const load = async () => {
-    const { data } = await api.get("/resources");
-    setItems(data);
+    setPageError(null);
+    try {
+      const { data } = await api.get("/resources");
+      setItems(data);
+    } catch (err) {
+      setPageError(err?.response?.data?.detail || "Could not load resources. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
   useEffect(() => { load(); }, []);
 
@@ -86,9 +95,9 @@ export default function Resources() {
   };
 
   const GroupTitle = ({ label, hint }) => (
-    <div className="mb-3 mt-1">
-      <div className="text-[11px] tracking-[0.2em] font-bold" style={{ color: "#8B9E7A" }}>{label}</div>
-      <div className="text-xs" style={{ color: "#5C6853" }}>{hint}</div>
+    <div className="resources-page-section-label mb-3 mt-1">
+      <div>{label}</div>
+      {hint && <p className="resources-page-subtitle m-0 mt-0.5" style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>{hint}</p>}
     </div>
   );
 
@@ -125,40 +134,77 @@ export default function Resources() {
     </div>
   );
 
+  if (loading && items.length === 0 && !pageError) {
+    return (
+      <div className="page-enter resources-page" dir="ltr">
+        <div className="resources-page-loading"><div className="spinner" /></div>
+      </div>
+    );
+  }
+
+  const resourcesToolbar = (
+    <div className="flex flex-wrap gap-2 items-center w-full">
+      <input
+        data-testid="resources-search"
+        type="search"
+        placeholder="Search resources…"
+        className="input text-sm flex-1 min-w-[180px]"
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+      />
+      {isAdmin && (
+        <button
+          type="button"
+          data-testid="add-resource-btn"
+          onClick={() => setEdit({ title: "", description: "", url: "", visibility: "all", icon: "Folders", bg: "#E5EBE1", color: "#3D4F35", sort_order: 100 })}
+          className="btn btn-primary text-sm shrink-0"
+        >
+          <Plus size={16} /> New Resource
+        </button>
+      )}
+    </div>
+  );
+
   return (
-    <div>
-      <PageBanner
+    <div className="page-enter resources-page" dir="ltr">
+      <PortalPageHeader
+        prefix="resources"
+        badge="RESOURCES"
         title="Resources"
-        subtitle="Drive folders & shared documents"
-        badge={isAdmin ? (
-          <button data-testid="add-resource-btn" onClick={() => setEdit({ title: "", description: "", url: "", visibility: "all", icon: "Folders", bg: "#E5EBE1", color: "#3D4F35", sort_order: 100 })} className="btn btn-primary text-sm">
-            <Plus size={16} /> New Resource
-          </button>
-        ) : null}
+        subtitle="Drive folders, worksheets, programs, and shared documents"
+        icon={Folders}
+        stats={[
+          { label: "Total", n: items.length, color: "#2C3625" },
+          { label: "Showing", n: items.filter(matchesFilter).length, color: "#3D4F35" },
+        ]}
+        tabs={CATEGORIES.map((c) => ({ id: c.id, label: c.label, testId: `cat-${c.id}` }))}
+        activeTab={activeCategory}
+        onTabChange={setActiveCategory}
+        toolbar={resourcesToolbar}
       />
 
-      <div className="card p-3 mb-5 flex flex-wrap gap-2 items-center">
-        <input data-testid="resources-search" type="search" placeholder="Search resources…"
-               className="input text-sm flex-1 min-w-[180px]" value={search} onChange={e => setSearch(e.target.value)}/>
-        <div className="flex flex-wrap gap-1.5">
-          {CATEGORIES.map(cat => (
-            <button key={cat.id} data-testid={`cat-${cat.id}`} onClick={() => setActiveCategory(cat.id)}
-                    className={`pill text-[11px] px-3 py-1.5 transition ${activeCategory === cat.id ? "" : "opacity-70 hover:opacity-100"}`}
-                    style={{
-                      background: activeCategory === cat.id ? "#7A8A6A" : "white",
-                      color: activeCategory === cat.id ? "white" : "#5C6853",
-                      border: "1px solid #E0DCC4"
-                    }}>
-              {cat.label}
-            </button>
-          ))}
+      {pageError && (
+        <div className="card resources-page-error" role="alert">{pageError}</div>
+      )}
+
+      <section className="card resources-page-panel">
+        <div className="resources-page-panel-head">
+          <Books size={22} weight="duotone" className="shrink-0" />
+          <div>
+            <h2>{CATEGORIES.find(c => c.id === activeCategory)?.label || "All resources"}</h2>
+            <p>Open links in a new tab or preview inside the portal</p>
+          </div>
         </div>
-      </div>
 
       {items.length === 0 && (
-        <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>
-          <Question size={40} weight="duotone" className="mx-auto mb-2 opacity-60" />
-          No resources available yet.
+        <div className="resources-page-empty">
+          <div className="resources-page-empty-icon">
+            <Question size={28} weight="duotone" />
+          </div>
+          <h3 className="resources-page-empty-title">No resources available yet</h3>
+          <p className="resources-page-empty-text">
+            {isAdmin ? "Add Drive folders or documents using New Resource above." : "Shared materials will appear here when published."}
+          </p>
         </div>
       )}
 
@@ -194,6 +240,8 @@ export default function Resources() {
           {items.map(r => <Card key={r.id} r={r} />)}
         </div>
       )}
+
+      </section>
 
       {edit && (
         <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={() => setEdit(null)}>
