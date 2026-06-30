@@ -2,12 +2,12 @@ import { useEffect, useState, useRef, useMemo } from "react";
 import api, { API, openAuthenticatedFile } from "../api";
 import { useAuth, showAdminNav, canEditStaffRequests, canManageLeaves, canHrReviewLeaves, isJenan } from "../auth";
 import { Navigate } from "react-router-dom";
-import { Plus, PencilSimple, Trash, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Package, UploadSimple, Eye, FileArrowDown, FileText, Buildings } from "@phosphor-icons/react";
+import { Plus, PencilSimple, Trash, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Package, UploadSimple, Eye, FileArrowDown, FileText, Buildings, ListChecks } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
-import PageBanner from "../components/PageBanner";
+import RequestsPageHeader from "../components/RequestsPageHeader";
 import { LEAVE_STATUS, LEAVE_TYPES, diffDays, fmtDateRange, permissionPayLabel, fmtLeaveSchedule, permissionDaysFromTimes, addHoursToTime24, leaveRequiresDocument } from "../leaveUtils";
 import "../clientInfoLayout.css";
 import { getTherapistScheduleName } from "../scheduleConstants";
@@ -230,6 +230,8 @@ export default function Requests({ personal = false, embedded = false, managerVi
   const [therapists, setTherapists] = useState([]);
   const [recentLeaves, setRecentLeaves] = useState([]);
   const [staffLeaves, setStaffLeaves] = useState([]);
+  const [requestsLoading, setRequestsLoading] = useState(!embedded);
+  const [requestsError, setRequestsError] = useState(null);
   const [leaveModal, setLeaveModal] = useState(null);
   const [leaveDoc, setLeaveDoc] = useState(null);
   const [leaveSubmitting, setLeaveSubmitting] = useState(false);
@@ -238,10 +240,19 @@ export default function Requests({ personal = false, embedded = false, managerVi
   const useStaffScope = managerView || (canManageReq && !personal);
 
   const load = async () => {
-    const { data } = await api.get("/requests", {
-      params: useStaffScope ? { scope: "staff" } : {},
-    });
-    setItems(data);
+    if (!embedded) setRequestsError(null);
+    try {
+      const { data } = await api.get("/requests", {
+        params: useStaffScope ? { scope: "staff" } : {},
+      });
+      setItems(data);
+    } catch (err) {
+      if (!embedded) {
+        setRequestsError(err?.response?.data?.detail || "Could not load requests. Please try again.");
+      }
+    } finally {
+      if (!embedded) setRequestsLoading(false);
+    }
   };
   const loadLeaves = async () => {
     const yr = new Date().getFullYear();
@@ -411,36 +422,57 @@ export default function Requests({ personal = false, embedded = false, managerVi
   const inProgressCount = queueItems.filter(r => r.status === "in_progress").length;
   const doneCount = queueItems.filter(r => r.status === "done" || r.status === "approved").length;
 
-  return (
-    <div>
+  if (!embedded && requestsLoading && items.length === 0 && !requestsError) {
+    return (
+      <div className="page-enter requests-page" dir="ltr">
+        <div className="requests-page-loading"><div className="spinner" /></div>
+      </div>
+    );
+  }
+
+  const pageShell = (
+    <>
       {!embedded && (
-      <PageBanner
-        title={canManageReq ? "Staff Requests" : "My Requests"}
-        subtitle={canManageReq ? "Other staff applications — materials, requirements, government & general" : "Submit and track your staff requests"}
-        badge={(
-          <>
-            {leaveHr && isPortalAdminUser && (
-              <button data-testid="submit-leave-btn" onClick={() => setLeaveModal(emptyLeaveForm())} className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0">
-                <Plus size={13}/> Submit Leave Request
-              </button>
-            )}
-          </>
-        )}
-        stats={[
-          { label: "Total", n: queueItems.length, color: "#2C3625" },
-          { label: "Pending", n: pendingCount, color: "#6B5218" },
-          { label: "Manager", n: pendingManagerCount, color: "#6B5218" },
-          { label: "HR", n: pendingHrCount, color: "#965132" },
-          { label: "In progress", n: inProgressCount, color: "#375568" },
-          { label: "Done", n: doneCount, color: "#3D4F35" },
-        ]}
-      />
+        <RequestsPageHeader
+          title={canManageReq ? "Staff Requests" : "My Requests"}
+          subtitle={canManageReq
+            ? "Materials, requirements, government letters & general applications"
+            : "Submit and track your staff requests"}
+          stats={[
+            { label: "Total", n: queueItems.length, color: "#2C3625" },
+            { label: "Pending", n: pendingCount, color: "#6B5218" },
+            { label: "Manager", n: pendingManagerCount, color: "#6B5218" },
+            { label: "HR", n: pendingHrCount, color: "#965132" },
+            { label: "In progress", n: inProgressCount, color: "#375568" },
+            { label: "Done", n: doneCount, color: "#3D4F35" },
+          ]}
+          toolbar={leaveHr && isPortalAdminUser ? (
+            <button data-testid="submit-leave-btn" type="button" onClick={() => setLeaveModal(emptyLeaveForm())} className="btn btn-secondary text-sm">
+              <Plus size={16} /> Submit Leave Request
+            </button>
+          ) : null}
+        />
+      )}
+
+      {!embedded && requestsError && (
+        <div className="card requests-page-error" role="alert">{requestsError}</div>
       )}
 
       <div className={managerView ? "" : "req-split"}>
-        <section className={managerView ? "card rounded-[20px] overflow-hidden" : "req-panel-left"}>
+        <section className={managerView ? "card requests-page-panel overflow-hidden" : "req-panel-left card requests-page-panel"}>
+          {!embedded && (
+            <div className="requests-page-panel-head px-3 pt-3 sm:px-4">
+              <ListChecks size={22} weight="duotone" className="shrink-0" />
+              <div className="min-w-0">
+                <h2>{staffLabel}</h2>
+                <p>{managerView ? "Leave · salary certificate · supplies · general — one queue" : "Materials · requirements · government · general"}</p>
+              </div>
+            </div>
+          )}
+
+          {embedded && (
           <div className="req-leave-balance mx-3 mt-3">
-            <div className="text-[10px] tracking-[0.2em] font-bold opacity-90 mb-2">REQUEST OVERVIEW</div>
+            <div className="requests-page-section-label">Request overview</div>
             <div className="req-leave-stat-grid">
               <div className="req-leave-stat-box">
                 <div className="req-leave-stat-val">{queueItems.length}</div>
@@ -460,12 +492,20 @@ export default function Requests({ personal = false, embedded = false, managerVi
               </div>
             </div>
           </div>
+          )}
 
           <div className="req-panel-head">
-            <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>{staffLabel}</h2>
-            <p className="text-xs mt-1 mb-2" style={{ color: "#8B9E7A" }}>
-              {managerView ? "Leave · salary certificate · supplies · general — one queue" : "Materials · requirements · government · general"}
-            </p>
+            {!embedded && (
+              <div className="requests-page-section-label mb-2">Filter by status</div>
+            )}
+            {embedded && (
+              <>
+                <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>{staffLabel}</h2>
+                <p className="text-xs mt-1 mb-2" style={{ color: "#8B9E7A" }}>
+                  {managerView ? "Leave · salary certificate · supplies · general — one queue" : "Materials · requirements · government · general"}
+                </p>
+              </>
+            )}
             <div className="flex gap-1.5 flex-wrap">
               <button onClick={() => setFilter("all")} className={`pill text-[10px] ${filter==="all" ? "bg-[#7A8A6A] text-white" : "bg-[#F0E9D8]"}`}>All ({queueItems.length})</button>
               <button onClick={() => setFilter("pending_manager")} className={`pill text-[10px] border ${filter==="pending_manager" ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : STATUS_MAP.pending_manager.cls}`}>
@@ -499,7 +539,11 @@ export default function Requests({ personal = false, embedded = false, managerVi
                 <tbody>
                   {filtered.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="text-center py-10 text-sm" style={{ color: "#8B9E7A" }}>No requests yet</td>
+                      <td colSpan={7}>
+                        <div className="requests-page-empty">
+                          <p className="requests-page-empty-text m-0">No requests match this filter yet.</p>
+                        </div>
+                      </td>
                     </tr>
                   )}
                   {filtered.map(r => {
@@ -548,7 +592,13 @@ export default function Requests({ personal = false, embedded = false, managerVi
             </div>
           ) : (
           <div className="req-panel-list">
-            {filtered.length === 0 && <div className="p-8 text-center text-sm" style={{color: "#8B9E7A"}}>No requests yet</div>}
+            {filtered.length === 0 && (
+              <div className="requests-page-empty">
+                <div className="requests-page-empty-icon"><ListChecks size={28} weight="duotone" /></div>
+                <h3 className="requests-page-empty-title">No requests yet</h3>
+                <p className="requests-page-empty-text">New submissions from therapists will appear here.</p>
+              </div>
+            )}
             {filtered.map(r => {
               const st = STATUS_MAP[r.status] || STATUS_MAP.pending;
               const tp = TYPES.find(t => t.id === r.request_type) || TYPES[0];
@@ -601,10 +651,13 @@ export default function Requests({ personal = false, embedded = false, managerVi
         </section>
 
         {!managerView && (
-        <aside className="req-panel-sidebar">
-          <div className="req-panel-head">
-            <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Request Types</h2>
-            <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>What therapists can submit</p>
+        <aside className="req-panel-sidebar card requests-page-panel">
+          <div className="requests-page-panel-head px-3 pt-3 sm:px-4">
+            <Briefcase size={22} weight="duotone" className="shrink-0" />
+            <div>
+              <h2>Request Types</h2>
+              <p>What therapists can submit</p>
+            </div>
           </div>
           <div className="p-3 space-y-2">
             {TYPES.map(t => (
@@ -627,13 +680,18 @@ export default function Requests({ personal = false, embedded = false, managerVi
 
           {leaveHr && (
             <>
-              <div className="req-panel-head border-t border-[#E2DDD4]">
-                <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Recent Leave Requests</h2>
-                <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>Approve or reject from here</p>
+              <div className="requests-page-panel-head px-3 pt-3 sm:px-4 border-t border-[#E2DDD4]">
+                <CalendarBlank size={22} weight="duotone" className="shrink-0" />
+                <div>
+                  <h2>Recent Leave Requests</h2>
+                  <p>Approve or reject from here</p>
+                </div>
               </div>
               <div className="req-panel-list">
                 {recentLeaves.length === 0 && (
-                  <div className="p-6 text-center text-xs" style={{ color: "#8B9E7A" }}>No leave requests yet</div>
+                  <div className="requests-page-empty" style={{ padding: "1.5rem 1rem" }}>
+                    <p className="requests-page-empty-text m-0">No leave requests yet.</p>
+                  </div>
                 )}
                 {recentLeaves.map(l => {
                   const st = LEAVE_STATUS[l.status] || LEAVE_STATUS.pending;
@@ -1114,6 +1172,16 @@ export default function Requests({ personal = false, embedded = false, managerVi
           </>
         </ModalBase>
       )}
+    </>
+  );
+
+  if (embedded) {
+    return <div>{pageShell}</div>;
+  }
+
+  return (
+    <div className="page-enter requests-page" dir="ltr">
+      {pageShell}
     </div>
   );
 }

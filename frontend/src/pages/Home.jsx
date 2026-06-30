@@ -361,7 +361,7 @@ export default function Home() {
   ];
 
   return (
-    <div className="page-enter">
+    <div className={`page-enter${showOpsHome ? "" : " home-page"}`} dir={showOpsHome ? undefined : "ltr"}>
       {showOpsHome ? (
         <>
           <HeroBanner greetingParts={saudiGreetingParts(displayName)} />
@@ -446,28 +446,28 @@ export default function Home() {
           )}
 
           {jenan && (
-            <div className="card p-4 mb-4 rounded-[18px]" data-testid="jenan-request-updates" style={{ borderColor: "#E6C983", background: "#FFFCF5" }}>
-              <div className="flex items-center justify-between gap-3 mb-3">
-                <div>
-                  <div className="text-xs font-bold uppercase tracking-widest" style={{ color: "#8B9E7A" }}>Request updates</div>
-                  <div className="font-bold text-sm mt-0.5" style={{ color: "#2C3625" }}>
+            <section className="card home-page-panel mb-4" data-testid="jenan-request-updates">
+              <div className="home-page-panel-head">
+                <ListChecks size={22} weight="duotone" className="shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <h2>Request updates</h2>
+                  <p>
                     {managerPendingTotal > 0
                       ? `${managerPendingTotal} therapist request${managerPendingTotal === 1 ? "" : "s"} need your review`
                       : "No pending therapist requests"}
-                  </div>
+                  </p>
                 </div>
                 <Link to="/manager?tab=staff" className="btn btn-secondary text-xs min-h-0 py-1.5 px-3 shrink-0">
                   Manager Hub <ArrowRight size={14}/>
                 </Link>
               </div>
               {managerRequests.length > 0 ? (
-                <div className="space-y-2 max-h-48 overflow-y-auto">
+                <div className="space-y-2 max-h-48 overflow-y-auto px-1">
                   {managerRequests.map((r) => (
                     <Link
                       key={`${r.kind}-${r.id}`}
                       to="/manager?tab=staff"
-                      className="flex items-center justify-between gap-2 p-2.5 rounded-xl no-underline text-inherit transition hover:bg-white/70"
-                      style={{ background: "rgba(255,255,255,0.55)", border: "1px solid #EDE9E3" }}
+                      className="home-page-list-row"
                     >
                       <div className="min-w-0">
                         <div className="font-semibold text-sm truncate" style={{ color: "#2C3625" }}>{r.title}</div>
@@ -482,9 +482,9 @@ export default function Home() {
                   ))}
                 </div>
               ) : (
-                <p className="text-xs m-0" style={{ color: "#8B9E7A" }}>New submissions from therapists will appear here.</p>
+                <p className="requests-page-empty-text m-0 px-1">New submissions from therapists will appear here.</p>
               )}
-            </div>
+            </section>
           )}
 
           {showInbox && !jenan && (
@@ -493,17 +493,33 @@ export default function Home() {
             </div>
           )}
 
-          <div className="dash-stat-row stagger mb-4">
-            <DashboardStatCard value={stats.completedThisWeek} label="Completed this week" desc="Sessions logged" icon={<CheckCircle size={22} weight="duotone" style={{ color: "#6B8F71", background: "rgba(237,225,201,0.5)", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-0" />
-            <DashboardStatCard variant="sage" value={`${stats.hoursThisWeek.toFixed(1)}h`} label="Hours delivered" icon={<Clock size={22} weight="duotone" style={{ color: "#2F4A35", background: "rgba(107,143,113,0.15)", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-1" />
-            <DashboardStatCard value={stats.cancelledThisWeek} label="Cancelled / missed" icon={<XCircle size={22} weight="duotone" style={{ color: "#8A3F27", background: "#F8EBE7", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-2" />
-            <DashboardStatCard value={stats.todayUpcoming} label="Today's sessions" icon={<CalendarCheck size={22} weight="duotone" style={{ color: "#2F4A35", background: "#F7F3EB", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-3" />
-          </div>
+          <section className="card home-page-panel mb-4">
+            <div className="home-page-panel-head">
+              <CheckCircle size={22} weight="duotone" className="shrink-0" />
+              <div>
+                <h2>This week</h2>
+                <p>Sessions logged and hours delivered</p>
+              </div>
+            </div>
+            <div className="dash-stat-row stagger">
+              <DashboardStatCard value={stats.completedThisWeek} label="Completed this week" desc="Sessions logged" icon={<CheckCircle size={22} weight="duotone" style={{ color: "#6B8F71", background: "rgba(237,225,201,0.5)", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-0" />
+              <DashboardStatCard variant="sage" value={`${stats.hoursThisWeek.toFixed(1)}h`} label="Hours delivered" icon={<Clock size={22} weight="duotone" style={{ color: "#2F4A35", background: "rgba(107,143,113,0.15)", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-1" />
+              <DashboardStatCard value={stats.cancelledThisWeek} label="Cancelled / missed" icon={<XCircle size={22} weight="duotone" style={{ color: "#8A3F27", background: "#F8EBE7", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-2" />
+              <DashboardStatCard value={stats.todayUpcoming} label="Today's sessions" icon={<CalendarCheck size={22} weight="duotone" style={{ color: "#2F4A35", background: "#F7F3EB", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-3" />
+            </div>
+          </section>
 
           <div className="grid lg:grid-cols-[1fr_260px] gap-4 mb-4">
             <PlatformUpdates items={updates} canPost={false} onPosted={loadUpdates} therapistMode />
-            <div className="card p-3 rounded-[18px]">
-              <div className="text-xs font-bold mb-2 uppercase tracking-wide" style={{ color: "#8B9E7A" }}>Week at a glance</div>
+            <section className="card home-page-panel p-0 overflow-hidden">
+              <div className="home-page-panel-head px-3 pt-3 sm:px-4">
+                <CalendarBlank size={22} weight="duotone" className="shrink-0" />
+                <div>
+                  <h2>Week at a glance</h2>
+                  <p>Your schedule and personal notes</p>
+                </div>
+              </div>
+              <div className="p-3 pt-0">
               <TherapistWeekCalendar
                 compact
                 editable
@@ -516,15 +532,22 @@ export default function Home() {
                 onPersonalChange={loadPersonal}
                 therapistId={user?.id}
               />
-            </div>
+              </div>
+            </section>
           </div>
         </>
       )}
 
       {!showOpsHome && (
-        <div className="grid md:grid-cols-2 gap-4">
-          <div className="card p-5 rounded-[22px]">
-            <div className="dash-section-title mb-3">Quick Links</div>
+        <div className="grid md:grid-cols-2 gap-4 home-page-grid">
+          <section className="card home-page-panel">
+            <div className="home-page-panel-head">
+              <ArrowRight size={22} weight="duotone" className="shrink-0" />
+              <div>
+                <h2>Quick links</h2>
+                <p>Jump to your daily tools</p>
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-2 text-sm">
               {quickLinks.map(l => (
                 <Link key={l.label} to={l.to} className="btn btn-outline justify-start gap-2 min-h-[44px] rounded-[14px]">
@@ -535,13 +558,19 @@ export default function Home() {
             <Link to="/attendance" className="btn btn-primary w-full mt-3 min-h-[44px] justify-center gap-2 rounded-[14px]">
               <ClipboardText size={18} weight="duotone"/> Log a session
             </Link>
-          </div>
-          <div className="card p-5 relative overflow-hidden rounded-[22px]" data-testid="daily-quote">
+          </section>
+          <section className="card home-page-panel relative overflow-hidden" data-testid="daily-quote">
             <div className="absolute -top-3 -right-3 opacity-10"><Plant size={130} weight="duotone"/></div>
-            <div className="text-[10px] tracking-[0.2em] font-bold mb-2 relative" style={{color: "#6B8F71"}}>QUOTE OF THE DAY</div>
-            <p className="text-base leading-relaxed relative italic" style={{color: "#2C3625"}}>&ldquo;{quote.text}&rdquo;</p>
+            <div className="home-page-panel-head relative">
+              <Plant size={22} weight="duotone" className="shrink-0" />
+              <div>
+                <h2>Quote of the day</h2>
+                <p>A moment of inspiration</p>
+              </div>
+            </div>
+            <p className="text-base leading-relaxed relative italic m-0" style={{color: "#2C3625"}}>&ldquo;{quote.text}&rdquo;</p>
             <div className="text-xs mt-3 relative" style={{color: "#8B9E7A"}}>— {quote.by}</div>
-          </div>
+          </section>
         </div>
       )}
     </div>

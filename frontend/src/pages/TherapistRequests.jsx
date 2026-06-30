@@ -10,7 +10,7 @@ import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
-import PageBanner from "../components/PageBanner";
+import RequestsPageHeader from "../components/RequestsPageHeader";
 import "../clientInfoLayout.css";
 import VerticalStepper from "../components/VerticalStepper";
 import PurchasesPanel from "../components/PurchasesPanel";
@@ -114,19 +114,28 @@ export default function TherapistRequests() {
   const [requests, setRequests] = useState([]);
   const [leaves, setLeaves] = useState([]);
   const [balance, setBalance] = useState(null);
+  const [pageLoading, setPageLoading] = useState(true);
+  const [pageError, setPageError] = useState(null);
   const [edit, setEdit] = useState(null);
   const [step, setStep] = useState(1);
   const [activeTab, setActiveTab] = useState("vacation");
 
   const load = async () => {
-    const [req, lv, bal] = await Promise.all([
-      api.get("/requests"),
-      api.get("/leaves"),
-      api.get("/leaves/balance").catch(() => ({ data: [] })),
-    ]);
-    setRequests(req.data || []);
-    setLeaves(lv.data || []);
-    setBalance((bal.data || []).find(r => r.therapist_id === user?.id) || null);
+    setPageError(null);
+    try {
+      const [req, lv, bal] = await Promise.all([
+        api.get("/requests"),
+        api.get("/leaves"),
+        api.get("/leaves/balance").catch(() => ({ data: [] })),
+      ]);
+      setRequests(req.data || []);
+      setLeaves(lv.data || []);
+      setBalance((bal.data || []).find(r => r.therapist_id === user?.id) || null);
+    } catch (err) {
+      setPageError(err?.response?.data?.detail || "Could not load your requests. Please try again.");
+    } finally {
+      setPageLoading(false);
+    }
   };
 
   const [submitting, setSubmitting] = useState(false);
@@ -304,46 +313,59 @@ export default function TherapistRequests() {
     </div>
   );
 
+  if (pageLoading && requests.length === 0 && leaves.length === 0 && !pageError) {
+    return (
+      <div className="page-enter requests-page" dir="ltr">
+        <div className="requests-page-loading"><div className="spinner" /></div>
+      </div>
+    );
+  }
+
+  const tabCounts = {
+    vacation: vacationLeaves.length,
+    leave: otherLeaves.length,
+    other: requests.length,
+  };
+
   return (
-    <div>
-      <PageBanner
+    <div className="page-enter requests-page" dir="ltr">
+      <RequestsPageHeader
+        badge="MY REQUESTS"
         title="Request"
         subtitle="Vacation · leave · materials & HR applications"
-        className="editorial-banner--compact-mobile"
+        stats={[
+          { label: "Vacation", n: tabCounts.vacation, color: "#2C3625" },
+          { label: "Leave", n: tabCounts.leave, color: "#375568" },
+          { label: "Other", n: tabCounts.other, color: "#3D4F35" },
+        ]}
+        tabs={REQUEST_TABS.map(t => ({ ...t, testId: `req-tab-${t.id}` }))}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        toolbar={requestActions}
       />
 
-      <div className="intake-tabs mb-4">
-        {REQUEST_TABS.map(t => (
-          <button
-            key={t.id}
-            type="button"
-            data-testid={`req-tab-${t.id}`}
-            onClick={() => setActiveTab(t.id)}
-            className={`intake-tab${activeTab === t.id ? " active" : ""}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {pageError && (
+        <div className="card requests-page-error" role="alert">{pageError}</div>
+      )}
 
       <div className="req-split">
-        <section className="req-panel-left">
-          <div className="req-panel-head req-panel-head--actions">
-            <div className="min-w-0">
-              <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>
+        <section className="req-panel-left card requests-page-panel">
+          <div className="requests-page-panel-head px-3 pt-3 sm:px-4">
+            <ClockCounterClockwise size={22} weight="duotone" className="shrink-0" />
+            <div className="min-w-0 flex-1">
+              <h2>
                 {activeTab === "vacation" ? "Vacation applications" : activeTab === "leave" ? "Leave applications" : "Other applications"}
               </h2>
-              <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>
+              <p>
                 {activeTab === "vacation" ? "Annual leave · balance" : activeTab === "leave" ? "Sick · unpaid · permission" : "Materials · requirements · government · general"}
               </p>
             </div>
-            {requestActions}
           </div>
           {(activeTab === "vacation" || activeTab === "leave") && (
           <>
           {activeTab === "vacation" && (
-          <div className="req-leave-balance mx-3 mt-3">
-            <div className="text-[10px] tracking-[0.2em] font-bold opacity-90 mb-2">LEAVE BALANCE</div>
+          <div className="req-leave-balance mx-3 mt-1">
+            <div className="requests-page-section-label">Leave balance</div>
             {balance?.contract_period_start && (
               <div className="text-[10px] opacity-85 mb-2.5">
                 Contract · {fmtContractPeriod(balance.contract_period_start, balance.contract_period_end)}
@@ -377,18 +399,20 @@ export default function TherapistRequests() {
                 </div>
               </div>
             ) : (
-              <div className="text-sm opacity-90">Loading…</div>
+              <div className="requests-page-loading" style={{ padding: "1rem 0" }}><div className="spinner" /></div>
             )}
           </div>
           )}
-          <div className="req-panel-head">
-            <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>
-              {activeTab === "vacation" ? "Annual vacation requests" : "Leave requests"}
-            </h2>
+          <div className="requests-page-section-label px-3 sm:px-4 mt-2 mb-1">
+            {activeTab === "vacation" ? "Annual vacation requests" : "Leave requests"}
           </div>
           <div className="req-panel-list">
             {(activeTab === "vacation" ? vacationLeaves : otherLeaves).length === 0 && (
-              <div className="p-8 text-center text-sm" style={{ color: "#8B9E7A" }}>No requests yet</div>
+              <div className="requests-page-empty">
+                <div className="requests-page-empty-icon"><CalendarBlank size={28} weight="duotone" /></div>
+                <h3 className="requests-page-empty-title">No requests yet</h3>
+                <p className="requests-page-empty-text">Tap New Request above to submit your first application.</p>
+              </div>
             )}
             {(activeTab === "vacation" ? vacationLeaves : otherLeaves).map(l => {
               const st = LEAVE_STATUS[l.status] || LEAVE_STATUS.pending;
@@ -419,7 +443,11 @@ export default function TherapistRequests() {
           {activeTab === "other" && (
           <div className="req-panel-list">
             {requests.length === 0 && (
-              <div className="p-8 text-center text-sm" style={{ color: "#8B9E7A" }}>No requests yet</div>
+              <div className="requests-page-empty">
+                <div className="requests-page-empty-icon"><Briefcase size={28} weight="duotone" /></div>
+                <h3 className="requests-page-empty-title">No requests yet</h3>
+                <p className="requests-page-empty-text">Submit materials, requirements, or HR applications here.</p>
+              </div>
             )}
             {requests.map(r => {
               const st = STATUS_MAP[r.status] || STATUS_MAP.pending;
