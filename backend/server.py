@@ -1474,6 +1474,7 @@ MASTER_THERAPISTS = [
     ("msShrooq",   "Shroug",   "shalamri@boostgrowthsa.com",      "therapist", 18,   "2026-02-08"),
     ("msAbeer",    "Abeer",    "a.alshareef@boostgrowthsa.com",   "therapist", 4,    None),
     ("msJenan",    "Jenan",    "jsalmuhaisin@boostgrowthsa.com",  "therapist", None, None),
+    ("msWalaa",    "Walaa",    "wabuissa@boostgrowthsa.com",      "operations", None, None),
 ]
 
 MASTER_CLIENTS = [
@@ -11984,6 +11985,48 @@ CENTER_UPDATES_SEED = [
 ]
 
 
+OPS_THERAPIST_RECORDS = [
+    {"key": "msWalaa", "name": "Ms. Walaa", "email": "wabuissa@boostgrowthsa.com", "role": "operations"},
+]
+
+
+async def _ensure_ops_therapist_records() -> int:
+    """Ensure ops staff (e.g. Walaa) exist in therapists for certificates and training."""
+    updated = 0
+    for spec in OPS_THERAPIST_RECORDS:
+        key = spec["key"]
+        email = spec["email"].lower()
+        existing = await db.therapists.find_one({"key": key}, {"_id": 0})
+        if not existing:
+            existing = await _find_therapist_by_email(email)
+        if not existing:
+            await db.therapists.insert_one({
+                "id": str(uuid.uuid4()),
+                "name": spec["name"],
+                "email": email,
+                "key": key,
+                "role": spec.get("role", "operations"),
+                "color": "#C4864A",
+                "pin_hash": hash_password("0000"),
+                "created_at": now_iso(),
+            })
+            updated += 1
+            continue
+        patch: dict = {}
+        if (existing.get("name") or "") != spec["name"]:
+            patch["name"] = spec["name"]
+        if (existing.get("email") or "").lower() != email:
+            patch["email"] = email
+        if existing.get("key") != key:
+            patch["key"] = key
+        if spec.get("role") and existing.get("role") != spec["role"]:
+            patch["role"] = spec["role"]
+        if patch:
+            await db.therapists.update_one({"id": existing["id"]}, {"$set": patch})
+            updated += 1
+    return updated
+
+
 async def _run_startup():
     try:
         await db.users.create_index("email", unique=True)
@@ -12057,6 +12100,13 @@ async def _run_startup():
                 added += 1
             if added:
                 logger.info(f"Added {added} new therapist(s) without disturbing existing data")
+
+        try:
+            n_ops = await _ensure_ops_therapist_records()
+            if n_ops:
+                logger.info(f"Ops therapist records: {n_ops} created/updated")
+        except Exception as e:
+            logger.warning(f"Ops therapist records skipped: {e}")
 
         # Seed schedule week 2026-05-24 if empty
         t_map = {t["name"]: t["id"] async for t in db.therapists.find({}, {"_id": 0, "name": 1, "id": 1})}
