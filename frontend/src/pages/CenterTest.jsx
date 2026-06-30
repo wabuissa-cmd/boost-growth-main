@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import api, { formatErr } from "../api";
 import {
   CheckCircle, XCircle, ArrowCounterClockwise, ArrowLeft, ArrowRight,
-  GraduationCap, Clock, Target, User,
+  GraduationCap, Clock, Target, User, EnvelopeSimple,
 } from "@phosphor-icons/react";
 
 const LOGO_SRC = `${process.env.PUBLIC_URL || ""}/brand-assets/boost-growth-logo.png`.replace(/\/\//g, "/");
@@ -268,7 +268,7 @@ export default function CenterTest() {
                 <circle cx="60" cy="60" r="52" fill="none" stroke="var(--border-light)" strokeWidth="8" />
                 <circle
                   cx="60" cy="60" r="52" fill="none"
-                  stroke={result.passed ? "#16a34a" : "#d97706"}
+                  stroke={result.passed ? "var(--brand)" : "#b45309"}
                   strokeWidth="8" strokeLinecap="round"
                   strokeDasharray={`${2 * Math.PI * 52}`}
                   strokeDashoffset={`${2 * Math.PI * 52 * (1 - result.percentage / 100)}`}
@@ -282,24 +282,42 @@ export default function CenterTest() {
 
             {result.passed ? (
               <>
-                <CheckCircle size={48} weight="fill" className="center-test-icon pass" />
-                <h2>Congratulations — you passed!</h2>
-                <p className="center-test-result-detail">
-                  {result.score} of {result.total} correct answers
+                <CheckCircle size={52} weight="fill" className="center-test-icon pass" />
+                <h2 className="center-test-result-title">Congratulations — you passed!</h2>
+                <p className="center-test-result-score-line">
+                  Your score: <strong>{result.percentage}%</strong>
+                  <span className="center-test-result-score-sub">
+                    ({result.score} of {result.total} correct)
+                  </span>
                 </p>
+                <div className="center-test-certificate-note">
+                  <EnvelopeSimple size={22} weight="duotone" />
+                  <p>
+                    Your certificate will be sent to you by email.
+                    <span className="center-test-certificate-sub">
+                      Please check your inbox over the next few days.
+                    </span>
+                  </p>
+                </div>
                 <p className="center-test-success-note">
-                  Your result has been recorded. Thank you, <strong>{result.student_name}</strong>.
+                  Well done, <strong>{result.student_name}</strong>. Your result has been recorded.
                 </p>
               </>
             ) : (
               <>
-                <XCircle size={48} weight="fill" className="center-test-icon fail" />
-                <h2>Not quite there yet</h2>
-                <p className="center-test-result-detail">
-                  {result.score} of {result.total} correct — you need {threshold}% to pass
+                <XCircle size={52} weight="fill" className="center-test-icon fail" />
+                <h2 className="center-test-result-title">You did not pass this assessment</h2>
+                <p className="center-test-result-score-line">
+                  Your score: <strong>{result.percentage}%</strong>
+                  <span className="center-test-result-score-sub">
+                    ({result.score} of {result.total} correct — {threshold}% required to pass)
+                  </span>
+                </p>
+                <p className="center-test-fail-note">
+                  You may retake the test one more time. Review the material, then try again when you are ready.
                 </p>
                 <button type="button" className="btn btn-primary center-test-btn center-test-btn-primary" onClick={resetTest}>
-                  <ArrowCounterClockwise size={20} /> Retake assessment
+                  <ArrowCounterClockwise size={20} weight="bold" /> Retake assessment
                 </button>
               </>
             )}

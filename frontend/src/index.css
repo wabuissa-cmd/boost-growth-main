@@ -2086,11 +2086,11 @@ textarea.modal-input {
     padding: 2.5rem 1.75rem;
 }
 .center-test-result.pass {
-    border-color: rgba(22, 163, 74, 0.25);
-    background: linear-gradient(180deg, #fff 0%, #f0fdf4 100%);
+    border-color: rgba(92, 107, 82, 0.28);
+    background: linear-gradient(180deg, #fff 0%, rgba(92, 107, 82, 0.08) 100%);
 }
 .center-test-result.fail {
-    border-color: rgba(217, 119, 6, 0.25);
+    border-color: rgba(180, 83, 9, 0.22);
     background: linear-gradient(180deg, #fff 0%, #fffbeb 100%);
 }
 .center-test-score-ring {
@@ -2115,13 +2115,69 @@ textarea.modal-input {
     font-weight: 700;
     color: var(--brand-dark);
 }
-.center-test-icon.pass { color: #16a34a; margin-bottom: 0.5rem; }
-.center-test-icon.fail { color: #d97706; margin-bottom: 0.5rem; }
-.center-test-result h2 {
+.center-test-icon.pass { color: var(--brand); margin-bottom: 0.65rem; }
+.center-test-icon.fail { color: #b45309; margin-bottom: 0.65rem; }
+.center-test-result h2,
+.center-test-result-title {
     font-family: var(--font-display);
+    font-size: 1.4rem;
+    color: var(--brand-dark);
+    margin: 0 0 0.65rem;
+    line-height: 1.35;
+}
+.center-test-result-score-line {
+    font-size: 1rem;
+    color: var(--text-secondary);
+    margin: 0 0 1.15rem;
+    line-height: 1.5;
+}
+.center-test-result-score-line strong {
     font-size: 1.35rem;
     color: var(--brand-dark);
-    margin: 0 0 0.5rem;
+}
+.center-test-result-score-sub {
+    display: block;
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+.center-test-certificate-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.85rem;
+    text-align: left;
+    margin: 0 auto 1.15rem;
+    max-width: 26rem;
+    padding: 1rem 1.1rem;
+    border-radius: 0.9rem;
+    background: linear-gradient(135deg, rgba(92, 107, 82, 0.12) 0%, rgba(47, 74, 53, 0.06) 100%);
+    border: 1px solid rgba(92, 107, 82, 0.22);
+    color: var(--brand-dark);
+}
+.center-test-certificate-note svg {
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+    color: var(--brand);
+}
+.center-test-certificate-note p {
+    margin: 0;
+    font-size: 0.95rem;
+    line-height: 1.55;
+    font-weight: 600;
+}
+.center-test-certificate-sub {
+    display: block;
+    margin-top: 0.35rem;
+    font-size: 0.82rem;
+    font-weight: 400;
+    color: var(--text-muted);
+}
+.center-test-fail-note {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    line-height: 1.55;
+    max-width: 26rem;
+    margin: 0 auto 1.35rem;
 }
 .center-test-result-detail {
     color: var(--text-muted);
