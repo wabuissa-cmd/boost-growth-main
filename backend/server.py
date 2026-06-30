@@ -12504,6 +12504,19 @@ async def center_test_results_access(user: dict = Depends(get_current_user)) -> 
     raise HTTPException(status_code=403, detail="Training results access required")
 
 
+def _can_upload_therapist_certificates(user: dict) -> bool:
+    """Certificate upload — portal admin, HR, and Jenan only (not Walaa/Maha/Fahda)."""
+    if _is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user):
+        return True
+    return False
+
+
+async def certificate_upload_access(user: dict = Depends(get_current_user)) -> dict:
+    if not _can_upload_therapist_certificates(user):
+        raise HTTPException(status_code=403, detail="Certificate upload access required")
+    return user
+
+
 @api.get("/center-test/attempts")
 async def list_center_test_attempts(_=Depends(center_test_results_access)):
     rows = await db.center_test_attempts.find({}, {"_id": 0}).sort([("created_at", -1)]).to_list(2000)
@@ -12529,15 +12542,11 @@ async def get_my_learning(user=Depends(get_current_user)):
     for c in certs:
         c["download_url"] = f"/api/therapist-certificates/{c['id']}/file"
     therapists = []
-    can_upload = False
-    try:
-        await center_test_results_access(user)
-        can_upload = True
+    can_upload = _can_upload_therapist_certificates(user)
+    if can_upload:
         therapists = await db.therapists.find(
             {}, {"_id": 0, "id": 1, "name": 1, "email": 1}
         ).sort("name", 1).to_list(500)
-    except HTTPException:
-        pass
     return {
         "catalog": catalog,
         "attempts": attempts,
@@ -12560,7 +12569,7 @@ async def upload_therapist_certificate(
     title: str = Form(""),
     issued_at: Optional[str] = Form(None),
     file: UploadFile = File(...),
-    user=Depends(center_test_results_access),
+    user=Depends(certificate_upload_access),
 ):
     t = await db.therapists.find_one({"id": therapist_id}, {"_id": 0})
     if not t:
