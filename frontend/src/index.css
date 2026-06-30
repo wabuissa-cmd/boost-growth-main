@@ -663,6 +663,69 @@ main, .page-enter { min-width: 0; }
         box-shadow: 0 -4px 12px rgba(0,0,0,0.06);
         padding-bottom: max(1rem, env(safe-area-inset-bottom)) !important;
     }
+
+    /* Certificate / attachment viewer — fit viewport on mobile */
+    .auth-file-viewer-modal.modal-mobile-compact .modal-center-wrap {
+        padding: 0.65rem !important;
+        align-items: center !important;
+    }
+    .auth-file-viewer-modal.modal-mobile-compact .modal-shell {
+        width: 100% !important;
+        max-width: 100% !important;
+        max-height: min(94dvh, calc(100dvh - 1.3rem)) !important;
+        height: auto !important;
+        margin: 0 auto !important;
+        border-radius: 1rem !important;
+    }
+    .auth-file-viewer-body {
+        overflow-x: hidden;
+        padding: 0.75rem 0.65rem !important;
+    }
+    .auth-file-preview {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    .auth-file-preview--image {
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        max-height: min(68dvh, calc(100dvh - 11.5rem));
+    }
+    .auth-file-preview__media {
+        display: block;
+        width: auto;
+        max-width: 100%;
+        height: auto;
+        max-height: min(68dvh, calc(100dvh - 11.5rem));
+        object-fit: contain;
+        border-radius: 0.5rem;
+        touch-action: pinch-zoom;
+    }
+    .auth-file-preview--pdf {
+        max-height: min(68dvh, calc(100dvh - 11.5rem));
+    }
+    .auth-file-preview__frame {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        min-height: 240px;
+        height: min(68dvh, calc(100dvh - 11.5rem));
+        border: 1px solid #E2DDD4;
+        border-radius: 0.5rem;
+        background: #FAFAF7;
+    }
+    .auth-file-viewer-modal .modal-footer-sticky {
+        gap: 0.5rem;
+        justify-content: stretch;
+    }
+    .auth-file-viewer-modal .modal-footer-sticky .btn {
+        min-height: 44px;
+        flex: 1 1 auto;
+        justify-content: center;
+    }
     .modal-input, .input, .select, .textarea {
         font-size: 16px !important;
         min-height: 44px !important;
@@ -1724,6 +1787,48 @@ textarea.modal-input {
 
 .modal-input-error {
     border-color: #FCA5A5;
+}
+
+/* Authenticated file viewer (certificates, attachments) */
+.auth-file-viewer-body {
+    overflow-x: hidden;
+}
+.auth-file-preview {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+}
+.auth-file-preview--image {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    max-height: min(70dvh, 600px);
+}
+.auth-file-preview__media {
+    display: block;
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    max-height: min(70dvh, 600px);
+    object-fit: contain;
+    border-radius: 0.5rem;
+}
+.auth-file-preview--pdf {
+    max-height: min(70dvh, 600px);
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+}
+.auth-file-preview__frame {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-height: 320px;
+    height: min(70dvh, 600px);
+    border: 1px solid #E2DDD4;
+    border-radius: 0.5rem;
+    background: #FAFAF7;
 }
 
 /* Center training test (public /center-test) */
@@ -3358,6 +3463,20 @@ textarea.modal-input {
     }
     .home-page {
         padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+    }
+    .auth-file-viewer-modal.modal-mobile-compact .modal-center-wrap {
+        padding: 0.5rem !important;
+    }
+    .auth-file-viewer-modal.modal-mobile-compact .modal-shell {
+        max-height: min(94dvh, calc(100dvh - 1rem)) !important;
+        border-radius: 0.85rem !important;
+    }
+    .auth-file-viewer-body {
+        padding: 0.65rem 0.5rem !important;
+    }
+    .auth-file-viewer-modal .modal-footer-sticky {
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
     }
 }
 

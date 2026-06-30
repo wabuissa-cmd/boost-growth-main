@@ -107,6 +107,10 @@ export default function AuthenticatedFileViewer() {
       onClose={close}
       size="xl"
       elevated
+      compact
+      mobileCompact
+      className="auth-file-viewer-modal"
+      bodyClassName="auth-file-viewer-body"
       footer={(
         <>
           {blobUrl && (
@@ -150,22 +154,23 @@ export default function AuthenticatedFileViewer() {
       )}
 
       {!loading && !error && blobUrl && kind === "image" && (
-        <div className="flex justify-center">
+        <div className="auth-file-preview auth-file-preview--image">
           <img
             src={blobUrl}
             alt={filename}
-            className="max-w-full max-h-[70dvh] rounded-lg object-contain"
+            className="auth-file-preview__media"
           />
         </div>
       )}
 
       {!loading && !error && blobUrl && kind === "pdf" && (
-        <iframe
-          title={filename}
-          src={blobUrl}
-          className="w-full rounded-lg border"
-          style={{ borderColor: "#E2DDD4", height: "min(70dvh, 600px)" }}
-        />
+        <div className="auth-file-preview auth-file-preview--pdf">
+          <iframe
+            title={filename}
+            src={blobUrl}
+            className="auth-file-preview__frame"
+          />
+        </div>
       )}
 
       {!loading && !error && blobUrl && kind === "download" && (
