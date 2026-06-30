@@ -100,7 +100,7 @@ function isSupervisorForClient(user, fileNo) {
 }
 
 const STATUS_OPTS = [
-  { id: "Completed", label: "Completed", icon: <CheckCircle size={28} weight="fill"/>, color: "#3D4F35", bg: "#E5EBE1" },
+  { id: "Completed", label: "Completed", icon: <CheckCircle size={28} weight="fill"/>, color: "var(--brand-dark)", bg: "#E5EBE1" },
   { id: "Cancelled", label: "Cancelled", icon: <Warning size={28} weight="fill"/>, color: "#8B6918", bg: "#FAF0D1" },
   { id: "No Show", label: "No Show", icon: <XCircle size={28} weight="fill"/>, color: "#8A3F27", bg: "#F8EBE7" },
 ];
@@ -133,10 +133,10 @@ function ServiceTypeToggle({ value, onChange, tabState }) {
         className="px-3 py-1.5 text-xs font-bold rounded-lg border-2 transition shrink-0 min-h-[44px] min-w-[44px]"
         style={
           active
-            ? { background: "#7A8A6A", color: "#fff", borderColor: "#7A8A6A" }
+            ? { background: "var(--brand-sage)", color: "#fff", borderColor: "var(--brand-sage)" }
             : disabled
               ? { background: "#F5F5F5", color: "#A0A0A0", borderColor: "#E0E0E0", opacity: 0.55, cursor: "not-allowed" }
-              : { background: "#fff", color: "#5C6853", borderColor: "#7A8A6A" }
+              : { background: "#fff", color: "var(--text-secondary)", borderColor: "var(--brand-sage)" }
         }
       >
         {code}{active ? " ✓" : ""}
@@ -155,9 +155,9 @@ function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdi
   const colIds = sheetCols ? new Set(sheetCols.map(c => c.id)) : null;
   const show = (id) => !colIds || colIds.has(id);
   const displayStatus = s.status === "No Service" ? "Completed" : s.status;
-  const stColor = displayStatus === "Completed" ? "#3D4F35" :
+  const stColor = displayStatus === "Completed" ? "var(--brand-dark)" :
     displayStatus === "Cancelled" ? "#6B5218" :
-    displayStatus === "No Show" ? "#8A3F27" : "#5C6853";
+    displayStatus === "No Show" ? "#8A3F27" : "var(--text-secondary)";
   const stBg = displayStatus === "Completed" ? "#E5EBE1" :
     displayStatus === "Cancelled" ? "#FAF0D1" :
     displayStatus === "No Show" ? "#F8EBE7" : "#F0EDE9";
@@ -183,11 +183,11 @@ function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdi
       {show("location") && (
         <td className={cell}>
           {s.location ? (
-            <LocationLink address={s.location} className="underline" style={{ color: "#5C8A47" }} />
+            <LocationLink address={s.location} className="underline" style={{ color: "var(--brand)" }} />
           ) : "—"}
         </td>
       )}
-      {show("note") && <td className={`${cell} italic`} style={{ color: "#5C6853" }}>{s.note || ""}</td>}
+      {show("note") && <td className={`${cell} italic`} style={{ color: "var(--text-secondary)" }}>{s.note || ""}</td>}
       {!locked && show("_action") && (
         <td className={`${cell} text-right whitespace-nowrap no-print`}>
           {canEdit && <button onClick={() => onEdit(s)} className="btn btn-ghost p-1.5"><PencilSimple size={14}/></button>}
@@ -305,7 +305,7 @@ export default function Attendance() {
     { id: "all", label: "All" },
     { id: "urgent", label: "Urgent", dot: "#C97B5C" },
     { id: "warning", label: "Warning", dot: "#D4A64A" },
-    { id: "ok", label: "Safe", dot: "#7A8A6A" },
+    { id: "ok", label: "Safe", dot: "var(--brand-sage)" },
   ];
 
   const showPrepStats = isAdmin;
@@ -352,24 +352,24 @@ export default function Attendance() {
 
   if (attendanceLoading && clients.length === 0 && !attendanceError) {
     return (
-      <div className="page-enter attendance-page" dir="ltr">
+      <div className="attendance-page" dir="ltr">
         <div className="attendance-page-loading"><div className="spinner" /></div>
       </div>
     );
   }
 
   return (
-    <div className="page-enter attendance-page" dir="ltr">
+    <div className="attendance-page" dir="ltr">
       <AttendancePageHeader
         subtitle="Log sessions, track package progress, and open invoice sheets"
         stats={showPrepStats ? [
           { label: "Total", n: counts.all, color: "#2C3625" },
           { label: "Urgent", n: counts.urgent, color: "#8A3F27" },
           { label: "Warning", n: counts.warning, color: "#6B5218" },
-          { label: "Safe", n: counts.ok, color: "#3D4F35" },
+          { label: "Safe", n: counts.ok, color: "var(--brand-dark)" },
         ] : [
           { label: "Clients", n: counts.all, color: "#2C3625" },
-          { label: "On track", n: counts.ok, color: "#3D4F35" },
+          { label: "On track", n: counts.ok, color: "var(--brand-dark)" },
         ]}
         toolbar={prepToolbar}
       />
@@ -428,7 +428,7 @@ export default function Attendance() {
                 </div>
                 <div className="flex-1">
                   <div className="font-bold text-sm" style={{ color: "#1C2617" }}>{c.name}</div>
-                  <div className="text-[11px]" style={{ color: "#8B9E7A" }}>
+                  <div className="text-[11px]" style={{ color: "var(--brand-sage)" }}>
                     #{c.file_no} · {c.billing_mode === "weeks"
                       ? `Week ${c.currentWeek}/${c.cycleWeeks}`
                       : `${c.rem.toFixed(1)}/${c.pkg}h left`}
@@ -486,7 +486,7 @@ function PrepOnlyRow({ rec, findT, bordered = false, canRemove = false, onRemove
       <td className={`${cell} font-bold`}>{dayNameFromDate(rec.session_date)}</td>
       <td className={`${cell} font-bold`}>{fmtDate(rec.session_date)}</td>
       <td className={cell}>
-        <span className="pill text-[10px] uppercase" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+        <span className="pill text-[10px] uppercase" style={{ background: "#E5EBE1", color: "var(--brand-dark)" }}>
           Prep complete
         </span>
       </td>
@@ -495,7 +495,7 @@ function PrepOnlyRow({ rec, findT, bordered = false, canRemove = false, onRemove
       <td className={cell}>{therapistLabel}</td>
       <td className={cell}>—</td>
       <td className={cell}>—</td>
-      <td className={`${cell} italic`} style={{ color: "#5C6853" }}>{rec.notes || ""}</td>
+      <td className={`${cell} italic`} style={{ color: "var(--text-secondary)" }}>{rec.notes || ""}</td>
       {canRemove && (
         <td className={`${cell} text-right whitespace-nowrap no-print`}>
           <button
@@ -785,7 +785,7 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
               ))}
             </select>
           ) : selectedInvoice ? (
-            <span className="text-[10px] shrink-0 pill px-1.5 py-0.5" style={{ background: "#F0EDE9", color: "#5C6853" }}>
+            <span className="text-[10px] shrink-0 pill px-1.5 py-0.5" style={{ background: "#F0EDE9", color: "var(--text-secondary)" }}>
               {selectedInvoice.invoice_number}
             </span>
           ) : (
@@ -804,7 +804,7 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
 
         {invoiceLocked && (
           <div className="px-3 py-1 text-[10px] font-bold no-print shrink-0"
-            style={{ background: "#F5F5F5", color: "#5C6853", borderBottom: "1px solid #E0E0E0" }}>
+            style={{ background: "#F5F5F5", color: "var(--text-secondary)", borderBottom: "1px solid #E0E0E0" }}>
             🔒 Closed invoice — view only
           </div>
         )}
@@ -827,11 +827,11 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
 
         <div className="flex-1 overflow-y-auto min-h-0 bg-[#FAFAF7]">
           <div className="px-3 pt-3 pb-2 text-center bg-white border-b border-[#E2DDD4]">
-            <div className="w-10 h-10 rounded-lg mx-auto flex items-center justify-center p-1.5" style={{ background: "#7A8A6A" }}>
+            <div className="w-10 h-10 rounded-lg mx-auto flex items-center justify-center p-1.5" style={{ background: "var(--brand-sage)" }}>
               <img src="/bg-logo.png" alt="" className="w-full h-full object-contain"/>
             </div>
             <div className="font-display text-base font-semibold mt-1 leading-tight" style={{ color: "#2C3625" }}>Boost Growth</div>
-            <div className="text-[9px] tracking-[0.12em] font-bold" style={{ color: "#8B9E7A" }}>SESSION HISTORY</div>
+            <div className="text-[9px] tracking-[0.12em] font-bold" style={{ color: "var(--brand-sage)" }}>SESSION HISTORY</div>
             {!isAdmin && (
               <p
                 className="mt-2 mb-0 text-[10px] leading-snug px-2 py-1.5 rounded-lg border mx-auto max-w-md no-print"
@@ -844,11 +844,11 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
           </div>
 
           {!selectedInvoice && !loading && cycleSessions.length === 0 && prepOnlyRows.length === 0 ? (
-            <div className="p-4 text-center text-sm" style={{ color: "#8B9E7A" }}>No sessions or preparation logged yet</div>
+            <div className="p-4 text-center text-sm" style={{ color: "var(--brand-sage)" }}>No sessions or preparation logged yet</div>
           ) : loading ? (
-            <div className="p-4 text-center text-sm" style={{ color: "#8B9E7A" }}>Loading sessions…</div>
+            <div className="p-4 text-center text-sm" style={{ color: "var(--brand-sage)" }}>Loading sessions…</div>
           ) : selectedInvoice && cycleSessions.length === 0 && prepOnlyRows.length === 0 && !isSchool ? (
-            <div className="p-4 text-center text-sm" style={{ color: "#8B9E7A" }}>No sessions for this invoice yet</div>
+            <div className="p-4 text-center text-sm" style={{ color: "var(--brand-sage)" }}>No sessions for this invoice yet</div>
           ) : isSchool && selectedInvoice ? (
             <div className="p-2 space-y-2">
               {ssWeekGroups.map((group) => {
@@ -859,16 +859,16 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
                   <div key={`week-${group.weekNumber}`} className="border rounded-lg overflow-hidden bg-white" style={{ borderColor: "#C4D4B8" }}>
                     <div className="px-2.5 py-1 flex items-center justify-between flex-wrap gap-1.5" style={{ background: "#EDF4E8" }}>
                       <span className="font-bold text-xs" style={{ color: "#2C5035" }}>WEEK {group.weekNumber}</span>
-                      <span className="text-[10px]" style={{ color: "#5C6853" }}>{group.label}</span>
+                      <span className="text-[10px]" style={{ color: "var(--text-secondary)" }}>{group.label}</span>
                       {wk && (
-                        <span className="pill text-[10px] font-bold" style={{ background: badgeBg, color: "#3D4F35" }}>
+                        <span className="pill text-[10px] font-bold" style={{ background: badgeBg, color: "var(--brand-dark)" }}>
                           {st}
                           {group.sessions.length > 0 && ` (${wk.attended}/${group.dates.length || 5} days)`}
                         </span>
                       )}
                     </div>
                     {group.sessions.length === 0 ? (
-                      <div className="p-3 text-center text-xs italic" style={{ color: "#8B9E7A" }}>
+                      <div className="p-3 text-center text-xs italic" style={{ color: "var(--brand-sage)" }}>
                         {group.startISO ? "No sessions this week" : "Upcoming"}
                       </div>
                     ) : (
@@ -912,7 +912,7 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
                       type="button"
                       onClick={() => setSelectedMonth(key)}
                       className={`pill text-[10px] px-2 py-1 font-semibold border min-h-0 ${
-                        selectedMonth === key ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E2DDD4] text-[#5C6853]"
+                        selectedMonth === key ? "bg-[var(--brand-sage)] text-white border-[var(--brand-sage)]" : "bg-white border-[#E2DDD4] text-[var(--text-secondary)]"
                       }`}
                     >
                       {formatMonthLabel(key)}
@@ -923,9 +923,9 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
               <div className="border rounded-lg overflow-hidden bg-white" style={{ borderColor: "#C4D4B8" }}>
                 <div className="px-2.5 py-1 flex items-center justify-between flex-wrap gap-1" style={{ background: "#EDF4E8" }}>
                   <span className="font-bold text-xs" style={{ color: "#2C5035" }}>HOME SESSIONS</span>
-                  <span className="text-[10px] text-right" style={{ color: "#5C6853" }}>
+                  <span className="text-[10px] text-right" style={{ color: "var(--text-secondary)" }}>
                     {hsTotals && (
-                      <span className="block font-semibold" style={{ color: "#3D4F35" }}>
+                      <span className="block font-semibold" style={{ color: "var(--brand-dark)" }}>
                         {hsTotals.hoursUsed.toFixed(1)} of {hsTotals.pkg}h used
                       </span>
                     )}
@@ -1524,7 +1524,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
                 <span className="pill text-[10px] font-bold px-1.5 py-0.5"
                   style={{
                     background: selectedInvoice.is_closed ? "#F0EDE9" : "#E5EBE1",
-                    color: selectedInvoice.is_closed ? "#5C6853" : "#3D4F35",
+                    color: selectedInvoice.is_closed ? "var(--text-secondary)" : "var(--brand-dark)",
                     border: `1px solid ${selectedInvoice.is_closed ? "#E2DDD4" : "#B4C2A9"}`,
                   }}>
                   {selectedInvoice.is_closed ? "Closed" : "Open"}
@@ -1615,7 +1615,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
 
         {showNoOpenWarning && (
           <div className="mx-5 mt-2 px-3 py-2 rounded-lg border text-xs no-print flex items-center justify-between gap-2 flex-wrap"
-            style={{ background: "#F5F5F5", borderColor: "#E0E0E0", color: "#5C6853" }}>
+            style={{ background: "#F5F5F5", borderColor: "#E0E0E0", color: "var(--text-secondary)" }}>
             <span>⚫ No open {serviceTypeFilter} invoice — showing most recent closed invoice.</span>
             {opsAdmin && (
               <button type="button" onClick={() => setShowNewInvModal(true)} className="btn btn-primary text-xs">Create New Invoice</button>
@@ -1625,7 +1625,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
 
         {readOnly && (
           <div className="mx-5 mt-2 px-3 py-2 rounded-lg border text-xs no-print"
-            style={{ background: "#F0F4EC", borderColor: "#C4D4B8", color: "#3D4F35" }}>
+            style={{ background: "#F0F4EC", borderColor: "#C4D4B8", color: "var(--brand-dark)" }}>
             View only — contact coordination to update invoice details.
           </div>
         )}
@@ -1642,13 +1642,13 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
                 {serviceDisplay}
               </span>
             )}
-            <span className="pill text-[10px]" style={{background: closed ? "#F8EBE7" : "#E5EBE1", color: closed ? "#8A3F27" : "#3D4F35"}}>
+            <span className="pill text-[10px]" style={{background: closed ? "#F8EBE7" : "#E5EBE1", color: closed ? "#8A3F27" : "var(--brand-dark)"}}>
               {closed ? "Closed" : "Open"}
             </span>
             {isSchool && currentWeekInfo ? (
-              <span style={{color: "#5C6853"}}>Week {currentWeekInfo.weekNumber}/{cycleWeeks} · {weeksDone}/{cycleWeeks} weeks done</span>
+              <span style={{color: "var(--text-secondary)"}}>Week {currentWeekInfo.weekNumber}/{cycleWeeks} · {weeksDone}/{cycleWeeks} weeks done</span>
             ) : selectedInvoice ? (
-              <span style={{color: "#5C6853"}}>{rem.toFixed(1)}h remaining · {used.toFixed(1)}/{pkg}h</span>
+              <span style={{color: "var(--text-secondary)"}}>{rem.toFixed(1)}h remaining · {used.toFixed(1)}/{pkg}h</span>
             ) : null}
             <button onClick={() => setShowInvoiceDetails(true)} className="btn btn-ghost text-[11px] py-0 px-2">ⓘ Details</button>
             {canEditInvoice && (
@@ -1678,7 +1678,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
 
         {invoiceLocked && (
           <div className="px-4 py-1.5 text-xs font-bold no-print flex items-center gap-2"
-            style={{ background: "#F5F5F5", color: "#5C6853", borderBottom: "1px solid #E0E0E0" }}>
+            style={{ background: "#F5F5F5", color: "var(--text-secondary)", borderBottom: "1px solid #E0E0E0" }}>
             🔒 Invoice closed — sessions are view-only. Re-open from Invoice Details to edit.
           </div>
         )}
@@ -1701,7 +1701,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
 
         <div className="flex-1 overflow-y-auto bg-white min-h-0 invoice-print-body">
           {/* Logo + Title */}
-          <div className="px-4 pt-3 pb-2 flex items-center justify-between border-b-2 relative invoice-print-header" style={{borderColor: "#7A8A6A"}}>
+          <div className="px-4 pt-3 pb-2 flex items-center justify-between border-b-2 relative invoice-print-header" style={{borderColor: "var(--brand-sage)"}}>
             {pdfSeal?.includeSeal && sealImageOk && (
               <img
                 src={COMPANY_SEAL_SRC}
@@ -1711,12 +1711,12 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
               />
             )}
             <div className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center p-1.5" style={{background: "#7A8A6A"}}>
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center p-1.5" style={{background: "var(--brand-sage)"}}>
                 <img src={`${process.env.PUBLIC_URL || ""}/bg-logo.png`.replace(/\/\//g, "/")} alt="" className="w-full h-full object-contain"/>
               </div>
               <div>
                 <div className="font-display text-lg font-semibold leading-tight" style={{color: "#2C3625"}}>Boost Growth</div>
-                <div className="text-[10px] tracking-[0.15em] font-bold" style={{color: "#8B9E7A"}}>ATTENDANCE SHEET · ABA SERVICES</div>
+                <div className="text-[10px] tracking-[0.15em] font-bold" style={{color: "var(--brand-sage)"}}>ATTENDANCE SHEET · ABA SERVICES</div>
               </div>
             </div>
             <div className="text-right">
@@ -1726,21 +1726,21 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
                 )}
                 <span className="pill text-[11px]" style={{
                     background: selectedPaymentStatus === "complete" ? "#E5EBE1" : selectedPaymentStatus === "partial" ? "#FAF0D1" : "#FAE8C8",
-                    color: selectedPaymentStatus === "complete" ? "#3D4F35" : selectedPaymentStatus === "partial" ? "#6B5218" : "#8B6918"}}>
+                    color: selectedPaymentStatus === "complete" ? "var(--brand-dark)" : selectedPaymentStatus === "partial" ? "#6B5218" : "#8B6918"}}>
                   {selectedPaymentStatus === "complete" ? "✓ Paid" : selectedPaymentStatus === "partial" ? "◐ Partial" : "⚠ Unpaid"}
                 </span>
-                <span className="pill text-[11px]" style={{background: closed ? "#F8EBE7" : "#E5EBE1", color: closed ? "#8A3F27" : "#3D4F35"}}>
+                <span className="pill text-[11px]" style={{background: closed ? "#F8EBE7" : "#E5EBE1", color: closed ? "#8A3F27" : "var(--brand-dark)"}}>
                   {closed ? "🔒 CLOSED" : "🔓 OPEN"}
                 </span>
                 {canEditInvoice && (
-                  <button onClick={toggleClosed} className="text-[10px] underline no-print" style={{color: "#7A8A6A"}}>toggle</button>
+                  <button onClick={toggleClosed} className="text-[10px] underline no-print" style={{color: "var(--brand-sage)"}}>toggle</button>
                 )}
               </div>
               {closed && (
                 <input type="date" value={closureDate} onChange={e=>setClosureDate(e.target.value)} className="text-xs mt-1 border-0 outline-none bg-transparent text-right no-print"/>
               )}
-              {closed && closureDate && <div className="text-xs mt-0.5" style={{color: "#5C6853"}}>Closure: {fmtDateLocal(closureDate)}</div>}
-              {packageEndDate && <div className="text-xs mt-0.5" style={{color: "#5C6853"}}>Pkg ends: {fmtDateLocal(packageEndDate)}</div>}
+              {closed && closureDate && <div className="text-xs mt-0.5" style={{color: "var(--text-secondary)"}}>Closure: {fmtDateLocal(closureDate)}</div>}
+              {packageEndDate && <div className="text-xs mt-0.5" style={{color: "var(--text-secondary)"}}>Pkg ends: {fmtDateLocal(packageEndDate)}</div>}
             </div>
           </div>
 
@@ -1748,34 +1748,34 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
           <div className="px-4 py-3 border-b border-[#E2DDD4] text-sm" style={{ background: "#FAFAF7" }}>
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
               <div>
-                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PATIENT</div>
+                <div className="text-[10px] font-bold tracking-wider" style={{color: "var(--brand-sage)"}}>PATIENT</div>
                 <div className="font-bold text-sm truncate" style={{color: "#2C3625"}}>{client.name}</div>
               </div>
               <div>
-                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>FILE NO.</div>
+                <div className="text-[10px] font-bold tracking-wider" style={{color: "var(--brand-sage)"}}>FILE NO.</div>
                 <div className="font-bold text-sm" style={{color: "#2C3625"}}>{client.file_no || "—"}</div>
               </div>
               <div>
-                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>SERVICE</div>
+                <div className="text-[10px] font-bold tracking-wider" style={{color: "var(--brand-sage)"}}>SERVICE</div>
                 <div className="font-bold text-sm" style={{color: isSchool ? "#2C5035" : "#6B5430"}}>{serviceDisplay}</div>
               </div>
               <div>
-                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PACKAGE</div>
+                <div className="text-[10px] font-bold tracking-wider" style={{color: "var(--brand-sage)"}}>PACKAGE</div>
                 <div className="font-bold text-sm" style={{color: "#2C3625"}}>{isSchool ? `${cycleWeeks} Weeks` : `${pkg}h`}</div>
               </div>
               <div>
-                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>{isSchool ? "WEEKS DONE" : "HOURS USED"}</div>
+                <div className="text-[10px] font-bold tracking-wider" style={{color: "var(--brand-sage)"}}>{isSchool ? "WEEKS DONE" : "HOURS USED"}</div>
                 <div className="font-bold text-sm" style={{color: "#2C3625"}}>{isSchool ? `${weeksDone}/${cycleWeeks}` : `${used.toFixed(1)}h`}</div>
               </div>
               <div>
-                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>{isSchool ? "CURRENT WK" : "REMAINING"}</div>
+                <div className="text-[10px] font-bold tracking-wider" style={{color: "var(--brand-sage)"}}>{isSchool ? "CURRENT WK" : "REMAINING"}</div>
                 <div className="font-bold text-sm" style={{color: isSchool ? "#2C3625" : rem <= pkg * 0.2 ? "#C97B5C" : "#2C3625"}}>
                   {isSchool ? `W${currentWeekInfo?.weekNumber || 1}` : `${rem.toFixed(1)}h`}
                 </div>
               </div>
               <div>
-                <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PAYMENT</div>
-                <div className="font-bold text-sm" style={{color: selectedPaymentStatus === "complete" ? "#3D4F35" : "#8B6918"}}>
+                <div className="text-[10px] font-bold tracking-wider" style={{color: "var(--brand-sage)"}}>PAYMENT</div>
+                <div className="font-bold text-sm" style={{color: selectedPaymentStatus === "complete" ? "var(--brand-dark)" : "#8B6918"}}>
                   {paymentStatusLabel(selectedPaymentStatus)}
                 </div>
               </div>
@@ -1784,11 +1784,11 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
 
           {/* Sessions table grouped by day / week */}
           {!selectedInvoice ? (
-            <div className="p-6 text-center" style={{color: "#8B9E7A"}}>
+            <div className="p-6 text-center" style={{color: "var(--brand-sage)"}}>
               Select an invoice to view sessions
             </div>
           ) : cycleSessions.length === 0 && !isSchool ? (
-            <div className="p-6 text-center" style={{color: "#8B9E7A"}}>
+            <div className="p-6 text-center" style={{color: "var(--brand-sage)"}}>
               No sessions for this invoice
             </div>
           ) : isSchool ? (
@@ -1801,16 +1801,16 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
                 <div key={`week-${group.weekNumber}`} className="border rounded-xl overflow-hidden" style={{ borderColor: "#C4D4B8" }}>
                   <div className="px-3 py-1.5 flex items-center justify-between flex-wrap gap-2" style={{ background: "#EDF4E8" }}>
                     <span className="font-bold text-sm" style={{ color: "#2C5035" }}>WEEK {group.weekNumber}</span>
-                    <span className="text-xs" style={{ color: "#5C6853" }}>{group.label}</span>
+                    <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{group.label}</span>
                     {wk && (
-                      <span className="pill text-[10px] font-bold" style={{ background: badgeBg, color: "#3D4F35" }}>
+                      <span className="pill text-[10px] font-bold" style={{ background: badgeBg, color: "var(--brand-dark)" }}>
                         {st}
                         {group.sessions.length > 0 && ` (${wk.attended}/${group.dates.length || 5} days)`}
                       </span>
                     )}
                   </div>
                   {group.sessions.length === 0 ? (
-                    <div className="p-4 text-center text-xs italic" style={{ color: "#8B9E7A" }}>
+                    <div className="p-4 text-center text-xs italic" style={{ color: "var(--brand-sage)" }}>
                       {group.startISO ? "No sessions this week" : "Upcoming"}
                     </div>
                   ) : (
@@ -1861,9 +1861,9 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
               <div className="border rounded-xl overflow-hidden" style={{ borderColor: "#C4D4B8" }}>
                 <div className="px-3 py-1.5 flex items-center justify-between" style={{ background: "#EDF4E8" }}>
                   <span className="font-bold text-sm" style={{ color: "#2C5035" }}>HOME SESSIONS</span>
-                  <span className="text-xs text-right" style={{ color: "#5C6853" }}>
+                  <span className="text-xs text-right" style={{ color: "var(--text-secondary)" }}>
                     {hsTotals && (
-                      <span className="block font-semibold text-[11px]" style={{ color: "#3D4F35" }}>
+                      <span className="block font-semibold text-[11px]" style={{ color: "var(--brand-dark)" }}>
                         {used.toFixed(1)} of {pkg}h used
                       </span>
                     )}
@@ -1900,21 +1900,21 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
           )}
 
           {/* Footer summary */}
-          <div className="px-4 py-3 border-t-2 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm" style={{borderColor: "#7A8A6A", background: "#FAFAF7"}}>
+          <div className="px-4 py-3 border-t-2 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm" style={{borderColor: "var(--brand-sage)", background: "#FAFAF7"}}>
             {isSchool ? (
               <>
                 {ssWeekSummary.map(w => (
                   <div key={`sum-${w.weekNumber}`}>
-                    <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>WEEK {w.weekNumber}</div>
-                    <div className="font-bold text-sm" style={{color: "#3D4F35"}}>
+                    <div className="text-[10px] font-bold tracking-wider" style={{color: "var(--brand-sage)"}}>WEEK {w.weekNumber}</div>
+                    <div className="font-bold text-sm" style={{color: "var(--brand-dark)"}}>
                       {w.weekStatus === "Completed" ? "✓" : w.weekStatus === "Open" ? "○" : w.weekStatus === "In Progress" ? "…" : "—"} {w.weekStatus}
                       {w.sessions.length > 0 && ` (${w.attended}/${w.dates.length || 5} days)`}
                     </div>
                   </div>
                 ))}
                 <div>
-                  <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>PAYMENT</div>
-                  <div className="font-bold text-sm" style={{color: selectedPaymentStatus === "complete" ? "#3D4F35" : "#8B6918"}}>
+                  <div className="text-[10px] font-bold tracking-wider" style={{color: "var(--brand-sage)"}}>PAYMENT</div>
+                  <div className="font-bold text-sm" style={{color: selectedPaymentStatus === "complete" ? "var(--brand-dark)" : "#8B6918"}}>
                     {paymentStatusLabel(selectedPaymentStatus)}
                   </div>
                 </div>
@@ -1922,21 +1922,21 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
             ) : (
               <>
                 <div>
-                  <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>TOTAL SESSIONS COMPLETED</div>
-                  <div className="font-display text-2xl" style={{color: "#3D4F35"}}>{completed}</div>
+                  <div className="text-[10px] font-bold tracking-wider" style={{color: "var(--brand-sage)"}}>TOTAL SESSIONS COMPLETED</div>
+                  <div className="font-display text-2xl" style={{color: "var(--brand-dark)"}}>{completed}</div>
                 </div>
                 <div>
-                  <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>TOTAL HOURS DELIVERED</div>
-                  <div className="font-display text-2xl" style={{color: "#3D4F35"}}>{hoursDelivered.toFixed(1)}h</div>
+                  <div className="text-[10px] font-bold tracking-wider" style={{color: "var(--brand-sage)"}}>TOTAL HOURS DELIVERED</div>
+                  <div className="font-display text-2xl" style={{color: "var(--brand-dark)"}}>{hoursDelivered.toFixed(1)}h</div>
                 </div>
                 <div>
-                  <div className="text-[10px] font-bold tracking-wider" style={{color: "#8B9E7A"}}>HOURS REMAINING</div>
-                  <div className="font-display text-2xl" style={{color: rem <= pkg * 0.2 ? "#C97B5C" : "#3D4F35"}}>{rem.toFixed(1)}h</div>
+                  <div className="text-[10px] font-bold tracking-wider" style={{color: "var(--brand-sage)"}}>HOURS REMAINING</div>
+                  <div className="font-display text-2xl" style={{color: rem <= pkg * 0.2 ? "#C97B5C" : "var(--brand-dark)"}}>{rem.toFixed(1)}h</div>
                 </div>
               </>
             )}
           </div>
-          <div className="px-8 py-3 text-[10px] text-center" style={{color: "#8B9E7A"}}>
+          <div className="px-8 py-3 text-[10px] text-center" style={{color: "var(--brand-sage)"}}>
             Generated {new Date().toLocaleString('en-US')} · Boost Growth Center · boost-growthsa.com
           </div>
         </div>
@@ -1982,7 +1982,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
                 <span className="text-xs font-semibold block mb-1.5" style={{ color: "#374151" }}>Status</span>
                 <span
                   className="inline-block pill text-xs px-2 py-1"
-                  style={{ background: closed ? "#F8EBE7" : "#E5EBE1", color: closed ? "#8A3F27" : "#3D4F35" }}
+                  style={{ background: closed ? "#F8EBE7" : "#E5EBE1", color: closed ? "#8A3F27" : "var(--brand-dark)" }}
                 >
                   {closed ? "Closed" : "Open"}
                 </span>
@@ -2016,7 +2016,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
                       className="h-full rounded-lg transition-all"
                       style={{
                         width: `${Math.min(100, (weeksDone / cycleWeeks) * 100)}%`,
-                        background: weeksRem <= 1 ? "#C97B5C" : "#5C8A47",
+                        background: weeksRem <= 1 ? "#C97B5C" : "var(--brand)",
                       }}
                     />
                   </div>
@@ -2042,7 +2042,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
                       className="h-full rounded-lg transition-all"
                       style={{
                         width: `${Math.min(100, ((used / (packageSize || selectedInvoice.package_size || pkg || 1)) * 100))}%`,
-                        background: rem <= pkg * 0.2 ? "#C97B5C" : "#5C8A47",
+                        background: rem <= pkg * 0.2 ? "#C97B5C" : "var(--brand)",
                       }}
                     />
                   </div>
@@ -2103,7 +2103,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
               </>
             }
           >
-            <p className="text-sm" style={{ color: "#5C6853" }}>
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
               This will reset <strong>{client.name}'s</strong> used-hours counter to <strong>0</strong> and start a new cycle.
               Past sessions are <strong>kept</strong> in the database but will no longer count against the new cycle.
             </p>

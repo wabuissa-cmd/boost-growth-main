@@ -271,7 +271,7 @@ export default function Home() {
     ? saudiDateString()
     : new Date().toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
-  const beigeCard = { color: "#F7F3EB", iconColor: "#2F4A35" };
+  const beigeCard = { color: "#F7F3EB", iconColor: "var(--brand-dark)" };
   const adminFeatures = [
     { to: "/schedule", icon: CalendarBlank, title: "Weekly Schedule", desc: "Plan sessions, manage closures, and publish the team calendar.", ...beigeCard },
     { to: "/attendance", icon: ClipboardText, title: "Session Preparation", desc: "Daily prep sheets, progress tracking, and session logging.", ...beigeCard },
@@ -361,7 +361,7 @@ export default function Home() {
   ];
 
   return (
-    <div className={`page-enter${showOpsHome ? "" : " home-page"}`} dir={showOpsHome ? undefined : "ltr"}>
+    <div className={showOpsHome ? "" : "home-page"} dir={showOpsHome ? undefined : "ltr"}>
       {showOpsHome ? (
         <>
           <HeroBanner greetingParts={saudiGreetingParts(displayName)} />
@@ -412,12 +412,12 @@ export default function Home() {
 
           <CreativeSection title="This week at a glance">
             <div className="dash-stat-row stagger mb-4">
-              <DashboardStatCard to="/schedule" variant="sage" value={stats.weekSessions} label="Sessions scheduled" desc={`${stats.weekHours}h total`} icon={<CalendarBlank size={22} weight="duotone" style={{ color: "#2F4A35", background: "rgba(237,225,201,0.65)", borderRadius: 14, padding: 8 }} />} testId="home-tile-schedule" />
-              <DashboardStatCard to="/clients" value={stats.clients} label="Active clients" icon={<UsersThree size={22} weight="duotone" style={{ color: "#6B8F71", background: "#F7F3EB", borderRadius: 14, padding: 8 }} />} testId="home-tile-clients" />
+              <DashboardStatCard to="/schedule" variant="sage" value={stats.weekSessions} label="Sessions scheduled" desc={`${stats.weekHours}h total`} icon={<CalendarBlank size={22} weight="duotone" style={{ color: "var(--brand-dark)", background: "rgba(237,225,201,0.65)", borderRadius: 14, padding: 8 }} />} testId="home-tile-schedule" />
+              <DashboardStatCard to="/clients" value={stats.clients} label="Active clients" icon={<UsersThree size={22} weight="duotone" style={{ color: "var(--brand)", background: "#F7F3EB", borderRadius: 14, padding: 8 }} />} testId="home-tile-clients" />
               {!walaaOps && (
                 <DashboardStatCard to="/staff-leave?tab=other" variant="gold" value={stats.requests} label="Pending requests" icon={<ListChecks size={22} weight="duotone" style={{ color: "#965132", background: "#F0E0D4", borderRadius: 14, padding: 8 }} />} testId="home-tile-requests" />
               )}
-              <DashboardStatCard to="/attendance" value={stats.therapists} label="Team therapists" icon={<Heart size={22} weight="duotone" style={{ color: "#6B8F71", background: "rgba(237,225,201,0.5)", borderRadius: 14, padding: 8 }} />} testId="home-tile-attendance" />
+              <DashboardStatCard to="/attendance" value={stats.therapists} label="Team therapists" icon={<Heart size={22} weight="duotone" style={{ color: "var(--brand)", background: "rgba(237,225,201,0.5)", borderRadius: 14, padding: 8 }} />} testId="home-tile-attendance" />
             </div>
           </CreativeSection>
         </>
@@ -471,7 +471,7 @@ export default function Home() {
                     >
                       <div className="min-w-0">
                         <div className="font-semibold text-sm truncate" style={{ color: "#2C3625" }}>{r.title}</div>
-                        <div className="text-[11px] truncate" style={{ color: "#8B9E7A" }}>
+                        <div className="text-[11px] truncate" style={{ color: "var(--brand-sage)" }}>
                           {r.therapist_name || "Therapist"} · {r.kind === "leave" ? (r.leave_type || "leave").replace("Sickleave", "Sick") : (r.request_type?.replace(/_/g, " ") || "request")}
                         </div>
                       </div>
@@ -502,10 +502,10 @@ export default function Home() {
               </div>
             </div>
             <div className="dash-stat-row stagger">
-              <DashboardStatCard value={stats.completedThisWeek} label="Completed this week" desc="Sessions logged" icon={<CheckCircle size={22} weight="duotone" style={{ color: "#6B8F71", background: "rgba(237,225,201,0.5)", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-0" />
-              <DashboardStatCard variant="sage" value={`${stats.hoursThisWeek.toFixed(1)}h`} label="Hours delivered" icon={<Clock size={22} weight="duotone" style={{ color: "#2F4A35", background: "rgba(107,143,113,0.15)", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-1" />
+              <DashboardStatCard value={stats.completedThisWeek} label="Completed this week" desc="Sessions logged" icon={<CheckCircle size={22} weight="duotone" style={{ color: "var(--brand)", background: "rgba(237,225,201,0.5)", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-0" />
+              <DashboardStatCard variant="sage" value={`${stats.hoursThisWeek.toFixed(1)}h`} label="Hours delivered" icon={<Clock size={22} weight="duotone" style={{ color: "var(--brand-dark)", background: "var(--brand-light)", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-1" />
               <DashboardStatCard value={stats.cancelledThisWeek} label="Cancelled / missed" icon={<XCircle size={22} weight="duotone" style={{ color: "#8A3F27", background: "#F8EBE7", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-2" />
-              <DashboardStatCard value={stats.todayUpcoming} label="Today's sessions" icon={<CalendarCheck size={22} weight="duotone" style={{ color: "#2F4A35", background: "#F7F3EB", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-3" />
+              <DashboardStatCard value={stats.todayUpcoming} label="Today's sessions" icon={<CalendarCheck size={22} weight="duotone" style={{ color: "var(--brand-dark)", background: "#F7F3EB", borderRadius: 14, padding: 8 }} />} testId="therapist-stat-3" />
             </div>
           </section>
 
@@ -569,7 +569,7 @@ export default function Home() {
               </div>
             </div>
             <p className="text-base leading-relaxed relative italic m-0" style={{color: "#2C3625"}}>&ldquo;{quote.text}&rdquo;</p>
-            <div className="text-xs mt-3 relative" style={{color: "#8B9E7A"}}>— {quote.by}</div>
+            <div className="text-xs mt-3 relative" style={{color: "var(--brand-sage)"}}>— {quote.by}</div>
           </section>
         </div>
       )}

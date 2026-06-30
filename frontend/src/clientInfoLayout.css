@@ -1054,8 +1054,18 @@
 }
 
 @media (max-width: 900px) {
-  .req-split { grid-template-columns: 1fr; }
+  .req-split { grid-template-columns: 1fr; gap: 0.75rem; }
   .req-modal-split { grid-template-columns: 1fr; }
+  .req-panel-sidebar,
+  .req-sidebar-stack {
+    max-height: none;
+  }
+  .req-panel-left {
+    min-height: auto;
+  }
+  .req-panel-list {
+    max-height: none;
+  }
 }
 
 /* Client Info — compact top strip */

@@ -220,7 +220,7 @@ main, .page-enter { min-width: 0; }
     width: 18px;
     height: 18px;
     border-radius: 9999px;
-    background: #5C8A47;
+    background: var(--brand);
     color: #fff;
     border: 2px solid #fff;
     box-shadow: 0 1px 4px rgba(44, 54, 37, 0.35);
@@ -231,7 +231,7 @@ main, .page-enter { min-width: 0; }
     cursor: pointer;
 }
 .schedule-status-badge--prep {
-    background: #5C8A47;
+    background: var(--brand);
 }
 .schedule-status-badge--no-show {
     background: #C97B5C;
@@ -721,10 +721,6 @@ main, .page-enter { min-width: 0; }
     .editorial-banner__toolbar {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
-    }
-    main .page-enter {
-        padding-left: 0.85rem !important;
-        padding-right: 0.85rem !important;
     }
 
     /* Schedule toolbar — 2-row compact layout */
@@ -1692,7 +1688,7 @@ textarea.modal-input {
 .schedule-cell-type-btn.is-active {
     box-shadow: 0 2px 8px rgba(61, 79, 53, 0.14);
     transform: translateY(-1px);
-    outline: 2px solid #5C8A47;
+    outline: 2px solid var(--brand);
     outline-offset: 1px;
 }
 .client-records-panel .log-session-card {
@@ -3164,5 +3160,149 @@ textarea.modal-input {
     }
     .requests-page-panel {
         border-radius: 0.85rem;
+    }
+}
+
+/* ── Mobile portal pass + shell padding (extends 900px / 390px breakpoints) ── */
+.page-enter .page-enter {
+    animation: none;
+}
+.app-main-scroll {
+    overflow-x: hidden;
+    max-width: 100%;
+}
+@media (max-width: 900px) {
+    .app-main-scroll > .page-enter {
+        padding-left: 0.65rem !important;
+        padding-right: 0.65rem !important;
+        padding-bottom: max(1.25rem, env(safe-area-inset-bottom)) !important;
+    }
+    .schedule-page,
+    .attendance-page,
+    .requests-page,
+    .home-page {
+        padding-left: 0;
+        padding-right: 0;
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+    .req-panel-sidebar,
+    .req-sidebar-stack {
+        max-height: none;
+    }
+    .req-panel-left {
+        min-height: auto;
+    }
+    .prep-content {
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+    }
+    .prep-client-list {
+        max-height: min(42dvh, 300px);
+    }
+    .prep-detail {
+        position: relative;
+        top: auto;
+        min-height: auto;
+        max-height: none;
+        width: 100%;
+    }
+    .prep-pill,
+    .prep-card-btn {
+        display: inline-flex;
+    }
+    .prep-client-meta {
+        display: block;
+    }
+}
+@media (max-width: 768px) {
+    .schedule-page-title,
+    .attendance-page-title,
+    .requests-page-title {
+        font-size: 1.15rem;
+    }
+    .schedule-page-subtitle,
+    .attendance-page-subtitle,
+    .requests-page-subtitle {
+        font-size: 0.8rem;
+    }
+    .schedule-page-stat-val,
+    .attendance-page-stat-val,
+    .requests-page-stat-val {
+        font-size: 0.88rem;
+    }
+    .schedule-page-stat-lbl,
+    .attendance-page-stat-lbl,
+    .requests-page-stat-lbl {
+        font-size: 0.58rem;
+    }
+    .schedule-page-panel-head h2,
+    .attendance-page-panel-head h2,
+    .requests-page-panel-head h2,
+    .home-page-panel-head h2 {
+        font-size: 0.95rem;
+    }
+    .schedule-page-hero,
+    .attendance-page-hero,
+    .requests-page-hero {
+        padding: 0.85rem 0.75rem;
+    }
+    .schedule-page-steps,
+    .requests-page-steps,
+    .center-test-steps-bar.schedule-page-steps,
+    .center-test-steps-bar.requests-page-steps {
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding-bottom: 0.2rem;
+    }
+    .schedule-page-steps::-webkit-scrollbar,
+    .requests-page-steps::-webkit-scrollbar {
+        display: none;
+    }
+    .center-test-step {
+        flex-shrink: 0;
+    }
+    .req-head-actions .btn {
+        min-height: 44px !important;
+    }
+    .home-page-list-row {
+        min-height: 44px;
+        padding: 0.75rem 0.85rem;
+    }
+    .filter-chip {
+        min-height: 44px;
+    }
+}
+@media (max-width: 390px) {
+    .app-main-scroll > .page-enter {
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+    }
+    .schedule-page-title,
+    .attendance-page-title,
+    .requests-page-title {
+        font-size: 1.05rem;
+    }
+    .schedule-page-hero-icon,
+    .attendance-page-hero-icon,
+    .requests-page-hero-icon {
+        width: 40px;
+        height: 40px;
+    }
+    .schedule-page-hero-icon svg,
+    .attendance-page-hero-icon svg,
+    .requests-page-hero-icon svg {
+        width: 22px;
+        height: 22px;
+    }
+    .schedule-page-stat,
+    .attendance-page-stat,
+    .requests-page-stat {
+        padding: 0.35rem 0.5rem;
+    }
+    .home-page {
+        padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
     }
 }

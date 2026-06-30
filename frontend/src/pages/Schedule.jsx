@@ -1170,7 +1170,7 @@ export default function Schedule() {
                   )}
                   <td className="sheet-td sheet-day font-bold text-center" style={leaveInfo && !closureLabel ? { background: "#FEF9C3" } : {}}>
                     <div className="text-[11px] tracking-wider" style={{ color: "#2C3625" }}>{DAYS_SHORT[di].toUpperCase()}</div>
-                    <div className="text-[9px] font-normal" style={{ color: "#8B9E7A" }}>{addDays(weekStart, di).getDate()}/{addDays(weekStart, di).getMonth() + 1}</div>
+                    <div className="text-[9px] font-normal" style={{ color: "var(--brand-sage)" }}>{addDays(weekStart, di).getDate()}/{addDays(weekStart, di).getMonth() + 1}</div>
                     {leaveInfo && !closureLabel && (
                       <div className="text-[8px] font-bold mt-0.5" style={{ color: "#8B6918" }}>
                         {leaveInfo.type === "Absence" ? "ABSENT" : "ON LEAVE"}
@@ -1232,7 +1232,7 @@ export default function Schedule() {
           ))}
           {visibleTherapists.length === 0 && (
             <tbody>
-              <tr><td colSpan={13} className="p-12 text-center" style={{ color: "#8B9E7A" }}>No therapists found</td></tr>
+              <tr><td colSpan={13} className="p-12 text-center" style={{ color: "var(--brand-sage)" }}>No therapists found</td></tr>
             </tbody>
           )}
         </table>
@@ -1245,7 +1245,7 @@ export default function Schedule() {
       <div className="flex items-center gap-3 p-4 border-b" style={{ borderColor: "#E2DDD4", background: `linear-gradient(90deg, ${therapist.color}15 0%, transparent 100%)` }}>
         <div className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold shadow-sm" style={{ background: therapist.color }}>{idx + 1}</div>
         <div className="flex-1">
-          <div className="text-[11px] tracking-[0.2em] font-bold" style={{ color: "#8B9E7A" }}>THERAPIST</div>
+          <div className="text-[11px] tracking-[0.2em] font-bold" style={{ color: "var(--brand-sage)" }}>THERAPIST</div>
           <div className="font-bold text-lg" style={{ color: "#2C3625" }}>{getTherapistScheduleName(therapist)}</div>
         </div>
       </div>
@@ -1270,7 +1270,7 @@ export default function Schedule() {
               <tr key={di} className={leaveInfo ? "schedule-leave-row" : ""}>
                 <td className="cell-base text-center font-bold" style={{ background: leaveInfo && !closureLabel ? "#FEF9C3" : "#F6F4F0", color: "#2C3625", position: "relative" }}>
                   <div className="text-[11px] tracking-wider">{DAYS_SHORT[di].toUpperCase()}</div>
-                  <div className="text-[10px] font-normal" style={{ color: "#8B9E7A" }}>{addDays(weekStart, di).getDate()}/{addDays(weekStart, di).getMonth() + 1}</div>
+                  <div className="text-[10px] font-normal" style={{ color: "var(--brand-sage)" }}>{addDays(weekStart, di).getDate()}/{addDays(weekStart, di).getMonth() + 1}</div>
                   {leaveInfo && !closureLabel && (
                     <div className="text-[9px] font-bold mt-0.5" style={{ color: "#8B6918" }}>
                       {leaveInfo.type === "Absence" ? "ABSENT" : "ON LEAVE"}
@@ -1332,7 +1332,7 @@ export default function Schedule() {
 
   if (scheduleLoading && therapists.length === 0 && !scheduleError) {
     return (
-      <div className="page-enter schedule-page" dir="ltr">
+      <div className="schedule-page" dir="ltr">
         <div className="schedule-page-loading"><div className="spinner" /></div>
       </div>
     );
@@ -1344,7 +1344,7 @@ export default function Schedule() {
     : "Sessions grouped by therapist — tap any cell to log or edit";
 
   return (
-    <div className="page-enter schedule-page" dir="ltr">
+    <div className="schedule-page" dir="ltr">
       <div className={`relative transition-all ${panelOpen && isAdmin ? "lg:mr-[420px]" : ""}`}>
       <SchedulePageHeader
         className="no-print"
@@ -1364,7 +1364,7 @@ export default function Schedule() {
                 : "My schedule — click your sessions to log preparation"
               : "Team schedule — view all therapists"}
         badge={isScheduleNarrow ? (
-          <span className="pill text-[10px] px-2 py-0.5 font-bold bg-white/90 text-[#2F4A35] border border-[#D4DEC8] whitespace-nowrap">
+          <span className="pill text-[10px] px-2 py-0.5 font-bold bg-white/90 text-[var(--brand-dark)] border border-[#D4DEC8] whitespace-nowrap">
             {formatDateRange(weekStart)}
           </span>
         ) : isAdmin ? (
@@ -1373,16 +1373,16 @@ export default function Schedule() {
               Draft
             </span>
           ) : (
-            <span className="pill text-[10px] px-2 py-1 font-bold bg-[#E5EBE1] text-[#3D4F35] border border-[#B8C8A8] flex items-center gap-1">
+            <span className="pill text-[10px] px-2 py-1 font-bold bg-[#E5EBE1] text-[var(--brand-dark)] border border-[#B8C8A8] flex items-center gap-1">
               <CheckCircle size={12} weight="fill" /> Published
             </span>
           )
         ) : null}
         stats={isScheduleNarrow ? [] : [
           { n: formatDateRange(weekStart), label: "This Week", color: "#2C3625" },
-          { n: view === "blocks" ? "My schedule" : "Team schedule", label: "View", color: "#5C6853" },
+          { n: view === "blocks" ? "My schedule" : "Team schedule", label: "View", color: "var(--text-secondary)" },
           { n: visibleTherapists.length, label: "Therapists", color: "#6B5218" },
-          { n: clients.length, label: "Clients", color: "#3D4F35" },
+          { n: clients.length, label: "Clients", color: "var(--brand-dark)" },
         ]}
         toolbar={(
           <div className="flex items-center gap-1.5 flex-wrap schedule-toolbar schedule-toolbar--wrap relative">
@@ -1397,7 +1397,7 @@ export default function Schedule() {
             </div>
             {isAdmin && !isScheduleNarrow && (view === "blocks" || view === "sheet") && (
               <div className="relative flex-1 min-w-[100px] max-w-[160px]">
-                <MagnifyingGlass size={13} className="absolute top-1/2 -translate-y-1/2 left-2" style={{ color: "#8B9E7A" }} />
+                <MagnifyingGlass size={13} className="absolute top-1/2 -translate-y-1/2 left-2" style={{ color: "var(--brand-sage)" }} />
                 <input data-testid="schedule-search-input" className="input pl-7 py-1 text-[11px] min-h-0 h-7" placeholder="Search therapist…" value={search} onChange={e => setSearch(e.target.value)} />
               </div>
             )}
@@ -1463,7 +1463,7 @@ export default function Schedule() {
                   <div className="schedule-admin-edits-menu absolute right-0 top-[calc(100%+6px)] z-[200] card p-2.5 min-w-[228px] shadow-lg border border-[#E2DDD4] flex flex-col gap-2 bg-white">
                     {manuallyShownTherapists.length > 0 && (
                       <div className="border-b pb-2 mb-1 space-y-1" style={{ borderColor: "#EDE9E3" }}>
-                        <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "#8B9E7A" }}>Added therapists</div>
+                        <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "var(--brand-sage)" }}>Added therapists</div>
                         {manuallyShownTherapists.map((t) => (
                           <div key={t.id} className="flex items-center justify-between gap-1 text-[10px]">
                             <span className="truncate" style={{ color: "#2C3625" }}>{getTherapistScheduleName(t)}</span>
@@ -1541,7 +1541,7 @@ export default function Schedule() {
               </select>
             </FormField>
             {addableScheduleTherapists.length === 0 && (
-              <p className="text-xs m-0" style={{ color: "#8B9E7A" }}>All therapists are already on the schedule.</p>
+              <p className="text-xs m-0" style={{ color: "var(--brand-sage)" }}>All therapists are already on the schedule.</p>
             )}
           </FormSection>
         </ModalBase>
@@ -1578,7 +1578,7 @@ export default function Schedule() {
         </div>
 
       <div className="dash-schedule-wrap schedule-printable">
-      <div className="schedule-print-title hidden print:block font-display text-lg font-semibold mb-2" style={{ color: "#2F4A35" }}>
+      <div className="schedule-print-title hidden print:block font-display text-lg font-semibold mb-2" style={{ color: "var(--brand-dark)" }}>
         Weekly Schedule · {formatDateRange(weekStart)}
       </div>
       <div className="sched-zoom" style={{ "--sched-zoom": SCHEDULE_ZOOM / 100 }}>
@@ -1664,7 +1664,7 @@ export default function Schedule() {
         >
           {canEditRow(ctxMenu.therapist_id) ? (
             <>
-          <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "#8B9E7A" }}>Session Options</div>
+          <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--brand-sage)" }}>Session Options</div>
           <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
             onClick={ctxAction(() => { openPanel(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.time_slot, ctxMenu.cell); setCtxMenu(null); })}>
             {ctxMenu.cell ? "Edit Session" : "Add Session here"}
@@ -1696,11 +1696,11 @@ export default function Schedule() {
               data-testid="schedule-cover-section"
               onMouseDown={(e) => e.stopPropagation()}
             >
-              <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "#8B9E7A" }}>
+              <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "var(--brand-sage)" }}>
                 Cover / تغطية
               </div>
               {(ctxMenu.cell.cover_child_name || "").trim() ? (
-                <p className="text-[11px] mb-1.5 m-0" style={{ color: "#5C6853" }}>
+                <p className="text-[11px] mb-1.5 m-0" style={{ color: "var(--text-secondary)" }}>
                   Current: <strong>{ctxMenu.cell.cover_child_name.trim()}</strong>
                 </p>
               ) : (
@@ -1753,7 +1753,7 @@ export default function Schedule() {
             </button>
           )}
           <div className="my-1 border-t" style={{ borderColor: "#EDE9E3" }} />
-          <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "#8B9E7A" }}>Quick Mark</div>
+          <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--brand-sage)" }}>Quick Mark</div>
           <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
             onClick={ctxAction(() => bulkFillAt("available", ctxMenu))}>
             Mark as Available
@@ -1771,7 +1771,7 @@ export default function Schedule() {
           {ctxMenu.cell && (
             <>
               <div className="my-1 border-t" style={{ borderColor: "#EDE9E3" }} />
-              <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "#8B9E7A" }}>Notifications</div>
+              <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--brand-sage)" }}>Notifications</div>
               <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
                 onClick={ctxAction(() => { openNotify(ctxMenu.cell); setCtxMenu(null); })}>
                 Notify Therapist
@@ -1781,7 +1781,7 @@ export default function Schedule() {
           {canEditRow(ctxMenu.therapist_id) && (
           <>
           <div className="my-1 border-t" style={{ borderColor: "#EDE9E3" }} />
-          <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "#8B9E7A" }}>Remove</div>
+          <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--brand-sage)" }}>Remove</div>
           <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#FCE0E8]" style={{ color: "#8A3F27" }}
             onClick={ctxAction(async () => {
               if (ctxMenu.cell?.id) {
@@ -1897,10 +1897,10 @@ export default function Schedule() {
                     <div>
                       <span>{r.therapist_name || r.user_id}</span>
                       {r.actor_name && (
-                        <span className="block text-[10px]" style={{ color: "#8B9E7A" }}>Sent by {r.actor_name}</span>
+                        <span className="block text-[10px]" style={{ color: "var(--brand-sage)" }}>Sent by {r.actor_name}</span>
                       )}
                     </div>
-                    <span style={{ color: r.acknowledged ? "#3D4F35" : "#8B6918" }}>
+                    <span style={{ color: r.acknowledged ? "var(--brand-dark)" : "#8B6918" }}>
                       {r.acknowledged ? "✓ Received & Read" : "⏳ Pending"}
                     </span>
                   </div>
@@ -1928,7 +1928,7 @@ export default function Schedule() {
         >
           <FormSection title="Target Week">
             {dupSource && (
-              <p className="text-xs mb-3" style={{ color: "#5C6853" }}>
+              <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
                 Source week: <strong>{dupSource}</strong> ({formatDateRange(new Date(`${dupSource}T12:00:00`))})
               </p>
             )}
@@ -1955,7 +1955,7 @@ export default function Schedule() {
             )}
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input type="checkbox" checked={dupClear} onChange={e => setDupClear(e.target.checked)} />
-              <span style={{ color: "#5C6853" }}>Clear target week first (replace existing cells)</span>
+              <span style={{ color: "var(--text-secondary)" }}>Clear target week first (replace existing cells)</span>
             </label>
           </FormSection>
         </ModalBase>
@@ -2016,7 +2016,7 @@ export default function Schedule() {
                 <label
                   key={t.id}
                   className={`flex items-center gap-1.5 pill cursor-pointer text-[11px] px-2.5 py-1.5 border ${
-                    publishIds.includes(t.id) ? "border-[#7A8A6A] bg-[#EDF4E8]" : "border-[#E2DDD4]"
+                    publishIds.includes(t.id) ? "border-[var(--brand-sage)] bg-[#EDF4E8]" : "border-[#E2DDD4]"
                   }`}
                 >
                   <input
@@ -2030,7 +2030,7 @@ export default function Schedule() {
               ))}
             </div>
             {therapistsWithEmail.length === 0 && (
-              <p className="text-xs m-0" style={{ color: "#8B9E7A" }}>No therapist emails on file.</p>
+              <p className="text-xs m-0" style={{ color: "var(--brand-sage)" }}>No therapist emails on file.</p>
             )}
           </FormSection>
         </ModalBase>

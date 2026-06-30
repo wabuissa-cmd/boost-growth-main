@@ -28,9 +28,9 @@ const STATUS_MAP = {
   pending_attachment: { label: "Awaiting Attachment", cls: "bg-[#F8EBE7] text-[#8A3F27] border-[#ECA6A6]", icon: <Paperclip size={14} weight="duotone"/>, color: "#ECA6A6" },
   pending_hr: { label: "HR Review", cls: "bg-[#F5EBE3] text-[#965132] border-[#E6C983]", icon: <Hourglass size={14} weight="duotone"/>, color: "#C28E6A" },
   in_progress: { label: "In Progress", cls: "bg-[#EAF0F3] text-[#375568] border-[#A4BCCB]", icon: <Clock size={14} weight="duotone"/>, color: "#A4BCCB" },
-  approved: { label: "Approved", cls: "bg-[#E5EBE1] text-[#3D4F35] border-[#B4C2A9]", icon: <CheckCircle size={14} weight="duotone"/>, color: "#B4C2A9" },
+  approved: { label: "Approved", cls: "bg-[#E5EBE1] text-[var(--brand-dark)] border-[#B4C2A9]", icon: <CheckCircle size={14} weight="duotone"/>, color: "#B4C2A9" },
   rejected: { label: "Rejected", cls: "bg-[#F8EBE7] text-[#8A3F27] border-[#ECA6A6]", icon: <XCircle size={14} weight="duotone"/>, color: "#ECA6A6" },
-  done: { label: "Completed", cls: "bg-[#7A8A6A] text-white border-[#7A8A6A]", icon: <CheckCircle size={14} weight="fill"/>, color: "#7A8A6A" },
+  done: { label: "Completed", cls: "bg-[var(--brand-sage)] text-white border-[var(--brand-sage)]", icon: <CheckCircle size={14} weight="fill"/>, color: "var(--brand-sage)" },
 };
 
 const REQUEST_TABS = [
@@ -40,7 +40,7 @@ const REQUEST_TABS = [
 ];
 
 const OTHER_REQUEST_TYPES = [
-  { id: "general", label: "General", icon: <Briefcase size={20} weight="duotone"/>, color: "#7A8A6A" },
+  { id: "general", label: "General", icon: <Briefcase size={20} weight="duotone"/>, color: "var(--brand-sage)" },
   { id: "supplies", label: "Materials", icon: <Package size={20} weight="duotone"/>, color: "#D4A64A" },
   { id: "requirements", label: "Requirements", icon: <FileText size={20} weight="duotone"/>, color: "#7B96B5" },
   { id: "government", label: "Government / HR", icon: <Buildings size={20} weight="duotone"/>, color: "#6BAA9B" },
@@ -50,8 +50,8 @@ const LEAVE_FORM_TYPES = selectableLeaveTypeEntries().filter(([k]) => LEAVE_TAB_
 const VACATION_FORM_TYPES = selectableLeaveTypeEntries().filter(([k]) => VACATION_LEAVE_TYPES.includes(k));
 
 const PRIORITIES = [
-  { id: "low", label: "Low", color: "#8B9E7A" },
-  { id: "normal", label: "Normal", color: "#7A8A6A" },
+  { id: "low", label: "Low", color: "var(--brand-sage)" },
+  { id: "normal", label: "Normal", color: "var(--brand-sage)" },
   { id: "high", label: "High", color: "#D4A64A" },
   { id: "urgent", label: "Urgent", color: "#C97B5C" },
 ];
@@ -146,7 +146,7 @@ export default function TherapistRequests() {
   const modalTypeOptions = useMemo(() => {
     if (activeTab === "vacation") {
       return [
-        { id: "leave", label: "Annual vacation", icon: <ClockCounterClockwise size={20} weight="duotone"/>, color: "#7A8A6A" },
+        { id: "leave", label: "Annual vacation", icon: <ClockCounterClockwise size={20} weight="duotone"/>, color: "var(--brand-sage)" },
       ];
     }
     if (activeTab === "leave") {
@@ -299,7 +299,7 @@ export default function TherapistRequests() {
     const other = OTHER_REQUEST_TYPES.find(t => t.id === id);
     if (other) return other;
     if (id === "permission") return { id: "permission", label: "Permission", color: "#6BAA9B" };
-    if (id === "leave") return { id: "leave", label: "Leave", color: "#7A8A6A" };
+    if (id === "leave") return { id: "leave", label: "Leave", color: "var(--brand-sage)" };
     return OTHER_REQUEST_TYPES[0];
   };
 
@@ -315,7 +315,7 @@ export default function TherapistRequests() {
 
   if (pageLoading && requests.length === 0 && leaves.length === 0 && !pageError) {
     return (
-      <div className="page-enter requests-page" dir="ltr">
+      <div className="requests-page" dir="ltr">
         <div className="requests-page-loading"><div className="spinner" /></div>
       </div>
     );
@@ -328,7 +328,7 @@ export default function TherapistRequests() {
   };
 
   return (
-    <div className="page-enter requests-page" dir="ltr">
+    <div className="requests-page" dir="ltr">
       <RequestsPageHeader
         badge="MY REQUESTS"
         title="Request"
@@ -336,7 +336,7 @@ export default function TherapistRequests() {
         stats={[
           { label: "Vacation", n: tabCounts.vacation, color: "#2C3625" },
           { label: "Leave", n: tabCounts.leave, color: "#375568" },
-          { label: "Other", n: tabCounts.other, color: "#3D4F35" },
+          { label: "Other", n: tabCounts.other, color: "var(--brand-dark)" },
         ]}
         tabs={REQUEST_TABS.map(t => ({ ...t, testId: `req-tab-${t.id}` }))}
         activeTab={activeTab}
@@ -416,7 +416,7 @@ export default function TherapistRequests() {
             )}
             {(activeTab === "vacation" ? vacationLeaves : otherLeaves).map(l => {
               const st = LEAVE_STATUS[l.status] || LEAVE_STATUS.pending;
-              const tp = LEAVE_TYPES[l.leave_type] || { label: l.leave_type, color: "#7A8A6A" };
+              const tp = LEAVE_TYPES[l.leave_type] || { label: l.leave_type, color: "var(--brand-sage)" };
               const unpaid = permissionPayLabel(l);
               return (
                 <div key={l.id} className="req-item">
@@ -430,9 +430,9 @@ export default function TherapistRequests() {
                   <div className="text-sm font-semibold" style={{ color: "#2C3625" }}>
                     {fmtLeaveSchedule(l)}
                   </div>
-                  {l.notes && <div className="text-xs mt-1 italic" style={{ color: "#8B9E7A" }}>{l.notes}</div>}
+                  {l.notes && <div className="text-xs mt-1 italic" style={{ color: "var(--brand-sage)" }}>{l.notes}</div>}
                   {l.admin_note && (
-                    <div className="mt-2 text-xs p-2 rounded-lg bg-[#E5EBE1]" style={{ color: "#3D4F35" }}>{l.admin_note}</div>
+                    <div className="mt-2 text-xs p-2 rounded-lg bg-[#E5EBE1]" style={{ color: "var(--brand-dark)" }}>{l.admin_note}</div>
                   )}
                 </div>
               );
@@ -464,15 +464,15 @@ export default function TherapistRequests() {
                   </div>
                   <div className="font-bold text-sm" style={{ color: "#2C3625" }}>{r.title}</div>
                   {!isAttachment && r.description && (
-                    <div className="text-xs mt-1" style={{ color: "#5C6853" }}>{r.description}</div>
+                    <div className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>{r.description}</div>
                   )}
                   {r.admin_note && (
-                    <div className="mt-2 text-xs p-2 rounded-lg bg-[#E5EBE1]" style={{ color: "#3D4F35" }}>
+                    <div className="mt-2 text-xs p-2 rounded-lg bg-[#E5EBE1]" style={{ color: "var(--brand-dark)" }}>
                       <ChatCircleText size={12} className="inline mr-1"/> {r.admin_note}
                     </div>
                   )}
                   {!isAttachment && (
-                    <div className="text-[10px] mt-1" style={{ color: "#8B9E7A" }}>
+                    <div className="text-[10px] mt-1" style={{ color: "var(--brand-sage)" }}>
                       {new Date(r.created_at).toLocaleString("en-US")}
                     </div>
                   )}
@@ -538,7 +538,7 @@ export default function TherapistRequests() {
                       ...(t.id === "permission" ? emptyPermission(user?.id) : {}),
                       ...(t.id === "leave" ? emptyLeave(user?.id) : {}),
                     })}
-                    className={`p-4 rounded-xl border-2 text-left flex items-center gap-3 transition-all ${edit.request_type === t.id ? "border-[#5C8A47] bg-[#E5EBE1]" : "border-[#DDD8D0]"}`}
+                    className={`p-4 rounded-xl border-2 text-left flex items-center gap-3 transition-all ${edit.request_type === t.id ? "border-[var(--brand)] bg-[#E5EBE1]" : "border-[#DDD8D0]"}`}
                   >
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `${t.color}25`, color: t.color }}>{t.icon}</div>
                     <div className="font-bold text-sm" style={{ color: "#1C2617" }}>{t.label}</div>
@@ -571,7 +571,7 @@ export default function TherapistRequests() {
                       key={h}
                       type="button"
                       onClick={() => setPermissionDurationHours(h)}
-                      className="pill border text-xs px-3 py-1.5 border-[#DDD8D0] hover:border-[#5C8A47]"
+                      className="pill border text-xs px-3 py-1.5 border-[#DDD8D0] hover:border-[var(--brand)]"
                     >
                       {h} hour{h !== 1 ? "s" : ""}
                     </button>
@@ -593,7 +593,7 @@ export default function TherapistRequests() {
                   onChange={e => setEdit({ ...edit, attachmentFile: e.target.files?.[0] || null })}
                 />
                 {edit.attachmentFile && (
-                  <div className="text-xs mt-1" style={{ color: "#5C6853" }}>{edit.attachmentFile.name}</div>
+                  <div className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>{edit.attachmentFile.name}</div>
                 )}
               </FormField>
             </FormSection>
@@ -635,7 +635,7 @@ export default function TherapistRequests() {
                       onChange={e => setEdit({ ...edit, attachmentFile: e.target.files?.[0] || null })}
                     />
                     {edit.attachmentFile && (
-                      <div className="text-xs mt-1" style={{ color: "#5C6853" }}>{edit.attachmentFile.name}</div>
+                      <div className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>{edit.attachmentFile.name}</div>
                     )}
                   </FormField>
                 </>
@@ -666,11 +666,11 @@ export default function TherapistRequests() {
                 <label className="flex items-start gap-2 text-sm cursor-pointer">
                   <input
                     type="checkbox"
-                    className="mt-1 w-4 h-4 accent-[#5C8A47]"
+                    className="mt-1 w-4 h-4 accent-[var(--brand)]"
                     checked={Boolean(edit.includesReport)}
                     onChange={e => setEdit({ ...edit, includesReport: e.target.checked, attachmentFile: e.target.checked ? edit.attachmentFile : null })}
                   />
-                  <span style={{ color: "#5C6853" }}>Yes — this request needs a supporting file</span>
+                  <span style={{ color: "var(--text-secondary)" }}>Yes — this request needs a supporting file</span>
                 </label>
               </FormField>
               {edit.includesReport && <AttachmentRequiredBanner />}
@@ -686,7 +686,7 @@ export default function TherapistRequests() {
                   onChange={e => setEdit({ ...edit, attachmentFile: e.target.files?.[0] || null })}
                 />
                 {edit.attachmentFile && (
-                  <div className="text-xs mt-1" style={{ color: "#5C6853" }}>{edit.attachmentFile.name}</div>
+                  <div className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>{edit.attachmentFile.name}</div>
                 )}
               </FormField>
               {edit.attachmentFile && (

@@ -18,9 +18,9 @@ const STATUS_MAP = {
   pending_attachment: { label: "Awaiting Attachment", cls: "bg-[#F8EBE7] text-[#8A3F27] border-[#ECA6A6]", icon: <Hourglass size={14} weight="duotone"/>, color: "#ECA6A6" },
   pending_hr: { label: "Pending HR", cls: "bg-[#F5EBE3] text-[#965132] border-[#E6C983]", icon: <Hourglass size={14} weight="duotone"/>, color: "#C28E6A" },
   in_progress:{ label: "In Progress", cls: "bg-[#EAF0F3] text-[#375568] border-[#A4BCCB]", icon: <Spinner size={14} weight="duotone"/>, color: "#A4BCCB" },
-  approved:   { label: "Approved",    cls: "bg-[#E5EBE1] text-[#3D4F35] border-[#B4C2A9]", icon: <CheckCircle size={14} weight="duotone"/>, color: "#B4C2A9" },
+  approved:   { label: "Approved",    cls: "bg-[#E5EBE1] text-[var(--brand-dark)] border-[#B4C2A9]", icon: <CheckCircle size={14} weight="duotone"/>, color: "#B4C2A9" },
   rejected:   { label: "Rejected",    cls: "bg-[#F8EBE7] text-[#8A3F27] border-[#ECA6A6]", icon: <XCircle size={14} weight="duotone"/>, color: "#ECA6A6" },
-  done:       { label: "Completed",   cls: "bg-[#7A8A6A] text-white border-[#7A8A6A]",     icon: <CheckCircle size={14} weight="fill"/>, color: "#7A8A6A" },
+  done:       { label: "Completed",   cls: "bg-[var(--brand-sage)] text-white border-[var(--brand-sage)]",     icon: <CheckCircle size={14} weight="fill"/>, color: "var(--brand-sage)" },
 };
 
 const PENDING_MANAGER_STATUSES = new Set(["pending", "pending_manager"]);
@@ -37,7 +37,7 @@ const MANAGER_REVIEW_STATUS_MAP = {
   },
   [MANAGER_APPROVE_KEY]: {
     label: "Approve & forward to HR",
-    cls: "bg-[#E5EBE1] text-[#3D4F35] border-[#B4C2A9]",
+    cls: "bg-[#E5EBE1] text-[var(--brand-dark)] border-[#B4C2A9]",
     icon: <CheckCircle size={14} weight="duotone"/>,
     color: "#B4C2A9",
   },
@@ -144,7 +144,7 @@ function normalizeLeaveStatus(status) {
 }
 
 function normalizeLeaveForQueue(leave) {
-  const tp = LEAVE_TYPES[leave.leave_type] || { label: leave.leave_type, color: "#7A8A6A" };
+  const tp = LEAVE_TYPES[leave.leave_type] || { label: leave.leave_type, color: "var(--brand-sage)" };
   const schedule = fmtLeaveSchedule(leave);
   return {
     _queueKind: "leave",
@@ -175,7 +175,7 @@ const TYPES = [
   { id: "supplies", label: "Materials", icon: <Package size={20} weight="duotone"/>, color: "#D4A64A" },
   { id: "requirements", label: "Requirements", icon: <FileText size={20} weight="duotone"/>, color: "#7B96B5" },
   { id: "government", label: "Government / HR", icon: <Buildings size={20} weight="duotone"/>, color: "#6BAA9B" },
-  { id: "schedule_change", label: "Schedule Change", icon: <CalendarBlank size={20} weight="duotone"/>, color: "#7A8A6A" },
+  { id: "schedule_change", label: "Schedule Change", icon: <CalendarBlank size={20} weight="duotone"/>, color: "var(--brand-sage)" },
   { id: "reward", label: "Reward / Recognition", icon: <Trophy size={20} weight="duotone"/>, color: "#C97B5C" },
 ];
 
@@ -187,8 +187,8 @@ const REWARD_TYPES = [
 ];
 
 const PRIORITIES = [
-  { id: "low", label: "Low", color: "#8B9E7A" },
-  { id: "normal", label: "Normal", color: "#7A8A6A" },
+  { id: "low", label: "Low", color: "var(--brand-sage)" },
+  { id: "normal", label: "Normal", color: "var(--brand-sage)" },
   { id: "high", label: "High", color: "#D4A64A" },
   { id: "urgent", label: "Urgent", color: "#C97B5C" },
 ];
@@ -424,7 +424,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
 
   if (!embedded && requestsLoading && items.length === 0 && !requestsError) {
     return (
-      <div className="page-enter requests-page" dir="ltr">
+      <div className="requests-page" dir="ltr">
         <div className="requests-page-loading"><div className="spinner" /></div>
       </div>
     );
@@ -444,7 +444,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
             { label: "Manager", n: pendingManagerCount, color: "#6B5218" },
             { label: "HR", n: pendingHrCount, color: "#965132" },
             { label: "In progress", n: inProgressCount, color: "#375568" },
-            { label: "Done", n: doneCount, color: "#3D4F35" },
+            { label: "Done", n: doneCount, color: "var(--brand-dark)" },
           ]}
           toolbar={leaveHr && isPortalAdminUser ? (
             <button data-testid="submit-leave-btn" type="button" onClick={() => setLeaveModal(emptyLeaveForm())} className="btn btn-secondary text-sm">
@@ -501,21 +501,21 @@ export default function Requests({ personal = false, embedded = false, managerVi
             {embedded && (
               <>
                 <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>{staffLabel}</h2>
-                <p className="text-xs mt-1 mb-2" style={{ color: "#8B9E7A" }}>
+                <p className="text-xs mt-1 mb-2" style={{ color: "var(--brand-sage)" }}>
                   {managerView ? "Leave · salary certificate · supplies · general — one queue" : "Materials · requirements · government · general"}
                 </p>
               </>
             )}
             <div className="flex gap-1.5 flex-wrap">
-              <button onClick={() => setFilter("all")} className={`pill text-[10px] ${filter==="all" ? "bg-[#7A8A6A] text-white" : "bg-[#F0E9D8]"}`}>All ({queueItems.length})</button>
-              <button onClick={() => setFilter("pending_manager")} className={`pill text-[10px] border ${filter==="pending_manager" ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : STATUS_MAP.pending_manager.cls}`}>
+              <button onClick={() => setFilter("all")} className={`pill text-[10px] ${filter==="all" ? "bg-[var(--brand-sage)] text-white" : "bg-[#F0E9D8]"}`}>All ({queueItems.length})</button>
+              <button onClick={() => setFilter("pending_manager")} className={`pill text-[10px] border ${filter==="pending_manager" ? "bg-[var(--brand-sage)] text-white border-[var(--brand-sage)]" : STATUS_MAP.pending_manager.cls}`}>
                 Manager ({pendingManagerCount})
               </button>
-              <button onClick={() => setFilter("pending_hr")} className={`pill text-[10px] border ${filter==="pending_hr" ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : STATUS_MAP.pending_hr.cls}`}>
+              <button onClick={() => setFilter("pending_hr")} className={`pill text-[10px] border ${filter==="pending_hr" ? "bg-[var(--brand-sage)] text-white border-[var(--brand-sage)]" : STATUS_MAP.pending_hr.cls}`}>
                 HR ({pendingHrCount})
               </button>
               {["in_progress", "approved", "rejected", "done"].map(k => (
-                <button key={k} onClick={() => setFilter(k)} className={`pill text-[10px] border ${filter===k ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : STATUS_MAP[k].cls}`}>
+                <button key={k} onClick={() => setFilter(k)} className={`pill text-[10px] border ${filter===k ? "bg-[var(--brand-sage)] text-white border-[var(--brand-sage)]" : STATUS_MAP[k].cls}`}>
                   {STATUS_MAP[k].label} ({queueItems.filter(r => r.status === k).length})
                 </button>
               ))}
@@ -561,9 +561,9 @@ export default function Requests({ personal = false, embedded = false, managerVi
                         </td>
                         <td>
                           <div className="font-semibold" style={{ color: "#2C3625" }}>{r.title}</div>
-                          {r.description && <div className="text-xs mt-0.5 line-clamp-1" style={{ color: "#8B9E7A" }}>{r.description}</div>}
+                          {r.description && <div className="text-xs mt-0.5 line-clamp-1" style={{ color: "var(--brand-sage)" }}>{r.description}</div>}
                         </td>
-                        <td className="text-xs whitespace-nowrap" style={{ color: "#8B9E7A" }}>{fmtShortDate(r.created_at)}</td>
+                        <td className="text-xs whitespace-nowrap" style={{ color: "var(--brand-sage)" }}>{fmtShortDate(r.created_at)}</td>
                         <td>
                           <span className={`pill border text-[10px] ${st.cls}`}>{st.icon} {st.label}</span>
                         </td>
@@ -617,13 +617,13 @@ export default function Requests({ personal = false, embedded = false, managerVi
                         )}
                       </div>
                       <div className="font-bold text-sm" style={{color: "#2C3625"}}>{r.title}</div>
-                      {r.description && <div className="text-xs mt-0.5 line-clamp-2" style={{color: "#5C6853"}}>{r.description}</div>}
+                      {r.description && <div className="text-xs mt-0.5 line-clamp-2" style={{color: "var(--text-secondary)"}}>{r.description}</div>}
                       {canManageReq && r.therapist_name && (
-                        <div className="text-[10px] mt-1" style={{color: "#8B9E7A"}}>From <strong style={{color: "#5C6853"}}>{r.therapist_name}</strong></div>
+                        <div className="text-[10px] mt-1" style={{color: "var(--brand-sage)"}}>From <strong style={{color: "var(--text-secondary)"}}>{r.therapist_name}</strong></div>
                       )}
-                      <div className="text-[10px] mt-0.5" style={{color: "#8B9E7A"}}>{new Date(r.created_at).toLocaleString('en-US')}</div>
+                      <div className="text-[10px] mt-0.5" style={{color: "var(--brand-sage)"}}>{new Date(r.created_at).toLocaleString('en-US')}</div>
                       {r.admin_note && (
-                        <div className="mt-2 p-2 rounded-lg text-xs bg-[#E5EBE1]" style={{color: "#3D4F35"}}>{r.admin_note}</div>
+                        <div className="mt-2 p-2 rounded-lg text-xs bg-[#E5EBE1]" style={{color: "var(--brand-dark)"}}>{r.admin_note}</div>
                       )}
                       {canManageReq && r.status === PENDING_HR_STATUS && hrReview && !isPortalAdminUser && (
                         <div className="flex flex-wrap gap-1 mt-2">
@@ -665,7 +665,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                 <span className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: `${t.color}22`, color: t.color }}>{t.icon}</span>
                 <div>
                   <div className="font-bold" style={{ color: "#2C3625" }}>{t.label}</div>
-                  <div style={{ color: "#8B9E7A" }}>
+                  <div style={{ color: "var(--brand-sage)" }}>
                     {t.id === "supplies" && "Materials, toys, or classroom items"}
                     {t.id === "requirements" && "Equipment, tools, or operational needs"}
                     {t.id === "government" && "Government letters, HR documents, or official paperwork"}
@@ -695,7 +695,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                 )}
                 {recentLeaves.map(l => {
                   const st = LEAVE_STATUS[l.status] || LEAVE_STATUS.pending;
-                  const tp = LEAVE_TYPES[l.leave_type] || { label: l.leave_type, color: "#7A8A6A" };
+                  const tp = LEAVE_TYPES[l.leave_type] || { label: l.leave_type, color: "var(--brand-sage)" };
                   return (
                     <div key={l.id} className="req-item">
                       <div className="flex items-center gap-1.5 flex-wrap mb-1">
@@ -703,7 +703,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                         <span className="pill text-[10px]" style={{ background: `${tp.color}20`, color: tp.color }}>{tp.label}</span>
                       </div>
                       <div className="font-bold text-sm" style={{ color: "#2C3625" }}>{l.therapist_name || "Therapist"}</div>
-                      <div className="text-xs mt-0.5" style={{ color: "#5C6853" }}>
+                      <div className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
                         {fmtLeaveSchedule(l)}
                       </div>
                       {(l.status === "pending" || l.status === "pending_manager") && isPortalAdminUser && (
@@ -863,7 +863,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
         >
           <div className="flex gap-1 -mt-2 mb-4">
             {[1, 2, 3].map(i => (
-              <div key={i} className="flex-1 h-1.5 rounded-full transition-all" style={{ background: i <= step ? "#5C8A47" : "#EDE9E3" }} />
+              <div key={i} className="flex-1 h-1.5 rounded-full transition-all" style={{ background: i <= step ? "var(--brand)" : "#EDE9E3" }} />
             ))}
           </div>
 
@@ -876,8 +876,8 @@ export default function Requests({ personal = false, embedded = false, managerVi
                       key={t.id}
                       type="button"
                       onClick={() => setEdit({ ...edit, request_type: t.id })}
-                      className={`p-4 rounded-xl border-2 text-left flex items-center gap-3 transition-all hover:bg-[#E5EBE1]/30 ${edit.request_type === t.id ? "border-[#5C8A47] bg-[#E5EBE1]" : ""}`}
-                      style={{ borderColor: edit.request_type === t.id ? "#5C8A47" : "#DDD8D0" }}
+                      className={`p-4 rounded-xl border-2 text-left flex items-center gap-3 transition-all hover:bg-[#E5EBE1]/30 ${edit.request_type === t.id ? "border-[var(--brand)] bg-[#E5EBE1]" : ""}`}
+                      style={{ borderColor: edit.request_type === t.id ? "var(--brand)" : "#DDD8D0" }}
                     >
                       <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `${t.color}25`, color: t.color }}>{t.icon}</div>
                       <div className="font-bold text-sm" style={{ color: "#1C2617" }}>{t.label}</div>
@@ -982,10 +982,10 @@ export default function Requests({ personal = false, embedded = false, managerVi
         >
           <>
               {!managerView && (
-                <p className="text-sm -mt-2 mb-2" style={{ color: "#5C6853" }}>The therapist will be auto-notified.</p>
+                <p className="text-sm -mt-2 mb-2" style={{ color: "var(--text-secondary)" }}>The therapist will be auto-notified.</p>
               )}
               {managerView && (
-                <p className="text-sm -mt-2 mb-2" style={{ color: "#5C6853" }}>
+                <p className="text-sm -mt-2 mb-2" style={{ color: "var(--text-secondary)" }}>
                   Request details are read-only. Choose a status, add your manager note, then Save & send to HR. HR is notified for all three outcomes (pending, approve, or reject).
                 </p>
               )}
@@ -999,12 +999,12 @@ export default function Requests({ personal = false, embedded = false, managerVi
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm mb-3">
                   {statusEdit.therapist_name && (
                     <div className="rounded-xl p-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
-                      <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#8B9E7A" }}>Therapist</div>
+                      <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "var(--brand-sage)" }}>Therapist</div>
                       <div className="font-semibold" style={{ color: "#2C3625" }}>{statusEdit.therapist_name}</div>
                     </div>
                   )}
                   <div className="rounded-xl p-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
-                    <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#8B9E7A" }}>Type</div>
+                    <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "var(--brand-sage)" }}>Type</div>
                     <div className="font-semibold" style={{ color: "#2C3625" }}>
                       {statusEdit._queueKind === "leave"
                         ? statusEdit.typeLabel
@@ -1012,18 +1012,18 @@ export default function Requests({ personal = false, embedded = false, managerVi
                     </div>
                   </div>
                   <div className="rounded-xl p-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
-                    <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#8B9E7A" }}>Submitted</div>
+                    <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "var(--brand-sage)" }}>Submitted</div>
                     <div className="font-semibold" style={{ color: "#2C3625" }}>{fmtShortDate(statusEdit.created_at)}</div>
                   </div>
                   {statusEdit.priority && (
                     <div className="rounded-xl p-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
-                      <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#8B9E7A" }}>Priority</div>
+                      <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "var(--brand-sage)" }}>Priority</div>
                       <div className="font-semibold" style={{ color: "#2C3625" }}>{PRIORITIES.find(p => p.id === statusEdit.priority)?.label || statusEdit.priority}</div>
                     </div>
                   )}
                   {(statusEdit.date_from || statusEdit.date_to) && (
                     <div className="rounded-xl p-3 sm:col-span-2" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
-                      <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#8B9E7A" }}>Dates</div>
+                      <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "var(--brand-sage)" }}>Dates</div>
                       <div className="font-semibold" style={{ color: "#2C3625" }}>
                         {statusEdit.date_from || "—"}{statusEdit.date_to ? ` → ${statusEdit.date_to}` : ""}
                       </div>
@@ -1035,7 +1035,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                   <div className="rounded-xl p-3 mb-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
                     <div className="text-xs font-semibold mb-1" style={{ color: "#9CA3AF" }}>Schedule</div>
                     <div className="font-semibold" style={{ color: "#1C2617" }}>{fmtLeaveSchedule(statusEdit._leave)}</div>
-                    <div className="text-xs mt-1" style={{ color: "#8B9E7A" }}>{statusEdit._leave.days} day(s)</div>
+                    <div className="text-xs mt-1" style={{ color: "var(--brand-sage)" }}>{statusEdit._leave.days} day(s)</div>
                   </div>
                 )}
 
@@ -1081,7 +1081,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                       type="button"
                       onClick={() => viewProtectedFile(`${API}/leaves/${statusEdit.leaveId}/document`)}
                       className="inline-flex items-center gap-1 font-semibold underline"
-                      style={{ color: "#5C8A47", background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                      style={{ color: "var(--brand)", background: "none", border: "none", padding: 0, cursor: "pointer" }}
                     >
                       <FileArrowDown size={14}/> View attachment (read-only)
                     </button>
@@ -1092,13 +1092,13 @@ export default function Requests({ personal = false, embedded = false, managerVi
                   <div className="text-sm rounded-xl p-3 mb-3" style={{ background: "#FAFAF7", border: "1px solid #EDE9E3" }}>
                     <div className="text-xs font-semibold mb-1" style={{ color: "#9CA3AF" }}>Attachment</div>
                     {statusEdit.report_date && (
-                      <div className="text-xs mb-1" style={{ color: "#8B9E7A" }}>Report date: {fmtShortDate(statusEdit.report_date)}</div>
+                      <div className="text-xs mb-1" style={{ color: "var(--brand-sage)" }}>Report date: {fmtShortDate(statusEdit.report_date)}</div>
                     )}
                     <button
                       type="button"
                       onClick={() => viewProtectedFile(`${API}/requests/${statusEdit.id}/attachment`)}
                       className="inline-flex items-center gap-1 font-semibold underline"
-                      style={{ color: "#5C8A47", background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                      style={{ color: "var(--brand)", background: "none", border: "none", padding: 0, cursor: "pointer" }}
                     >
                       <FileArrowDown size={14}/> View attachment (read-only)
                     </button>
@@ -1107,12 +1107,12 @@ export default function Requests({ personal = false, embedded = false, managerVi
 
                 {statusEdit.timeline?.length > 0 && (
                   <div className="space-y-2">
-                    <div className="text-xs font-bold uppercase tracking-widest" style={{ color: "#5C6853" }}>History</div>
+                    <div className="text-xs font-bold uppercase tracking-widest" style={{ color: "var(--text-secondary)" }}>History</div>
                     {statusEdit.timeline.map((ev, i) => (
                       <div key={i} className="text-xs py-2 border-b last:border-0" style={{ borderColor: "#EDE9E3" }}>
                         <span className="font-bold" style={{ color: "#1C2617" }}>{ev.event}</span>
                         <span style={{ color: "#9CA3AF" }}> · {ev.by} · {new Date(ev.at).toLocaleString("en-US")}</span>
-                        {ev.note && <div className="italic mt-0.5" style={{ color: "#5C6853" }}>"{ev.note}"</div>}
+                        {ev.note && <div className="italic mt-0.5" style={{ color: "var(--text-secondary)" }}>"{ev.note}"</div>}
                       </div>
                     ))}
                   </div>
@@ -1134,7 +1134,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                           key={k}
                           type="button"
                           onClick={() => setStatusEdit({ ...statusEdit, status: k })}
-                          className={`pill border-2 justify-start py-2 ${statusEdit.status === k ? "ring-2 ring-[#5C8A47]" : ""} ${v.cls}`}
+                          className={`pill border-2 justify-start py-2 ${statusEdit.status === k ? "ring-2 ring-[var(--brand)]" : ""} ${v.cls}`}
                         >
                           {v.icon} {v.label}
                         </button>
@@ -1180,7 +1180,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
   }
 
   return (
-    <div className="page-enter requests-page" dir="ltr">
+    <div className="requests-page" dir="ltr">
       {pageShell}
     </div>
   );
