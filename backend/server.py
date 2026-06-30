@@ -1604,10 +1604,9 @@ async def seed_master_data(_=Depends(admin_only)):
 # ------------------- Schedule -------------------
 @api.get("/schedule/week-status")
 async def schedule_week_status(week_start: str, user=Depends(get_current_user)):
+    week_start = _normalize_week_start(week_start)
     doc = await db.schedule_weeks.find_one({"week_start": week_start}, {"_id": 0})
     status = (doc or {}).get("status") or "published"
-    if user.get("role") != "admin" and status == "draft":
-        status = "published"
     return {"week_start": week_start, "status": status, "published_at": (doc or {}).get("published_at")}
 
 @api.post("/schedule/publish")
@@ -1913,14 +1912,35 @@ async def delete_personal_event(eid: str, user=Depends(get_current_user)):
     await db.therapist_personal_events.delete_one({"id": eid})
     return {"ok": True}
 
+def _schedule_week_start_variants(week_start: str) -> List[str]:
+    """Sunday-normalized week_start values to try (handles wrong-year imports)."""
+    from datetime import date
+    primary = _normalize_week_start(week_start)
+    out = [primary]
+    try:
+        d = date.fromisoformat(primary[:10])
+        alt = _normalize_week_start(d.replace(year=d.year - 1).isoformat())
+        if alt not in out:
+            out.append(alt)
+    except ValueError:
+        pass
+    return out
+
+
 @api.get("/schedule")
 async def list_schedule(week_start: Optional[str] = None, user=Depends(get_current_user)):
     q: dict = {}
     if week_start:
-        q["week_start"] = week_start
-        meta = await db.schedule_weeks.find_one({"week_start": week_start}, {"_id": 0})
+        variants = _schedule_week_start_variants(week_start)
+        primary = variants[0]
+        meta = await db.schedule_weeks.find_one({"week_start": primary}, {"_id": 0})
         if meta and meta.get("status") == "draft" and not _has_full_client_access(user):
             return []
+        for ws in variants:
+            cells = await db.schedule_cells.find({"week_start": ws}, {"_id": 0}).to_list(5000)
+            if cells:
+                return cells
+        return []
     cells = await db.schedule_cells.find(q, {"_id": 0}).to_list(5000)
     return cells
 
@@ -2527,6 +2547,7 @@ async def list_schedule_preparations(
     """Prep-complete markers for schedule slots in a week (Sun–Thu)."""
     if not week_start:
         raise HTTPException(status_code=400, detail="week_start required")
+    week_start = _normalize_week_start(week_start)
     try:
         base = datetime.fromisoformat(str(week_start)[:10])
     except ValueError:
@@ -12684,12 +12705,33 @@ async def get_my_learning(user=Depends(get_current_user)):
     }
 
 
+async def _notify_therapist_certificate_ready(therapist: dict, course_name: str, cert_id: str) -> None:
+    """In-app alert: certificate published to My Learning."""
+    title = "Your certificate is ready"
+    message = (
+        f"Your certificate for {course_name} is now available in "
+        "My Learning → My Certificates."
+    )
+    extra = {"link": "/my-learning", "certificate_id": cert_id, "course_name": course_name}
+    notified: set = set()
+    tid = therapist.get("id")
+    if tid:
+        await _notify(tid, "certificate_ready", title, message, **extra)
+        notified.add(tid)
+    email = (therapist.get("email") or "").lower().strip()
+    if email:
+        u = await db.users.find_one({"email": email}, {"_id": 0, "id": 1})
+        if u and u["id"] not in notified:
+            await _notify(u["id"], "certificate_ready", title, message, **extra)
+
+
 @api.post("/therapist-certificates")
 async def upload_therapist_certificate(
     therapist_id: str = Form(...),
     course_name: str = Form(...),
     title: str = Form(""),
     issued_at: Optional[str] = Form(None),
+    notify_trainee: str = Form("true"),
     file: UploadFile = File(...),
     user=Depends(certificate_upload_access),
 ):
@@ -12721,6 +12763,8 @@ async def upload_therapist_certificate(
         "created_at": now_iso(),
     }
     await db.therapist_certificates.insert_one(doc)
+    if str(notify_trainee).lower() in ("true", "1", "yes", "on"):
+        await _notify_therapist_certificate_ready(t, course_name.strip(), cert_id)
     doc.pop("file_data", None)
     doc.pop("_id", None)
     doc["download_url"] = f"/api/therapist-certificates/{cert_id}/file"

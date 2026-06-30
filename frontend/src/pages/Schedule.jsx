@@ -194,7 +194,6 @@ export default function Schedule() {
   const [scheduleTherapistBusy, setScheduleTherapistBusy] = useState(false);
   const adminEditsRef = useRef(null);
   const scheduleInitialLoadRef = useRef(true);
-  const recentWeekProbeRef = useRef(false);
   const [jumpedToWeekISO, setJumpedToWeekISO] = useState(null);
   const [showHolidays, setShowHolidays] = useState(false);
   const [closures, setClosures] = useState([]);
@@ -398,31 +397,13 @@ export default function Schedule() {
     }
   }, [weekStartISO, weekEndISO]);
 
+  useEffect(() => {
+    invalidateCache("/schedule");
+    invalidateCache("/schedule/week-status");
+  }, []);
+
   useEffect(() => { loadClosures(); }, [loadClosures]);
   useEffect(() => { load(); }, [load]);
-
-  // When landing on an empty week, jump once to the most recent week that has cells.
-  useEffect(() => {
-    if (scheduleLoading || recentWeekProbeRef.current) return;
-    if (cells.length > 0 || scheduleError) return;
-    recentWeekProbeRef.current = true;
-    (async () => {
-      const start = new Date(`${weekStartISO}T12:00:00`);
-      for (let w = 0; w < 8; w++) {
-        const ws = toISODate(addDays(start, -w * 7));
-        try {
-          const { data } = await api.get("/schedule", { params: { week_start: ws } });
-          if (Array.isArray(data) && data.length > 0) {
-            if (ws !== weekStartISO) {
-              setJumpedToWeekISO(ws);
-              setWeekStart(startOfWeek(new Date(`${ws}T12:00:00`)));
-            }
-            return;
-          }
-        } catch { /* try older week */ }
-      }
-    })();
-  }, [scheduleLoading, cells.length, scheduleError, weekStartISO]);
 
   useEffect(() => {
     const refreshPrep = () => loadPreparations();
@@ -1647,7 +1628,9 @@ export default function Schedule() {
               type="button"
               className="btn btn-outline text-xs shrink-0"
               onClick={() => {
-                const ws = weekStartISOForDate(recentActiveDates[0]);
+                const inWeek = recentActiveDates.find((d) => d >= weekStartISO && d <= weekEndISO);
+                const target = inWeek || recentActiveDates[0];
+                const ws = weekStartISOForDate(target);
                 setJumpedToWeekISO(ws);
                 setWeekStart(startOfWeek(new Date(`${ws}T12:00:00`)));
               }}
