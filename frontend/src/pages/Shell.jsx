@@ -7,7 +7,7 @@ import { getPortalDisplayName } from "../scheduleConstants";
 import {
   House, CalendarBlank,   ClipboardText, UsersThree, Receipt,
   Bell, SignOut,   ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, CaretDown, Folder, UserCircle,
-  SidebarSimple, Rows, ShoppingBag, FileText, Buildings, Hourglass, Eye,
+  SidebarSimple, Rows, ShoppingBag, FileText, Buildings, Hourglass, Eye, Exam,
 } from "@phosphor-icons/react";
 
 import SidebarNav from "../components/SidebarNav";
@@ -45,6 +45,7 @@ const ROUTE_PREFETCH = {
   },
   "/waiting/intake": () => { prefetch("/intake"); },
   "/waiting/school": () => { prefetch("/intake"); },
+  "/admin/center-tests": () => { prefetch("/center-test/attempts"); },
 };
 
 function warmRoute(path) {
@@ -161,6 +162,7 @@ export default function Shell() {
       : []),
     ...(canViewReports(user)
       ? [
+          { to: "/admin/center-tests", label: "Training Tests", testid: "nav-center-tests", icon: <Exam size={17} weight="duotone"/> },
           { to: "/reports", label: "Reports", testid: "nav-reports", icon: <ChartBar size={17} weight="duotone"/> },
         ]
       : []),
