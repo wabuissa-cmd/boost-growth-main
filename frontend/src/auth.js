@@ -57,6 +57,7 @@ export const useAuth = () => useContext(AuthCtx);
 const FULL_CLIENT_KEYS = new Set(["mswalaa", "msmaha", "msjenan", "msfahda"]);
 const FULL_CLIENT_NAMES = new Set(["walaa", "maha", "jenan", "fahda"]);
 const CLIENT_LEAD_EMAILS = new Set([
+  "wabuissa@boostgrowthsa.com",
   "walaa@boostgrowthsa.com",
   "msalthunayan@boostgrowthsa.com",
   "falghadeeb@boostgrowthsa.com",
@@ -223,7 +224,7 @@ export function directManagerLabel() {
   return "Direct Manager";
 }
 
-const WALAA_EMAILS = new Set(["walaa@boostgrowthsa.com"]);
+const WALAA_EMAILS = new Set(["wabuissa@boostgrowthsa.com", "walaa@boostgrowthsa.com"]);
 const WALAA_KEYS = new Set(["mswalaa"]);
 
 /** Walaa operations — parent cancellation WhatsApp workflow */

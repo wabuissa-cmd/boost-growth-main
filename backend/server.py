@@ -149,6 +149,43 @@ async def _find_therapist_by_email(email: str) -> Optional[dict]:
     return scored[0][2]
 
 
+def _login_email_variants(email: str) -> List[str]:
+    """All login emails that should resolve to the same Walaa ops account."""
+    email_l = email.lower().strip()
+    variants = [email_l]
+    if email_l in WALAA_LOGIN_EMAILS:
+        variants.extend(sorted(WALAA_LOGIN_EMAILS))
+    return list(dict.fromkeys(variants))
+
+
+async def _find_user_by_login_email(email: str) -> Optional[dict]:
+    for em in _login_email_variants(email):
+        user = await db.users.find_one({"email": em})
+        if user:
+            return user
+    if email.lower().strip() in WALAA_LOGIN_EMAILS:
+        return await db.users.find_one(
+            {"email": {"$regex": r"^(wabuissa|walaa)@boostgrowthsa\.com$", "$options": "i"}},
+        )
+    return None
+
+
+async def _find_therapist_by_login_email(email: str) -> Optional[dict]:
+    for em in _login_email_variants(email):
+        t = await _find_therapist_by_email(em)
+        if t:
+            return t
+    if email.lower().strip() in WALAA_LOGIN_EMAILS:
+        t = await db.therapists.find_one({"key": "msWalaa"}, {"_id": 0})
+        if t:
+            return t
+        return await db.therapists.find_one(
+            {"name": {"$regex": r"^ms\.?\s*walaa\b", "$options": "i"}},
+            {"_id": 0},
+        )
+    return None
+
+
 def _therapist_has_nationality(t: dict) -> bool:
     """True when therapist has a family/nationality label (DB field, key map, or multi-word name)."""
     nat = (t.get("nationality") or "").strip()
@@ -319,6 +356,69 @@ async def _migrate_hr_password_once() -> bool:
     return True
 
 
+async def _ensure_walaa_ops_login_once() -> bool:
+    """One-time: link Walaa ops login to wabuissa@ and restore known password."""
+    meta_key = "walaa_ops_login_restore_v1"
+    if await db.meta.find_one({"key": meta_key, "done": True}):
+        return False
+    restore_pw = "Walaa@12345"
+    pw_hash = hash_password(restore_pw)
+
+    t = await db.therapists.find_one({"key": "msWalaa"}, {"_id": 0})
+    if not t:
+        t = await db.therapists.find_one(
+            {"name": {"$regex": r"^ms\.?\s*walaa\b", "$options": "i"}},
+            {"_id": 0},
+        )
+    if not t:
+        for em in ("wabuissa@boostgrowthsa.com", "walaa@boostgrowthsa.com"):
+            t = await _find_therapist_by_email(em)
+            if t:
+                break
+    if t:
+        await db.therapists.update_one({"id": t["id"]}, {"$set": {
+            "email": "wabuissa@boostgrowthsa.com",
+            "key": "msWalaa",
+            "password_hash": pw_hash,
+            "must_change_password": False,
+            "temp_password_set_at": None,
+        }})
+
+    user = await db.users.find_one(
+        {"email": {"$regex": r"^(wabuissa|walaa)@boostgrowthsa\.com$", "$options": "i"}},
+    )
+    if user:
+        await db.users.update_one({"id": user["id"]}, {"$set": {
+            "email": "wabuissa@boostgrowthsa.com",
+            "password_hash": pw_hash,
+            "must_change_password": False,
+            "name": user.get("name") or "Walaa",
+            "role": "admin",
+        }})
+        await db.users.delete_many({
+            "email": {"$regex": r"^walaa@boostgrowthsa\.com$", "$options": "i"},
+            "id": {"$ne": user["id"]},
+        })
+    else:
+        uid = t["id"] if t else str(uuid.uuid4())
+        await db.users.insert_one({
+            "id": uid,
+            "email": "wabuissa@boostgrowthsa.com",
+            "password_hash": pw_hash,
+            "name": "Walaa",
+            "role": "admin",
+            "must_change_password": False,
+            "created_at": now_iso(),
+        })
+
+    await db.meta.update_one(
+        {"key": meta_key},
+        {"$set": {"done": True, "updated_at": now_iso()}},
+        upsert=True,
+    )
+    return True
+
+
 async def _apply_inactive_client_status() -> int:
     """Ensure known inactive clients stay out of active billing/prep lists."""
     n = 0
@@ -450,7 +550,13 @@ async def admin_only(user: dict = Depends(get_current_user)) -> dict:
 
 FULL_CLIENT_ACCESS_KEYS = frozenset({"mswalaa", "msmaha", "msjenan", "msfahda"})
 FULL_CLIENT_NAME_TOKENS = frozenset({"walaa", "maha", "jenan", "fahda"})
+WALAA_LOGIN_EMAILS = frozenset({
+    "wabuissa@boostgrowthsa.com",
+    "walaa@boostgrowthsa.com",
+})
+WALAA_CANONICAL_EMAIL = "wabuissa@boostgrowthsa.com"
 CLIENT_LEAD_EMAILS = frozenset({
+    "wabuissa@boostgrowthsa.com",
     "walaa@boostgrowthsa.com",
     "msalthunayan@boostgrowthsa.com",
     "falghadeeb@boostgrowthsa.com",
@@ -542,7 +648,7 @@ def _is_hr_ops(user: dict) -> bool:
 
 def _is_walaa_ops(user: dict) -> bool:
     email = (user.get("email") or "").lower().strip()
-    if email == "walaa@boostgrowthsa.com":
+    if email in WALAA_LOGIN_EMAILS:
         return True
     key = (user.get("key") or "").lower()
     if key == "mswalaa":
@@ -975,16 +1081,17 @@ class ParentWhatsAppSentIn(BaseModel):
 # ------------------- Auth -------------------
 @api.post("/auth/login")
 async def admin_login(payload: LoginIn, response: Response):
-    email = payload.email.lower()
-    # Primary: admin users
-    user = await db.users.find_one({"email": email})
+    email = payload.email.lower().strip()
+    # Primary: admin users (Walaa: wabuissa@ and walaa@ are aliases)
+    user = await _find_user_by_login_email(email)
     if user and verify_password(payload.password, user["password_hash"]):
-        token = create_token({"sub": user["id"], "role": "admin", "email": email})
+        login_email = (user.get("email") or email).lower()
+        token = create_token({"sub": user["id"], "role": "admin", "email": login_email})
         set_auth_cookie(response, token)
-        return {"id": user["id"], "email": email, "name": user.get("name"), "role": "admin", "token": token}
+        return {"id": user["id"], "email": login_email, "name": user.get("name"), "role": "admin", "token": token}
 
     # Secondary: allow ops/supervisors to sign in from the same form using therapist email+password
-    t = await _find_therapist_by_email(email)
+    t = await _find_therapist_by_login_email(email)
     if t and t.get("password_hash") and verify_password(payload.password, t["password_hash"]):
         token = create_token({"sub": t["id"], "role": "therapist", "name": t["name"], "email": t.get("email")})
         set_auth_cookie(response, token)
@@ -3805,6 +3912,7 @@ async def list_all_invoices(user=Depends(get_current_user)):
 
 # ------------------- Billing / payment tracking -------------------
 BILLING_REMINDER_EMAILS = frozenset({
+    "wabuissa@boostgrowthsa.com",
     "walaa@boostgrowthsa.com",
     "admin@boostgrowthsa.com",
 })
@@ -11825,7 +11933,7 @@ INTAKE_SEED = [
 DIRECTORY_SEED = [
     {"name":"Genan Almuhaisen","role":"Direct Manager","phone":"","email":"genan@boostgrowthsa.com"},
     {"name":"Boost Growth (Main)","role":"Coordinator / General Inquiries","phone":"","email":"hello@boostgrowthsa.com"},
-    {"name":"Ms. Walaa","role":"Operations","phone":"","email":"walaa@boostgrowthsa.com"},
+    {"name":"Ms. Walaa","role":"Operations","phone":"","email":"wabuissa@boostgrowthsa.com"},
     {"name":"Ms. Maha","role":"Supervisor","phone":"","email":"maha@boostgrowthsa.com"},
     {"name":"Ms. Fahdah","role":"Supervisor","phone":"","email":"fahda@boostgrowthsa.com"},
 ]
@@ -12005,6 +12113,12 @@ async def _run_startup():
                 logger.info("HR password migrated to Boost@2026 (one-time)")
         except Exception as e:
             logger.warning(f"HR password migration skipped: {e}")
+
+        try:
+            if await _ensure_walaa_ops_login_once():
+                logger.info("Walaa ops login restored for wabuissa@ (one-time)")
+        except Exception as e:
+            logger.warning(f"Walaa ops login restore skipped: {e}")
 
         try:
             pw_n = await _migrate_bootstrap_therapist_passwords()
