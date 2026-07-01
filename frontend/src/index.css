@@ -225,6 +225,9 @@ main, .page-enter { min-width: 0; }
     border: 2px solid #fff;
     box-shadow: 0 1px 4px rgba(44, 54, 37, 0.35);
     pointer-events: none;
+    overflow: hidden;
+    font-size: 0;
+    line-height: 0;
 }
 .schedule-prep-badge--clickable {
     pointer-events: auto;

@@ -148,17 +148,19 @@ export function mergePrepLookups(...lookups) {
   return set;
 }
 
-export function prepKeysForCell(cell, therapistId, day, weekStart, clientId, clientName) {
+export function prepKeysForCell(cell, therapistId, day, weekStart, clientId, clientName, idAliases = null) {
   if (!cell) return [];
   const sessionDate = toISODate(addDays(new Date(weekStart + "T12:00:00"), day));
   const keys = [];
   if (cell.id) keys.push(`cell:${cell.id}`);
-  if (clientId) keys.push(`mark:${therapistId}|${clientId}|${sessionDate}`);
-  const slot = (cell.time_slot || "").trim();
-  if (clientId && slot) keys.push(`slot:${therapistId}|${clientId}|${sessionDate}|${slot}`);
-  const childFromCell = scheduleCellChildName(cell);
-  const nameForKey = clientName || childFromCell;
-  if (nameForKey) keys.push(`name:${therapistId}|${normScheduleName(nameForKey)}|${sessionDate}`);
+  for (const tid of therapistIdsForPrep(therapistId, idAliases)) {
+    if (clientId) keys.push(`mark:${tid}|${clientId}|${sessionDate}`);
+    const slot = (cell.time_slot || "").trim();
+    if (clientId && slot) keys.push(`slot:${tid}|${clientId}|${sessionDate}|${slot}`);
+    const childFromCell = scheduleCellChildName(cell);
+    const nameForKey = clientName || childFromCell;
+    if (nameForKey) keys.push(`name:${tid}|${normScheduleName(nameForKey)}|${sessionDate}`);
+  }
   return keys;
 }
 
@@ -174,6 +176,49 @@ function sessionIncludesTherapist(sessionTids, therapistId, idAliases) {
     if (therapistIdsMatch(st, therapistId, idAliases)) return true;
   }
   return false;
+}
+
+function dualSpecialistPrepMatch(rec, therapistId, sessionDate, client, weekSessions, idAliases) {
+  if (!rec || !client?.id) return false;
+  if ((rec.session_date || "").slice(0, 10) !== sessionDate) return false;
+  if (rec.client_id && rec.client_id !== client.id) return false;
+  const recTid = rec.therapist_id;
+  if (!recTid || therapistIdsMatch(recTid, therapistId, idAliases)) return false;
+  for (const s of weekSessions || []) {
+    if ((s.session_date || "").slice(0, 10) !== sessionDate) continue;
+    if (s.client_id !== client.id) continue;
+    if (!LOGGED_PREP_STATUSES.has(s.status)) continue;
+    if (!sessionIncludesTherapist(s.therapist_ids, therapistId, idAliases)) continue;
+    if (!sessionIncludesTherapist(s.therapist_ids, recTid, idAliases)) continue;
+    return true;
+  }
+  return false;
+}
+
+function dualSpecialistPrepFromRecords(rec, therapistId, sessionDate, client, preparations, idAliases) {
+  if (!rec || !client?.id) return false;
+  if ((rec.session_date || "").slice(0, 10) !== sessionDate) return false;
+  if (rec.client_id !== client.id) return false;
+  const recTid = rec.therapist_id;
+  if (!recTid || therapistIdsMatch(recTid, therapistId, idAliases)) return false;
+  for (const other of preparations || []) {
+    if (other === rec) continue;
+    if ((other.session_date || "").slice(0, 10) !== sessionDate) continue;
+    if (other.client_id !== client.id) continue;
+    if (!other.therapist_id) continue;
+    if (!therapistIdsMatch(other.therapist_id, therapistId, idAliases)) continue;
+    if (therapistIdsMatch(other.therapist_id, recTid, idAliases)) continue;
+    return true;
+  }
+  return false;
+}
+
+function prepRecordCoversCell(
+  rec, cell, therapistId, sessionDate, childName, client, idAliases, preparations, weekSessions,
+) {
+  if (prepRecordMatchesCell(rec, cell, therapistId, sessionDate, childName, client, idAliases)) return true;
+  if (dualSpecialistPrepMatch(rec, therapistId, sessionDate, client, weekSessions, idAliases)) return true;
+  return dualSpecialistPrepFromRecords(rec, therapistId, sessionDate, client, preparations, idAliases);
 }
 
 function prepRecordMatchesCell(rec, cell, therapistId, sessionDate, childName, client, idAliases = null) {
@@ -264,6 +309,7 @@ function isCellPreparedMark(
   clients,
   preparations = [],
   idAliases = null,
+  weekSessions = [],
 ) {
   if (!cell || !isScheduleClientLogCell(cell)) return false;
   const sessionDate = toISODate(addDays(new Date(weekStart + "T12:00:00"), day));
@@ -272,10 +318,12 @@ function isCellPreparedMark(
 
   // Explicit prep marks (from prep-history / preparations API)
   if (cell.id && prepLookup?.has(`cell:${cell.id}`)) return true;
-  const nameKeys = prepKeysForCell(cell, therapistId, day, weekStart, client?.id, client?.name || childName);
+  const nameKeys = prepKeysForCell(cell, therapistId, day, weekStart, client?.id, client?.name || childName, idAliases);
   if (nameKeys.some((k) => prepLookup?.has(k))) return true;
   for (const rec of preparations || []) {
-    if (prepRecordMatchesCell(rec, cell, therapistId, sessionDate, childName, client, idAliases)) return true;
+    if (prepRecordCoversCell(
+      rec, cell, therapistId, sessionDate, childName, client, idAliases, preparations, weekSessions,
+    )) return true;
   }
   return false;
 }
@@ -310,7 +358,9 @@ export function getCellStatusBadge(
   );
   if (session && NO_ATTENDANCE_SESSION_STATUSES.has(session.status)) {
     // Only show "no_show" corner badge when the therapist explicitly marked prep for this cell.
-    if (isCellPreparedMark(prepLookup, cell, therapistId, day, weekStart, clients, preparations, idAliases)) {
+    if (isCellPreparedMark(
+      prepLookup, cell, therapistId, day, weekStart, clients, preparations, idAliases, weekSessions,
+    )) {
       return "no_show";
     }
     return null;
@@ -361,7 +411,7 @@ export function isCellPrepComplete(
 
   if (cell.id && prepLookup.has(`cell:${cell.id}`)) return true;
 
-  const nameKeys = prepKeysForCell(cell, therapistId, day, weekStart, client?.id, client?.name || childName);
+  const nameKeys = prepKeysForCell(cell, therapistId, day, weekStart, client?.id, client?.name || childName, idAliases);
   if (nameKeys.some((k) => prepLookup.has(k))) return true;
 
   if (client) {
@@ -371,7 +421,9 @@ export function isCellPrepComplete(
   }
 
   for (const rec of preparations || []) {
-    if (prepRecordMatchesCell(rec, cell, therapistId, sessionDate, childName, client, idAliases)) return true;
+    if (prepRecordCoversCell(
+      rec, cell, therapistId, sessionDate, childName, client, idAliases, preparations, weekSessions,
+    )) return true;
   }
   return false;
 }

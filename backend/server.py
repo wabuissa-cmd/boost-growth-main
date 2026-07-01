@@ -2284,12 +2284,41 @@ async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) 
         )
 
 
+async def _related_therapist_ids_for_prep(
+    therapist_id: str,
+    client_id: str,
+    session_date: str,
+) -> List[str]:
+    """Therapist ids that may share a dual-specialist prep slot (same client + date)."""
+    sd = (session_date or "")[:10]
+    ids: set = {therapist_id}
+    if client_id and sd:
+        sessions = await db.sessions.find(
+            {"client_id": client_id, "session_date": sd},
+            {"_id": 0, "therapist_ids": 1},
+        ).to_list(100)
+        for sess in sessions:
+            for tid in sess.get("therapist_ids") or []:
+                if tid:
+                    ids.add(tid)
+        hist_rows = await db.prep_history.find(
+            {"client_id": client_id, "session_date": sd},
+            {"_id": 0, "therapist_id": 1},
+        ).to_list(100)
+        for row in hist_rows:
+            tid = row.get("therapist_id")
+            if tid:
+                ids.add(tid)
+    return [t for t in ids if t]
+
+
 async def _resolve_schedule_cell_for_prep(
     therapist_id: str,
     client_id: str,
     session_date: str,
     client_name: Optional[str] = None,
     stale_cell_id: Optional[str] = None,
+    extra_therapist_ids: Optional[List[str]] = None,
 ) -> Optional[dict]:
     """Match schedule cell by id, client, or child name — survives Excel re-import."""
     sd = (session_date or "")[:10]
@@ -2298,24 +2327,44 @@ async def _resolve_schedule_cell_for_prep(
         if cell and _schedule_cell_date_iso(cell) == sd:
             if await _cell_matches_session_client(cell, client_id):
                 return cell
-    cells = await db.schedule_cells.find({"therapist_id": therapist_id}, {"_id": 0}).to_list(800)
-    for cell in cells:
-        if _schedule_cell_date_iso(cell) != sd:
-            continue
-        if await _cell_matches_session_client(cell, client_id):
-            return cell
-    if client_name:
-        want = _normalize_intake_name(client_name)
-        first = want.split()[0] if want else ""
+
+    async def _scan_cells(cells: list) -> Optional[dict]:
         for cell in cells:
             if _schedule_cell_date_iso(cell) != sd:
                 continue
-            label = _normalize_intake_name(_schedule_cell_child_label(cell))
-            if not label:
-                continue
-            if label == want or (first and len(first) >= 3 and (label.startswith(first) or first == label.split()[0])):
+            if await _cell_matches_session_client(cell, client_id):
                 return cell
-    return None
+        if client_name:
+            want = _normalize_intake_name(client_name)
+            first = want.split()[0] if want else ""
+            for cell in cells:
+                if _schedule_cell_date_iso(cell) != sd:
+                    continue
+                label = _normalize_intake_name(_schedule_cell_child_label(cell))
+                if not label:
+                    continue
+                if label == want or (first and len(first) >= 3 and (label.startswith(first) or first == label.split()[0])):
+                    return cell
+        return None
+
+    search_ids = list(dict.fromkeys(
+        [therapist_id] + [t for t in (extra_therapist_ids or []) if t and t != therapist_id]
+    ))
+    for tid in search_ids:
+        cells = await db.schedule_cells.find({"therapist_id": tid}, {"_id": 0}).to_list(800)
+        hit = await _scan_cells(cells)
+        if hit:
+            return hit
+
+    # Dual specialists: client may be scheduled under a co-therapist's column.
+    all_cells = await db.schedule_cells.find(
+        {
+            "state": {"$nin": ["cancel_therapist", "cancel_child"]},
+            "service_code": {"$nin": ["LEAVE", "BREAK", "AVC", ""]},
+        },
+        {"_id": 0},
+    ).to_list(800)
+    return await _scan_cells(all_cells)
 
 
 async def _sync_prep_history_to_schedule_markers(start: str, end: str) -> None:
@@ -2331,47 +2380,59 @@ async def _sync_prep_history_to_schedule_markers(start: str, end: str) -> None:
         if not tid or not cid or not sd:
             continue
         stale_cell_id = row.get("schedule_cell_id")
-        cell = await _resolve_schedule_cell_for_prep(
-            tid, cid, sd, client_name=row.get("client_name"), stale_cell_id=stale_cell_id,
-        )
-        cell_id = cell.get("id") if cell else None
-        time_slot = (row.get("time_slot") or "").strip()
-        week_start = None
-        day = None
-        if cell:
-            time_slot = cell.get("time_slot") or time_slot
+        related = await _related_therapist_ids_for_prep(tid, cid, sd)
+        marked_cell_ids: set = set()
+        primary_cell_id = None
+        for rtid in related:
+            cell = await _resolve_schedule_cell_for_prep(
+                rtid,
+                cid,
+                sd,
+                client_name=row.get("client_name"),
+                stale_cell_id=stale_cell_id if rtid == tid else None,
+                extra_therapist_ids=related,
+            )
+            if not cell or not cell.get("id"):
+                continue
+            if cell["id"] in marked_cell_ids:
+                continue
+            marked_cell_ids.add(cell["id"])
+            if not primary_cell_id:
+                primary_cell_id = cell["id"]
+            marker_tid = cell.get("therapist_id") or rtid
+            time_slot = (cell.get("time_slot") or row.get("time_slot") or "").strip()
             week_start = cell.get("week_start")
             day = cell.get("day")
-        if cell_id and cell_id != stale_cell_id:
+            try:
+                await _upsert_schedule_preparation(
+                    therapist_id=marker_tid,
+                    client_id=cid,
+                    session_date=sd,
+                    prepared_by=row.get("prepared_by") or "",
+                    time_slot=time_slot,
+                    schedule_cell_id=cell.get("id"),
+                    week_start=week_start,
+                    day=day,
+                    client_name=row.get("client_name"),
+                )
+                await _upsert_schedule_preparation(
+                    therapist_id=marker_tid,
+                    client_id=cid,
+                    session_date=sd,
+                    prepared_by=row.get("prepared_by") or "",
+                    time_slot="",
+                    schedule_cell_id=cell.get("id"),
+                    week_start=week_start,
+                    day=day,
+                    client_name=row.get("client_name"),
+                )
+            except Exception:
+                logger.exception("sync prep_history to schedule marker %s", row.get("id"))
+        if primary_cell_id and primary_cell_id != stale_cell_id:
             await db.prep_history.update_one(
                 {"id": row.get("id")},
-                {"$set": {"schedule_cell_id": cell_id}},
+                {"$set": {"schedule_cell_id": primary_cell_id}},
             )
-        try:
-            await _upsert_schedule_preparation(
-                therapist_id=tid,
-                client_id=cid,
-                session_date=sd,
-                prepared_by=row.get("prepared_by") or "",
-                time_slot=time_slot,
-                schedule_cell_id=cell_id,
-                week_start=week_start,
-                day=day,
-                client_name=row.get("client_name"),
-            )
-            await _upsert_schedule_preparation(
-                therapist_id=tid,
-                client_id=cid,
-                session_date=sd,
-                prepared_by=row.get("prepared_by") or "",
-                time_slot="",
-                schedule_cell_id=cell_id,
-                week_start=week_start,
-                day=day,
-                client_name=row.get("client_name"),
-            )
-        except Exception:
-            logger.exception("sync prep_history to schedule marker %s", row.get("id"))
 
 
 _LOGGED_PREP_SESSION_STATUSES = {"Completed"}
@@ -6768,7 +6829,6 @@ async def _sync_prep_history_for_session(sess: dict, prepared_by: str, notes: Op
         return
     client = await db.clients.find_one({"id": cid}, {"_id": 0, "name": 1})
     tids = [t for t in (sess.get("therapist_ids") or []) if t]
-    primary_tid = tids[0] if tids else None
     note_val = notes if notes is not None else sess.get("note")
     patch = {
         "notes": (note_val or "").strip(),
@@ -6776,20 +6836,17 @@ async def _sync_prep_history_for_session(sess: dict, prepared_by: str, notes: Op
         "prepared_at": now_iso(),
         "source": "session",
     }
-    if primary_tid:
-        patch["therapist_id"] = primary_tid
-        th = await db.therapists.find_one({"id": primary_tid}, {"_id": 0, "name": 1, "key": 1})
-        if th:
-            patch["therapist_name"] = therapist_schedule_display_name(th)
     await db.prep_history.update_many({"session_id": sid}, {"$set": patch})
-    if primary_tid:
+    client_name = (client or {}).get("name")
+    for prep_tid in tids:
+        th = await db.therapists.find_one({"id": prep_tid}, {"_id": 0, "name": 1, "key": 1})
         await _upsert_prep_history(
-            therapist_id=primary_tid,
+            therapist_id=prep_tid,
             client_id=cid,
             session_date=sd,
             prepared_by=prepared_by,
             time_slot=sess.get("start_time") or "",
-            client_name=(client or {}).get("name"),
+            client_name=client_name,
             notes=(note_val or "").strip() or None,
             invoice_id=sess.get("invoice_id"),
             session_id=sid,
@@ -6886,20 +6943,23 @@ async def create_session(payload: SessionIn, user=Depends(get_current_user)):
             except Exception:
                 logger.exception("Clear prep marker after %s session", payload.status)
     try:
-        primary_tid = (therapist_ids or [None])[0]
-        if primary_tid and payload.status == "Completed":
-            await _upsert_prep_history(
-                therapist_id=primary_tid,
-                client_id=payload.client_id,
-                session_date=payload.session_date,
-                prepared_by=user["id"],
-                time_slot=payload.start_time or "",
-                client_name=(client or {}).get("name"),
-                notes=payload.note,
-                invoice_id=doc.get("invoice_id"),
-                session_id=sid,
-                source="session",
-            )
+        if payload.status == "Completed":
+            client_name = (client or {}).get("name")
+            for prep_tid in therapist_ids:
+                if not prep_tid:
+                    continue
+                await _upsert_prep_history(
+                    therapist_id=prep_tid,
+                    client_id=payload.client_id,
+                    session_date=payload.session_date,
+                    prepared_by=user["id"],
+                    time_slot=payload.start_time or "",
+                    client_name=client_name,
+                    notes=payload.note,
+                    invoice_id=doc.get("invoice_id"),
+                    session_id=sid,
+                    source="session",
+                )
     except Exception:
         logger.exception("Prep history log failed")
     # Admin alerts
