@@ -53,6 +53,10 @@ function isPendingManagerStatus(status) {
   return PENDING_MANAGER_STATUSES.has(status);
 }
 
+function isOpenQueueStatus(status) {
+  return isPendingManagerStatus(status) || status === PENDING_HR_STATUS || status === "pending_attachment";
+}
+
 function isManagerReviewableItem(item) {
   if (!item) return false;
   if (item._queueKind === "leave") {
@@ -226,7 +230,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
   const adminManagerPreview = managerView && isPortalAdminUser && showSystemAdmin(user);
   const staffLabel = managerView ? "Therapists' Requests" : "Staff Requests";
   const [items, setItems] = useState([]);
-  const [filter, setFilter] = useState(managerView ? "pending_manager" : "all");
+  const [filter, setFilter] = useState(managerView ? "pending" : "all");
   const [edit, setEdit] = useState(null);
   const [statusEdit, setStatusEdit] = useState(null);
   const [step, setStep] = useState(1);
@@ -423,7 +427,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
 
   const filtered = queueItems.filter(r => {
     if (filter === "all") return true;
-    if (filter === "pending") return isPendingManagerStatus(r.status) || r.status === PENDING_HR_STATUS;
+    if (filter === "pending") return isOpenQueueStatus(r.status);
     if (filter === "pending_manager") return isPendingManagerStatus(r.status);
     return r.status === filter;
   });
@@ -434,7 +438,8 @@ export default function Requests({ personal = false, embedded = false, managerVi
 
   const pendingManagerCount = queueItems.filter(r => isPendingManagerStatus(r.status)).length;
   const pendingHrCount = queueItems.filter(r => r.status === PENDING_HR_STATUS).length;
-  const pendingCount = pendingManagerCount + pendingHrCount;
+  const pendingAttachmentCount = queueItems.filter(r => r.status === "pending_attachment").length;
+  const pendingCount = queueItems.filter(r => isOpenQueueStatus(r.status)).length;
   const inProgressCount = queueItems.filter(r => r.status === "in_progress").length;
   const doneCount = queueItems.filter(r => r.status === "done" || r.status === "approved").length;
 

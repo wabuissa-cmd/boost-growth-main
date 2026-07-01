@@ -743,6 +743,18 @@ LEAVE_DOC_REQUIRED_TYPES = frozenset({"Sickleave", "Absence", "Permission"})
 PENDING_MANAGER_REQUEST_STATUSES = frozenset({"pending", "pending_manager"})
 MANAGER_ACTIVE_REQUEST_STATUSES = frozenset({"pending", "pending_manager", "in_progress"})
 MANAGER_FORWARD_HR_LEAVE_SOURCES = PENDING_MANAGER_STATUSES | frozenset({"pending_attachment"})
+OPEN_LEAVE_STATUSES = frozenset({"pending", "pending_manager", "pending_hr", "pending_attachment", "in_progress"})
+
+
+def _can_staff_request_scope(user: dict) -> bool:
+    """Manager Hub / HR staff queue — Jenan, HR, portal admin, Walaa ops."""
+    return _is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user) or _is_walaa_ops(user)
+
+
+def _can_view_all_leaves(user: dict, scope_norm: str) -> bool:
+    if _is_portal_admin(user) or _is_hr_ops(user):
+        return True
+    return scope_norm == "staff" and (_is_jenan(user) or _is_walaa_ops(user))
 
 
 def _coerce_manager_approve_to_hr(status: str, notify_hr: Optional[bool] = None) -> str:
@@ -870,7 +882,7 @@ async def manager_reports_access(user: dict = Depends(get_current_user)) -> dict
 
 
 async def hr_manager_access(user: dict = Depends(get_current_user)) -> dict:
-    if _is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user):
+    if _can_staff_request_scope(user):
         return user
     raise HTTPException(status_code=403, detail="HR manager access required")
 
@@ -1531,6 +1543,7 @@ async def me(user: dict = Depends(get_current_user)):
     user["can_manage_leaves"] = _is_jenan(user)
     user["can_hr_review_leaves"] = _is_hr_ops(user)
     user["can_edit_staff_requests"] = _is_jenan(user) or _is_hr_ops(user)
+    user["can_access_manager_hub"] = _is_jenan(user) or _is_portal_admin(user) or _is_walaa_ops(user)
     user["can_import"] = _is_portal_admin(user) or _is_walaa_ops(user)
     user["can_edit_intake"] = _is_portal_admin(user) or _is_client_lead(user) or _is_hr_ops(user)
     user["schedule_lead"] = _is_client_lead(user) and not _is_portal_admin(user)
@@ -9813,7 +9826,7 @@ async def list_requests(scope: Optional[str] = None, user=Depends(get_current_us
     """List requests. Default: caller's own. scope=staff: manager/HR staff queue (not own rows for Jenan)."""
     scope_norm = (scope or "").strip().lower()
     if scope_norm == "staff":
-        if not (_is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user)):
+        if not _can_staff_request_scope(user):
             raise HTTPException(status_code=403, detail="Staff request access required")
         q: dict = {}
         if _is_jenan(user) and not _is_portal_admin(user) and not _is_hr_ops(user):
@@ -11588,10 +11601,14 @@ def _enrich_leave_document_url(leave: dict) -> dict:
     return _strip_file_data(leave)
 
 @api.get("/leaves")
-async def list_leaves(year: Optional[int] = None, scope: Optional[str] = None, user=Depends(get_current_user)):
+async def list_leaves(
+    year: Optional[int] = None,
+    scope: Optional[str] = None,
+    user=Depends(get_current_user),
+):
     q: dict = {}
     scope_norm = (scope or "").strip().lower()
-    can_view_all = _is_portal_admin(user) or _is_hr_ops(user) or (scope_norm == "staff" and _is_jenan(user))
+    can_view_all = _can_view_all_leaves(user, scope_norm)
     if not can_view_all:
         therapist = await db.therapists.find_one({"id": user["id"]}, {"_id": 0})
         if therapist:
@@ -11600,11 +11617,13 @@ async def list_leaves(year: Optional[int] = None, scope: Optional[str] = None, u
             q["start_date"] = {"$gte": start, "$lte": end}
         else:
             q["therapist_id"] = user["id"]
-    elif year:
-        q["start_date"] = {"$gte": f"{year}-01-01", "$lte": f"{year}-12-31"}
     else:
-        yr = datetime.now(timezone.utc).year
-        q["start_date"] = {"$gte": f"{yr}-01-01", "$lte": f"{yr}-12-31"}
+        yr = year or datetime.now(timezone.utc).year
+        # HR/admin views: always include open requests even when start_date is outside the selected year.
+        q = {"$or": [
+            {"status": {"$in": list(OPEN_LEAVE_STATUSES)}},
+            {"start_date": {"$gte": f"{yr}-01-01", "$lte": f"{yr}-12-31"}},
+        ]}
     if not can_view_all:
         q["therapist_id"] = user["id"]
     items = await db.leaves.find(q, {"_id": 0, "document_file_data": 0}).sort("start_date", -1).to_list(2000)
