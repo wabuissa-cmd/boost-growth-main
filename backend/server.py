@@ -9835,23 +9835,34 @@ async def list_requests(scope: Optional[str] = None, user=Depends(get_current_us
 async def create_request(payload: RequestIn, user=Depends(get_current_user)):
     if user.get("role") != "therapist":
         raise HTTPException(status_code=403, detail="Therapist only")
+    rt = (payload.request_type or "general").strip()
+    if rt == "other" and not (payload.description or "").strip():
+        raise HTTPException(status_code=400, detail="Description is required for Other requests")
+    title = (payload.title or "").strip()
+    if rt == "companies" and not title:
+        title = "Companies request"
+    elif rt == "other" and not title:
+        title = "Other request"
     rid = str(uuid.uuid4())
     initial_status = "pending_manager"
     if payload.requires_attachment:
         initial_status = "pending_attachment"
     th = await db.therapists.find_one({"id": user["id"]}, {"_id": 0, "id": 1, "name": 1, "key": 1})
     display = therapist_schedule_display_name(th or user)
+    body = payload.model_dump()
+    if title:
+        body["title"] = title
     doc = {"id": rid, "therapist_id": user["id"], "therapist_name": display,
-           **payload.model_dump(), "status": initial_status, "admin_note": None,
+           **body, "status": initial_status, "admin_note": None,
            "created_at": now_iso(), "updated_at": now_iso(),
            "timeline": [{"event": "submitted", "at": now_iso(), "by": user.get("name")}]}
     await db.requests.insert_one(doc)
     doc.pop("_id", None)
-    msg = f"{display}: {payload.title} (priority: {payload.priority})"
+    msg = f"{display}: {title or body.get('title', '')} (priority: {payload.priority})"
     await _notify_request_submitted(
         f"New {payload.request_type} request",
         msg,
-        email_subject=f"New staff request: {payload.title}",
+        email_subject=f"New staff request: {title or body.get('title', '')}",
     )
     return _enrich_request_attachment(doc)
 

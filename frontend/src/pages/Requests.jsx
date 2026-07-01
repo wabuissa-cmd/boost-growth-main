@@ -172,6 +172,8 @@ function queueItemAwaitingAttachment(item) {
 
 const TYPES = [
   { id: "general", label: "General", icon: <Briefcase size={20} weight="duotone"/>, color: "#8B7BA8" },
+  { id: "companies", label: "Companies", icon: <Buildings size={20} weight="duotone"/>, color: "#6B8F71" },
+  { id: "other", label: "Other", icon: <ChatCircleText size={20} weight="duotone"/>, color: "#8B7BA8" },
   { id: "supplies", label: "Materials", icon: <Package size={20} weight="duotone"/>, color: "#D4A64A" },
   { id: "requirements", label: "Requirements", icon: <FileText size={20} weight="duotone"/>, color: "#7B96B5" },
   { id: "government", label: "Government / HR", icon: <Buildings size={20} weight="duotone"/>, color: "#6BAA9B" },
