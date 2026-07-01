@@ -10260,7 +10260,7 @@ async def hr_therapist_profile(tid: str, _=Depends(hr_manager_access)):
         try:
             end_dt = datetime.fromisoformat(str(annual_end)[:10])
             days_left = (end_dt.date() - datetime.now().date()).days
-            if days_left <= 60:
+            if 0 <= days_left <= 60:
                 alerts.append({
                     "type": "annual_contract_expiry",
                     "message": f"Annual contract expires {annual_end[:10]} ({days_left} days left)",
@@ -10275,21 +10275,21 @@ async def hr_therapist_profile(tid: str, _=Depends(hr_manager_access)):
             probation_end = (start_dt.date() + timedelta(days=90)).isoformat()
         except Exception:
             probation_end = None
+    trial_days_left: Optional[int] = None
     if probation_end:
         try:
             prob_dt = datetime.fromisoformat(str(probation_end)[:10])
-            prob_days = (prob_dt.date() - datetime.now().date()).days
-            if prob_days <= 30:
+            trial_days_left = (prob_dt.date() - datetime.now().date()).days
+            if 0 <= trial_days_left <= 30:
                 alerts.append({
                     "type": "probation_end",
                     "message": (
-                        f"3-month probation ends {probation_end[:10]}"
-                        + (f" ({prob_days} days left)" if prob_days >= 0 else " (ended)")
+                        f"Trial period ends {probation_end[:10]} ({trial_days_left} days left)"
                     ),
-                    "severity": "urgent" if prob_days <= 14 else "warning",
+                    "severity": "urgent" if trial_days_left <= 14 else "warning",
                 })
         except Exception:
-            pass
+            trial_days_left = None
     bal = therapist.get("leave_balance")
     if bal is not None and float(bal) < 5:
         alerts.append({
@@ -10327,6 +10327,7 @@ async def hr_therapist_profile(tid: str, _=Depends(hr_manager_access)):
         "contract_start": contract_start,
         "annual_contract_end": annual_end,
         "probation_end": probation_end,
+        "trial_days_left": trial_days_left,
         "join_date": therapist.get("join_date"),
         "trainings": trainings,
         "alerts": alerts,

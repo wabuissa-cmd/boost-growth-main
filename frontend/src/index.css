@@ -2640,6 +2640,53 @@ textarea.modal-input {
     border: 1px dashed var(--border-light);
     background: var(--bg-warm);
 }
+
+/* Manager Hub — therapist profile accordion */
+.mgr-profile-card {
+    overflow: hidden;
+}
+.mgr-profile-hero {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border-light);
+    background: linear-gradient(180deg, #fff 0%, var(--bg-warm) 100%);
+}
+.mgr-profile-alerts {
+    padding: 0.75rem 1.25rem 0;
+}
+.mgr-profile-sections {
+    padding: 0.75rem 1.25rem 1.25rem;
+}
+.mgr-profile-section {
+    border: 1px solid var(--border-light);
+    border-radius: 0.75rem;
+    overflow: hidden;
+    background: #fff;
+}
+.mgr-profile-section-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.5rem;
+    background: var(--brand-light);
+    color: var(--brand-dark);
+    flex-shrink: 0;
+}
+.mgr-profile-stat {
+    padding: 0.65rem 0.5rem;
+    border-radius: 0.75rem;
+    text-align: center;
+    background: #fff;
+    border: 1px solid var(--border-light);
+}
+.mgr-profile-pill {
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    white-space: nowrap;
+}
 @media (max-width: 900px) {
     .my-learning-hero > .flex {
         flex-direction: column;
