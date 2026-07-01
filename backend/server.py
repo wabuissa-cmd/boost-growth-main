@@ -345,6 +345,8 @@ THERAPIST_FIRST_NAME_ALIASES = {
     "fahdah": "fahda", "fahda": "fahda",
 }
 
+_therapist_alias_map_cache: Optional[Dict[str, List[str]]] = None
+
 
 def _therapist_identity_token(t: dict) -> Optional[str]:
     """Stable grouping key for duplicate therapist rows (key, first name, or email)."""
@@ -361,6 +363,52 @@ def _therapist_identity_token(t: dict) -> Optional[str]:
         canon = THERAPIST_LOGIN_EMAIL_ALIASES.get(em, em)
         return f"email:{canon}"
     return None
+
+
+async def _build_therapist_id_alias_map() -> Dict[str, List[str]]:
+    """Map each therapist row id to equivalent ids (duplicate logins / email aliases)."""
+    global _therapist_alias_map_cache
+    if _therapist_alias_map_cache is not None:
+        return _therapist_alias_map_cache
+    therapists = await db.therapists.find(
+        {}, {"_id": 0, "id": 1, "name": 1, "key": 1, "email": 1}
+    ).to_list(500)
+    groups: Dict[str, List[str]] = {}
+    for t in therapists:
+        tid = t.get("id")
+        if not tid:
+            continue
+        tok = _therapist_identity_token(t)
+        if tok:
+            groups.setdefault(tok, []).append(tid)
+    alias_map: Dict[str, List[str]] = {}
+    for ids in groups.values():
+        unique = list(dict.fromkeys(ids))
+        for tid in unique:
+            alias_map[tid] = unique
+    _therapist_alias_map_cache = alias_map
+    return alias_map
+
+
+def _invalidate_therapist_alias_map_cache() -> None:
+    global _therapist_alias_map_cache
+    _therapist_alias_map_cache = None
+
+
+async def _expand_therapist_ids(therapist_id: Optional[str]) -> List[str]:
+    """All therapist row ids equivalent to therapist_id (for prep/suppression matching)."""
+    if not therapist_id:
+        return []
+    alias_map = await _build_therapist_id_alias_map()
+    return alias_map.get(therapist_id, [therapist_id])
+
+
+def _therapist_ids_overlap(a: Optional[str], b: Optional[str], alias_map: Dict[str, List[str]]) -> bool:
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    return b in alias_map.get(a, [a])
 
 
 async def _dedupe_therapists_by_identity() -> dict:
@@ -414,8 +462,13 @@ async def _dedupe_therapists_by_identity() -> dict:
             {"therapist_id": loser_id},
             {"$set": {"therapist_id": winner_id}},
         )
+        await db.schedule_prep_suppressions.update_many(
+            {"therapist_id": loser_id},
+            {"$set": {"therapist_id": winner_id}},
+        )
         await db.users.delete_many({"therapist_id": loser_id})
         await db.therapists.delete_one({"id": loser_id})
+    _invalidate_therapist_alias_map_cache()
     return {"removed": len(to_delete), "actions": actions}
 
 
@@ -2996,7 +3049,7 @@ async def _schedule_cells_for_prep_match(
     sd = (session_date or "")[:10]
     week_variants = _week_start_variants_for_session_date(sd)
     base_q: dict = {
-        "state": {"$nin": ["cancel_therapist", "cancel_child"]},
+        "state": {"$nin": ["cancel_therapist"]},
         "service_code": {"$nin": ["LEAVE", "BREAK", "AVC", ""]},
     }
     if week_variants:
@@ -3050,8 +3103,9 @@ async def _upsert_session_prep_markers(
 
 
 async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) -> None:
-    """When a completed session is logged, mark matching schedule cells as prepared."""
-    if (sess.get("status") or "").strip() != "Completed":
+    """When a completed or no-show session is logged, mark matching schedule cells as prepared."""
+    status = (sess.get("status") or "").strip()
+    if status not in ("Completed", "No Show"):
         return
     client_id = sess.get("client_id")
     session_date = (sess.get("session_date") or "")[:10]
@@ -3169,7 +3223,7 @@ async def _resolve_schedule_cell_for_prep(
     for tid in search_ids:
         q: dict = {
             "therapist_id": tid,
-            "state": {"$nin": ["cancel_therapist", "cancel_child"]},
+            "state": {"$nin": ["cancel_therapist"]},
             "service_code": {"$nin": ["LEAVE", "BREAK", "AVC", ""]},
         }
         if week_variants:
@@ -3181,7 +3235,7 @@ async def _resolve_schedule_cell_for_prep(
 
     # Dual specialists: client may be scheduled under a co-therapist's column.
     fallback_q: dict = {
-        "state": {"$nin": ["cancel_therapist", "cancel_child"]},
+        "state": {"$nin": ["cancel_therapist"]},
         "service_code": {"$nin": ["LEAVE", "BREAK", "AVC", ""]},
     }
     if week_variants:
@@ -3276,6 +3330,10 @@ async def _computed_schedule_preparation_markers(
     start: str, end: str, therapist_id: Optional[str] = None
 ) -> list:
     """Build prep markers directly from logged sessions — source of truth for green badges."""
+    alias_map = await _build_therapist_id_alias_map()
+    filter_ids: Optional[set] = None
+    if therapist_id:
+        filter_ids = set(await _expand_therapist_ids(therapist_id))
     sessions = await db.sessions.find(
         {
             **_session_date_range_query(start, end),
@@ -3301,7 +3359,7 @@ async def _computed_schedule_preparation_markers(
         if not cid or not sd:
             continue
         for tid in sess.get("therapist_ids") or []:
-            if therapist_id and tid != therapist_id:
+            if filter_ids and tid not in filter_ids:
                 continue
             key = (tid, cid, sd)
             if key in seen:
@@ -3359,10 +3417,13 @@ def _prep_is_suppressed(
     client_id: str,
     session_date: str,
     schedule_cell_id: Optional[str] = None,
+    alias_map: Optional[Dict[str, List[str]]] = None,
 ) -> bool:
     sd = (session_date or "")[:10]
+    related = (alias_map or {}).get(therapist_id, [therapist_id])
     for s in suppressions or []:
-        if s.get("therapist_id") != therapist_id:
+        stid = s.get("therapist_id")
+        if stid not in related:
             continue
         if s.get("client_id") != client_id:
             continue
@@ -3377,7 +3438,7 @@ def _prep_is_suppressed(
     return False
 
 
-def _filter_suppressed_markers(markers: list, suppressions: list) -> list:
+def _filter_suppressed_markers(markers: list, suppressions: list, alias_map: Optional[Dict[str, List[str]]] = None) -> list:
     out = []
     for m in markers or []:
         if _prep_is_suppressed(
@@ -3386,6 +3447,7 @@ def _filter_suppressed_markers(markers: list, suppressions: list) -> list:
             m.get("client_id"),
             m.get("session_date"),
             m.get("schedule_cell_id"),
+            alias_map=alias_map,
         ):
             continue
         out.append(m)
@@ -3402,17 +3464,21 @@ async def _clear_prep_suppressions(
     sd = (session_date or "")[:10]
     if not therapist_id or not client_id or not sd:
         return 0
-    base = {"therapist_id": therapist_id, "client_id": client_id, "session_date": sd}
-    clauses: list = [base]
-    if schedule_cell_id:
-        clauses.append({**base, "schedule_cell_id": schedule_cell_id})
-    result = await db.schedule_prep_suppressions.delete_many({"$or": clauses})
-    return int(result.deleted_count or 0)
+    deleted = 0
+    for tid in await _expand_therapist_ids(therapist_id):
+        base = {"therapist_id": tid, "client_id": client_id, "session_date": sd}
+        clauses: list = [base]
+        if schedule_cell_id:
+            clauses.append({**base, "schedule_cell_id": schedule_cell_id})
+        result = await db.schedule_prep_suppressions.delete_many({"$or": clauses})
+        deleted += int(result.deleted_count or 0)
+    return deleted
 
 
 async def _reconcile_stale_prep_suppressions(start: str, end: str) -> int:
     """Drop suppressions that block badges even though prep/sessions exist again."""
     cleared = 0
+    alias_map = await _build_therapist_id_alias_map()
     suppressions = await _list_prep_suppressions(start, end)
     for s in suppressions:
         tid = s.get("therapist_id")
@@ -3420,23 +3486,31 @@ async def _reconcile_stale_prep_suppressions(start: str, end: str) -> int:
         sd = _session_date_iso(s.get("session_date"))
         if not tid or not cid or not sd:
             continue
-        has_prep = await db.schedule_preparations.find_one(
-            {"therapist_id": tid, "client_id": cid, **_session_date_query(sd)},
-            {"_id": 0, "id": 1},
-        )
-        has_hist = await db.prep_history.find_one(
-            {"therapist_id": tid, "client_id": cid, **_session_date_query(sd)},
-            {"_id": 0, "id": 1},
-        )
-        has_session = await db.sessions.find_one(
-            {
-                "client_id": cid,
-                **_session_date_query(sd),
-                "status": {"$in": list(_LOGGED_PREP_SESSION_STATUSES)},
-                "therapist_ids": tid,
-            },
-            {"_id": 0, "id": 1},
-        )
+        related_tids = alias_map.get(tid, [tid])
+        has_prep = False
+        has_hist = False
+        has_session = False
+        for rtid in related_tids:
+            if not has_prep:
+                has_prep = bool(await db.schedule_preparations.find_one(
+                    {"therapist_id": rtid, "client_id": cid, **_session_date_query(sd)},
+                    {"_id": 0, "id": 1},
+                ))
+            if not has_hist:
+                has_hist = bool(await db.prep_history.find_one(
+                    {"therapist_id": rtid, "client_id": cid, **_session_date_query(sd)},
+                    {"_id": 0, "id": 1},
+                ))
+            if not has_session:
+                has_session = bool(await db.sessions.find_one(
+                    {
+                        "client_id": cid,
+                        **_session_date_query(sd),
+                        "status": {"$in": ["Completed", "No Show"]},
+                        "therapist_ids": rtid,
+                    },
+                    {"_id": 0, "id": 1},
+                ))
         if has_prep or has_hist or has_session:
             await db.schedule_prep_suppressions.delete_one({"id": s["id"]})
             cleared += 1
@@ -3446,7 +3520,8 @@ async def _reconcile_stale_prep_suppressions(start: str, end: str) -> int:
 async def _list_prep_suppressions(start: str, end: str, therapist_id: Optional[str] = None) -> list:
     q: dict = _session_date_range_query(start, end)
     if therapist_id:
-        q["therapist_id"] = therapist_id
+        expanded = await _expand_therapist_ids(therapist_id)
+        q["therapist_id"] = {"$in": expanded} if len(expanded) > 1 else expanded[0]
     return await db.schedule_prep_suppressions.find(q, {"_id": 0}).to_list(2000)
 
 
@@ -3630,13 +3705,15 @@ async def list_schedule_preparations(
     if user.get("role") == "therapist" and not _has_full_client_access(user):
         tid = await _resolve_user_therapist_id(user) or user.get("id")
     if tid:
-        q["therapist_id"] = tid
+        expanded = await _expand_therapist_ids(tid)
+        q["therapist_id"] = {"$in": expanded} if len(expanded) > 1 else expanded[0]
     await _sync_schedule_preparations_for_week(start, end)
+    alias_map = await _build_therapist_id_alias_map()
     db_items = await db.schedule_preparations.find(q, {"_id": 0}).to_list(2000)
     computed = await _computed_schedule_preparation_markers(start, end, tid)
     suppressions = await _list_prep_suppressions(start, end, tid)
     merged = _merge_schedule_preparation_markers(db_items, computed)
-    items = _filter_suppressed_markers(merged, suppressions)
+    items = _filter_suppressed_markers(merged, suppressions, alias_map)
     if not include_future:
         today = now_iso()[:10]
         items = [it for it in items if (_session_date_iso(it.get("session_date")) or "") <= today]
@@ -8208,7 +8285,7 @@ async def create_session(payload: SessionIn, user=Depends(get_current_user)):
         await _auto_mark_schedule_preparation_for_session(doc, user["id"])
     except Exception:
         logger.exception("Auto-mark schedule preparation failed")
-    if payload.status in ("Cancelled", "No Show"):
+    if payload.status == "Cancelled":
         for tid in therapist_ids:
             try:
                 await _clear_schedule_preparation_marker(
@@ -8219,6 +8296,27 @@ async def create_session(payload: SessionIn, user=Depends(get_current_user)):
                 )
             except Exception:
                 logger.exception("Clear prep marker after %s session", payload.status)
+    elif payload.status == "No Show":
+        client_name = (client or {}).get("name")
+        try:
+            for prep_tid in therapist_ids:
+                if not prep_tid:
+                    continue
+                await _upsert_prep_history(
+                    therapist_id=prep_tid,
+                    client_id=payload.client_id,
+                    session_date=payload.session_date,
+                    prepared_by=user["id"],
+                    time_slot=payload.start_time or "",
+                    client_name=client_name,
+                    notes=payload.note,
+                    invoice_id=doc.get("invoice_id"),
+                    session_id=sid,
+                    source="no_show",
+                )
+            await _auto_mark_schedule_preparation_for_session(doc, user["id"])
+        except Exception:
+            logger.exception("No Show prep history / schedule marker failed")
     try:
         if payload.status == "Completed":
             client_name = (client or {}).get("name")
@@ -8295,7 +8393,54 @@ async def update_session(sid: str, payload: SessionIn, user=Depends(get_current_
     await db.sessions.update_one({"id": sid}, {"$set": patch})
     updated = await db.sessions.find_one({"id": sid}, {"_id": 0})
     try:
-        await _sync_prep_history_for_session(updated, user["id"], notes=patch.get("note"))
+        if updated.get("status") == "Completed":
+            await _auto_mark_schedule_preparation_for_session(updated, user["id"])
+            client = await db.clients.find_one(_active_client_filter({"id": updated.get("client_id")}), {"_id": 0, "name": 1})
+            client_name = (client or {}).get("name")
+            for prep_tid in therapist_ids:
+                if not prep_tid:
+                    continue
+                await _upsert_prep_history(
+                    therapist_id=prep_tid,
+                    client_id=updated.get("client_id"),
+                    session_date=updated.get("session_date"),
+                    prepared_by=user["id"],
+                    time_slot=updated.get("start_time") or "",
+                    client_name=client_name,
+                    notes=patch.get("note"),
+                    invoice_id=updated.get("invoice_id"),
+                    session_id=sid,
+                    source="session",
+                )
+        elif updated.get("status") == "No Show":
+            client = await db.clients.find_one(_active_client_filter({"id": updated.get("client_id")}), {"_id": 0, "name": 1})
+            client_name = (client or {}).get("name")
+            for prep_tid in therapist_ids:
+                if not prep_tid:
+                    continue
+                await _upsert_prep_history(
+                    therapist_id=prep_tid,
+                    client_id=updated.get("client_id"),
+                    session_date=updated.get("session_date"),
+                    prepared_by=user["id"],
+                    time_slot=updated.get("start_time") or "",
+                    client_name=client_name,
+                    notes=patch.get("note"),
+                    invoice_id=updated.get("invoice_id"),
+                    session_id=sid,
+                    source="no_show",
+                )
+            await _auto_mark_schedule_preparation_for_session(updated, user["id"])
+        elif updated.get("status") == "Cancelled":
+            for tid in therapist_ids:
+                await _clear_schedule_preparation_marker(
+                    therapist_id=tid,
+                    client_id=updated.get("client_id"),
+                    session_date=updated.get("session_date"),
+                    suppress_badge=False,
+                )
+        else:
+            await _sync_prep_history_for_session(updated, user["id"], notes=patch.get("note"))
     except Exception:
         logger.exception("Prep history sync on session update failed")
     return updated
@@ -8868,7 +9013,7 @@ async def _process_unprepared_session_alerts(force: bool = False) -> dict:
     cells = await db.schedule_cells.find(
         {
             "child_name": {"$exists": True, "$nin": ["", None]},
-            "state": {"$nin": ["cancel_therapist", "cancel_child"]},
+            "state": {"$nin": ["cancel_therapist"]},
             "service_code": {"$nin": ["LEAVE", "BREAK", "AVC", "AVAILABLE", ""]},
         },
         {"_id": 0},

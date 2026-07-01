@@ -362,16 +362,10 @@ export function getCellStatusBadge(
     weekSessions, cell, therapistId, sessionDate, client, clients, suppressionLookup, idAliases,
   );
   if (session && NO_ATTENDANCE_SESSION_STATUSES.has(session.status)) {
-    // Only show "no_show" corner badge when the therapist explicitly marked prep for this cell.
-    if (isCellPreparedMark(
-      prepLookup, cell, therapistId, day, weekStart, clients, preparations, idAliases, weekSessions,
-    )) {
-      return "no_show";
-    }
-    return null;
+    return "no_show";
   }
 
-  // Client cancellation should not show the red corner badge by default.
+  // Client cancellation without a logged no-show should not show the red corner badge.
   if (cell.state === "cancel_child") return null;
 
   if (isCellPrepComplete(

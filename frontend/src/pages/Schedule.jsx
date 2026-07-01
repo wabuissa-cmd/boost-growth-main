@@ -484,14 +484,19 @@ export default function Schedule() {
   const buildMismatch = Boolean(buildInfo?.js && loadedJsHash && buildInfo.js !== loadedJsHash);
 
   useEffect(() => {
-    const refreshPrep = () => loadPreparations();
+    const refreshPrep = () => {
+      loadPreparations();
+      load(true);
+    };
     window.addEventListener("focus", refreshPrep);
     document.addEventListener("visibilitychange", refreshPrep);
+    window.addEventListener("boost:prep-changed", refreshPrep);
     return () => {
       window.removeEventListener("focus", refreshPrep);
       document.removeEventListener("visibilitychange", refreshPrep);
+      window.removeEventListener("boost:prep-changed", refreshPrep);
     };
-  }, [loadPreparations]);
+  }, [loadPreparations, load]);
 
   const loadPendingCancellations = useCallback(async () => {
     if (!parentCancelOps) {
@@ -2191,7 +2196,12 @@ export default function Schedule() {
           prefill={quickLog.prefill}
           scheduleContext={quickLog.scheduleContext}
           onClose={() => setQuickLog(null)}
-          onSaved={() => { setQuickLog(null); loadPreparations(); }}
+          onSaved={() => {
+            setQuickLog(null);
+            invalidateCache("/sessions");
+            invalidateCache("/schedule/preparations");
+            load(true).then(() => loadPreparations());
+          }}
         />
       )}
 

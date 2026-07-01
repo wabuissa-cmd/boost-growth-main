@@ -1,5 +1,6 @@
 import { useState } from "react";
 import api, { toISODate, formatErr } from "../api";
+import { invalidateCache } from "../dataCache";
 import {
   resolveSessionTherapistIds,
   mergeSessionTherapistIds,
@@ -145,10 +146,14 @@ export default function LogSessionModal({
             day: scheduleContext.day,
             notes: payload.note || "",
           });
-        } catch {
-          /* session saved; schedule marker may still sync from backend */
+        } catch (prepErr) {
+          console.warn("schedule prep marker", prepErr?.response?.data?.detail || prepErr);
         }
       }
+      invalidateCache("/sessions");
+      invalidateCache("/schedule/preparations");
+      invalidateCache("/schedule");
+      window.dispatchEvent(new CustomEvent("boost:prep-changed"));
       onSaved();
     } catch (err) {
       alert(formatErr(err?.response?.data?.detail) || "Could not save session. Please try again.");
