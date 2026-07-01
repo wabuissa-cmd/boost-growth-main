@@ -6224,6 +6224,112 @@ class SyncActiveClientsIn(BaseModel):
     folder_url: Optional[str] = None
     file_nos: Optional[List[str]] = None
     dry_run: bool = False
+    ensure_missing_clients: bool = True
+
+
+_MASTER_BY_FILE_NO = {r[0]: r for r in MASTER_CLIENTS}
+
+
+async def _ensure_client_for_drive_folder(file_no: str, folder_title: str = "") -> Optional[dict]:
+    """Create a portal client for a Drive folder when missing (uses MASTER_CLIENTS or folder title)."""
+    existing = await _find_client_by_file_no(file_no)
+    if existing:
+        return await db.clients.find_one(_active_client_filter({"id": existing["id"]}), {"_id": 0})
+
+    fn = str(file_no or "").strip().zfill(3)
+    row = _MASTER_BY_FILE_NO.get(fn)
+    name = row[1] if row else ""
+    if not name and folder_title:
+        parts = str(folder_title).split("|", 1)
+        if len(parts) > 1:
+            name = parts[1].strip()
+    if not name:
+        return None
+
+    key_to_id: dict = {}
+    for t in await db.therapists.find({}, {"_id": 0, "id": 1, "key": 1}).to_list(200):
+        if t.get("key"):
+            key_to_id[t["key"]] = t["id"]
+
+    main_id = None
+    co_ids: List[str] = []
+    sup_name = None
+    pkg = 24
+    service = None
+    address = None
+    if row:
+        main_id = key_to_id.get(row[2])
+        co_ids = [key_to_id[k] for k in row[3] if k in key_to_id]
+        sup_k = row[5]
+        if sup_k in key_to_id:
+            tdoc = await db.therapists.find_one({"id": key_to_id[sup_k]}, {"_id": 0, "name": 1})
+            sup_name = tdoc.get("name") if tdoc else None
+        pkg, service, address = row[4], row[6], row[7]
+
+    cid = str(uuid.uuid4())
+    doc = {
+        "id": cid,
+        "file_no": fn,
+        "name": name,
+        "package_hours": pkg,
+        "service_type": service,
+        "address": address,
+        "main_therapist_id": main_id,
+        "co_therapist_ids": co_ids,
+        "supervisor": sup_name,
+        "color": "#7A8A6A",
+        "billing_mode": "hours",
+        "payment_status": "pending",
+        "status": "Active",
+        "created_at": now_iso(),
+    }
+    await db.clients.insert_one(doc)
+    logger.info("Created missing client #%s %s from Drive folder", fn, name)
+    return doc
+
+
+def _arabic_drive_child_line(r: dict) -> str:
+    fn = r.get("file_no") or "?"
+    name = (r.get("client_name") or "").strip()
+    label = f"#{fn}" + (f" {name}" if name else "")
+    st = r.get("status")
+    if st == "synced":
+        added = len(r.get("invoices_added") or [])
+        updated = len(r.get("invoices_updated") or [])
+        sess = int(r.get("sessions_added") or 0)
+        warn = r.get("warning")
+        base = f"{label}: ✓ {added} فاتورة جديدة"
+        if updated:
+            base += f" · {updated} محدّثة"
+        base += f" · {sess} جلسة"
+        if warn:
+            base += f" ⚠ {warn[:48]}"
+        return base
+    if st == "meta_synced":
+        return f"{label}: روابط Drive فقط (لا Attendance Sheet)"
+    if st == "skipped":
+        return f"{label}: تخطّي — {r.get('reason') or 'غير معروف'}"
+    if st == "error":
+        err = (r.get("error") or "خطأ")[:72]
+        return f"{label}: ❌ {err}"
+    if st == "dry_run":
+        return f"{label}: معاينة — {'يوجد Sheet' if r.get('sheet_url') else 'بدون Sheet'}"
+    if st == "created":
+        return f"{label}: ✓ أُنشئ في البوابة ثم {r.get('follow_up') or 'بانتظار المزامنة'}"
+    return f"{label}: {st or '؟'}"
+
+
+def _build_drive_sync_arabic_report(results: List[dict], *, totals: dict) -> str:
+    lines: List[str] = []
+    lines.append(
+        f"المجموع: {totals.get('synced', 0)} مزامنة · "
+        f"{totals.get('meta_synced', 0)} روابط فقط · "
+        f"{totals.get('skipped', 0)} تخطّى · "
+        f"{totals.get('errors', 0)} أخطاء"
+    )
+    for r in results:
+        lines.append(_arabic_drive_child_line(r))
+    return "\n".join(lines)
 
 
 async def _import_clients_from_google_sheet_url(
@@ -6306,6 +6412,7 @@ async def _bulk_sync_active_clients_from_drive(
     folder_url: Optional[str] = None,
     file_nos: Optional[List[str]] = None,
     dry_run: bool = False,
+    ensure_missing_clients: bool = True,
     user_id: str = "drive-sync",
 ) -> dict:
     """Bulk-sync attendance workbooks from the Active Clients Drive folder."""
@@ -6328,6 +6435,11 @@ async def _bulk_sync_active_clients_from_drive(
     for entry in folders:
         file_no = entry["file_no"]
         client = await _find_client_by_file_no(file_no)
+        if not client and ensure_missing_clients and not dry_run:
+            created = await _ensure_client_for_drive_folder(file_no, entry.get("title") or "")
+            if created:
+                client = created
+                logger.info("Auto-created portal client #%s from Drive folder", file_no)
         if not client:
             results.append({"file_no": file_no, "status": "skipped", "reason": "client not in portal"})
             continue
@@ -6367,7 +6479,7 @@ async def _bulk_sync_active_clients_from_drive(
             ingest = await _ingest_workbook_for_client(
                 client["id"], client, wb, user_id, origin="drive-bulk-sync"
             )
-            results.append({
+            row = {
                 "file_no": file_no,
                 "client_name": client.get("name"),
                 "status": "synced",
@@ -6375,7 +6487,15 @@ async def _bulk_sync_active_clients_from_drive(
                 "parent_phone": meta_patch.get("parent_phone"),
                 "drive_links": len(link_meta.get("links") or []),
                 **ingest,
-            })
+            }
+            results.append(row)
+            logger.info(
+                "Drive sync #%s %s: +%s inv, %s sessions",
+                file_no,
+                client.get("name"),
+                len(ingest.get("invoices_added") or []),
+                ingest.get("sessions_added", 0),
+            )
         except Exception as exc:
             results.append({
                 "file_no": file_no,
@@ -6388,18 +6508,24 @@ async def _bulk_sync_active_clients_from_drive(
     meta_synced = sum(1 for r in results if r.get("status") == "meta_synced")
     skipped = sum(1 for r in results if r.get("status") == "skipped")
     errors = sum(1 for r in results if r.get("status") == "error")
-    return {
-        "ok": True,
-        "parent_folder_id": parent_id,
-        "total_folders": len(folders),
+    totals = {
         "synced": synced,
         "meta_synced": meta_synced,
         "skipped": skipped,
         "errors": errors,
+    }
+    sessions_total = sum(int(r.get("sessions_added") or 0) for r in results if r.get("status") == "synced")
+    return {
+        "ok": True,
+        "parent_folder_id": parent_id,
+        "total_folders": len(folders),
+        **totals,
+        "sessions_total": sessions_total,
         "message": (
             f"{synced} attendance synced · {meta_synced} drive-only (phones/links) · "
             f"{skipped} skipped · {errors} errors"
         ),
+        "summary_ar": _build_drive_sync_arabic_report(results, totals=totals),
         "results": results,
     }
 
@@ -6414,8 +6540,11 @@ def _arabic_full_restore_summary(results: dict) -> str:
     drv = results.get("drive") or {}
     if drv:
         parts.append(
-            f"Drive: {drv.get('synced', 0)} فواتير/جلسات · {drv.get('errors', 0)} أخطاء"
+            f"Drive: {drv.get('synced', 0)} مزامنة · "
+            f"{drv.get('sessions_total', 0)} جلسة · {drv.get('errors', 0)} أخطاء"
         )
+        if drv.get("summary_ar"):
+            parts.append(drv["summary_ar"])
     sch = results.get("schedule") or {}
     if sch:
         parts.append(
@@ -6519,8 +6648,19 @@ async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends
         folder_url=body.folder_url,
         file_nos=body.file_nos,
         dry_run=body.dry_run,
+        ensure_missing_clients=body.ensure_missing_clients,
         user_id=user["id"],
     )
+
+
+@api.get("/admin/drive-client-folders")
+async def list_drive_client_folders(folder_url: Optional[str] = None, _=Depends(admin_only)):
+    """List child folders in the Active Clients Drive directory (file_no + title)."""
+    from drive_sync import ACTIVE_CLIENTS_FOLDER_ID, extract_folder_id, list_active_client_folders
+
+    parent_id = extract_folder_id(folder_url or "") or ACTIVE_CLIENTS_FOLDER_ID
+    folders = list_active_client_folders(parent_id)
+    return {"parent_folder_id": parent_id, "total": len(folders), "folders": folders}
 
 
 class SyncBirthDatesIn(BaseModel):

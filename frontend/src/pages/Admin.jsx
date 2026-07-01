@@ -115,6 +115,45 @@ export default function Admin() {
   const [clientImporting, setClientImporting] = useState(false);
   const [driveSyncing, setDriveSyncing] = useState(false);
   const [fullRestoring, setFullRestoring] = useState(false);
+  const [restoreProgress, setRestoreProgress] = useState("");
+
+  const chunkArray = (arr, size) => {
+    const out = [];
+    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+    return out;
+  };
+
+  const mergeDriveSyncResults = (acc, data) => {
+    const prev = acc?.drive?.results || [];
+    const next = data?.results || [];
+    const merged = {
+      ...(acc || {}),
+      drive: {
+        ...(acc?.drive || {}),
+        ...data,
+        results: [...prev, ...next],
+        synced: (acc?.drive?.synced || 0) + (data?.synced || 0),
+        meta_synced: (acc?.drive?.meta_synced || 0) + (data?.meta_synced || 0),
+        skipped: (acc?.drive?.skipped || 0) + (data?.skipped || 0),
+        errors: (acc?.drive?.errors || 0) + (data?.errors || 0),
+        sessions_total: (acc?.drive?.sessions_total || 0) + (data?.sessions_total || 0),
+      },
+    };
+    const lines = (merged.drive.results || []).map((r) => {
+      const fn = r.file_no || "?";
+      if (r.status === "synced") {
+        return `#${fn}: ${r.sessions_added || 0} جلسة · ${(r.invoices_added || []).length} فاتورة`;
+      }
+      if (r.status === "skipped") return `#${fn}: تخطّي — ${r.reason || ""}`;
+      if (r.status === "error") return `#${fn}: خطأ — ${(r.error || "").slice(0, 60)}`;
+      return `#${fn}: ${r.status}`;
+    });
+    merged.summary_ar = [
+      `Drive: ${merged.drive.synced} مزامنة · ${merged.drive.sessions_total} جلسة · ${merged.drive.errors} أخطاء`,
+      ...lines,
+    ].join("\n");
+    return merged;
+  };
 
   const loadDeletedClients = async () => {
     try {
@@ -550,14 +589,28 @@ export default function Admin() {
     )) return;
     setDriveSyncing(true);
     setRecoverResult(null);
+    setRestoreProgress("جاري جلب قائمة مجلدات Drive…");
     try {
-      const { data } = await api.post("/admin/sync-active-clients-from-drive", {});
-      setRecoverResult({ ok: true, summary_ar: data.message || `تم: ${data.synced} مزامنة` });
+      const { data: folderData } = await api.get("/admin/drive-client-folders");
+      const fileNos = (folderData?.folders || []).map((f) => f.file_no).filter(Boolean);
+      const batches = chunkArray(fileNos, 4);
+      let merged = null;
+      for (let i = 0; i < batches.length; i++) {
+        setRestoreProgress(`مزامنة Drive — دفعة ${i + 1} من ${batches.length}…`);
+        const { data } = await api.post(
+          "/admin/sync-active-clients-from-drive",
+          { file_nos: batches[i], ensure_missing_clients: true },
+          { timeout: 300000 },
+        );
+        merged = mergeDriveSyncResults(merged, data);
+      }
+      setRecoverResult({ ok: true, ...(merged || {}), summary_ar: merged?.summary_ar || "اكتملت المزامنة" });
       checkDataHealth();
     } catch (e) {
       setRecoverResult({ ok: false, summary_ar: e.response?.data?.detail || e.message });
     } finally {
       setDriveSyncing(false);
+      setRestoreProgress("");
     }
   };
 
@@ -565,26 +618,66 @@ export default function Admin() {
     if (!window.confirm(
       "استعادة كاملة من Drive؟\n\n"
       + "١) Active Clients من Master Sheet\n"
-      + "٢) فواتير وجلسات من مجلد Drive (24 طفل)\n"
+      + "٢) فواتير وجلسات من مجلد Drive (دفعات — لتجنب انقطاع الاتصال)\n"
       + "٣) جدول أسبوع ٢٨ يونيو\n"
       + "٤) إصلاح التحضير وعلامات ✓\n\n"
-      + "قد يستغرق ٢–٥ دقائق."
+      + "قد يستغرق ٥–١٥ دقيقة."
     )) return;
     setFullRestoring(true);
     setRecoverResult(null);
+    const weekStart = "2026-06-28";
+    let payload = { ok: true, week_start: weekStart };
     try {
-      const { data } = await api.post(
+      setRestoreProgress("١/٤ — استيراد Active Clients من Master Sheet…");
+      const { data: clientsStep } = await api.post(
         "/admin/full-restore-from-drive",
-        { week_start: "2026-06-28" },
-        { timeout: 600000 },
+        { week_start: weekStart, skip_drive: true, skip_schedule: true, skip_recover: true },
+        { timeout: 180000 },
       );
-      setRecoverResult(data);
-      setHealthData(data.health_after || null);
-      if (!data.health_after) checkDataHealth();
+      payload.clients = clientsStep.clients;
+
+      setRestoreProgress("٢/٤ — جلب مجلدات Drive…");
+      const { data: folderData } = await api.get("/admin/drive-client-folders");
+      const fileNos = (folderData?.folders || []).map((f) => f.file_no).filter(Boolean);
+      const batches = chunkArray(fileNos, 3);
+      let driveMerged = null;
+      for (let i = 0; i < batches.length; i++) {
+        setRestoreProgress(`٢/٤ — مزامنة فواتير/جلسات (${i + 1}/${batches.length})…`);
+        const { data: driveStep } = await api.post(
+          "/admin/sync-active-clients-from-drive",
+          { file_nos: batches[i], ensure_missing_clients: true },
+          { timeout: 300000 },
+        );
+        driveMerged = mergeDriveSyncResults(driveMerged, driveStep);
+      }
+      payload.drive = driveMerged?.drive;
+
+      setRestoreProgress("٣/٤ — استيراد جدول الأسبوع…");
+      const { data: schedStep } = await api.post(
+        "/admin/full-restore-from-drive",
+        { week_start: weekStart, skip_clients: true, skip_drive: true, skip_recover: true },
+        { timeout: 180000 },
+      );
+      payload.schedule = schedStep.schedule;
+
+      setRestoreProgress("٤/٤ — إصلاح التحضير وربط علامات ✓…");
+      const { data: recoverStep } = await api.post("/admin/auto-recover", {}, { timeout: 180000 });
+      payload.recover = recoverStep;
+      payload.health_after = recoverStep.health_after;
+      payload.summary_ar = [
+        clientsStep.summary_ar || `أطفال: ${clientsStep.clients?.created || 0} جديد`,
+        driveMerged?.summary_ar || "",
+        schedStep.summary_ar || "",
+        recoverStep.summary_ar || "",
+      ].filter(Boolean).join("\n");
+      setRecoverResult(payload);
+      setHealthData(recoverStep.health_after || null);
+      if (!recoverStep.health_after) checkDataHealth();
     } catch (e) {
       setRecoverResult({ ok: false, summary_ar: e.response?.data?.detail || e.message });
     } finally {
       setFullRestoring(false);
+      setRestoreProgress("");
     }
   };
 
@@ -760,9 +853,15 @@ export default function Admin() {
               {healthData.error}
             </div>
           )}
+          {restoreProgress && (
+            <div className="text-xs p-3 rounded-lg" style={{ background: "#FDF8F3", color: "#5C6853" }}>
+              {restoreProgress}
+            </div>
+          )}
           {recoverResult?.summary_ar && (
-            <div className="text-xs p-3 rounded-lg" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
-              <strong>نتيجة الإصلاح:</strong> {recoverResult.summary_ar}
+            <div className="text-xs p-3 rounded-lg max-h-64 overflow-y-auto whitespace-pre-wrap" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+              <strong>نتيجة الإصلاح:</strong>
+              <div className="mt-1">{recoverResult.summary_ar}</div>
               <button type="button" onClick={() => setRecoverResult(null)} className="btn btn-outline text-xs mt-2 block">إغلاق</button>
             </div>
           )}
