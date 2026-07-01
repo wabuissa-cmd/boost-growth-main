@@ -8323,7 +8323,8 @@ async def _resolve_therapist_by_purchaser(purchaser: str) -> Optional[dict]:
     first = low.split()[0] if low else ""
     first_aliases = {
         "walaa": "walaa", "maha": "maha", "jenan": "jenan",
-        "fahda": "fahda", "fhdah": "fahda", "fahdah": "fahda", "fhdah": "fahda",
+        "fahda": "fahda", "fhdah": "fahda", "fahdah": "fahda",
+        "fatima": "fatimah", "fatimah": "fatimah",
     }
     therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1}).to_list(500)
     if first in first_aliases:
@@ -8331,6 +8332,8 @@ async def _resolve_therapist_by_purchaser(purchaser: str) -> Optional[dict]:
         for t in therapists:
             tname = (t.get("name") or "").lower().replace("ms.", "").replace("ms ", "").strip()
             if want == "fahda" and ("fahd" in tname or "fhd" in tname):
+                return t
+            if want == "fatimah" and "fatim" in tname:
                 return t
             if want in tname or tname.startswith(want):
                 return t
@@ -8514,6 +8517,11 @@ def _read_purchases_xlsx(content: bytes, months: Optional[List[str]] = None) -> 
                 row_no = int(float(row_no)) if row_no is not None else r - 2
             except (TypeError, ValueError):
                 row_no = r - 2
+            # Tab month is the accounting month; reimbursement may fall in an earlier month.
+            if reimb and str(reimb)[:7] == purchase_month:
+                purchase_date = str(reimb)[:10]
+            else:
+                purchase_date = f"{purchase_month}-01"
             records.append({
                 "row_no": row_no,
                 "item": str(item).strip(),
@@ -8527,31 +8535,58 @@ def _read_purchases_xlsx(content: bytes, months: Optional[List[str]] = None) -> 
                 "status": _normalize_purchase_status(status_raw),
                 "reimbursement_date": reimb,
                 "purchase_month": purchase_month,
-                "purchase_date": reimb or f"{purchase_month}-01",
+                "purchase_date": purchase_date,
             })
     return records, tabs_used
 
 
 async def _backfill_purchase_months() -> int:
-    """Ensure purchase_month is set from purchase_date / reimbursement_date for month filters."""
+    """Fill missing purchase_month from purchase_date / reimbursement_date (never overwrite tab month)."""
     fixed = 0
     items = await db.staff_purchases.find(
         {},
-        {"_id": 0, "id": 1, "purchase_date": 1, "reimbursement_date": 1, "purchase_month": 1, "sync_source": 1},
+        {"_id": 0, "id": 1, "purchase_date": 1, "reimbursement_date": 1, "purchase_month": 1},
     ).to_list(5000)
     for doc in items:
         existing = (doc.get("purchase_month") or "").strip()
+        if existing and len(existing) >= 7:
+            continue
         src = doc.get("purchase_date") or doc.get("reimbursement_date")
         if not src or len(str(src)) < 7:
             continue
         pm_from_date = str(src)[:7]
-        is_sheet = doc.get("sync_source") == "google_sheet"
-        if existing and len(existing) >= 7:
-            if is_sheet or existing == pm_from_date:
-                continue
         await db.staff_purchases.update_one(
             {"id": doc["id"]},
             {"$set": {"purchase_month": pm_from_date, "updated_at": now_iso()}},
+        )
+        fixed += 1
+    return fixed
+
+
+async def _repair_purchase_dates_from_month() -> int:
+    """Align purchase_date with purchase_month when reimbursement fell in a different month."""
+    fixed = 0
+    items = await db.staff_purchases.find(
+        {"purchase_month": {"$regex": r"^\d{4}-\d{2}$"}},
+        {"_id": 0, "id": 1, "purchase_month": 1, "purchase_date": 1, "reimbursement_date": 1},
+    ).to_list(5000)
+    for doc in items:
+        pm = (doc.get("purchase_month") or "").strip()[:7]
+        pd = (doc.get("purchase_date") or "").strip()[:10]
+        if not pm or len(pm) < 7:
+            continue
+        if pd and pd[:7] == pm:
+            continue
+        reimb = (doc.get("reimbursement_date") or "").strip()[:10]
+        if reimb and reimb[:7] == pm:
+            new_date = reimb
+        else:
+            new_date = f"{pm}-01"
+        if pd == new_date:
+            continue
+        await db.staff_purchases.update_one(
+            {"id": doc["id"]},
+            {"$set": {"purchase_date": new_date, "updated_at": now_iso()}},
         )
         fixed += 1
     return fixed
@@ -8564,6 +8599,60 @@ def _purchase_month_key(doc: dict) -> str:
     src = doc.get("purchase_date") or doc.get("reimbursement_date") or ""
     s = str(src)
     return s[:7] if len(s) >= 7 else ""
+
+
+async def _ensure_purchases_sheet_synced() -> dict:
+    """Import purchase months from the official Google Sheet when missing in the portal."""
+    import httpx
+
+    export_url = _google_sheet_export_url(PURCHASES_SHEET_URL)
+    async with httpx.AsyncClient(follow_redirects=True, timeout=120.0) as client:
+        resp = await client.get(export_url)
+    if resp.status_code != 200:
+        return {"skipped": f"sheet HTTP {resp.status_code}"}
+    try:
+        records, tabs_used = _read_purchases_xlsx(resp.content)
+    except Exception as e:
+        logger.warning("Purchases sheet parse failed during startup sync: %s", e)
+        return {"skipped": "parse failed", "error": str(e)}
+    if not records:
+        return {"skipped": "no records parsed", "tabs_found": tabs_used}
+
+    sheet_months = {r["purchase_month"] for r in records if r.get("purchase_month")}
+    db_months: set = set()
+    items = await db.staff_purchases.find(
+        {},
+        {"_id": 0, "purchase_month": 1, "purchase_date": 1, "reimbursement_date": 1},
+    ).to_list(5000)
+    for doc in items:
+        pm = _purchase_month_key(doc)
+        if pm:
+            db_months.add(pm)
+
+    missing = sorted(sheet_months - db_months)
+    if not missing:
+        sheet_count = await db.staff_purchases.count_documents({"sync_source": "google_sheet"})
+        if sheet_count < 12:
+            filtered = records
+            missing = sorted(sheet_months)
+        else:
+            return {
+                "skipped": "all sheet months present",
+                "sheet_months": sorted(sheet_months),
+                "db_months": sorted(db_months),
+            }
+    else:
+        filtered = [r for r in records if r.get("purchase_month") in missing]
+
+    result = await _upsert_purchases_from_sheet(filtered)
+    await _fix_walaa_purchase_month_mismatch()
+    pm_fixed = await _backfill_purchase_months()
+    pd_fixed = await _repair_purchase_dates_from_month()
+    result["missing_months_synced"] = missing
+    result["tabs_found"] = tabs_used
+    result["purchase_month_backfilled"] = pm_fixed
+    result["purchase_date_repaired"] = pd_fixed
+    return result
 
 
 async def _fix_walaa_purchase_month_mismatch():
@@ -8635,6 +8724,21 @@ async def _upsert_purchases_from_sheet(records: List[dict]) -> dict:
             "purchase_month": {"$in": months},
             "$or": [{"sync_source": "google_sheet"}, {"imported": True}],
         })
+    # Drop mis-filed sheet rows (e.g. June tab rows moved to January by old backfill).
+    for rec in records:
+        t = await _resolve_therapist_by_purchaser(rec.get("purchaser") or "")
+        if not t:
+            continue
+        match_q: dict = {
+            "therapist_id": t["id"],
+            "item": rec.get("item"),
+            "$or": [{"sync_source": "google_sheet"}, {"imported": True}],
+        }
+        if rec.get("row_no") is not None:
+            match_q["row_no"] = rec.get("row_no")
+        elif rec.get("total") is not None:
+            match_q["total"] = rec.get("total")
+        await db.staff_purchases.delete_many(match_q)
     # Remove known duplicates that should not appear in June
     june_dupes = await db.staff_purchases.find(
         {"purchase_month": {"$regex": "-06$"}, "item": {"$regex": "emergent|emergency", "$options": "i"}},
@@ -8864,6 +8968,7 @@ async def import_purchases_google(body: dict = None, user=Depends(get_current_us
         raise HTTPException(status_code=400, detail=f"Could not parse purchases sheet: {e}")
     result = await _upsert_purchases_from_sheet(records)
     await _fix_walaa_purchase_month_mismatch()
+    await _repair_purchase_dates_from_month()
     result["tabs_found"] = tabs_used
     result["message"] = (
         f"Imported {result['inserted']} purchases ({result.get('skipped', 0)} skipped — unknown purchaser)"
@@ -8923,14 +9028,23 @@ async def list_purchases(
         q["status"] = _normalize_purchase_status(status)
     if month:
         month = month.strip()
-        month_clauses = [
-            {"purchase_month": month},
-            {"purchase_date": {"$regex": f"^{re.escape(month)}"}},
-            {"reimbursement_date": {"$regex": f"^{re.escape(month)}"}},
-        ]
+        month_clauses = [{"purchase_month": month}]
         if len(month) >= 7 and month[4] == "-":
             mm = month[5:7]
             month_clauses.append({"purchase_month": {"$regex": f"-{re.escape(mm)}$"}})
+            month_clauses.append({
+                "$and": [
+                    {"$or": [
+                        {"purchase_month": {"$exists": False}},
+                        {"purchase_month": None},
+                        {"purchase_month": ""},
+                    ]},
+                    {"$or": [
+                        {"purchase_date": {"$regex": f"^{re.escape(month)}"}},
+                        {"reimbursement_date": {"$regex": f"^{re.escape(month)}"}},
+                    ]},
+                ]
+            })
         q["$or"] = month_clauses
     items = await db.staff_purchases.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
     therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1}).to_list(500)
@@ -14465,6 +14579,24 @@ async def _run_startup():
                 logger.info(f"Backfilled purchase_month on {pm_fixed} staff purchase(s)")
         except Exception as e:
             logger.warning(f"Purchase month backfill skipped: {e}")
+
+        try:
+            pd_fixed = await _repair_purchase_dates_from_month()
+            if pd_fixed:
+                logger.info(f"Aligned purchase_date on {pd_fixed} staff purchase(s)")
+        except Exception as e:
+            logger.warning(f"Purchase date repair skipped: {e}")
+
+        try:
+            sync_result = await _ensure_purchases_sheet_synced()
+            if sync_result.get("inserted"):
+                logger.info(
+                    "Synced missing purchase months from Google Sheet: %s (%s rows)",
+                    sync_result.get("missing_months_synced"),
+                    sync_result.get("inserted"),
+                )
+        except Exception as e:
+            logger.warning(f"Purchase sheet startup sync skipped: {e}")
 
         await _fix_walaa_purchase_month_mismatch()
     except Exception:
