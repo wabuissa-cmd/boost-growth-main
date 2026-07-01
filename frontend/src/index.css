@@ -3201,6 +3201,285 @@ textarea.modal-input {
         justify-content: center;
     }
 }
+
+/* Manager Hub — evaluation calendar */
+.mgr-cal-page {
+    padding: 0 0 1.5rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+.mgr-cal-page-top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.5rem 0 0;
+}
+.mgr-cal-page-badge {
+    display: inline-block;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--brand-dark);
+    background: var(--brand-light);
+    padding: 0.3rem 0.6rem;
+    border-radius: var(--radius-pill);
+    border: 1px solid rgba(92, 107, 82, 0.2);
+}
+.mgr-cal-page-hero {
+    padding: 1.15rem 1.25rem;
+    margin-bottom: 0.75rem;
+    background: linear-gradient(135deg, var(--bg-warm) 0%, #fff 100%);
+}
+.mgr-cal-page-hero-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.85rem;
+}
+.mgr-cal-page-hero-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--brand-light);
+    color: var(--brand-dark);
+    flex-shrink: 0;
+}
+.mgr-cal-page-title {
+    font-family: var(--font-display);
+    font-size: 1.35rem;
+    margin: 0;
+    color: var(--brand-dark);
+}
+.mgr-cal-page-subtitle {
+    margin: 0.25rem 0 0;
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    line-height: 1.45;
+}
+.mgr-cal-page-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.85rem;
+}
+.mgr-cal-page-stat {
+    flex: 1 1 72px;
+    min-width: 72px;
+    padding: 0.55rem 0.65rem;
+    border-radius: 0.65rem;
+    background: rgba(255, 255, 255, 0.85);
+    border: 1px solid var(--border-light);
+    text-align: center;
+}
+.mgr-cal-page-stat-val {
+    display: block;
+    font-size: 1.1rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+.mgr-cal-page-stat-lbl {
+    display: block;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-top: 0.15rem;
+}
+.mgr-cal-page-toolbar {
+    margin-top: 1rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--border-light);
+}
+.mgr-cal-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+.mgr-cal-year-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+.mgr-cal-year-label {
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--brand-dark);
+    min-width: 3.5rem;
+    text-align: center;
+}
+.mgr-cal-view-toggle {
+    display: flex;
+    gap: 0.35rem;
+    padding: 0.2rem;
+    border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid var(--border-light);
+}
+.mgr-cal-view-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.4rem 0.75rem;
+    border: none;
+    border-radius: var(--radius-pill);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: transparent;
+    cursor: pointer;
+}
+.mgr-cal-view-btn.active {
+    background: var(--brand-dark);
+    color: #fff;
+}
+.mgr-cal-loading,
+.mgr-cal-empty {
+    padding: 2.5rem;
+    text-align: center;
+    color: var(--text-muted);
+}
+.mgr-cal-layout {
+    display: grid;
+    grid-template-columns: minmax(200px, 280px) 1fr;
+    gap: 0.85rem;
+    align-items: start;
+}
+.mgr-cal-month-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.45rem;
+    padding: 0.85rem;
+}
+.mgr-cal-month-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    padding: 0.65rem 0.35rem;
+    border: 1px solid var(--border-light);
+    border-radius: 0.65rem;
+    background: var(--bg-warm);
+    cursor: pointer;
+    min-height: 58px;
+}
+.mgr-cal-month-cell.has-items {
+    border-color: rgba(92, 107, 82, 0.35);
+}
+.mgr-cal-month-cell.is-active {
+    background: var(--brand-light);
+    border-color: var(--brand-dark);
+}
+.mgr-cal-month-name {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+}
+.mgr-cal-month-count {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--brand-dark);
+}
+.mgr-cal-month-detail,
+.mgr-cal-list {
+    padding: 1rem 1.15rem;
+}
+.mgr-cal-month-title,
+.mgr-cal-list-month {
+    font-family: var(--font-display);
+    font-size: 1rem;
+    margin: 0 0 0.75rem;
+    color: var(--brand-dark);
+}
+.mgr-cal-list-section + .mgr-cal-list-section {
+    margin-top: 1.25rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border-light);
+}
+.mgr-cal-entry-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.mgr-cal-entry {
+    display: grid;
+    grid-template-columns: 7.5rem 1fr auto;
+    gap: 0.65rem;
+    align-items: center;
+    padding: 0.55rem 0;
+    border-bottom: 1px solid var(--border-light);
+    font-size: 0.88rem;
+}
+.mgr-cal-entry:last-child {
+    border-bottom: none;
+}
+.mgr-cal-entry-date {
+    font-weight: 600;
+    color: var(--brand-dark);
+}
+.mgr-cal-entry-name {
+    color: #5C6853;
+}
+.mgr-cal-entry-type {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.5rem;
+    border-radius: var(--radius-pill);
+}
+.mgr-cal-entry-type--trial {
+    background: #FAF0D1;
+    color: #6B5218;
+}
+.mgr-cal-entry-type--annual {
+    background: #E8EEF5;
+    color: #3D4F5C;
+}
+.mgr-cal-entry--past .mgr-cal-entry-date {
+    color: var(--text-muted);
+}
+.mgr-cal-entry--soon {
+    background: rgba(250, 240, 209, 0.35);
+    margin: 0 -0.5rem;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    border-radius: 0.5rem;
+}
+@media (max-width: 768px) {
+    .mgr-cal-layout {
+        grid-template-columns: 1fr;
+    }
+    .mgr-cal-month-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+    .mgr-cal-entry {
+        grid-template-columns: 1fr auto;
+        grid-template-rows: auto auto;
+    }
+    .mgr-cal-entry-date {
+        grid-column: 1;
+    }
+    .mgr-cal-entry-type {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+        align-self: center;
+    }
+    .mgr-cal-entry-name {
+        grid-column: 1;
+    }
+}
+
 @media (max-width: 900px) {
     .my-learning-hero > .flex {
         flex-direction: column;

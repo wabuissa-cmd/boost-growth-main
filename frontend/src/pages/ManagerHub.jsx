@@ -9,7 +9,7 @@ import LeaveBalance from "./LeaveBalance";
 import {
   MagnifyingGlass, Warning, UserCircle, FileText, Bell, UploadSimple,
   FloppyDisk, DownloadSimple, CalendarBlank, ArrowLeft, X,
-  IdentificationCard, CalendarCheck, ChartBar,
+  IdentificationCard, CalendarCheck, ChartBar, CaretLeft, CaretRight, ListBullets,
 } from "@phosphor-icons/react";
 import { getTherapistScheduleName } from "../scheduleConstants";
 
@@ -17,6 +17,7 @@ const MAIN_TABS = [
   { id: "staff", label: "Therapists' Requests", testid: "mgr-tab-staff" },
   { id: "balance", label: "Leave Balance", testid: "mgr-tab-balance" },
   { id: "profiles", label: "Therapist Profiles", testid: "mgr-tab-profiles" },
+  { id: "calendar", label: "Evaluation Calendar", testid: "mgr-tab-calendar" },
 ];
 
 async function viewFile(url) {
@@ -387,15 +388,15 @@ function TherapistProfilePanel({ therapistId, onClose, mobile = false }) {
 
         {activeTab === "evaluations" && (
           <div className="mgr-profile-tab-panel">
-            <div className="mgr-profile-section-label">Monthly evaluation</div>
+            <div className="mgr-profile-section-label">Trial period evaluation</div>
             <div className="mgr-profile-upload-row">
-              <input type="month" className="input text-sm flex-1" value={monthlyPeriod} onChange={e => setMonthlyPeriod(e.target.value)} />
+              <input type="month" className="input text-sm flex-1" value={monthlyPeriod} onChange={e => setMonthlyPeriod(e.target.value)} aria-label="Evaluation period" />
               <button type="button" className="btn btn-secondary text-sm shrink-0" onClick={() => monthlyRef.current?.click()}>
                 <UploadSimple size={15} /> Upload
               </button>
               <input ref={monthlyRef} type="file" className="hidden" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" onChange={e => uploadEval("monthly", e.target.files?.[0])} />
             </div>
-            <EvalFileList items={monthly} therapistId={therapistId} emptyLabel="No monthly evaluations uploaded yet." />
+            <EvalFileList items={monthly} therapistId={therapistId} emptyLabel="No trial period evaluations uploaded yet." />
 
             <div className="mgr-profile-section-label mt-5">Annual evaluation</div>
             <div className="mgr-profile-upload-row">
@@ -442,6 +443,152 @@ function TherapistProfilePanel({ therapistId, onClose, mobile = false }) {
       </div>
 
       {contractFooter}
+    </div>
+  );
+}
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+function evalTone(entry, todayIso) {
+  if (entry.date < todayIso) return "past";
+  const days = daysUntil(entry.date);
+  if (days != null && days <= 7) return "soon";
+  return "upcoming";
+}
+
+function EvaluationCalendarTab() {
+  const currentYear = new Date().getFullYear();
+  const [year, setYear] = useState(currentYear);
+  const [view, setView] = useState("list");
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    api.get("/hr/evaluation-calendar", { params: { year } })
+      .then(({ data: d }) => setData(d))
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, [year]);
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const entries = data?.entries || [];
+  const summary = data?.summary || {};
+
+  const byMonth = useMemo(() => {
+    const map = Array.from({ length: 12 }, (_, i) => ({ month: i, label: MONTH_NAMES[i], items: [] }));
+    for (const e of entries) {
+      const m = parseInt(e.date.slice(5, 7), 10) - 1;
+      if (m >= 0 && m < 12) map[m].items.push(e);
+    }
+    return map;
+  }, [entries]);
+
+  const monthEntries = byMonth[selectedMonth]?.items || [];
+
+  const renderEntry = (entry) => {
+    const tone = evalTone(entry, todayIso);
+    return (
+      <li key={`${entry.therapist_id}-${entry.eval_type}-${entry.date}`} className={`mgr-cal-entry mgr-cal-entry--${tone}`}>
+        <span className="mgr-cal-entry-date">{fmtDate(entry.date)}</span>
+        <span className="mgr-cal-entry-name">{entry.therapist_name}</span>
+        <span className={`mgr-cal-entry-type mgr-cal-entry-type--${entry.eval_type}`}>
+          {entry.eval_type === "trial" ? "Trial period" : "Annual"}
+        </span>
+      </li>
+    );
+  };
+
+  return (
+    <div className="mgr-cal-page" dir="ltr">
+      <PortalPageHeader
+        prefix="mgr-cal"
+        badge="MANAGER HUB"
+        title="Evaluation Calendar"
+        subtitle="Trial period evaluations every 3 months and annual evaluations from each therapist's contract start"
+        icon={CalendarBlank}
+        stats={[
+          { label: "This year", n: summary.total ?? 0, color: "#2C3625" },
+          { label: "Upcoming", n: summary.upcoming ?? 0, color: "#3D4F35" },
+          { label: "Trial", n: summary.trial ?? 0, color: "#6B5218" },
+          { label: "Annual", n: summary.annual ?? 0, color: "#3D4F5C" },
+        ]}
+        toolbar={(
+          <div className="mgr-cal-toolbar">
+            <div className="mgr-cal-year-nav">
+              <button type="button" className="btn btn-ghost btn-icon" onClick={() => setYear(y => y - 1)} aria-label="Previous year">
+                <CaretLeft size={18} weight="bold" />
+              </button>
+              <span className="mgr-cal-year-label">{year}</span>
+              <button type="button" className="btn btn-ghost btn-icon" onClick={() => setYear(y => y + 1)} aria-label="Next year">
+                <CaretRight size={18} weight="bold" />
+              </button>
+            </div>
+            <div className="mgr-cal-view-toggle">
+              <button
+                type="button"
+                className={`mgr-cal-view-btn${view === "calendar" ? " active" : ""}`}
+                onClick={() => setView("calendar")}
+              >
+                <CalendarBlank size={15} /> Month
+              </button>
+              <button
+                type="button"
+                className={`mgr-cal-view-btn${view === "list" ? " active" : ""}`}
+                onClick={() => setView("list")}
+              >
+                <ListBullets size={15} /> List
+              </button>
+            </div>
+          </div>
+        )}
+      />
+
+      {loading ? (
+        <div className="card mgr-cal-loading"><div className="spinner" /></div>
+      ) : !data ? (
+        <div className="card mgr-cal-empty">Could not load evaluation calendar.</div>
+      ) : view === "calendar" ? (
+        <div className="mgr-cal-layout">
+          <div className="card mgr-cal-month-grid">
+            {byMonth.map((m) => (
+              <button
+                key={m.month}
+                type="button"
+                className={`mgr-cal-month-cell${selectedMonth === m.month ? " is-active" : ""}${m.items.length ? " has-items" : ""}`}
+                onClick={() => setSelectedMonth(m.month)}
+              >
+                <span className="mgr-cal-month-name">{m.label.slice(0, 3)}</span>
+                <span className="mgr-cal-month-count">{m.items.length || "—"}</span>
+              </button>
+            ))}
+          </div>
+          <div className="card mgr-cal-month-detail">
+            <h3 className="mgr-cal-month-title">{MONTH_NAMES[selectedMonth]} {year}</h3>
+            {monthEntries.length ? (
+              <ul className="mgr-cal-entry-list">{monthEntries.map(renderEntry)}</ul>
+            ) : (
+              <div className="mgr-profile-empty-row">No evaluations scheduled this month.</div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="card mgr-cal-list">
+          {byMonth.filter(m => m.items.length > 0).map(m => (
+            <section key={m.month} className="mgr-cal-list-section">
+              <h3 className="mgr-cal-list-month">{m.label} {year}</h3>
+              <ul className="mgr-cal-entry-list">{m.items.map(renderEntry)}</ul>
+            </section>
+          ))}
+          {!entries.length && (
+            <div className="mgr-profile-empty-row">No evaluation dates for {year}. Check contract start dates on therapist profiles.</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -618,6 +765,7 @@ export default function ManagerHub() {
       {activeTab === "staff" && <Requests embedded managerView />}
       {activeTab === "balance" && <LeaveBalance embedded staffScope />}
       {activeTab === "profiles" && <TherapistProfilesTab />}
+      {activeTab === "calendar" && <EvaluationCalendarTab />}
     </div>
   );
 }

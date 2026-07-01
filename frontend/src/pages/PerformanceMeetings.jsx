@@ -92,10 +92,10 @@ export default function PerformanceMeetings() {
         <div className="card p-4 rounded-[20px]">
           <div className="flex items-center gap-2 mb-3">
             <FileText size={20} weight="duotone" style={{ color: "#7A8A6A" }}/>
-            <h3 className="font-bold m-0 text-base" style={{ color: "#2C3625" }}>Monthly evaluations</h3>
+            <h3 className="font-bold m-0 text-base" style={{ color: "#2C3625" }}>Trial period evaluations</h3>
           </div>
           {monthly.length === 0 ? (
-            <p className="text-sm m-0" style={{ color: "#8B9E7A" }}>No monthly evaluations uploaded yet.</p>
+            <p className="text-sm m-0" style={{ color: "#8B9E7A" }}>No trial period evaluations uploaded yet.</p>
           ) : (
             <div className="space-y-2">
               {monthly.map(ev => (

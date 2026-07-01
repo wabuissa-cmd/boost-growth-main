@@ -11,7 +11,8 @@ import re
 import uuid
 import logging
 from urllib.parse import quote
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
+import calendar
 from typing import Dict, List, Optional
 
 import bcrypt
@@ -10381,6 +10382,125 @@ def _default_probation_end(contract_start: Optional[str]) -> Optional[str]:
         return None
 
 
+def _parse_iso_date(value: Optional[str]) -> Optional[date]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value)[:10]).date()
+    except Exception:
+        return None
+
+
+def _add_months(start: date, months: int) -> date:
+    y = start.year + (start.month - 1 + months) // 12
+    m = (start.month - 1 + months) % 12 + 1
+    last_day = calendar.monthrange(y, m)[1]
+    return date(y, m, min(start.day, last_day))
+
+
+_HR_CALENDAR_SKIP_NAMES = ("jenan", "walaa", "maha", "fahda", "asma", "bodoor", "bodour")
+EVAL_DUE_NOTICE_DAYS = 7
+
+
+def _is_hr_calendar_therapist(therapist: dict) -> bool:
+    name_l = (therapist.get("name") or "").lower()
+    return not any(skip in name_l for skip in _HR_CALENDAR_SKIP_NAMES)
+
+
+def _therapist_evaluation_schedule(therapist: dict, *, lookback_days: int = 730, horizon_days: int = 1825) -> List[dict]:
+    """Trial-period evals every 3 months from contract start; annual evals every 12 months."""
+    contract_start = therapist.get("contract_start") or therapist.get("join_date")
+    start = _parse_iso_date(contract_start)
+    if not start:
+        return []
+    today = datetime.now().date()
+    window_start = today - timedelta(days=lookback_days)
+    window_end = today + timedelta(days=horizon_days)
+    probation_end = therapist.get("probation_end") or _default_probation_end(contract_start)
+    prob_date = _parse_iso_date(probation_end)
+    tid = therapist.get("id")
+    tname = therapist.get("name") or "Therapist"
+    entries: List[dict] = []
+
+    months = 3
+    while months <= 36:
+        eval_date = _add_months(start, months)
+        if prob_date and eval_date > prob_date:
+            break
+        if eval_date > window_end:
+            break
+        if eval_date >= window_start:
+            entries.append({
+                "therapist_id": tid,
+                "therapist_name": tname,
+                "eval_type": "trial",
+                "eval_label": "Trial period evaluation",
+                "date": eval_date.isoformat(),
+                "contract_start": start.isoformat(),
+            })
+        months += 3
+
+    for years in range(1, 11):
+        eval_date = _add_months(start, years * 12)
+        if eval_date > window_end:
+            break
+        if eval_date >= window_start:
+            entries.append({
+                "therapist_id": tid,
+                "therapist_name": tname,
+                "eval_type": "annual",
+                "eval_label": "Annual evaluation",
+                "date": eval_date.isoformat(),
+                "contract_start": start.isoformat(),
+            })
+
+    entries.sort(key=lambda e: e["date"])
+    return entries
+
+
+async def _process_evaluation_due_alerts(force: bool = False) -> dict:
+    """Notify Jenan 1 week before trial or annual evaluation due dates."""
+    jenan_id = await _jenan_therapist_id()
+    if not jenan_id:
+        return {"sent": 0, "skipped": "no_jenan"}
+    today = datetime.now().date()
+    target = today + timedelta(days=EVAL_DUE_NOTICE_DAYS)
+    target_iso = target.isoformat()
+    therapists = await db.therapists.find(
+        {},
+        {"_id": 0, "id": 1, "name": 1, "contract_start": 1, "join_date": 1, "probation_end": 1},
+    ).to_list(400)
+    sent = 0
+    for therapist in therapists:
+        if not _is_hr_calendar_therapist(therapist):
+            continue
+        for entry in _therapist_evaluation_schedule(therapist):
+            if entry["date"] != target_iso:
+                continue
+            dedupe = f"eval_due:{entry['therapist_id']}:{entry['eval_type']}:{entry['date']}"
+            if await db.notifications.find_one({"type": "evaluation_due", "eval_dedupe": dedupe}):
+                continue
+            tname = entry["therapist_name"]
+            label = entry["eval_label"]
+            title = f"Evaluation due in 1 week — {tname}"
+            msg = f"{label} for {tname} is due on {entry['date']} (7 days from today)."
+            await _notify(
+                jenan_id,
+                "evaluation_due",
+                title,
+                msg,
+                eval_dedupe=dedupe,
+                therapist_id=entry["therapist_id"],
+                link="/manager?tab=calendar",
+                eval_date=entry["date"],
+                eval_type=entry["eval_type"],
+            )
+            body = f"{msg}\n\nOpen calendar: {_portal_base_url()}/manager?tab=calendar\n\n— Boost Growth Portal"
+            await _send_urgent_email(await _jenan_recipient_email(), title, body)
+            sent += 1
+    return {"sent": sent, "target_date": target_iso, "forced": force}
+
+
 @api.put("/hr/therapist/{tid}/profile")
 async def hr_therapist_profile_update(tid: str, payload: TherapistHrProfileUpdate, user=Depends(hr_manager_access)):
     therapist = await db.therapists.find_one({"id": tid}, {"_id": 0})
@@ -10508,6 +10628,44 @@ async def hr_contract_reminder(tid: str, user=Depends(hr_manager_access)):
     body += "\n— Boost Growth Portal"
     await _send_urgent_email(await _jenan_recipient_email(), title, body)
     return {"ok": True, "message": "Jenan notified"}
+
+
+@api.get("/hr/evaluation-calendar")
+async def hr_evaluation_calendar(
+    year: Optional[int] = Query(None),
+    _=Depends(hr_manager_access),
+):
+    """Upcoming and past evaluation dates for all therapists (Manager Hub calendar)."""
+    therapists = await db.therapists.find(
+        {},
+        {
+            "_id": 0, "id": 1, "name": 1, "key": 1, "email": 1,
+            "contract_start": 1, "join_date": 1, "probation_end": 1,
+            "annual_contract_end": 1,
+        },
+    ).to_list(400)
+    entries: List[dict] = []
+    for therapist in therapists:
+        if not _is_hr_calendar_therapist(therapist):
+            continue
+        entries.extend(_therapist_evaluation_schedule(therapist))
+    if year is not None:
+        y = str(year)
+        entries = [e for e in entries if e["date"].startswith(y)]
+    entries.sort(key=lambda e: (e["date"], e["therapist_name"].lower()))
+    today_iso = datetime.now().date().isoformat()
+    upcoming = sum(1 for e in entries if e["date"] >= today_iso)
+    return {
+        "year": year or datetime.now().year,
+        "entries": entries,
+        "summary": {
+            "total": len(entries),
+            "upcoming": upcoming,
+            "past": len(entries) - upcoming,
+            "trial": sum(1 for e in entries if e["eval_type"] == "trial"),
+            "annual": sum(1 for e in entries if e["eval_type"] == "annual"),
+        },
+    }
 
 
 @api.get("/my-performance")
@@ -15384,6 +15542,17 @@ async def _run_startup():
             await _send_purchase_reminders(force=False)
         except Exception:
             logger.exception("Purchase reminder check failed")
+
+        try:
+            eval_alerts = await _process_evaluation_due_alerts(force=False)
+            if eval_alerts.get("sent"):
+                logger.info(
+                    "Evaluation due alerts sent: %s (target %s)",
+                    eval_alerts.get("sent"),
+                    eval_alerts.get("target_date"),
+                )
+        except Exception:
+            logger.exception("Evaluation due alert check failed")
 
         try:
             pm_fixed = await _backfill_purchase_months()
