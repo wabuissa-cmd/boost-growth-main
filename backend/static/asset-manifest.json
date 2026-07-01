@@ -1,11 +1,11 @@
 {
   "files": {
-    "main.css": "./static/css/main.ab464aed.css",
-    "main.js": "./static/js/main.5240439a.js",
+    "main.css": "./static/css/main.12de42c8.css",
+    "main.js": "./static/js/main.92a33fac.js",
     "static/js/398.fd7b8da1.chunk.js": "./static/js/398.fd7b8da1.chunk.js",
-    "static/js/773.a14400d1.chunk.js": "./static/js/773.a14400d1.chunk.js",
+    "static/js/773.ecf57f6a.chunk.js": "./static/js/773.ecf57f6a.chunk.js",
     "static/css/15.4f0605b2.chunk.css": "./static/css/15.4f0605b2.chunk.css",
-    "static/js/816.48a0abbd.chunk.js": "./static/js/816.48a0abbd.chunk.js",
+    "static/js/816.7225e3ec.chunk.js": "./static/js/816.7225e3ec.chunk.js",
     "static/js/482.4ab9b3f2.chunk.js": "./static/js/482.4ab9b3f2.chunk.js",
     "static/css/72.b67d7bed.chunk.css": "./static/css/72.b67d7bed.chunk.css",
     "static/js/72.7f1daa9f.chunk.js": "./static/js/72.7f1daa9f.chunk.js",
@@ -22,7 +22,7 @@
     "static/js/657.408ca9ff.chunk.js": "./static/js/657.408ca9ff.chunk.js",
     "static/js/185.a7a11474.chunk.js": "./static/js/185.a7a11474.chunk.js",
     "static/js/94.5acdd327.chunk.js": "./static/js/94.5acdd327.chunk.js",
-    "static/js/770.157279e4.chunk.js": "./static/js/770.157279e4.chunk.js",
+    "static/js/770.d6c6f45d.chunk.js": "./static/js/770.d6c6f45d.chunk.js",
     "static/js/711.6cdc6a1e.chunk.js": "./static/js/711.6cdc6a1e.chunk.js",
     "static/css/230.3dada3d8.chunk.css": "./static/css/230.3dada3d8.chunk.css",
     "static/js/230.52529151.chunk.js": "./static/js/230.52529151.chunk.js",
@@ -36,7 +36,7 @@
     "static/js/381.a30b1a15.chunk.js": "./static/js/381.a30b1a15.chunk.js",
     "static/js/355.34fb63a4.chunk.js": "./static/js/355.34fb63a4.chunk.js",
     "static/js/780.996c7cfd.chunk.js": "./static/js/780.996c7cfd.chunk.js",
-    "static/js/722.1a2a2904.chunk.js": "./static/js/722.1a2a2904.chunk.js",
+    "static/js/722.927738be.chunk.js": "./static/js/722.927738be.chunk.js",
     "static/js/824.e62a2572.chunk.js": "./static/js/824.e62a2572.chunk.js",
     "static/media/thmanyahsans-Bold.woff2": "./static/media/thmanyahsans-Bold.8c8bf277ccdc5dc06407.woff2",
     "static/media/thmanyahsans-Medium.woff2": "./static/media/thmanyahsans-Medium.a85bf71a0082eec59ed7.woff2",
@@ -45,7 +45,7 @@
     "index.html": "./index.html"
   },
   "entrypoints": [
-    "static/css/main.ab464aed.css",
-    "static/js/main.5240439a.js"
+    "static/css/main.12de42c8.css",
+    "static/js/main.92a33fac.js"
   ]
 }
