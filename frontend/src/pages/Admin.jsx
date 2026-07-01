@@ -113,6 +113,8 @@ export default function Admin() {
   const [recoverResult, setRecoverResult] = useState(null);
   const [clientImportFile, setClientImportFile] = useState(null);
   const [clientImporting, setClientImporting] = useState(false);
+  const [driveSyncing, setDriveSyncing] = useState(false);
+  const [fullRestoring, setFullRestoring] = useState(false);
 
   const loadDeletedClients = async () => {
     try {
@@ -541,6 +543,51 @@ export default function Admin() {
     }
   };
 
+  const syncDriveInvoices = async () => {
+    if (!window.confirm(
+      "مزامنة الفواتير والجلسات من مجلد Active Clients على Drive؟\n\n"
+      + "يستورد أحدث Attendance Sheet لكل طفل موجود في البوابة."
+    )) return;
+    setDriveSyncing(true);
+    setRecoverResult(null);
+    try {
+      const { data } = await api.post("/admin/sync-active-clients-from-drive", {});
+      setRecoverResult({ ok: true, summary_ar: data.message || `تم: ${data.synced} مزامنة` });
+      checkDataHealth();
+    } catch (e) {
+      setRecoverResult({ ok: false, summary_ar: e.response?.data?.detail || e.message });
+    } finally {
+      setDriveSyncing(false);
+    }
+  };
+
+  const runFullRestoreFromDrive = async () => {
+    if (!window.confirm(
+      "استعادة كاملة من Drive؟\n\n"
+      + "١) Active Clients من Master Sheet\n"
+      + "٢) فواتير وجلسات من مجلد Drive (24 طفل)\n"
+      + "٣) جدول أسبوع ٢٨ يونيو\n"
+      + "٤) إصلاح التحضير وعلامات ✓\n\n"
+      + "قد يستغرق ٢–٥ دقائق."
+    )) return;
+    setFullRestoring(true);
+    setRecoverResult(null);
+    try {
+      const { data } = await api.post(
+        "/admin/full-restore-from-drive",
+        { week_start: "2026-06-28" },
+        { timeout: 600000 },
+      );
+      setRecoverResult(data);
+      setHealthData(data.health_after || null);
+      if (!data.health_after) checkDataHealth();
+    } catch (e) {
+      setRecoverResult({ ok: false, summary_ar: e.response?.data?.detail || e.message });
+    } finally {
+      setFullRestoring(false);
+    }
+  };
+
   const restoreStoredBackup = async (backupId, dryRun = true) => {
     if (!dryRun && !window.confirm("Restore this backup into the live database? Existing records with same IDs will be overwritten.")) return;
     setRestoringBackupId(backupId);
@@ -624,10 +671,19 @@ export default function Admin() {
               type="button"
               data-testid="auto-recover-btn"
               onClick={runAutoRecover}
-              disabled={recovering || clientImporting}
+              disabled={recovering || clientImporting || fullRestoring}
               className="btn btn-gold text-sm"
             >
               {recovering ? <span className="spinner" /> : "إصلاح تلقائي"}
+            </button>
+            <button
+              type="button"
+              data-testid="full-restore-drive-btn"
+              onClick={runFullRestoreFromDrive}
+              disabled={fullRestoring || recovering || clientImporting || driveSyncing}
+              className="btn btn-primary text-sm"
+            >
+              {fullRestoring ? <span className="spinner" /> : "استعادة كاملة من Drive"}
             </button>
           </div>
 
@@ -650,10 +706,19 @@ export default function Admin() {
                 type="button"
                 data-testid="import-active-clients-sync-btn"
                 onClick={importActiveClientsAndSync}
-                disabled={!clientImportFile || clientImporting || recovering}
+                disabled={!clientImportFile || clientImporting || recovering || driveSyncing || fullRestoring}
                 className="btn btn-primary text-xs"
               >
                 {clientImporting ? <span className="spinner" /> : "استيراد + مزامنة"}
+              </button>
+              <button
+                type="button"
+                data-testid="sync-drive-invoices-btn"
+                onClick={syncDriveInvoices}
+                disabled={driveSyncing || clientImporting || recovering || fullRestoring}
+                className="btn btn-secondary text-xs"
+              >
+                {driveSyncing ? <span className="spinner" /> : "مزامنة Drive (فواتير)"}
               </button>
             </div>
           </ToolRow>

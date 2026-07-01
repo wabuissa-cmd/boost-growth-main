@@ -1739,6 +1739,14 @@ async def restore_from_uploaded_backup(
 TRIAL_WEEK_START = "2026-06-28"
 TRIAL_WEEK_END = "2026-07-02"
 AUTO_BACKUP_HOURS = 24
+MASTER_CLIENTS_SHEET_URL = os.environ.get(
+    "GOOGLE_DRIVE_CLIENTS_SHEET_URL",
+    "https://docs.google.com/spreadsheets/d/1D2DQX0M4ieeKz4Z7c-QdO67XbDl1llnlXolLOrDXopk/edit",
+)
+SCHEDULE_MASTER_SHEET_URL = os.environ.get(
+    "GOOGLE_DRIVE_SCHEDULE_URL",
+    "https://docs.google.com/spreadsheets/d/1nObLcjV0btqOcPJhZu4fP5S42qHUxAzxdQLdPO-QyUk/edit",
+)
 
 
 async def _get_data_health_snapshot() -> dict:
@@ -6218,29 +6226,102 @@ class SyncActiveClientsIn(BaseModel):
     dry_run: bool = False
 
 
-@api.post("/admin/sync-active-clients-from-drive")
-async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends(client_lead_or_admin)):
-    """Bulk-sync attendance workbooks from the Active Clients Drive folder.
+async def _import_clients_from_google_sheet_url(
+    sheet_url: str,
+    *,
+    replace_missing: bool = False,
+) -> dict:
+    """Download Master Sheet (Active Clients tab) and upsert client records."""
+    import httpx
 
-    Each subfolder is named like ``009 | Child Name``. Inside, we locate the
-    Attendance Sheets subfolder and import the newest attendance spreadsheet
-    (prefers tabs whose title contains the latest year, e.g. 2026).
-    """
+    export_url = _google_sheet_export_url(sheet_url)
+    async with httpx.AsyncClient(follow_redirects=True, timeout=120.0) as client:
+        resp = await client.get(export_url)
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not download clients sheet (HTTP {resp.status_code})",
+        )
+    rows = _read_clients_import_rows(resp.content, "active_clients.xlsx")
+    return await _import_clients_from_rows(rows, replace_missing)
+
+
+async def _import_schedule_from_google_sheet_url(
+    sheet_url: str,
+    week_start: str,
+    *,
+    clear_existing: bool = True,
+    sheet_name: Optional[str] = None,
+) -> dict:
+    """Import one schedule week from a public Google Sheets workbook."""
+    import httpx
+
+    week_start = _normalize_week_start(week_start)
+    export_url = _google_sheet_export_url(sheet_url)
+    async with httpx.AsyncClient(follow_redirects=True, timeout=120.0) as client:
+        resp = await client.get(export_url)
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not download schedule sheet (HTTP {resp.status_code})",
+        )
+    content = resp.content
+    grid, merge_anchors, merge_skip, used_sheet, sheet_names, fill_states = _load_schedule_xlsx_bytes(
+        content, sheet_name
+    )
+    if not sheet_name:
+        picked = _pick_sheet_for_week(sheet_names, week_start)
+        if picked and picked != used_sheet:
+            grid, merge_anchors, merge_skip, used_sheet, _, fill_states = _load_schedule_xlsx_bytes(
+                content, picked
+            )
+    week_start, week_warning = _resolve_import_week_start(week_start, used_sheet)
+    therapists = await db.therapists.find(
+        {}, {"_id": 0, "pin_hash": 0, "password_hash": 0}
+    ).to_list(100)
+    t_by_name = _build_schedule_therapist_name_map(therapists)
+    inserted, skipped = await _import_schedule_grid(
+        grid,
+        week_start,
+        t_by_name,
+        clear_existing,
+        merge_anchors=merge_anchors,
+        merge_skip=merge_skip,
+        cell_fill_states=fill_states,
+    )
+    await _relink_prep_markers_after_schedule_import(week_start)
+    return {
+        "cells_inserted": inserted,
+        "week_start": week_start,
+        "skipped_therapists": skipped[:20],
+        "sheet_used": used_sheet,
+        "merge_spans_detected": len(merge_anchors),
+        "week_start_warning": week_warning,
+        "prep_relinked": True,
+    }
+
+
+async def _bulk_sync_active_clients_from_drive(
+    *,
+    folder_url: Optional[str] = None,
+    file_nos: Optional[List[str]] = None,
+    dry_run: bool = False,
+    user_id: str = "drive-sync",
+) -> dict:
+    """Bulk-sync attendance workbooks from the Active Clients Drive folder."""
     from drive_sync import (
         ACTIVE_CLIENTS_FOLDER_ID,
         extract_folder_id,
-        fetch_doc_text,
         fetch_workbook_from_url,
         list_active_client_folders,
         list_client_folder_links,
-        parse_case_summary_text,
         resolve_attendance_sheet_url,
     )
 
-    parent_id = extract_folder_id(body.folder_url or "") or ACTIVE_CLIENTS_FOLDER_ID
+    parent_id = extract_folder_id(folder_url or "") or ACTIVE_CLIENTS_FOLDER_ID
     folders = list_active_client_folders(parent_id)
-    if body.file_nos:
-        wanted = {str(x).strip().zfill(3) for x in body.file_nos if str(x).strip()}
+    if file_nos:
+        wanted = {str(x).strip().zfill(3) for x in file_nos if str(x).strip()}
         folders = [f for f in folders if f["file_no"] in wanted]
 
     results: List[dict] = []
@@ -6259,7 +6340,7 @@ async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends
                 "drive_folder_id": entry["folder_id"],
             }
             sheet_url = resolve_attendance_sheet_url(entry["folder_id"])
-            if body.dry_run:
+            if dry_run:
                 results.append({
                     "file_no": file_no,
                     "client_name": client.get("name"),
@@ -6284,7 +6365,7 @@ async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends
                 continue
             wb = fetch_workbook_from_url(sheet_url)
             ingest = await _ingest_workbook_for_client(
-                client["id"], client, wb, user["id"], origin="drive-bulk-sync"
+                client["id"], client, wb, user_id, origin="drive-bulk-sync"
             )
             results.append({
                 "file_no": file_no,
@@ -6315,9 +6396,131 @@ async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends
         "meta_synced": meta_synced,
         "skipped": skipped,
         "errors": errors,
-        "message": f"{synced} attendance synced · {meta_synced} drive-only (phones/links) · {skipped} skipped · {errors} errors",
+        "message": (
+            f"{synced} attendance synced · {meta_synced} drive-only (phones/links) · "
+            f"{skipped} skipped · {errors} errors"
+        ),
         "results": results,
     }
+
+
+def _arabic_full_restore_summary(results: dict) -> str:
+    parts: List[str] = []
+    imp = results.get("clients") or {}
+    if imp:
+        parts.append(
+            f"أطفال: {imp.get('created', 0)} جديد · {imp.get('updated', 0)} محدّث"
+        )
+    drv = results.get("drive") or {}
+    if drv:
+        parts.append(
+            f"Drive: {drv.get('synced', 0)} فواتير/جلسات · {drv.get('errors', 0)} أخطاء"
+        )
+    sch = results.get("schedule") or {}
+    if sch:
+        parts.append(
+            f"جدول {sch.get('week_start', '')}: {sch.get('cells_inserted', 0)} خلية"
+        )
+    rec = results.get("recover") or {}
+    if rec.get("summary_ar"):
+        parts.append(rec["summary_ar"])
+    return " · ".join(parts) if parts else "اكتملت الاستعادة"
+
+
+async def _run_full_restore_from_drive(
+    *,
+    folder_url: Optional[str] = None,
+    week_start: Optional[str] = None,
+    clients_sheet_url: Optional[str] = None,
+    schedule_sheet_url: Optional[str] = None,
+    skip_clients: bool = False,
+    skip_drive: bool = False,
+    skip_schedule: bool = False,
+    skip_recover: bool = False,
+    dry_run: bool = False,
+    user_id: str = "full-restore",
+) -> dict:
+    """One-shot portal recovery: clients → Drive invoices/sessions → schedule → prep relink."""
+    week = _normalize_week_start(week_start or TRIAL_WEEK_START)
+    results: dict = {"ok": True, "week_start": week, "dry_run": dry_run}
+
+    if not skip_clients:
+        url = (clients_sheet_url or MASTER_CLIENTS_SHEET_URL).strip()
+        if dry_run:
+            results["clients"] = {"status": "dry_run", "sheet_url": url}
+        else:
+            results["clients"] = await _import_clients_from_google_sheet_url(url, replace_missing=False)
+
+    if not skip_drive:
+        results["drive"] = await _bulk_sync_active_clients_from_drive(
+            folder_url=folder_url,
+            dry_run=dry_run,
+            user_id=user_id,
+        )
+
+    if not skip_schedule:
+        url = (schedule_sheet_url or SCHEDULE_MASTER_SHEET_URL).strip()
+        if dry_run:
+            results["schedule"] = {"status": "dry_run", "sheet_url": url, "week_start": week}
+        else:
+            results["schedule"] = await _import_schedule_from_google_sheet_url(
+                url, week, clear_existing=True
+            )
+
+    if not skip_recover and not dry_run:
+        results["recover"] = await _run_auto_recover(store_backup=True)
+        results["health_after"] = results["recover"].get("health_after")
+
+    results["summary_ar"] = _arabic_full_restore_summary(results)
+    return results
+
+
+class FullRestoreFromDriveIn(BaseModel):
+    folder_url: Optional[str] = None
+    week_start: Optional[str] = None
+    clients_sheet_url: Optional[str] = None
+    schedule_sheet_url: Optional[str] = None
+    skip_clients: bool = False
+    skip_drive: bool = False
+    skip_schedule: bool = False
+    skip_recover: bool = False
+    dry_run: bool = False
+
+
+@api.post("/admin/full-restore-from-drive")
+async def admin_full_restore_from_drive(
+    body: FullRestoreFromDriveIn = FullRestoreFromDriveIn(),
+    user=Depends(admin_only),
+):
+    """Full portal recovery from Google Drive + Master Sheet (one-click Admin)."""
+    return await _run_full_restore_from_drive(
+        folder_url=body.folder_url,
+        week_start=body.week_start,
+        clients_sheet_url=body.clients_sheet_url,
+        schedule_sheet_url=body.schedule_sheet_url,
+        skip_clients=body.skip_clients,
+        skip_drive=body.skip_drive,
+        skip_schedule=body.skip_schedule,
+        skip_recover=body.skip_recover,
+        dry_run=body.dry_run,
+        user_id=user["id"],
+    )
+
+
+@api.post("/admin/sync-active-clients-from-drive")
+async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends(client_lead_or_admin)):
+    """Bulk-sync attendance workbooks from the Active Clients Drive folder.
+
+    Each subfolder is named like ``009 | Child Name``. Inside, we locate the
+    Attendance Sheets subfolder and import the newest attendance spreadsheet
+    (prefers tabs whose title contains the latest year, e.g. 2026).
+    """
+    return await _bulk_sync_active_clients_from_drive(
+        folder_url=body.folder_url,
+        file_nos=body.file_nos,
+        dry_run=body.dry_run,
+        user_id=user["id"],
+    )
 
 
 class SyncBirthDatesIn(BaseModel):
