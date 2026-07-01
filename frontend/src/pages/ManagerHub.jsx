@@ -3,12 +3,13 @@ import { Link, Navigate, useSearchParams } from "react-router-dom";
 import api, { API, openAuthenticatedFile } from "../api";
 import { useAuth, canAccessManagerHub, isJenan } from "../auth";
 import PageBanner from "../components/PageBanner";
+import PortalPageHeader from "../components/PortalPageHeader";
 import Requests from "./Requests";
 import LeaveBalance from "./LeaveBalance";
 import {
   MagnifyingGlass, Warning, UserCircle, FileText, Bell, UploadSimple,
-  FloppyDisk, DownloadSimple, CalendarBlank, CaretDown, CaretUp,
-  IdentificationCard, Hourglass, CalendarCheck, ChartBar, Briefcase,
+  FloppyDisk, DownloadSimple, CalendarBlank, ArrowLeft, X,
+  IdentificationCard, CalendarCheck, ChartBar,
 } from "@phosphor-icons/react";
 import { getTherapistScheduleName } from "../scheduleConstants";
 
@@ -27,6 +28,24 @@ async function viewFile(url) {
 }
 
 const TRIAL_ALERT_DAYS = 30;
+
+const PROFILE_TABS = [
+  { id: "overview", label: "Overview", icon: IdentificationCard, testId: "mgr-profile-tab-overview" },
+  { id: "contract", label: "Contract", icon: FileText, testId: "mgr-profile-tab-contract" },
+  { id: "evaluations", label: "Evaluations", icon: ChartBar, testId: "mgr-profile-tab-evaluations" },
+  { id: "meetings", label: "Meetings", icon: CalendarBlank, testId: "mgr-profile-tab-meetings" },
+];
+
+function fmtDate(iso) {
+  if (!iso) return "—";
+  try {
+    return new Date(String(iso).slice(0, 10)).toLocaleDateString("en-US", {
+      day: "numeric", month: "short", year: "numeric",
+    });
+  } catch {
+    return String(iso).slice(0, 10);
+  }
+}
 
 function daysUntil(dateStr) {
   if (!dateStr) return null;
@@ -49,43 +68,52 @@ function trialPhase(profile) {
   return "active";
 }
 
-function ProfileSection({ id, openId, onToggle, icon, title, hint, badge, children }) {
-  const open = openId === id;
-  return (
-    <div className="mgr-profile-section">
-      <button type="button" className="my-learning-attempt-head" onClick={() => onToggle(open ? "" : id)}>
-        <div className="flex items-center gap-2.5 min-w-0 text-left">
-          <span className="mgr-profile-section-icon">{icon}</span>
-          <div className="min-w-0">
-            <div className="my-learning-course-name">{title}</div>
-            {hint && (
-              <div className="text-xs mt-0.5 truncate" style={{ color: "var(--text-muted)" }}>{hint}</div>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {badge}
-          {open ? <CaretUp size={16} /> : <CaretDown size={16} />}
-        </div>
-      </button>
-      {open && <div className="my-learning-attempt-body">{children}</div>}
-    </div>
-  );
-}
-
 function StatusPill({ children, tone = "neutral" }) {
   const styles = {
     neutral: { background: "#EDE9E3", color: "#5C6853" },
     success: { background: "#E5EBE1", color: "#3D5235" },
     warning: { background: "#FAF0D1", color: "#6B5218" },
-    urgent: { background: "#FCE0E8", color: "#8B3A55" },
+    info: { background: "#E8EEF5", color: "#3D4F5C" },
   }[tone] || { background: "#EDE9E3", color: "#5C6853" };
   return (
     <span className="mgr-profile-pill" style={styles}>{children}</span>
   );
 }
 
-function TherapistProfilePanel({ therapistId, onClose }) {
+function ProfileField({ label, value, children }) {
+  return (
+    <div className="mgr-profile-field">
+      <div className="mgr-profile-field-label">{label}</div>
+      {children || <div className="mgr-profile-field-value">{value ?? "—"}</div>}
+    </div>
+  );
+}
+
+function EvalFileList({ items, therapistId, emptyLabel }) {
+  if (!items.length) {
+    return <div className="mgr-profile-empty-row">{emptyLabel}</div>;
+  }
+  return (
+    <ul className="mgr-profile-file-list">
+      {items.map(ev => (
+        <li key={ev.id} className="mgr-profile-file-row">
+          <span className="mgr-profile-file-name">
+            {ev.month || ev.year || ev.uploaded_at?.slice(0, 10) || "Upload"}
+          </span>
+          <button
+            type="button"
+            className="mgr-profile-file-link"
+            onClick={() => viewFile(`${API}/hr/therapist/${therapistId}/evaluations/${ev.id}/file`)}
+          >
+            <DownloadSimple size={14} /> View
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function TherapistProfilePanel({ therapistId, onClose, mobile = false }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -96,7 +124,7 @@ function TherapistProfilePanel({ therapistId, onClose }) {
   const [meetingNotes, setMeetingNotes] = useState("");
   const [monthlyPeriod, setMonthlyPeriod] = useState("");
   const [annualYear, setAnnualYear] = useState(String(new Date().getFullYear()));
-  const [openSection, setOpenSection] = useState("basic");
+  const [activeTab, setActiveTab] = useState("overview");
   const monthlyRef = useRef(null);
   const annualRef = useRef(null);
 
@@ -110,7 +138,7 @@ function TherapistProfilePanel({ therapistId, onClose }) {
         setAnnualEnd((data.annual_contract_end || data.contract_period_end || "").slice(0, 10));
         setMonthlyPeriod(new Date().toISOString().slice(0, 7));
         const phase = trialPhase(data);
-        setOpenSection(phase === "ending_soon" ? "trial" : "basic");
+        setActiveTab(phase === "ending_soon" ? "contract" : "overview");
       })
       .catch(() => setProfile(null))
       .finally(() => setLoading(false));
@@ -169,8 +197,20 @@ function TherapistProfilePanel({ therapistId, onClose }) {
   };
 
   if (!therapistId) return null;
-  if (loading) return <div className="card p-8 text-center"><div className="spinner mx-auto"/></div>;
-  if (!profile) return <div className="card p-6 text-sm text-center" style={{ color: "#8B9E7A" }}>Could not load profile</div>;
+  if (loading) {
+    return (
+      <div className="mgr-profile-detail-card card">
+        <div className="mgr-profile-loading"><div className="spinner" /></div>
+      </div>
+    );
+  }
+  if (!profile) {
+    return (
+      <div className="mgr-profile-detail-card card">
+        <div className="mgr-profile-loading" style={{ color: "#8B9E7A" }}>Could not load profile</div>
+      </div>
+    );
+  }
 
   const t = profile.therapist || {};
   const req = profile.requests || {};
@@ -180,267 +220,228 @@ function TherapistProfilePanel({ therapistId, onClose }) {
   const trial = trialPhase(profile);
   const trialDays = profile.trial_days_left ?? daysUntil(profile.probation_end);
   const annualDays = daysUntil(profile.annual_contract_end || profile.contract_period_end);
+  const contractStart = profile.contract_start?.slice(0, 10) || profile.contract_period_start?.slice(0, 10);
   const showJenanReminder = trial === "ending_soon" || (annualDays != null && annualDays >= 0 && annualDays <= 60);
-  const visibleAlerts = (profile.alerts || []).filter(a => {
-    if (a.type === "probation_end") return trial === "ending_soon";
-    if (a.type === "annual_contract_expiry") return annualDays != null && annualDays >= 0;
-    return true;
-  });
+  const showTrialBanner = trial === "ending_soon";
+
+  const trialStatusPill = () => {
+    if (trial === "completed") {
+      return <StatusPill tone="success">Trial completed</StatusPill>;
+    }
+    if (trial === "ending_soon") {
+      return <StatusPill tone="warning">{trialDays} days left on trial</StatusPill>;
+    }
+    if (trial === "active" && trialDays != null) {
+      return <StatusPill tone="neutral">{trialDays} days on trial</StatusPill>;
+    }
+    return null;
+  };
+
+  const contractFooter = activeTab === "contract" ? (
+    <div className="mgr-profile-tab-footer">
+      <button type="button" className="btn btn-primary text-sm" onClick={saveProfile} disabled={saving}>
+        <FloppyDisk size={15} /> {saving ? "Saving…" : "Save contract dates"}
+      </button>
+      {showJenanReminder && (
+        <button type="button" className="btn btn-secondary text-sm" onClick={sendReminder} disabled={reminding}>
+          <Bell size={15} /> {reminding ? "Sending…" : "Notify Jenan"}
+        </button>
+      )}
+    </div>
+  ) : null;
 
   return (
-    <div className="card mgr-profile-card rounded-[20px]">
-      <div className="mgr-profile-hero">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-start gap-3 min-w-0">
-            <div className="my-learning-hero-icon shrink-0">
-              <UserCircle size={26} weight="duotone" />
-            </div>
-            <div className="min-w-0">
-              <div className="my-learning-badge mb-2">THERAPIST PROFILE</div>
-              <h3 className="my-learning-title m-0 text-lg">{getTherapistScheduleName(t)}</h3>
-              <p className="my-learning-subtitle mt-1 mb-0 text-xs">{t.email || t.role || "Therapist"}</p>
+    <div className={`mgr-profile-detail-card card${mobile ? " is-mobile-sheet" : ""}`}>
+      <div className="mgr-profile-detail-head">
+        <div className="mgr-profile-detail-hero-row">
+          {mobile && onClose && (
+            <button type="button" className="mgr-profile-back-btn" onClick={onClose} aria-label="Back to list">
+              <ArrowLeft size={20} weight="bold" />
+            </button>
+          )}
+          <div className="mgr-profile-detail-hero-icon">
+            <UserCircle size={26} weight="duotone" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="mgr-profile-detail-name">{getTherapistScheduleName(t)}</h2>
+            <p className="mgr-profile-detail-meta">{t.email || t.role || "Therapist"}</p>
+            <div className="mgr-profile-detail-pills">
+              {trialStatusPill()}
+              {profile.leave_balance != null && Number(profile.leave_balance) < 5 && (
+                <StatusPill tone="warning">Low leave · {profile.leave_balance}d</StatusPill>
+              )}
             </div>
           </div>
-          {onClose && (
-            <button type="button" className="btn btn-ghost text-xs shrink-0" onClick={onClose}>Close</button>
+          {!mobile && onClose && (
+            <button type="button" className="btn btn-ghost text-xs shrink-0 min-h-[44px]" onClick={onClose}>
+              <X size={16} /> Close
+            </button>
           )}
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
+        <div className="mgr-profile-detail-stats">
           {[
             { label: "Requests", val: req.total ?? 0 },
             { label: "Open", val: req.open ?? 0 },
             { label: "Clients", val: profile.assigned_clients ?? 0 },
             { label: "Hours (mo)", val: `${profile.hours_this_month ?? 0}h` },
           ].map(x => (
-            <div key={x.label} className="mgr-profile-stat">
-              <div className="font-bold text-base" style={{ color: "#2C3625" }}>{x.val}</div>
-              <div className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#8B9E7A" }}>{x.label}</div>
+            <div key={x.label} className="mgr-profile-detail-stat">
+              <span className="mgr-profile-detail-stat-val">{x.val}</span>
+              <span className="mgr-profile-detail-stat-lbl">{x.label}</span>
             </div>
           ))}
         </div>
-
-        {trial === "completed" && (
-          <div className="mt-3">
-            <StatusPill tone="success">Trial period completed{trialDays != null ? ` · ended ${Math.abs(trialDays)}d ago` : ""}</StatusPill>
-          </div>
-        )}
       </div>
 
-      {visibleAlerts.length > 0 && (
-        <div className="mgr-profile-alerts space-y-2">
-          {visibleAlerts.map((a, i) => (
-            <div key={i} className="flex items-start gap-2 text-xs p-2.5 rounded-lg" style={{
-              background: a.severity === "urgent" ? "#FCE0E8" : "#FAF0D1",
-              color: a.severity === "urgent" ? "#8B3A55" : "#6B5218",
-            }}>
-              <Warning size={14} weight="fill" className="shrink-0 mt-0.5"/>
-              <span>{a.message}</span>
-            </div>
-          ))}
+      {showTrialBanner && (
+        <div className="mgr-profile-notice mgr-profile-notice--warning">
+          <Warning size={16} weight="fill" />
+          <span>Trial period ends {fmtDate(profile.probation_end)} — {trialDays} days remaining.</span>
         </div>
       )}
 
-      <div className="mgr-profile-sections space-y-2">
-        <ProfileSection
-          id="basic"
-          openId={openSection}
-          onToggle={setOpenSection}
-          icon={<IdentificationCard size={18} weight="duotone" />}
-          title="Basic info & contract dates"
-          hint={`Start ${profile.contract_start?.slice(0, 10) || profile.contract_period_start?.slice(0, 10) || "—"}`}
-        >
-          <div className="grid sm:grid-cols-2 gap-3">
-            <label className="text-xs block">
-              <span className="font-semibold" style={{ color: "#8B9E7A" }}>Contract start</span>
-              <div className="font-bold mt-1 text-sm" style={{ color: "#2C3625" }}>
-                {profile.contract_start?.slice(0, 10) || profile.contract_period_start?.slice(0, 10) || "—"}
-              </div>
-            </label>
-            <label className="text-xs block">
-              <span className="font-semibold" style={{ color: "#8B9E7A" }}>Annual contract end</span>
-              <input type="date" className="input w-full mt-1 text-sm" value={annualEnd} onChange={e => setAnnualEnd(e.target.value)}/>
-            </label>
-            <div className="text-xs">
-              <span className="font-semibold" style={{ color: "#8B9E7A" }}>Total hours</span>
-              <div className="font-bold mt-1 text-sm" style={{ color: "#2C3625" }}>{profile.hours_total ?? 0}h</div>
-            </div>
-            <div className="text-xs">
-              <span className="font-semibold" style={{ color: "#8B9E7A" }}>Requests answered</span>
-              <div className="font-bold mt-1 text-sm" style={{ color: "#2C3625" }}>{req.answered ?? 0}</div>
-            </div>
-          </div>
-          <div className="mt-3">
-            <button type="button" className="btn btn-primary text-xs" onClick={saveProfile} disabled={saving}>
-              <FloppyDisk size={14}/> {saving ? "Saving…" : "Save contract dates"}
+      <div className="center-test-steps-bar mgr-profile-detail-tabs">
+        {PROFILE_TABS.map((tab, i) => (
+          <span key={tab.id} className="mgr-profile-tab-wrap">
+            {i > 0 && <div className="center-test-step-line" />}
+            <button
+              type="button"
+              data-testid={tab.testId}
+              className={`center-test-step portal-page-view-step mgr-profile-tab${activeTab === tab.id ? " active" : ""}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              <span className="center-test-step-num">
+                <tab.icon size={14} weight={activeTab === tab.id ? "fill" : "duotone"} />
+              </span>
+              <span className={`center-test-step-label${activeTab === tab.id ? " font-semibold" : ""}`}>
+                {tab.label}
+              </span>
             </button>
-          </div>
-        </ProfileSection>
+          </span>
+        ))}
+      </div>
 
-        <ProfileSection
-          id="trial"
-          openId={openSection}
-          onToggle={setOpenSection}
-          icon={<Hourglass size={18} weight="duotone" />}
-          title="Trial period & reminders"
-          hint={trialEnd ? `Ends ${trialEnd}` : "Set trial end date"}
-          badge={trial === "ending_soon" ? (
-            <StatusPill tone={trialDays <= 14 ? "urgent" : "warning"}>{trialDays}d left</StatusPill>
-          ) : trial === "completed" ? (
-            <StatusPill tone="success">Completed</StatusPill>
-          ) : null}
-        >
-          <label className="text-xs block mb-3">
-            <span className="font-semibold" style={{ color: "#8B9E7A" }}>Trial period end (3 mo default)</span>
-            <input type="date" className="input w-full mt-1 text-sm" value={trialEnd} onChange={e => setTrialEnd(e.target.value)}/>
-          </label>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn btn-primary text-xs" onClick={saveProfile} disabled={saving}>
-              <FloppyDisk size={14}/> {saving ? "Saving…" : "Save trial date"}
-            </button>
-            {showJenanReminder && (
-              <button type="button" className="btn btn-secondary text-xs" onClick={sendReminder} disabled={reminding}>
-                <Bell size={14}/> {reminding ? "Sending…" : "Send Jenan reminder"}
-              </button>
+      <div className="mgr-profile-tab-body">
+        {activeTab === "overview" && (
+          <div className="mgr-profile-tab-panel">
+            <div className="mgr-profile-section-label">Summary</div>
+            <div className="mgr-profile-summary-grid">
+              <ProfileField label="Contract start" value={fmtDate(contractStart)} />
+              <ProfileField label="Annual contract end" value={fmtDate(annualEnd)} />
+              <ProfileField label="Trial end" value={fmtDate(trialEnd)} />
+              <ProfileField label="Total hours" value={`${profile.hours_total ?? 0}h`} />
+              <ProfileField label="Leave remaining" value={`${profile.leave_balance ?? "—"} / ${profile.annual_balance ?? 30} days`} />
+              <ProfileField label="Requests answered" value={req.answered ?? 0} />
+            </div>
+            {annualDays != null && annualDays >= 0 && annualDays <= 60 && (
+              <div className="mgr-profile-inline-note">
+                Annual contract expires {fmtDate(annualEnd)} ({annualDays} days left).
+              </div>
+            )}
+            {profile.trainings?.length > 0 && (
+              <>
+                <div className="mgr-profile-section-label mt-4">Training reports</div>
+                <ul className="mgr-profile-file-list">
+                  {profile.trainings.slice(0, 6).map(tr => (
+                    <li key={tr.id} className="mgr-profile-file-row">
+                      <span className="mgr-profile-file-name">{tr.title || tr.attachment_file_name || "Report"}</span>
+                      <span className="mgr-profile-file-meta">{tr.report_date || tr.created_at?.slice(0, 10)} · {tr.status}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
             )}
           </div>
-          {showJenanReminder ? (
-            <p className="text-[10px] mt-2 mb-0" style={{ color: "#8B9E7A" }}>
-              Reminder notifies Jenan to prepare trial + annual contracts before upcoming dates.
-            </p>
-          ) : (
-            <p className="text-[10px] mt-2 mb-0" style={{ color: "#8B9E7A" }}>
-              Jenan reminders appear when trial or annual contract is ending within 30–60 days.
-            </p>
-          )}
-        </ProfileSection>
+        )}
 
-        <ProfileSection
-          id="monthly"
-          openId={openSection}
-          onToggle={setOpenSection}
-          icon={<ChartBar size={18} weight="duotone" />}
-          title="Monthly evaluation"
-          hint={`${monthly.length} upload${monthly.length === 1 ? "" : "s"}`}
-        >
-          <div className="flex gap-2 mb-2">
-            <input type="month" className="input text-sm flex-1" value={monthlyPeriod} onChange={e => setMonthlyPeriod(e.target.value)}/>
-            <button type="button" className="btn btn-secondary text-xs" onClick={() => monthlyRef.current?.click()}>
-              <UploadSimple size={14}/> Upload
+        {activeTab === "contract" && (
+          <div className="mgr-profile-tab-panel">
+            <div className="mgr-profile-section-label">Contract dates</div>
+            <div className="mgr-profile-form-grid">
+              <ProfileField label="Contract start">
+                <div className="mgr-profile-field-value">{fmtDate(contractStart)}</div>
+              </ProfileField>
+              <ProfileField label="Annual contract end">
+                <input type="date" className="input w-full text-sm" value={annualEnd} onChange={e => setAnnualEnd(e.target.value)} />
+              </ProfileField>
+            </div>
+
+            <div className="mgr-profile-section-label mt-5">Trial period</div>
+            <div className="mgr-profile-form-grid">
+              <ProfileField label="Trial end date">
+                <input type="date" className="input w-full text-sm" value={trialEnd} onChange={e => setTrialEnd(e.target.value)} />
+              </ProfileField>
+              <ProfileField label="Status">
+                <div className="pt-1">{trialStatusPill() || <span className="text-sm" style={{ color: "#8B9E7A" }}>No trial date set</span>}</div>
+              </ProfileField>
+            </div>
+
+            {showJenanReminder && (
+              <p className="mgr-profile-help-text">
+                Notify Jenan to prepare trial and annual contracts before upcoming dates.
+              </p>
+            )}
+          </div>
+        )}
+
+        {activeTab === "evaluations" && (
+          <div className="mgr-profile-tab-panel">
+            <div className="mgr-profile-section-label">Monthly evaluation</div>
+            <div className="mgr-profile-upload-row">
+              <input type="month" className="input text-sm flex-1" value={monthlyPeriod} onChange={e => setMonthlyPeriod(e.target.value)} />
+              <button type="button" className="btn btn-secondary text-sm shrink-0" onClick={() => monthlyRef.current?.click()}>
+                <UploadSimple size={15} /> Upload
+              </button>
+              <input ref={monthlyRef} type="file" className="hidden" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" onChange={e => uploadEval("monthly", e.target.files?.[0])} />
+            </div>
+            <EvalFileList items={monthly} therapistId={therapistId} emptyLabel="No monthly evaluations uploaded yet." />
+
+            <div className="mgr-profile-section-label mt-5">Annual evaluation</div>
+            <div className="mgr-profile-upload-row">
+              <input type="number" className="input text-sm w-28" value={annualYear} onChange={e => setAnnualYear(e.target.value)} min="2020" max="2035" aria-label="Year" />
+              <button type="button" className="btn btn-secondary text-sm shrink-0" onClick={() => annualRef.current?.click()}>
+                <UploadSimple size={15} /> Upload
+              </button>
+              <input ref={annualRef} type="file" className="hidden" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" onChange={e => uploadEval("annual", e.target.files?.[0])} />
+            </div>
+            <EvalFileList items={annual} therapistId={therapistId} emptyLabel="No annual evaluations uploaded yet." />
+          </div>
+        )}
+
+        {activeTab === "meetings" && (
+          <div className="mgr-profile-tab-panel">
+            <div className="mgr-profile-section-label">Schedule a meeting</div>
+            <div className="mgr-profile-form-grid">
+              <ProfileField label="Date">
+                <input type="date" className="input w-full text-sm" value={meetingDate} onChange={e => setMeetingDate(e.target.value)} />
+              </ProfileField>
+              <ProfileField label="Notes (optional)">
+                <input className="input w-full text-sm" value={meetingNotes} onChange={e => setMeetingNotes(e.target.value)} placeholder="Discussion topics…" />
+              </ProfileField>
+            </div>
+            <button type="button" className="btn btn-secondary text-sm mt-3" onClick={saveProfile} disabled={saving || !meetingDate}>
+              <CalendarCheck size={15} /> Add meeting
             </button>
-            <input ref={monthlyRef} type="file" className="hidden" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" onChange={e => uploadEval("monthly", e.target.files?.[0])}/>
-          </div>
-          <div className="space-y-1 max-h-40 overflow-y-auto">
-            {monthly.map(ev => (
-              <div key={ev.id} className="flex justify-between text-xs py-1 border-b" style={{ borderColor: "#EDE9E3" }}>
-                <span style={{ color: "#2C3625" }}>{ev.month || ev.uploaded_at?.slice(0, 10)}</span>
-                <button type="button" className="underline" style={{ color: "#7A8A6A" }} onClick={() => viewFile(`${API}/hr/therapist/${therapistId}/evaluations/${ev.id}/file`)}>
-                  <DownloadSimple size={12} className="inline"/> View
-                </button>
-              </div>
-            ))}
-            {!monthly.length && <div className="text-xs" style={{ color: "#8B9E7A" }}>No monthly uploads yet</div>}
-          </div>
-        </ProfileSection>
 
-        <ProfileSection
-          id="annual"
-          openId={openSection}
-          onToggle={setOpenSection}
-          icon={<CalendarCheck size={18} weight="duotone" />}
-          title="Annual evaluation"
-          hint={`${annual.length} upload${annual.length === 1 ? "" : "s"}`}
-        >
-          <div className="flex gap-2 mb-2">
-            <input type="number" className="input text-sm w-24" value={annualYear} onChange={e => setAnnualYear(e.target.value)} min="2020" max="2035"/>
-            <button type="button" className="btn btn-secondary text-xs" onClick={() => annualRef.current?.click()}>
-              <UploadSimple size={14}/> Upload
-            </button>
-            <input ref={annualRef} type="file" className="hidden" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" onChange={e => uploadEval("annual", e.target.files?.[0])}/>
+            <div className="mgr-profile-section-label mt-5">Meeting history</div>
+            {meetings.length > 0 ? (
+              <ul className="mgr-profile-meeting-list">
+                {meetings.slice(0, 12).map(m => (
+                  <li key={m.id} className="mgr-profile-meeting-row">
+                    <CalendarBlank size={14} weight="duotone" className="shrink-0" />
+                    <span><strong>{fmtDate(m.date)}</strong>{m.notes ? ` — ${m.notes}` : ""}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="mgr-profile-empty-row">No manager meetings recorded yet.</div>
+            )}
           </div>
-          <div className="space-y-1 max-h-40 overflow-y-auto">
-            {annual.map(ev => (
-              <div key={ev.id} className="flex justify-between text-xs py-1 border-b" style={{ borderColor: "#EDE9E3" }}>
-                <span style={{ color: "#2C3625" }}>{ev.year || ev.uploaded_at?.slice(0, 4)}</span>
-                <button type="button" className="underline" style={{ color: "#7A8A6A" }} onClick={() => viewFile(`${API}/hr/therapist/${therapistId}/evaluations/${ev.id}/file`)}>
-                  <DownloadSimple size={12} className="inline"/> View
-                </button>
-              </div>
-            ))}
-            {!annual.length && <div className="text-xs" style={{ color: "#8B9E7A" }}>No annual uploads yet</div>}
-          </div>
-        </ProfileSection>
-
-        <ProfileSection
-          id="meetings"
-          openId={openSection}
-          onToggle={setOpenSection}
-          icon={<CalendarBlank size={18} weight="duotone" />}
-          title="Manager meetings"
-          hint={meetings.length ? `Last ${meetings[0]?.date?.slice(0, 10) || "—"}` : "Schedule a meeting"}
-        >
-          <div className="grid sm:grid-cols-2 gap-2 mb-2">
-            <input type="date" className="input text-sm" value={meetingDate} onChange={e => setMeetingDate(e.target.value)} placeholder="Meeting date"/>
-            <input className="input text-sm" value={meetingNotes} onChange={e => setMeetingNotes(e.target.value)} placeholder="Meeting notes (optional)"/>
-          </div>
-          {meetings.length > 0 && (
-            <div className="space-y-1 max-h-36 overflow-y-auto mb-2">
-              {meetings.slice(0, 8).map(m => (
-                <div key={m.id} className="text-xs flex gap-2" style={{ color: "#5C6853" }}>
-                  <CalendarBlank size={12} className="shrink-0 mt-0.5"/>
-                  <span><strong>{m.date?.slice(0, 10)}</strong>{m.notes ? ` — ${m.notes}` : ""}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          <button type="button" className="btn btn-secondary text-xs" onClick={saveProfile} disabled={saving || !meetingDate}>
-            Add meeting & save
-          </button>
-        </ProfileSection>
-
-        <ProfileSection
-          id="leave"
-          openId={openSection}
-          onToggle={setOpenSection}
-          icon={<Briefcase size={18} weight="duotone" />}
-          title="Leave balance"
-          hint={`${profile.leave_balance ?? "—"} / ${profile.annual_balance ?? 30} days`}
-          badge={(profile.leave_balance != null && Number(profile.leave_balance) < 5) ? (
-            <StatusPill tone="warning">Low balance</StatusPill>
-          ) : null}
-        >
-          <div className="grid sm:grid-cols-2 gap-3 text-sm">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#8B9E7A" }}>Remaining</div>
-              <div className="font-bold text-lg" style={{ color: "#2C3625" }}>{profile.leave_balance ?? "—"} days</div>
-            </div>
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#8B9E7A" }}>Annual allowance</div>
-              <div className="font-bold text-lg" style={{ color: "#2C3625" }}>{profile.annual_balance ?? 30} days</div>
-            </div>
-          </div>
-        </ProfileSection>
-
-        {profile.trainings?.length > 0 && (
-          <ProfileSection
-            id="trainings"
-            openId={openSection}
-            onToggle={setOpenSection}
-            icon={<FileText size={18} weight="duotone" />}
-            title="Training / report uploads"
-            hint={`${profile.trainings.length} report${profile.trainings.length === 1 ? "" : "s"}`}
-          >
-            <div className="space-y-1 max-h-40 overflow-y-auto">
-              {profile.trainings.map(tr => (
-                <div key={tr.id} className="flex justify-between text-xs py-1.5 border-b" style={{ borderColor: "#EDE9E3" }}>
-                  <span style={{ color: "#2C3625" }}>{tr.title || tr.attachment_file_name || "Report"}</span>
-                  <span style={{ color: "#8B9E7A" }}>{tr.report_date || tr.created_at?.slice(0, 10)} · {tr.status}</span>
-                </div>
-              ))}
-            </div>
-          </ProfileSection>
         )}
       </div>
+
+      {contractFooter}
     </div>
   );
 }
@@ -449,9 +450,18 @@ function TherapistProfilesTab() {
   const [therapists, setTherapists] = useState([]);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState("");
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     api.get("/therapists").then(({ data }) => setTherapists(Array.isArray(data) ? data : [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const sync = () => { if (!mq.matches) setMobileOpen(false); };
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
   }, []);
 
   const filtered = useMemo(() => {
@@ -465,50 +475,91 @@ function TherapistProfilesTab() {
     );
   }, [therapists, search]);
 
+  const selectTherapist = (id) => {
+    setSelectedId(id);
+    if (window.matchMedia("(max-width: 900px)").matches) setMobileOpen(true);
+  };
+
+  const closeProfile = () => {
+    setSelectedId("");
+    setMobileOpen(false);
+  };
+
+  const selectedTherapist = therapists.find(t => t.id === selectedId);
+
   return (
-    <div className="grid lg:grid-cols-[280px_1fr] gap-4">
-      <div className="card p-3 rounded-[20px]">
-        <div className="relative mb-3">
-          <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#8B9E7A" }}/>
-          <input
-            className="input w-full pl-9 text-sm"
-            placeholder="Search therapist…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-        <div className="max-h-[60vh] overflow-y-auto space-y-1">
-          {filtered.map(t => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setSelectedId(t.id)}
-              className={`w-full text-left px-3 py-2 rounded-xl text-sm transition ${
-                selectedId === t.id ? "font-bold" : ""
-              }`}
-              style={{
-                background: selectedId === t.id ? "#E5EBE1" : "transparent",
-                color: "#2C3625",
-              }}
-            >
-              {getTherapistScheduleName(t)}
-            </button>
-          ))}
-          {!filtered.length && (
-            <div className="text-center py-6 text-xs" style={{ color: "#8B9E7A" }}>No matches</div>
-          )}
-        </div>
-      </div>
-      <div>
-        {selectedId ? (
-          <TherapistProfilePanel therapistId={selectedId} onClose={() => setSelectedId("")} />
-        ) : (
-          <div className="card p-12 text-center rounded-[20px]">
-            <UserCircle size={48} weight="duotone" className="mx-auto mb-3" style={{ color: "#C5CEBC" }}/>
-            <p className="text-sm" style={{ color: "#8B9E7A" }}>Select a therapist to edit contract dates, upload evaluations, and schedule manager meetings</p>
+    <div className="mgr-profile-page" dir="ltr">
+      <PortalPageHeader
+        prefix="mgr-profile"
+        badge="MANAGER HUB"
+        title="Therapist Profiles"
+        subtitle="Contract dates, evaluations, and manager meetings — select a team member to review or update"
+        icon={UserCircle}
+        stats={[
+          { label: "Team", n: therapists.length, color: "#2C3625" },
+          { label: "Showing", n: filtered.length, color: "#3D4F35" },
+        ]}
+      />
+
+      <div className={`mgr-profile-layout${selectedId ? " has-selection" : ""}`}>
+        <aside className={`card mgr-profile-sidebar${mobileOpen ? " is-hidden-mobile" : ""}`}>
+          <div className="mgr-profile-sidebar-head">
+            <h2>Team members</h2>
+            <p>{filtered.length} therapist{filtered.length === 1 ? "" : "s"}</p>
           </div>
-        )}
+          <div className="mgr-profile-search-wrap">
+            <MagnifyingGlass size={16} className="mgr-profile-search-icon" />
+            <input
+              className="input w-full mgr-profile-search-input"
+              placeholder="Search by name or email…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="mgr-profile-list" role="listbox" aria-label="Therapists">
+            {filtered.map(t => (
+              <button
+                key={t.id}
+                type="button"
+                role="option"
+                aria-selected={selectedId === t.id}
+                onClick={() => selectTherapist(t.id)}
+                className={`mgr-profile-list-row${selectedId === t.id ? " is-active" : ""}`}
+              >
+                <span className="mgr-profile-list-avatar">{(getTherapistScheduleName(t) || "?").charAt(0)}</span>
+                <span className="min-w-0 flex-1 text-left">
+                  <span className="mgr-profile-list-name">{getTherapistScheduleName(t)}</span>
+                  {t.email && <span className="mgr-profile-list-meta">{t.email}</span>}
+                </span>
+              </button>
+            ))}
+            {!filtered.length && (
+              <div className="mgr-profile-empty-row">No therapists match your search.</div>
+            )}
+          </div>
+        </aside>
+
+        <main className="mgr-profile-main">
+          {selectedId && !mobileOpen ? (
+            <TherapistProfilePanel therapistId={selectedId} onClose={closeProfile} />
+          ) : !selectedId ? (
+            <div className="card mgr-profile-placeholder">
+              <UserCircle size={48} weight="duotone" className="mgr-profile-placeholder-icon" />
+              <h3>Select a therapist</h3>
+              <p>Choose someone from the list to view contract dates, upload evaluations, and log manager meetings.</p>
+            </div>
+          ) : null}
+        </main>
       </div>
+
+      {mobileOpen && selectedId && (
+        <>
+          <button type="button" className="mgr-profile-mobile-backdrop" aria-label="Close profile" onClick={closeProfile} />
+          <div className="mgr-profile-mobile-sheet" role="dialog" aria-label={selectedTherapist ? getTherapistScheduleName(selectedTherapist) : "Therapist profile"}>
+            <TherapistProfilePanel therapistId={selectedId} onClose={closeProfile} mobile />
+          </div>
+        </>
+      )}
     </div>
   );
 }
