@@ -2953,6 +2953,7 @@ async def _upsert_schedule_preparation(
     notes: Optional[str] = None,
     invoice_id: Optional[str] = None,
     client_name: Optional[str] = None,
+    marker_type: str = "prep",
 ) -> dict:
     """Mark a schedule slot as preparation-complete for therapist + client + date."""
     slot = (time_slot or "").strip()
@@ -2967,6 +2968,8 @@ async def _upsert_schedule_preparation(
         "prepared_by": prepared_by,
         "prepared_at": now_iso(),
         "client_name": client_name,
+        "marker_type": marker_type,
+        "source": "no_show" if marker_type == "no_show" else "prep",
     }
     if existing:
         await db.schedule_preparations.update_one({"id": existing["id"]}, {"$set": doc})
@@ -3072,6 +3075,7 @@ async def _upsert_session_prep_markers(
     prepared_by: str,
     client_name: Optional[str],
     cell: Optional[dict] = None,
+    marker_type: str = "prep",
 ) -> None:
     """Write schedule_preparation rows for a therapist+client+date (with or without a grid cell)."""
     week_start = (cell or {}).get("week_start") or _normalize_week_start(session_date)
@@ -3088,6 +3092,7 @@ async def _upsert_session_prep_markers(
         week_start=week_start,
         day=day,
         client_name=client_name,
+        marker_type=marker_type,
     )
     await _upsert_schedule_preparation(
         therapist_id=therapist_id,
@@ -3099,13 +3104,14 @@ async def _upsert_session_prep_markers(
         week_start=week_start,
         day=day,
         client_name=client_name,
+        marker_type=marker_type,
     )
 
 
 async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) -> None:
-    """When a completed or no-show session is logged, mark matching schedule cells as prepared."""
+    """When a completed or no-attendance session is logged, mark matching schedule cells."""
     status = (sess.get("status") or "").strip()
-    if status not in ("Completed", "No Show"):
+    if status not in ("Completed", "No Show", "Cancelled"):
         return
     client_id = sess.get("client_id")
     session_date = (sess.get("session_date") or "")[:10]
@@ -3118,6 +3124,7 @@ async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) 
     marked = set()
     matched_tids: set = set()
     prepared_by = user_id or sess.get("created_by") or ""
+    marker_type = "no_show" if status in _NO_ATTENDANCE_SESSION_STATUSES else "prep"
     for cell in cells:
         slot_date = _schedule_cell_date_iso(cell)
         if slot_date != session_date:
@@ -3139,6 +3146,7 @@ async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) 
             prepared_by=prepared_by,
             client_name=client_name,
             cell=cell,
+            marker_type=marker_type,
         )
     for tid in therapist_ids:
         if tid in matched_tids:
@@ -3150,6 +3158,7 @@ async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) 
             prepared_by=prepared_by,
             client_name=client_name,
             cell=None,
+            marker_type=marker_type,
         )
 
 
@@ -3161,7 +3170,7 @@ async def _ensure_session_schedule_prep_markers(
 ) -> None:
     """Guarantee schedule_preparations + prep_history stay in sync after logging a session."""
     status = (sess.get("status") or "").strip()
-    if status not in ("Completed", "No Show"):
+    if status not in ("Completed", "No Show", "Cancelled"):
         return
     client_id = sess.get("client_id")
     session_date = (sess.get("session_date") or "")[:10]
@@ -3170,7 +3179,8 @@ async def _ensure_session_schedule_prep_markers(
     client = await db.clients.find_one(_active_client_filter({"id": client_id}), {"_id": 0, "name": 1})
     client_name = (client or {}).get("name")
     prepared_by = user_id or sess.get("created_by") or ""
-    source = "no_show" if status == "No Show" else "session"
+    source = "no_show" if status in _NO_ATTENDANCE_SESSION_STATUSES else "session"
+    marker_type = "no_show" if status in _NO_ATTENDANCE_SESSION_STATUSES else "prep"
     try:
         await _auto_mark_schedule_preparation_for_session(sess, user_id)
     except Exception:
@@ -3187,6 +3197,7 @@ async def _ensure_session_schedule_prep_markers(
                 prepared_by=prepared_by,
                 client_name=client_name,
                 cell=cell,
+                marker_type=marker_type,
             )
         except Exception:
             logger.exception("Schedule prep marker upsert failed for %s/%s", tid, client_id)
@@ -3221,6 +3232,7 @@ async def _ensure_session_schedule_prep_markers(
             prepared_by,
             client_name=client_name,
             anchor_cell=anchor,
+            marker_type=marker_type,
         )
     except Exception:
         logger.exception("Propagate schedule prep cells for session %s", sess.get("id"))
@@ -3255,6 +3267,7 @@ async def _mark_client_day_schedule_prep_cells(
     *,
     client_name: Optional[str] = None,
     anchor_cell: Optional[dict] = None,
+    marker_type: str = "prep",
 ) -> int:
     """Mirror prep onto every schedule cell for this client+day (supervision / co-therapist rows)."""
     sd = (session_date or "")[:10]
@@ -3285,6 +3298,7 @@ async def _mark_client_day_schedule_prep_cells(
                 prepared_by=prepared_by,
                 client_name=client_name,
                 cell=cell,
+                marker_type=marker_type,
             )
             marked += 1
         except Exception:
@@ -3407,6 +3421,8 @@ async def _sync_prep_history_to_schedule_markers(start: str, end: str) -> None:
         linked_tids: set = set()
         primary_cell_id = None
         prepared_by = row.get("prepared_by") or ""
+        row_source = (row.get("source") or "").strip().lower()
+        marker_type = "no_show" if row_source == "no_show" else "prep"
         for rtid in related:
             cell = await _resolve_schedule_cell_for_prep(
                 rtid,
@@ -3432,6 +3448,7 @@ async def _sync_prep_history_to_schedule_markers(start: str, end: str) -> None:
                         prepared_by=prepared_by,
                         client_name=row.get("client_name"),
                         cell=cell,
+                        marker_type=marker_type,
                     )
                 except Exception:
                     logger.exception("sync prep_history to schedule marker %s", row.get("id"))
@@ -3445,6 +3462,7 @@ async def _sync_prep_history_to_schedule_markers(start: str, end: str) -> None:
                         prepared_by=prepared_by,
                         client_name=row.get("client_name"),
                         cell=None,
+                        marker_type=marker_type,
                     )
                 except Exception:
                     logger.exception("sync prep_history marker without cell %s", row.get("id"))
@@ -3456,6 +3474,9 @@ async def _sync_prep_history_to_schedule_markers(start: str, end: str) -> None:
 
 
 _LOGGED_PREP_SESSION_STATUSES = {"Completed"}
+_NO_ATTENDANCE_SESSION_STATUSES = {"No Show", "Cancelled"}
+_NO_SHOW_SESSION_STATUSES = _NO_ATTENDANCE_SESSION_STATUSES
+_SESSION_BADGE_STATUSES = _LOGGED_PREP_SESSION_STATUSES | _NO_ATTENDANCE_SESSION_STATUSES
 
 
 def _require_same_day_session(user: dict, session_date: str) -> None:
@@ -3531,6 +3552,72 @@ async def _computed_schedule_preparation_markers(
                 "day": day,
                 "client_name": client_name,
                 "source": "session",
+                "marker_type": "prep",
+            })
+    return markers
+
+
+async def _computed_schedule_no_show_markers(
+    start: str, end: str, therapist_id: Optional[str] = None
+) -> list:
+    """Build no-show markers for red schedule badges on every row where the client is scheduled."""
+    filter_ids: Optional[set] = None
+    if therapist_id:
+        filter_ids = set(await _expand_therapist_ids(therapist_id))
+    sessions = await db.sessions.find(
+        {
+            **_session_date_range_query(start, end),
+            "status": {"$in": list(_NO_SHOW_SESSION_STATUSES)},
+        },
+        {"_id": 0},
+    ).to_list(5000)
+    if not sessions:
+        return []
+    markers: list = []
+    seen: set = set()
+    for sess in sessions:
+        cid = sess.get("client_id")
+        sd = (sess.get("session_date") or "")[:10]
+        if not cid or not sd:
+            continue
+        client = await db.clients.find_one(
+            _active_client_filter({"id": cid}), {"_id": 0, "name": 1},
+        )
+        client_name = (client or {}).get("name")
+        cells = await _schedule_cells_for_client_day(cid, sd)
+        targets: list = []
+        if cells:
+            targets = cells
+        else:
+            for tid in sess.get("therapist_ids") or []:
+                if filter_ids and tid not in filter_ids:
+                    continue
+                cell = await _resolve_schedule_cell_for_prep(
+                    tid, cid, sd, client_name=client_name,
+                )
+                targets.append(cell or {"therapist_id": tid})
+        for cell in targets:
+            tid = cell.get("therapist_id")
+            if not tid:
+                continue
+            if filter_ids and tid not in filter_ids:
+                continue
+            cell_id = cell.get("id")
+            key = (tid, cell_id or "", cid, sd)
+            if key in seen:
+                continue
+            seen.add(key)
+            markers.append({
+                "therapist_id": tid,
+                "client_id": cid,
+                "session_date": sd,
+                "time_slot": cell.get("time_slot") or "",
+                "schedule_cell_id": cell_id,
+                "week_start": cell.get("week_start"),
+                "day": cell.get("day"),
+                "client_name": client_name,
+                "source": "no_show",
+                "marker_type": "no_show",
             })
     return markers
 
@@ -3549,7 +3636,13 @@ def _merge_schedule_preparation_markers(*groups: list) -> list:
             prev = merged.get(key)
             if not prev:
                 merged[key] = dict(item)
+            elif item.get("marker_type") == "no_show" or item.get("source") == "no_show":
+                merged[key] = {**prev, **item, "marker_type": "no_show", "source": "no_show"}
+            elif prev.get("marker_type") == "no_show" or prev.get("source") == "no_show":
+                merged[key] = {**item, **prev, "marker_type": "no_show", "source": "no_show"}
             elif item.get("schedule_cell_id") and not prev.get("schedule_cell_id"):
+                merged[key] = {**prev, **item}
+            elif item.get("marker_type") == "no_show" and prev.get("marker_type") != "no_show":
                 merged[key] = {**prev, **item}
             elif item.get("client_name") and not prev.get("client_name"):
                 merged[key] = {**prev, "client_name": item["client_name"]}
@@ -3818,7 +3911,7 @@ async def _sync_schedule_preparations_for_week(start: str, end: str) -> dict:
     sessions = await db.sessions.find(
         {
             **_session_date_range_query(start, end),
-            "status": {"$in": list(_LOGGED_PREP_SESSION_STATUSES)},
+            "status": {"$in": list(_SESSION_BADGE_STATUSES)},
         },
         {"_id": 0},
     ).to_list(5000)
@@ -3829,6 +3922,20 @@ async def _sync_schedule_preparations_for_week(start: str, end: str) -> dict:
             )
         except Exception:
             logger.exception("sync schedule preparation for session %s", sess.get("id"))
+    no_attendance = await db.sessions.find(
+        {
+            **_session_date_range_query(start, end),
+            "status": {"$in": list(_NO_ATTENDANCE_SESSION_STATUSES)},
+        },
+        {"_id": 0},
+    ).to_list(5000)
+    for sess in no_attendance:
+        try:
+            await _auto_mark_schedule_preparation_for_session(
+                sess, sess.get("created_by") or ""
+            )
+        except Exception:
+            logger.exception("sync no-show schedule marker for session %s", sess.get("id"))
     try:
         await _sync_prep_history_to_schedule_markers(start, end)
     except Exception:
@@ -3952,8 +4059,9 @@ async def list_schedule_preparations(
     alias_map = await _build_therapist_id_alias_map()
     db_items = await db.schedule_preparations.find(q, {"_id": 0}).to_list(2000)
     computed = await _computed_schedule_preparation_markers(start, end, tid)
+    no_show_markers = await _computed_schedule_no_show_markers(start, end, tid)
     suppressions = await _list_prep_suppressions(start, end, tid)
-    merged = _merge_schedule_preparation_markers(db_items, computed)
+    merged = _merge_schedule_preparation_markers(db_items, computed, no_show_markers)
     items = _filter_suppressed_markers(merged, suppressions, alias_map)
     if not include_future:
         today = now_iso()[:10]
@@ -4422,6 +4530,7 @@ SCHEDULE_CHILD_NAME_ALIASES = {
 SCHEDULE_SHORT_LABEL_FILES = {
     "abdulaziz a": "024",
     "abdulaziz w": "040",
+    "khalid ibrahim": "072",
 }
 
 
@@ -8561,24 +8670,13 @@ async def create_session(payload: SessionIn, user=Depends(get_current_user)):
     doc = _attach_open_invoice_to_session(doc, client or {}, invs)
     await db.sessions.insert_one(doc)
     doc.pop("_id", None)
-    if payload.status in ("Completed", "No Show"):
+    if payload.status in ("Completed", "No Show", "Cancelled"):
         try:
             await _ensure_session_schedule_prep_markers(
                 doc, user["id"], notes=payload.note,
             )
         except Exception:
             logger.exception("Schedule prep sync failed for new session %s", sid)
-    if payload.status == "Cancelled":
-        for tid in therapist_ids:
-            try:
-                await _clear_schedule_preparation_marker(
-                    therapist_id=tid,
-                    client_id=payload.client_id,
-                    session_date=payload.session_date,
-                    suppress_badge=False,
-                )
-            except Exception:
-                logger.exception("Clear prep marker after %s session", payload.status)
     # Admin alerts
     cname = client.get("name") if client else "—"
     if user.get("role") == "therapist":
@@ -8635,18 +8733,10 @@ async def update_session(sid: str, payload: SessionIn, user=Depends(get_current_
     await db.sessions.update_one({"id": sid}, {"$set": patch})
     updated = await db.sessions.find_one({"id": sid}, {"_id": 0})
     try:
-        if updated.get("status") in ("Completed", "No Show"):
+        if updated.get("status") in ("Completed", "No Show", "Cancelled"):
             await _ensure_session_schedule_prep_markers(
                 updated, user["id"], notes=patch.get("note"),
             )
-        elif updated.get("status") == "Cancelled":
-            for tid in therapist_ids:
-                await _clear_schedule_preparation_marker(
-                    therapist_id=tid,
-                    client_id=updated.get("client_id"),
-                    session_date=updated.get("session_date"),
-                    suppress_badge=False,
-                )
         else:
             await _sync_prep_history_for_session(updated, user["id"], notes=patch.get("note"))
     except Exception:

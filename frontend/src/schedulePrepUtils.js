@@ -25,6 +25,7 @@ export function prepRecordKeys(rec, idAliases = null) {
 export function buildPrepLookup(preparations, idAliases = null) {
   const set = new Set();
   for (const rec of preparations || []) {
+    if (prepRecordIsNoShow(rec)) continue;
     for (const k of prepRecordKeys(rec, idAliases)) set.add(k);
   }
   return set;
@@ -217,6 +218,7 @@ function dualSpecialistPrepFromRecords(rec, therapistId, sessionDate, client, pr
 function prepRecordCoversCell(
   rec, cell, therapistId, sessionDate, childName, client, idAliases, preparations, weekSessions,
 ) {
+  if (prepRecordIsNoShow(rec)) return false;
   if (prepRecordMatchesCell(rec, cell, therapistId, sessionDate, childName, client, idAliases)) return true;
   if (dualSpecialistPrepMatch(rec, therapistId, sessionDate, client, weekSessions, idAliases)) return true;
   return dualSpecialistPrepFromRecords(rec, therapistId, sessionDate, client, preparations, idAliases);
@@ -267,6 +269,114 @@ function sessionMatchesCell(sessions, cell, therapistId, sessionDate, client, cl
   return false;
 }
 
+/** True when a schedule label refers to the same client as a session (multi-token names). */
+function sessionClientMatchesCellName(session, cellName, clients = []) {
+  if (!session?.client_id || !cellName) return false;
+  const sc = clients.find((c) => c.id === session.client_id);
+  if (!sc?.name) return false;
+  return scheduleNamesReferToSameClient(cellName, sc.name, clients);
+}
+
+/** Match "Khalid" / "Khalid Ibrahim" / full client name on a schedule cell. */
+export function scheduleNamesReferToSameClient(cellName, clientName, clients = []) {
+  const cellNorm = normScheduleName(cellName || "");
+  const clientNorm = normScheduleName(clientName || "");
+  const cellTokens = cellNorm.split(/\s+/).filter(Boolean);
+  const clientTokens = clientNorm.split(/\s+/).filter(Boolean);
+  if (!cellTokens.length || !clientTokens.length) return false;
+  if (cellTokens[0] !== clientTokens[0]) return false;
+  if (cellTokens.length === 1) return true;
+  if (clientNorm.startsWith(cellNorm) || cellNorm.startsWith(clientNorm)) return true;
+  if (cellTokens.slice(1).every((t) => clientTokens.includes(t))) return true;
+  const sameFirst = (clients || []).filter((c) => {
+    const first = normScheduleName(c.name || "").split(/\s+/)[0];
+    return first && first === cellTokens[0];
+  });
+  if (sameFirst.length === 1 && sameFirst[0].name === clientName) return true;
+  return false;
+}
+
+function findCompletedSessionForCell(
+  sessions, cell, therapistId, sessionDate, client, clients = [], suppressionLookup = null, idAliases = null,
+) {
+  if (!sessions?.length || !cell) return null;
+  const cid = client?.id;
+  if (cid && suppressionLookup?.has(`suppress:${therapistId}|${cid}|${sessionDate}`)) return null;
+  if (cell?.id && suppressionLookup?.has(`suppress:cell:${cell.id}`)) return null;
+
+  const childName = scheduleCellChildName(cell);
+  const candidates = (sessions || []).filter((s) => {
+    if ((s.session_date || "").slice(0, 10) !== sessionDate) return false;
+    if (!LOGGED_PREP_STATUSES.has(s.status)) return false;
+    return sessionIncludesTherapist(s.therapist_ids, therapistId, idAliases);
+  });
+  if (!candidates.length) return null;
+
+  if (client?.id) {
+    const byClient = candidates.find((s) => s.client_id === client.id);
+    if (byClient) return byClient;
+  }
+  if (!childName) return null;
+  const byName = candidates.filter((s) => sessionClientMatchesCellName(s, childName, clients));
+  if (byName.length === 1) return byName[0];
+  if (byName.length > 1) {
+    const onRow = byName.filter((s) => sessionIncludesTherapist(s.therapist_ids, therapistId, idAliases));
+    if (onRow.length === 1) return onRow[0];
+  }
+  return null;
+}
+
+function findNoShowSessionForCell(
+  sessions, cell, therapistId, sessionDate, client, clients = [], suppressionLookup = null, idAliases = null,
+) {
+  if (!sessions?.length || !cell) return null;
+  const cid = client?.id;
+  if (cid && suppressionLookup?.has(`suppress:${therapistId}|${cid}|${sessionDate}`)) return null;
+  if (cell?.id && suppressionLookup?.has(`suppress:cell:${cell.id}`)) return null;
+
+  const childName = scheduleCellChildName(cell);
+  const candidates = (sessions || []).filter((s) => {
+    if ((s.session_date || "").slice(0, 10) !== sessionDate) return false;
+    return NO_ATTENDANCE_SESSION_STATUSES.has(s.status);
+  });
+  if (!candidates.length) return null;
+
+  if (client?.id) {
+    const byClient = candidates.find((s) => s.client_id === client.id);
+    if (byClient) return byClient;
+  }
+
+  if (!childName) return null;
+
+  const byName = candidates.filter((s) => sessionClientMatchesCellName(s, childName, clients));
+  if (byName.length === 1) return byName[0];
+  if (byName.length > 1) {
+    const onRow = byName.filter((s) => sessionIncludesTherapist(s.therapist_ids, therapistId, idAliases));
+    if (onRow.length === 1) return onRow[0];
+    if (onRow.length > 1) return onRow[0];
+  }
+
+  const bf = normScheduleName(childName).split(/\s+/)[0];
+  if (!bf || bf.length < 3) return null;
+  const byFirst = candidates.filter((s) => {
+    const sc = clients.find((c) => c.id === s.client_id);
+    if (!sc) return false;
+    const cf = normScheduleName(sc.name || "").split(/\s+/)[0];
+    return cf && cf === bf;
+  });
+  if (byFirst.length === 1) return byFirst[0];
+  if (byFirst.length > 1) {
+    const onRow = byFirst.filter((s) => sessionIncludesTherapist(s.therapist_ids, therapistId, idAliases));
+    if (onRow.length === 1) return onRow[0];
+  }
+  return null;
+}
+
+function prepRecordIsNoShow(rec) {
+  const t = (rec?.marker_type || rec?.source || "").toLowerCase();
+  return t === "no_show";
+}
+
 function findSessionForCell(sessions, cell, therapistId, sessionDate, client, clients = [], suppressionLookup = null, idAliases = null) {
   if (!sessions?.length) return null;
   const cid = client?.id;
@@ -299,7 +409,7 @@ function findSessionForCell(sessions, cell, therapistId, sessionDate, client, cl
 }
 
 /** Session statuses that show the red corner badge (no attendance). */
-const NO_ATTENDANCE_SESSION_STATUSES = new Set(["No Show"]);
+const NO_ATTENDANCE_SESSION_STATUSES = new Set(["No Show", "Cancelled"]);
 
 function isCellPreparedMark(
   prepLookup,
@@ -358,15 +468,24 @@ export function getCellStatusBadge(
     return null;
   }
 
-  const session = findSessionForCell(
-    weekSessions, cell, therapistId, sessionDate, client, clients, suppressionLookup, idAliases,
-  );
-  if (session && NO_ATTENDANCE_SESSION_STATUSES.has(session.status)) {
-    return "no_show";
+  for (const rec of preparations || []) {
+    if (!prepRecordIsNoShow(rec)) continue;
+    if (prepRecordMatchesCell(rec, cell, therapistId, sessionDate, childName, client, idAliases)) {
+      return "no_show";
+    }
   }
 
-  // Client cancellation without a logged no-show should not show the red corner badge.
-  if (cell.state === "cancel_child") return null;
+  const noShowSession = findNoShowSessionForCell(
+    weekSessions, cell, therapistId, sessionDate, client, clients, suppressionLookup, idAliases,
+  );
+  if (noShowSession) return "no_show";
+
+  if (cell.state === "cancel_child") {
+    const completed = findCompletedSessionForCell(
+      weekSessions, cell, therapistId, sessionDate, client, clients, suppressionLookup, idAliases,
+    );
+    if (!completed) return "no_show";
+  }
 
   if (isCellPrepComplete(
     prepLookup, cell, therapistId, day, weekStart, clients,
@@ -401,10 +520,10 @@ export function isCellPrepComplete(
     return false;
   }
 
-  const session = findSessionForCell(
+  const noShow = findNoShowSessionForCell(
     weekSessions, cell, therapistId, sessionDate, client, clients, suppressionLookup, idAliases,
   );
-  if (session && NO_ATTENDANCE_SESSION_STATUSES.has(session.status)) return false;
+  if (noShow) return false;
 
   if (cell.state === "cancel_child") return false;
 

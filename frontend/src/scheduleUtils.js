@@ -254,6 +254,7 @@ function applyScheduleChildNameAliases(name) {
 const SCHEDULE_SHORT_LABEL_FILES = {
   "abdulaziz a": "024",
   "abdulaziz w": "040",
+  "khalid ibrahim": "072",
 };
 
 function lookupClientByLabel(label, clients = []) {
