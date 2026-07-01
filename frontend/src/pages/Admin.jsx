@@ -87,6 +87,13 @@ export default function Admin() {
   const [repairSessionsResult, setRepairSessionsResult] = useState(null);
   const [repairingSessions, setRepairingSessions] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
+  const [storedBackups, setStoredBackups] = useState([]);
+  const [backupMeta, setBackupMeta] = useState(null);
+  const [loadingBackups, setLoadingBackups] = useState(false);
+  const [storingBackup, setStoringBackup] = useState(false);
+  const [restoringBackupId, setRestoringBackupId] = useState(null);
+  const [restoreUploadResult, setRestoreUploadResult] = useState(null);
+  const [restoreUploading, setRestoreUploading] = useState(false);
   const [therapistSearch, setTherapistSearch] = useState("");
   const [purgeResult, setPurgeResult] = useState(null);
   const [purging, setPurging] = useState(false);
@@ -445,6 +452,67 @@ export default function Admin() {
     }
   };
 
+  const loadStoredBackups = async () => {
+    setLoadingBackups(true);
+    try {
+      const { data } = await api.get("/admin/backups");
+      setStoredBackups(data?.backups || []);
+      setBackupMeta(data);
+    } catch (e) {
+      setStoredBackups([]);
+      alert("Could not load backups: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setLoadingBackups(false);
+    }
+  };
+
+  const storeBackupNow = async () => {
+    setStoringBackup(true);
+    try {
+      const { data } = await api.post("/admin/store-backup");
+      alert(`Backup saved (${data.id?.slice(0, 8)}…)`);
+      loadStoredBackups();
+    } catch (e) {
+      alert("Store backup failed: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setStoringBackup(false);
+    }
+  };
+
+  const restoreStoredBackup = async (backupId, dryRun = true) => {
+    if (!dryRun && !window.confirm("Restore this backup into the live database? Existing records with same IDs will be overwritten.")) return;
+    setRestoringBackupId(backupId);
+    try {
+      const { data } = await api.post(`/admin/restore-backup/${backupId}`, { dry_run: dryRun, mode: "merge" });
+      const lines = Object.entries(data.collections || {}).map(([k, v]) => `${k}: +${v.would_insert ?? v.inserted ?? 0} / ~${v.would_update ?? v.updated ?? 0}`);
+      alert((dryRun ? "Dry run — nothing written.\n" : "Restore applied.\n") + lines.join("\n"));
+      if (!dryRun) loadStoredBackups();
+    } catch (e) {
+      alert("Restore failed: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setRestoringBackupId(null);
+    }
+  };
+
+  const uploadRestoreBackup = async (file, dryRun = true) => {
+    if (!file) return;
+    if (!dryRun && !window.confirm("Apply uploaded backup to live database?")) return;
+    setRestoreUploading(true);
+    setRestoreUploadResult(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("dry_run", dryRun ? "true" : "false");
+      form.append("mode", "merge");
+      const { data } = await api.post("/admin/restore-from-backup", form);
+      setRestoreUploadResult(data);
+    } catch (e) {
+      setRestoreUploadResult({ ok: false, recovery_note_ar: e.response?.data?.detail || e.message });
+    } finally {
+      setRestoreUploading(false);
+    }
+  };
+
   const emailBadge = emailSettings.configured
     ? (emailSettings.active_provider === "brevo" ? "Brevo ✓" : emailSettings.active_provider || "On")
     : "Not set";
@@ -766,15 +834,58 @@ export default function Admin() {
       <AdminSection
         id="data"
         title="Data & Backup"
-        subtitle="Export · Seed master list"
+        subtitle="Export · Daily backup · Restore"
         icon={<Database size={20} weight="duotone" />}
       >
         <div className="pt-4 space-y-3">
-          <ToolRow title="Full Database Backup" desc="JSON export of all collections (credentials redacted).">
+          <ToolRow title="Full Database Backup" desc="Download JSON export of all collections (credentials redacted).">
             <button data-testid="full-backup-btn" onClick={downloadFullBackup} disabled={backingUp} className="btn btn-secondary text-sm">
               {backingUp ? <span className="spinner" /> : "Export Backup"}
             </button>
           </ToolRow>
+          <ToolRow
+            title="Daily backup (stored in database)"
+            desc={`Auto via Railway cron POST /admin/scheduled-backup · keeps ${backupMeta?.retention_days ?? 30} days`}
+          >
+            <div className="flex gap-2 flex-wrap">
+              <button type="button" onClick={loadStoredBackups} disabled={loadingBackups} className="btn btn-outline text-sm">
+                {loadingBackups ? <span className="spinner" /> : "Refresh list"}
+              </button>
+              <button type="button" onClick={storeBackupNow} disabled={storingBackup} className="btn btn-secondary text-sm">
+                {storingBackup ? <span className="spinner" /> : "Save backup now"}
+              </button>
+            </div>
+          </ToolRow>
+          {storedBackups.length > 0 && (
+            <div className="text-xs space-y-2 max-h-48 overflow-y-auto p-3 rounded-lg" style={{ background: "#FAFAF7" }}>
+              {storedBackups.map((b) => (
+                <div key={b.id} className="flex items-center justify-between gap-2 border-b border-[#E2DDD4] pb-2 last:border-0">
+                  <div>
+                    <div className="font-bold" style={{ color: "#2C3625" }}>{b.created_at?.slice(0, 19) || b.id}</div>
+                    <div style={{ color: "#8B9E7A" }}>
+                      {b.source} · clients {b.totals?.clients ?? "?"} · cells {b.totals?.schedule_cells ?? "?"}
+                    </div>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <button type="button" disabled={restoringBackupId === b.id} onClick={() => restoreStoredBackup(b.id, true)} className="btn btn-outline text-[10px] py-1 px-2">Dry run</button>
+                    <button type="button" disabled={restoringBackupId === b.id} onClick={() => restoreStoredBackup(b.id, false)} className="btn btn-gold text-[10px] py-1 px-2">Restore</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <ToolRow title="Restore from uploaded JSON" desc="Upload a backup file. Dry-run first to preview counts.">
+            <label className="btn btn-outline text-sm cursor-pointer">
+              {restoreUploading ? <span className="spinner" /> : "Upload & dry-run"}
+              <input type="file" accept=".json,application/json" className="hidden" onChange={(e) => uploadRestoreBackup(e.target.files?.[0], true)} />
+            </label>
+          </ToolRow>
+          {restoreUploadResult && (
+            <div className="text-xs p-2 rounded-lg" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+              <div>{restoreUploadResult.recovery_note_ar || (restoreUploadResult.dry_run ? "Dry run complete" : "Restore applied")}</div>
+              <button type="button" onClick={() => setRestoreUploadResult(null)} className="btn btn-outline text-xs mt-1">Dismiss</button>
+            </div>
+          )}
           <ToolRow title="Seed Master Data" desc="Sync therapists & clients from master list. Safe to re-run.">
             <button data-testid="seed-master-btn" onClick={() => setSeedConfirm(true)} disabled={seeding} className="btn btn-gold text-sm">
               {seeding ? <span className="spinner" /> : "Run Seed"}

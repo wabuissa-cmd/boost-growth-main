@@ -331,6 +331,88 @@ async def _dedupe_duplicate_therapists() -> dict:
     return {"removed": len(to_delete), "actions": actions}
 
 
+THERAPIST_FIRST_NAME_ALIASES = {
+    "hajer": "hajar", "hajar": "hajar",
+    "shrooq": "shroug", "shroug": "shroug",
+    "bodoor": "bodour", "bodour": "bodour",
+    "genan": "jenan", "jenan": "jenan",
+    "fahdah": "fahda", "fahda": "fahda",
+}
+
+
+def _therapist_identity_token(t: dict) -> Optional[str]:
+    """Stable grouping key for duplicate therapist rows (key, first name, or email)."""
+    key = (t.get("key") or "").strip().lower()
+    if key:
+        return f"key:{key}"
+    raw = re.sub(r"^Ms\.?\s*", "", (t.get("name") or "").strip(), flags=re.I)
+    parts = [p for p in raw.split() if p]
+    if parts:
+        first = THERAPIST_FIRST_NAME_ALIASES.get(parts[0].lower(), parts[0].lower())
+        return f"name:{first}"
+    em = (t.get("email") or "").strip().lower()
+    if em:
+        canon = THERAPIST_LOGIN_EMAIL_ALIASES.get(em, em)
+        return f"email:{canon}"
+    return None
+
+
+async def _dedupe_therapists_by_identity() -> dict:
+    """Merge duplicate therapist rows that share key or first-name identity (different emails)."""
+    therapists = await db.therapists.find({}, {"_id": 0}).to_list(500)
+    groups: Dict[str, list] = {}
+    for t in therapists:
+        tok = _therapist_identity_token(t)
+        if tok:
+            groups.setdefault(tok, []).append(t)
+
+    to_delete: List[tuple] = []
+    actions: List[dict] = []
+    for tok, group in groups.items():
+        if len(group) < 2:
+            continue
+        scored = []
+        for t in group:
+            cell_n = await db.schedule_cells.count_documents({"therapist_id": t["id"]})
+            scored.append((_therapist_record_score(t) + cell_n, t.get("created_at") or "", t))
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        winner = scored[0][2]
+        for _, _, loser in scored[1:]:
+            if loser["id"] == winner["id"]:
+                continue
+            to_delete.append((loser["id"], winner["id"]))
+            actions.append({
+                "token": tok,
+                "kept_id": winner["id"],
+                "kept_name": winner.get("name"),
+                "removed_id": loser["id"],
+                "removed_name": loser.get("name"),
+            })
+
+    for loser_id, winner_id in to_delete:
+        await db.schedule_cells.update_many(
+            {"therapist_id": loser_id},
+            {"$set": {"therapist_id": winner_id}},
+        )
+        async for sess in db.sessions.find({"therapist_ids": loser_id}, {"_id": 0, "id": 1, "therapist_ids": 1}):
+            ids = [winner_id if x == loser_id else x for x in (sess.get("therapist_ids") or [])]
+            await db.sessions.update_one(
+                {"id": sess["id"]},
+                {"$set": {"therapist_ids": list(dict.fromkeys(ids))}},
+            )
+        await db.prep_history.update_many(
+            {"therapist_id": loser_id},
+            {"$set": {"therapist_id": winner_id}},
+        )
+        await db.schedule_preparations.update_many(
+            {"therapist_id": loser_id},
+            {"$set": {"therapist_id": winner_id}},
+        )
+        await db.users.delete_many({"therapist_id": loser_id})
+        await db.therapists.delete_one({"id": loser_id})
+    return {"removed": len(to_delete), "actions": actions}
+
+
 # Known therapist passwords for first-time email login (only when password_hash is missing).
 THERAPIST_BOOTSTRAP_PASSWORDS = {
     "asma@boostgrowthsa.com": "Asma@123",
@@ -1347,7 +1429,16 @@ async def logout(response: Response):
 # ------------------- Therapists -------------------
 @api.get("/therapists")
 async def list_therapists(user=Depends(get_current_user)):
-    return await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).sort("name", 1).to_list(500)
+    rows = await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).sort("name", 1).to_list(500)
+    seen_tokens: set = set()
+    deduped = []
+    for t in rows:
+        tok = _therapist_identity_token(t) or t.get("id")
+        if tok in seen_tokens:
+            continue
+        seen_tokens.add(tok)
+        deduped.append(t)
+    return deduped
 
 @api.post("/therapists")
 async def create_therapist(payload: TherapistIn, _=Depends(admin_only)):
@@ -1386,10 +1477,16 @@ async def delete_therapist(tid: str, _=Depends(admin_only)):
 # ------------------- Full Database Backup (admin only) -------------------
 BACKUP_COLLECTIONS = [
     "users", "therapists", "clients", "sessions", "invoices",
-    "leaves", "requests", "progress_reports", "schedule_cells", "schedule_preparations", "schedule_prep_suppressions", "prep_history",
-    "intake_pre", "intake_post", "notifications", "attendance_sheets",
+    "leaves", "requests", "progress_reports", "schedule_cells", "schedule_preparations",
+    "schedule_prep_suppressions", "prep_history", "schedule_weeks",
+    "intake", "intake_pre", "intake_post", "notifications", "attendance_sheets",
     "email_settings", "email_queue",
 ]
+BACKUP_SENSITIVE_FIELDS = {"pin_hash", "password_hash"}
+BACKUP_RETENTION_DAYS = int(os.environ.get("BACKUP_RETENTION_DAYS", "30"))
+BACKUP_MAX_STORED = int(os.environ.get("BACKUP_MAX_STORED", "30"))
+BACKUP_CRON_SECRET = os.environ.get("BACKUP_CRON_SECRET", "")
+
 
 def _json_safe(obj):
     """Recursively convert BSON / non-JSON-native types to plain JSON values."""
@@ -1404,13 +1501,8 @@ def _json_safe(obj):
         return str(obj)
     return obj
 
-@api.get("/admin/full-backup")
-async def full_backup(_=Depends(admin_only)):
-    """Return a JSON dump of every collection in the DB. Admin-only.
-    Sensitive fields like pin_hash / password_hash are stripped before export."""
-    import json
-    from fastapi.responses import Response
-    SENSITIVE = {"pin_hash", "password_hash"}
+
+async def _build_backup_dump() -> dict:
     dump = {
         "exported_at": now_iso(),
         "db_name": os.environ.get("DB_NAME"),
@@ -1418,18 +1510,133 @@ async def full_backup(_=Depends(admin_only)):
     }
     for cname in BACKUP_COLLECTIONS:
         try:
-            docs = await db[cname].find({}, {"_id": 0}).to_list(10000)
+            docs = await db[cname].find({}, {"_id": 0}).to_list(20000)
         except Exception:
             docs = []
         clean = []
         for d in docs:
             d2 = _json_safe(d)
             for k in list(d2.keys()):
-                if k in SENSITIVE:
+                if k in BACKUP_SENSITIVE_FIELDS:
                     d2[k] = "[REDACTED]"
             clean.append(d2)
         dump["collections"][cname] = clean
     dump["totals"] = {k: len(v) for k, v in dump["collections"].items()}
+    return dump
+
+
+async def _prune_old_backups() -> int:
+    """Drop stored backups older than retention window; cap total count."""
+    removed = 0
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=BACKUP_RETENTION_DAYS)).isoformat()
+    r = await db.backups.delete_many({"created_at": {"$lt": cutoff}})
+    removed += int(r.deleted_count or 0)
+    excess = await db.backups.count_documents({}) - BACKUP_MAX_STORED
+    if excess > 0:
+        oldest = await db.backups.find({}, {"_id": 0, "id": 1}).sort("created_at", 1).limit(excess).to_list(excess)
+        ids = [b["id"] for b in oldest if b.get("id")]
+        if ids:
+            r2 = await db.backups.delete_many({"id": {"$in": ids}})
+            removed += int(r2.deleted_count or 0)
+    return removed
+
+
+async def _store_backup(source: str = "manual") -> dict:
+    dump = await _build_backup_dump()
+    backup_id = str(uuid.uuid4())
+    doc = {
+        "id": backup_id,
+        "created_at": dump["exported_at"],
+        "source": source,
+        "db_name": dump.get("db_name"),
+        "totals": dump["totals"],
+        "data": dump,
+    }
+    await db.backups.insert_one(doc)
+    pruned = await _prune_old_backups()
+    return {
+        "id": backup_id,
+        "created_at": doc["created_at"],
+        "source": source,
+        "totals": dump["totals"],
+        "pruned_old": pruned,
+    }
+
+
+async def _restore_collections_from_dump(
+    dump: dict,
+    *,
+    dry_run: bool,
+    only: Optional[List[str]] = None,
+    mode: str = "merge",
+) -> dict:
+    """Restore collections from backup JSON. merge=upsert by id; replace=clear collection first."""
+    collections = dump.get("collections") or {}
+    if only:
+        wanted = {c.strip() for c in only if c.strip()}
+        collections = {k: v for k, v in collections.items() if k in wanted}
+    report: dict = {}
+    for cname, docs in collections.items():
+        if not isinstance(docs, list):
+            continue
+        existing = await db[cname].count_documents({})
+        would_insert = 0
+        would_update = 0
+        for doc in docs:
+            if not isinstance(doc, dict):
+                continue
+            doc_id = doc.get("id")
+            if doc_id and await db[cname].find_one({"id": doc_id}, {"_id": 0, "id": 1}):
+                would_update += 1
+            else:
+                would_insert += 1
+        entry = {
+            "existing_before": existing,
+            "would_insert": would_insert,
+            "would_update": would_update,
+            "docs_in_backup": len(docs),
+        }
+        if dry_run:
+            report[cname] = entry
+            continue
+        inserted = updated = 0
+        if mode == "replace":
+            await db[cname].delete_many({})
+        for doc in docs:
+            if not isinstance(doc, dict):
+                continue
+            doc_id = doc.get("id")
+            if doc_id:
+                r = await db[cname].update_one({"id": doc_id}, {"$set": doc}, upsert=True)
+                if r.matched_count:
+                    updated += 1
+                else:
+                    inserted += 1
+            else:
+                await db[cname].insert_one(doc)
+                inserted += 1
+        entry["inserted"] = inserted
+        entry["updated"] = updated
+        entry["after"] = await db[cname].count_documents({})
+        report[cname] = entry
+    return report
+
+
+def _verify_backup_cron_token(request: Request) -> None:
+    token = (
+        request.headers.get("X-Backup-Token")
+        or request.headers.get("X-Cron-Secret")
+        or ""
+    ).strip()
+    if not BACKUP_CRON_SECRET or token != BACKUP_CRON_SECRET:
+        raise HTTPException(status_code=403, detail="Invalid backup token")
+
+
+@api.get("/admin/full-backup")
+async def full_backup(_=Depends(admin_only)):
+    """Return a JSON dump of every collection in the DB. Admin-only."""
+    import json
+    dump = await _build_backup_dump()
     body = json.dumps(dump, ensure_ascii=False, indent=2)
     stamp = now_iso().replace(":", "-")[:19]
     fname = f"boost-growth-backup-{stamp}.json"
@@ -1438,6 +1645,95 @@ async def full_backup(_=Depends(admin_only)):
         media_type="application/json",
         headers={"Content-Disposition": f"attachment; filename={fname}"},
     )
+
+
+@api.post("/admin/scheduled-backup")
+async def scheduled_backup(request: Request):
+    """Daily cron endpoint — requires BACKUP_CRON_SECRET via X-Backup-Token header."""
+    _verify_backup_cron_token(request)
+    result = await _store_backup(source="scheduled")
+    return {"ok": True, **result}
+
+
+@api.post("/admin/store-backup")
+async def store_backup_now(_=Depends(admin_only)):
+    """Store a timestamped backup in MongoDB (Admin UI / manual)."""
+    result = await _store_backup(source="manual")
+    return {"ok": True, **result}
+
+
+@api.get("/admin/backups")
+async def list_backups(_=Depends(admin_only)):
+    """List stored backups (metadata only, no payload)."""
+    rows = await db.backups.find(
+        {},
+        {"_id": 0, "id": 1, "created_at": 1, "source": 1, "totals": 1, "db_name": 1},
+    ).sort("created_at", -1).limit(BACKUP_MAX_STORED).to_list(BACKUP_MAX_STORED)
+    return {"backups": rows, "retention_days": BACKUP_RETENTION_DAYS, "max_stored": BACKUP_MAX_STORED}
+
+
+class RestoreBackupIn(BaseModel):
+    dry_run: bool = True
+    collections: Optional[List[str]] = None
+    mode: str = "merge"
+
+
+@api.post("/admin/restore-backup/{backup_id}")
+async def restore_stored_backup(backup_id: str, body: RestoreBackupIn, _=Depends(admin_only)):
+    """Restore from a stored backup by id. Default dry_run=true — set false to apply."""
+    row = await db.backups.find_one({"id": backup_id}, {"_id": 0})
+    if not row or not row.get("data"):
+        raise HTTPException(status_code=404, detail="Backup not found")
+    if body.mode not in ("merge", "replace"):
+        raise HTTPException(status_code=400, detail="mode must be merge or replace")
+    report = await _restore_collections_from_dump(
+        row["data"],
+        dry_run=body.dry_run,
+        only=body.collections,
+        mode=body.mode,
+    )
+    return {
+        "ok": True,
+        "backup_id": backup_id,
+        "backup_created_at": row.get("created_at"),
+        "dry_run": body.dry_run,
+        "collections": report,
+    }
+
+
+@api.post("/admin/restore-from-backup")
+async def restore_from_uploaded_backup(
+    file: UploadFile = File(...),
+    dry_run: str = Form("true"),
+    collections: Optional[str] = Form(None),
+    mode: str = Form("merge"),
+    _=Depends(admin_only),
+):
+    """Upload a JSON backup file and restore selected collections (dry-run by default)."""
+    import json
+    raw = await file.read()
+    try:
+        dump = json.loads(raw.decode("utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
+    if not dump.get("collections"):
+        raise HTTPException(status_code=400, detail="Missing collections in backup file")
+    only = [c.strip() for c in (collections or "").split(",") if c.strip()] or None
+    is_dry = str(dry_run).lower() in ("1", "true", "yes")
+    if mode not in ("merge", "replace"):
+        raise HTTPException(status_code=400, detail="mode must be merge or replace")
+    report = await _restore_collections_from_dump(dump, dry_run=is_dry, only=only, mode=mode)
+    return {
+        "ok": True,
+        "exported_at": dump.get("exported_at"),
+        "dry_run": is_dry,
+        "collections": report,
+        "recovery_note_ar": (
+            "تجربة جافة — لم يُكتب شيء. عيّن dry_run=false للتطبيق."
+            if is_dry else
+            "تمت الاستعادة. راجع الأعداد أدناه ثم أعد تحميل البوابة."
+        ),
+    }
 
 class LeaveBalanceIn(BaseModel):
     leave_balance: float
@@ -12904,6 +13200,13 @@ async def _run_startup():
                 logger.info(f"Therapist dedupe: removed {th_dedupe['removed']} duplicate(s)")
         except Exception as e:
             logger.warning(f"Therapist dedupe skipped: {e}")
+
+        try:
+            id_dedupe = await _dedupe_therapists_by_identity()
+            if id_dedupe.get("removed"):
+                logger.info(f"Therapist identity dedupe: removed {id_dedupe['removed']} duplicate(s)")
+        except Exception as e:
+            logger.warning(f"Therapist identity dedupe skipped: {e}")
 
         try:
             nat_clean = await _remove_therapists_without_nationality()

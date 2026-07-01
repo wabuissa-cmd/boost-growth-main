@@ -134,7 +134,18 @@ export function getPortalDisplayName(user, therapistRow = null) {
 
 export function sortTherapistsForSchedule(list) {
   const orderMap = new Map(THERAPIST_SCHEDULE_ORDER.map((k, i) => [k, i]));
-  return [...list].sort((a, b) => {
+  const seenIds = new Set();
+  const seenNames = new Set();
+  const unique = [];
+  for (const t of list) {
+    if (!t?.id || seenIds.has(t.id)) continue;
+    const label = getTherapistScheduleName(t).toLowerCase().trim();
+    if (label && seenNames.has(label)) continue;
+    seenIds.add(t.id);
+    if (label) seenNames.add(label);
+    unique.push(t);
+  }
+  return unique.sort((a, b) => {
     const ka = (a.key || "").toLowerCase();
     const kb = (b.key || "").toLowerCase();
     const ia = orderMap.has(ka) ? orderMap.get(ka) : 999;
