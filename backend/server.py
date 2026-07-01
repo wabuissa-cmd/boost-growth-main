@@ -1735,6 +1735,152 @@ async def restore_from_uploaded_backup(
         ),
     }
 
+
+TRIAL_WEEK_START = "2026-06-28"
+TRIAL_WEEK_END = "2026-07-02"
+AUTO_BACKUP_HOURS = 24
+
+
+async def _get_data_health_snapshot() -> dict:
+    """Collection counts and duplicate-therapist groups for Admin health panel."""
+    therapists = await db.therapists.find({}, {"_id": 0}).to_list(500)
+    by_token: dict = {}
+    for t in therapists:
+        tok = _therapist_identity_token(t) or t.get("id")
+        by_token.setdefault(tok, []).append(t)
+    dup_groups = sum(1 for g in by_token.values() if len(g) > 1)
+
+    schedule_weeks: List[dict] = []
+    pipeline = [
+        {"$group": {"_id": "$week_start", "n": {"$sum": 1}}},
+        {"$sort": {"n": -1}},
+        {"$limit": 20},
+    ]
+    async for row in db.schedule_cells.aggregate(pipeline):
+        ws = row["_id"]
+        meta = await db.schedule_weeks.find_one({"week_start": ws}, {"_id": 0, "status": 1})
+        schedule_weeks.append({
+            "week_start": ws,
+            "cells": row["n"],
+            "status": (meta or {}).get("status") or "(none)",
+        })
+
+    last_backup = await db.backups.find_one(
+        {},
+        {"_id": 0, "created_at": 1, "id": 1, "source": 1},
+        sort=[("created_at", -1)],
+    )
+    clients = await db.clients.count_documents(_active_client_filter())
+    return {
+        "clients": clients,
+        "invoices": await db.invoices.count_documents({}),
+        "sessions": await db.sessions.count_documents({}),
+        "prep_history": await db.prep_history.count_documents({}),
+        "therapists": len(therapists),
+        "duplicate_therapist_groups": dup_groups,
+        "schedule_weeks": schedule_weeks,
+        "schedule_cells_total": await db.schedule_cells.count_documents({}),
+        "stored_backups": await db.backups.count_documents({}),
+        "last_backup_at": (last_backup or {}).get("created_at"),
+        "last_backup_id": ((last_backup or {}).get("id") or "")[:8] or None,
+        "last_backup_source": (last_backup or {}).get("source"),
+        "ok": clients >= 20 and dup_groups == 0,
+    }
+
+
+def _arabic_recover_summary(results: dict) -> str:
+    lines: List[str] = []
+    td = results.get("therapist_dedupe") or {}
+    if td.get("removed"):
+        lines.append(f"دمج {td['removed']} معالج مكرر (بريد)")
+    idd = results.get("identity_dedupe") or {}
+    if idd.get("removed"):
+        lines.append(f"دمج {idd['removed']} حساب بنفس الهوية")
+    prep = results.get("prep_recovery") or {}
+    if any((prep.get(k) or 0) for k in prep):
+        lines.append("إصلاح تواريخ التحضير للأسبوع التجريبي")
+    if results.get("prep_relink"):
+        lines.append("إعادة ربط التحضير (الحالي + التجريبي)")
+    if results.get("schedule_order_fix"):
+        lines.append(f"إصلاح صفوف مكررة في الجدول ({results['schedule_order_fix']} أسبوع)")
+    seed = results.get("seed_master")
+    if seed:
+        created = len((seed.get("clients") or {}).get("created") or [])
+        updated = len((seed.get("clients") or {}).get("updated") or [])
+        if created or updated:
+            lines.append(f"تحديث البيانات الرئيسية (+{created} طفل / ~{updated} محدّث)")
+    if results.get("backup"):
+        lines.append("حفظ نسخة احتياطية")
+    if not lines:
+        return "لا توجد مشاكل — البيانات تبدو سليمة ✓"
+    return " · ".join(lines)
+
+
+async def _auto_backup_if_stale(hours: int = AUTO_BACKUP_HOURS) -> Optional[dict]:
+    """Store backup when none exists in the last N hours (startup / recovery)."""
+    last = await db.backups.find_one({}, {"_id": 0, "created_at": 1}, sort=[("created_at", -1)])
+    if last and last.get("created_at"):
+        try:
+            ts = datetime.fromisoformat(str(last["created_at"]).replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            age_h = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
+            if age_h < hours:
+                return None
+        except ValueError:
+            pass
+    return await _store_backup(source="startup")
+
+
+async def _run_auto_recover(*, store_backup: bool = False) -> dict:
+    """Therapist dedupe, prep recovery, relink, optional seed — used by Admin and startup."""
+    from datetime import date as date_cls
+
+    results: dict = {}
+    results["therapist_dedupe"] = await _dedupe_duplicate_therapists()
+    results["identity_dedupe"] = await _dedupe_therapists_by_identity()
+    results["schedule_order_fix"] = await _fix_schedule_therapist_order_duplicates()
+    await _migrate_schedule_week_therapist_orders()
+
+    results["prep_recovery"] = await _recover_misdated_week_prep(TRIAL_WEEK_START, TRIAL_WEEK_END)
+
+    current_week = _normalize_week_start(date_cls.today().isoformat())
+    current_end = (
+        datetime.fromisoformat(current_week) + timedelta(days=4)
+    ).strftime("%Y-%m-%d")
+    results["prep_relink"] = {
+        "trial": await _sync_schedule_preparations_for_week(TRIAL_WEEK_START, TRIAL_WEEK_END),
+        "current_week": current_week,
+        "current": await _sync_schedule_preparations_for_week(current_week, current_end),
+    }
+
+    clients = await db.clients.count_documents(_active_client_filter())
+    if clients < 20:
+        results["seed_master"] = await _seed_master_data_impl()
+
+    if store_backup:
+        results["backup"] = await _store_backup(source="recovery")
+
+    results["health_after"] = await _get_data_health_snapshot()
+    results["summary_ar"] = _arabic_recover_summary(results)
+    results["ok"] = True
+    return results
+
+
+@api.get("/admin/data-health")
+async def admin_data_health(_=Depends(admin_only)):
+    """One-click portal health snapshot for Admin recovery panel."""
+    snap = await _get_data_health_snapshot()
+    return {"ok": True, **snap}
+
+
+@api.post("/admin/auto-recover")
+async def admin_auto_recover(_=Depends(admin_only)):
+    """Run therapist dedupe, prep recovery, relink, and safe seed if clients < 20."""
+    results = await _run_auto_recover(store_backup=False)
+    return results
+
+
 class LeaveBalanceIn(BaseModel):
     leave_balance: float
     annual_balance: Optional[float] = None
@@ -1806,15 +1952,8 @@ MASTER_CLIENTS = [
 async def _resolve_therapist_id(key_to_id: dict, key: str) -> Optional[str]:
     return key_to_id.get(key)
 
-@api.post("/admin/seed-master-data")
-async def seed_master_data(_=Depends(admin_only)):
-    """Idempotently seed/update therapists and clients with the canonical master list.
-    - Therapists: match by first-name token (case-insensitive) inside existing DB name.
-      If found -> update (key, role, leave_balance, join_date) WITHOUT touching name/email.
-      If not found -> create new therapist with display_email and default PIN 0000.
-    - Clients: match by file_no. If found -> patch missing/new fields. If not found -> create.
-    - Never deletes any record. Sessions/invoices remain intact.
-    """
+async def _seed_master_data_impl() -> dict:
+    """Idempotently seed/update therapists and clients with the canonical master list."""
     results = {"therapists": {"updated": [], "created": [], "skipped": []},
                "clients": {"updated": [], "created": [], "skipped": []}}
 
@@ -1896,6 +2035,18 @@ async def seed_master_data(_=Depends(admin_only)):
             results["clients"]["created"].append({"file_no": file_no, "name": name, "id": cid})
 
     return results
+
+
+@api.post("/admin/seed-master-data")
+async def seed_master_data(_=Depends(admin_only)):
+    """Idempotently seed/update therapists and clients with the canonical master list.
+    - Therapists: match by first-name token (case-insensitive) inside existing DB name.
+      If found -> update (key, role, leave_balance, join_date) WITHOUT touching name/email.
+      If not found -> create new therapist with display_email and default PIN 0000.
+    - Clients: match by file_no. If found -> patch missing/new fields. If not found -> create.
+    - Never deletes any record. Sessions/invoices remain intact.
+    """
+    return await _seed_master_data_impl()
 
 # ------------------- Schedule -------------------
 @api.get("/schedule/week-status")
@@ -12275,15 +12426,77 @@ async def _save_week_therapist_order(week_start: str, therapist_order: List[str]
 
 async def _canonical_therapist_order_ids() -> List[str]:
     """Map THERAPIST_SCHEDULE_ORDER keys to therapist ids (Excel column order)."""
-    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "key": 1}).to_list(500)
+    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "key": 1, "name": 1}).to_list(500)
     key_to_id = {(t.get("key") or "").lower(): t["id"] for t in therapists if t.get("key")}
     ordered = [key_to_id[k] for k in THERAPIST_SCHEDULE_ORDER if k in key_to_id]
     seen = set(ordered)
+    seen_display: set = set()
+    for tid in ordered:
+        t = next((x for x in therapists if x["id"] == tid), None)
+        if t:
+            seen_display.add(therapist_schedule_display_name(t).lower())
     for t in therapists:
-        if t["id"] not in seen:
-            ordered.append(t["id"])
-            seen.add(t["id"])
+        if t["id"] in seen:
+            continue
+        disp = therapist_schedule_display_name(t).lower()
+        if disp and disp in seen_display:
+            continue
+        ordered.append(t["id"])
+        seen.add(t["id"])
+        if disp:
+            seen_display.add(disp)
     return ordered
+
+
+async def _fix_schedule_therapist_order_duplicates() -> int:
+    """Remove duplicate therapist rows from week therapist_order (same person twice)."""
+    therapists = await db.therapists.find({}, {"_id": 0}).to_list(500)
+    id_to_display = {
+        t["id"]: therapist_schedule_display_name(t).lower()
+        for t in therapists if t.get("id")
+    }
+    id_remap: dict = {}
+    groups: dict = {}
+    for t in therapists:
+        tok = _therapist_identity_token(t)
+        if tok:
+            groups.setdefault(tok, []).append(t)
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        scored = sorted(group, key=lambda t: (-_therapist_record_score(t), t.get("created_at") or ""))
+        winner = scored[0]
+        for loser in scored[1:]:
+            id_remap[loser["id"]] = winner["id"]
+
+    updated = 0
+    async for doc in db.schedule_weeks.find({}, {"_id": 0, "week_start": 1, "therapist_order": 1}):
+        order = doc.get("therapist_order") or []
+        if not order:
+            continue
+        new_order: List[str] = []
+        seen_ids: set = set()
+        seen_display: set = set()
+        changed = False
+        for tid in order:
+            canonical = id_remap.get(tid, tid)
+            disp = id_to_display.get(canonical, "")
+            if canonical in seen_ids or (disp and disp in seen_display):
+                changed = True
+                continue
+            if canonical != tid:
+                changed = True
+            new_order.append(canonical)
+            seen_ids.add(canonical)
+            if disp:
+                seen_display.add(disp)
+        if changed:
+            await db.schedule_weeks.update_one(
+                {"week_start": doc["week_start"]},
+                {"$set": {"therapist_order": new_order, "updated_at": now_iso()}},
+            )
+            updated += 1
+    return updated
 
 
 async def _migrate_schedule_week_therapist_orders() -> int:
@@ -13207,6 +13420,46 @@ async def _run_startup():
                 logger.info(f"Therapist identity dedupe: removed {id_dedupe['removed']} duplicate(s)")
         except Exception as e:
             logger.warning(f"Therapist identity dedupe skipped: {e}")
+
+        try:
+            order_fix = await _fix_schedule_therapist_order_duplicates()
+            if order_fix:
+                logger.info(f"Schedule therapist_order dedupe: fixed {order_fix} week(s)")
+        except Exception as e:
+            logger.warning(f"Schedule therapist_order dedupe skipped: {e}")
+
+        try:
+            prep_recovery = await _recover_misdated_week_prep(TRIAL_WEEK_START, TRIAL_WEEK_END)
+            if any(prep_recovery.values()):
+                logger.info(f"Prep recovery {TRIAL_WEEK_START}: {prep_recovery}")
+        except Exception as e:
+            logger.warning(f"Prep recovery for trial week skipped: {e}")
+
+        try:
+            backup = await _auto_backup_if_stale()
+            if backup:
+                logger.info(
+                    f"Startup auto-backup stored ({backup.get('id', '')[:8]}…, "
+                    f"clients={backup.get('totals', {}).get('clients')})"
+                )
+        except Exception as e:
+            logger.warning(f"Startup auto-backup skipped: {e}")
+
+        try:
+            health = await _get_data_health_snapshot()
+            logger.info(
+                "Startup data counts: clients=%s invoices=%s sessions=%s prep=%s "
+                "therapists=%s dup_groups=%s backups=%s",
+                health.get("clients"),
+                health.get("invoices"),
+                health.get("sessions"),
+                health.get("prep_history"),
+                health.get("therapists"),
+                health.get("duplicate_therapist_groups"),
+                health.get("stored_backups"),
+            )
+        except Exception as e:
+            logger.warning(f"Startup health log skipped: {e}")
 
         try:
             nat_clean = await _remove_therapists_without_nationality()

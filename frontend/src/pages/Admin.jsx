@@ -3,7 +3,7 @@ import api from "../api";
 import { useAuth } from "../auth";
 import {
   Plus, PencilSimple, Trash, X, UserPlus, Key, EnvelopeSimple, CheckCircle, Warning,
-  Database, SignOut, CaretDown, CaretUp, Users, Wrench, LinkSimple,
+  Database, SignOut, CaretDown, CaretUp, Users, Wrench, LinkSimple, Heartbeat,
 } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
 import { getTherapistScheduleName } from "../scheduleConstants";
@@ -107,6 +107,10 @@ export default function Admin() {
   const [launchGenerating, setLaunchGenerating] = useState(false);
   const [unifiedLaunchResult, setUnifiedLaunchResult] = useState(null);
   const [unifiedLaunchSetting, setUnifiedLaunchSetting] = useState(false);
+  const [healthData, setHealthData] = useState(null);
+  const [loadingHealth, setLoadingHealth] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const [recoverResult, setRecoverResult] = useState(null);
 
   const loadDeletedClients = async () => {
     try {
@@ -472,10 +476,38 @@ export default function Admin() {
       const { data } = await api.post("/admin/store-backup");
       alert(`Backup saved (${data.id?.slice(0, 8)}…)`);
       loadStoredBackups();
+      checkDataHealth();
     } catch (e) {
       alert("Store backup failed: " + (e.response?.data?.detail || e.message));
     } finally {
       setStoringBackup(false);
+    }
+  };
+
+  const checkDataHealth = async () => {
+    setLoadingHealth(true);
+    try {
+      const { data } = await api.get("/admin/data-health");
+      setHealthData(data);
+    } catch (e) {
+      setHealthData({ ok: false, error: e.response?.data?.detail || e.message });
+    } finally {
+      setLoadingHealth(false);
+    }
+  };
+
+  const runAutoRecover = async () => {
+    if (!window.confirm("تشغيل الإصلاح التلقائي؟ (دمج المعالجين المكررين + إصلاح التحضير)")) return;
+    setRecovering(true);
+    setRecoverResult(null);
+    try {
+      const { data } = await api.post("/admin/auto-recover");
+      setRecoverResult(data);
+      setHealthData(data.health_after || null);
+    } catch (e) {
+      setRecoverResult({ ok: false, summary_ar: e.response?.data?.detail || e.message });
+    } finally {
+      setRecovering(false);
     }
   };
 
@@ -528,6 +560,92 @@ export default function Admin() {
           </button>
         )}
       />
+
+      {/* Health & Recovery — one-click tools */}
+      <AdminSection
+        id="health"
+        title="صحة البيانات والاستعادة"
+        subtitle="فحص · نسخ احتياطي · إصلاح تلقائي"
+        icon={<Heartbeat size={20} weight="duotone" />}
+        defaultOpen
+        badge={healthData?.ok ? "✓" : healthData ? "!" : null}
+      >
+        <div className="pt-4 space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              data-testid="data-health-btn"
+              onClick={checkDataHealth}
+              disabled={loadingHealth}
+              className="btn btn-primary text-sm"
+            >
+              {loadingHealth ? <span className="spinner" /> : "فحص البيانات"}
+            </button>
+            <button
+              type="button"
+              data-testid="store-backup-now-btn"
+              onClick={storeBackupNow}
+              disabled={storingBackup}
+              className="btn btn-secondary text-sm"
+            >
+              {storingBackup ? <span className="spinner" /> : "حفظ نسخة احتياطية الآن"}
+            </button>
+            <button
+              type="button"
+              data-testid="auto-recover-btn"
+              onClick={runAutoRecover}
+              disabled={recovering}
+              className="btn btn-gold text-sm"
+            >
+              {recovering ? <span className="spinner" /> : "إصلاح تلقائي"}
+            </button>
+          </div>
+
+          {healthData && !healthData.error && (
+            <div className="text-xs p-3 rounded-xl space-y-2" style={{ background: "#FAFAF7", border: "1px solid #E2DDD4" }}>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div><span style={{ color: "#8B9E7A" }}>أطفال</span><br /><strong>{healthData.clients}</strong></div>
+                <div><span style={{ color: "#8B9E7A" }}>فواتير</span><br /><strong>{healthData.invoices}</strong></div>
+                <div><span style={{ color: "#8B9E7A" }}>جلسات</span><br /><strong>{healthData.sessions}</strong></div>
+                <div><span style={{ color: "#8B9E7A" }}>تحضير</span><br /><strong>{healthData.prep_history}</strong></div>
+                <div><span style={{ color: "#8B9E7A" }}>معالجون</span><br /><strong>{healthData.therapists}</strong></div>
+                <div><span style={{ color: healthData.duplicate_therapist_groups ? "#8A3F27" : "#3D4F35" }}>
+                  مكررون
+                </span><br /><strong>{healthData.duplicate_therapist_groups}</strong></div>
+                <div><span style={{ color: "#8B9E7A" }}>خلايا جدول</span><br /><strong>{healthData.schedule_cells_total}</strong></div>
+                <div><span style={{ color: "#8B9E7A" }}>نسخ احتياطية</span><br /><strong>{healthData.stored_backups}</strong></div>
+              </div>
+              {healthData.last_backup_at && (
+                <div style={{ color: "#5C6853" }}>
+                  آخر نسخة: {healthData.last_backup_at.slice(0, 19).replace("T", " ")}
+                  {healthData.last_backup_id ? ` (${healthData.last_backup_id}…)` : ""}
+                </div>
+              )}
+              {healthData.schedule_weeks?.length > 0 && (
+                <details>
+                  <summary className="cursor-pointer font-bold" style={{ color: "#3D4F35" }}>أسابيع الجدول</summary>
+                  <ul className="mt-1 space-y-0.5" style={{ color: "#5C6853" }}>
+                    {healthData.schedule_weeks.slice(0, 8).map((w) => (
+                      <li key={w.week_start}>{w.week_start}: {w.cells} خلية · {w.status}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
+          {healthData?.error && (
+            <div className="text-xs p-3 rounded-lg" style={{ background: "#FCE0E8", color: "#8B3A55" }}>
+              {healthData.error}
+            </div>
+          )}
+          {recoverResult?.summary_ar && (
+            <div className="text-xs p-3 rounded-lg" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+              <strong>نتيجة الإصلاح:</strong> {recoverResult.summary_ar}
+              <button type="button" onClick={() => setRecoverResult(null)} className="btn btn-outline text-xs mt-2 block">إغلاق</button>
+            </div>
+          )}
+        </div>
+      </AdminSection>
 
       {/* Therapists */}
       <AdminSection
