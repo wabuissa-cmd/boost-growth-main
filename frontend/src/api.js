@@ -11,6 +11,8 @@ const api = axios.create({ baseURL: API, withCredentials: true, timeout: 25000 }
 
 /** Schedule Excel / Google import can take 1–2 min on large weekly grids. */
 export const SCHEDULE_IMPORT_TIMEOUT = 180000;
+/** Prep list must stay under this — full week sync runs only on explicit relink/sync. */
+export const PREP_LOAD_TIMEOUT = 60000;
 
 api.interceptors.response.use(
   (res) => {

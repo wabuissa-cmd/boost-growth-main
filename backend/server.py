@@ -3844,11 +3844,88 @@ async def _sync_schedule_preparations_for_week(start: str, end: str) -> dict:
     return recovery
 
 
+async def _ensure_fahda_saleh_wed_prep_marker(
+    *,
+    week_start: str = "2026-06-28",
+    session_date: str = "2026-07-01",
+    prepared_by: str = "startup",
+) -> dict:
+    """Ensure Saleh (#009) Wed prep badge exists on Fahda's row and co-therapist rows."""
+    saleh = await db.clients.find_one(_active_client_filter({"file_no": "009"}), {"_id": 0})
+    if not saleh:
+        return {"ok": False, "reason": "client_009_not_found"}
+    fahda = await db.therapists.find_one(
+        {"email": {"$regex": r"falghadeeb@", "$options": "i"}},
+        {"_id": 0},
+    )
+    if not fahda:
+        return {"ok": False, "reason": "fahda_not_found"}
+    week_start = _normalize_week_start(week_start)
+    sd = (session_date or "")[:10]
+    cells = await db.schedule_cells.find(
+        {
+            "week_start": week_start,
+            "therapist_id": fahda["id"],
+            "day": 3,
+            "state": {"$nin": ["cancel_therapist"]},
+        },
+        {"_id": 0},
+    ).to_list(50)
+    fahda_cell = None
+    for cell in cells:
+        if await _cell_matches_session_client(cell, saleh["id"]):
+            fahda_cell = cell
+            break
+        label = _schedule_cell_child_label(cell).lower()
+        if "saleh" in label:
+            fahda_cell = cell
+            break
+    if not fahda_cell:
+        return {"ok": False, "reason": "fahda_wed_saleh_cell_not_found"}
+    cleared = await _clear_prep_suppressions(
+        fahda["id"], saleh["id"], sd, fahda_cell.get("id"),
+    )
+    await _upsert_session_prep_markers(
+        therapist_id=fahda["id"],
+        client_id=saleh["id"],
+        session_date=sd,
+        prepared_by=prepared_by,
+        client_name=saleh.get("name"),
+        cell=fahda_cell,
+    )
+    propagated = await _mark_client_day_schedule_prep_cells(
+        saleh["id"],
+        sd,
+        prepared_by,
+        client_name=saleh.get("name"),
+        anchor_cell=fahda_cell,
+    )
+    markers = await db.schedule_preparations.find(
+        {
+            "client_id": saleh["id"],
+            **_session_date_query(sd),
+            "therapist_id": fahda["id"],
+        },
+        {"_id": 0},
+    ).to_list(20)
+    return {
+        "ok": True,
+        "saleh_id": saleh["id"],
+        "fahda_id": fahda["id"],
+        "cell_id": fahda_cell.get("id"),
+        "time_slot": fahda_cell.get("time_slot"),
+        "cleared_suppressions": cleared,
+        "propagated_cells": propagated,
+        "fahda_markers": len(markers),
+    }
+
+
 @api.get("/schedule/preparations")
 async def list_schedule_preparations(
     week_start: str,
     therapist_id: Optional[str] = None,
     include_future: bool = False,
+    sync: bool = False,
     user=Depends(get_current_user),
 ):
     """Prep-complete markers for schedule slots in a week (Sun–Thu)."""
@@ -3868,7 +3945,10 @@ async def list_schedule_preparations(
     if tid:
         expanded = await _expand_therapist_ids(tid)
         q["therapist_id"] = {"$in": expanded} if len(expanded) > 1 else expanded[0]
-    await _sync_schedule_preparations_for_week(start, end)
+    if sync:
+        if not _can_manage_schedule_prep(user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        await _sync_schedule_preparations_for_week(start, end)
     alias_map = await _build_therapist_id_alias_map()
     db_items = await db.schedule_preparations.find(q, {"_id": 0}).to_list(2000)
     computed = await _computed_schedule_preparation_markers(start, end, tid)
@@ -3917,6 +3997,27 @@ async def relink_schedule_prep(week_start: str = Query(...), user=Depends(get_cu
         "before": before,
         "after": after,
     }
+
+
+@api.post("/admin/fix-fahda-saleh-prep-badge")
+async def admin_fix_fahda_saleh_prep_badge(
+    week_start: str = Query("2026-06-28"),
+    session_date: str = Query("2026-07-01"),
+    user=Depends(admin_only),
+):
+    """One-click: restore Fahda-row green badge for Saleh on Wed (and mirror co-therapist rows)."""
+    result = await _ensure_fahda_saleh_wed_prep_marker(
+        week_start=week_start,
+        session_date=session_date,
+        prepared_by=user["id"],
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result.get("reason") or "fix_failed")
+    ws = _normalize_week_start(week_start)
+    start = ws
+    end = (datetime.fromisoformat(ws) + timedelta(days=4)).strftime("%Y-%m-%d")
+    await _reconcile_stale_prep_suppressions(start, end)
+    return result
 
 
 def _can_manage_schedule_prep(user: dict) -> bool:
@@ -14594,6 +14695,17 @@ async def _run_startup():
             logger.info("Prep relink for week 2026-06-28 complete")
         except Exception as e:
             logger.warning(f"Prep relink for week 2026-06-28 skipped: {e}")
+
+        try:
+            pin = await _ensure_fahda_saleh_wed_prep_marker()
+            if pin.get("ok"):
+                logger.info(
+                    "Fahda+Saleh Wed prep badge: cell=%s propagated=%s",
+                    pin.get("cell_id"),
+                    pin.get("propagated_cells"),
+                )
+        except Exception as e:
+            logger.warning(f"Fahda+Saleh Wed prep badge fix skipped: {e}")
 
         try:
             pay = await _migrate_mark_all_payments_complete()

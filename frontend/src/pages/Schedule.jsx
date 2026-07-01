@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef, useLayoutEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import api, { DAYS_EN, DAYS_SHORT, TIME_SLOTS, SERVICE_CODES, startOfWeek, addDays, toISODate, formatDateRange } from "../api";
+import api, { DAYS_EN, DAYS_SHORT, TIME_SLOTS, SERVICE_CODES, startOfWeek, addDays, toISODate, formatDateRange, PREP_LOAD_TIMEOUT } from "../api";
 import {
   getCellStyle, MERGE_QUICK, scheduleCellDisplayLabel, buildScheduleCellPayload,
   SERVICE_CELL_COLORS, buildSlotRange, isSlotSelectable, slotIndex, clampMergeSlotCount, clampMergeDuration,
@@ -341,7 +341,7 @@ export default function Schedule() {
       if (ownTherapist?.id && !opsCanSeeAllPreps) {
         prepParams.therapist_id = ownTherapist.id;
       }
-      const { data } = await api.get("/schedule/preparations", { params: prepParams });
+      const { data } = await api.get("/schedule/preparations", { params: prepParams, timeout: PREP_LOAD_TIMEOUT });
       if (fetchGen !== prepFetchGenRef.current) return 0;
       const rows = Array.isArray(data) ? data : (data?.items ?? []);
       const sups = Array.isArray(data) ? [] : (data?.suppressions ?? []);
