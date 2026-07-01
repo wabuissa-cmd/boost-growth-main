@@ -132,6 +132,7 @@ export default function Shell() {
   // Personal portal dropdown (therapists + ops team; hidden for admin login)
   const myPortalItems = showMyPortal ? [
     { to: "/my-requests", label: jenanManager ? "My Requests" : "Request", testid: "nav-my-requests" },
+    { to: "/my-performance", label: "Performance", testid: "nav-my-performance" },
     ...(showMyReports ? [{ to: "/my-reports", label: "My Report", testid: "nav-my-reports" }] : []),
     ...(showMyLearning ? [{ to: "/my-learning", label: "My Learning", testid: "nav-my-learning" }] : []),
   ] : [];

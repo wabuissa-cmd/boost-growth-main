@@ -745,9 +745,11 @@ MANAGER_ACTIVE_REQUEST_STATUSES = frozenset({"pending", "pending_manager", "in_p
 MANAGER_FORWARD_HR_LEAVE_SOURCES = PENDING_MANAGER_STATUSES | frozenset({"pending_attachment"})
 
 
-def _coerce_manager_approve_to_hr(status: str) -> str:
-    """Manager 'approve' always means pending_hr — HR must review before final approval."""
+def _coerce_manager_approve_to_hr(status: str, notify_hr: Optional[bool] = None) -> str:
+    """Manager approve → pending_hr when HR follow-up requested, else final approved."""
     if status in ("approved", "manager_approve"):
+        if notify_hr is False:
+            return "approved"
         return "pending_hr"
     return status
 
@@ -1094,6 +1096,8 @@ class RequestIn(BaseModel):
 class RequestStatusUpdate(BaseModel):
     status: str
     admin_note: Optional[str] = None
+    notify_hr: Optional[bool] = None
+    notify_therapist: Optional[bool] = None
 
 PURCHASE_CATEGORIES = [
     "Events & Celebrations",
@@ -1220,6 +1224,16 @@ class LeaveStatusUpdate(BaseModel):
     admin_note: Optional[str] = None
     deduct_balance: Optional[bool] = True
     is_paid: Optional[bool] = True
+    notify_hr: Optional[bool] = None
+    notify_therapist: Optional[bool] = None
+
+
+class TherapistHrProfileUpdate(BaseModel):
+    probation_end: Optional[str] = None
+    trial_end: Optional[str] = None
+    annual_contract_end: Optional[str] = None
+    meeting_date: Optional[str] = None
+    meeting_notes: Optional[str] = None
 
 class MarkAbsentIn(BaseModel):
     cancel_sessions: bool = True
@@ -10140,6 +10154,47 @@ async def hr_leave_balance_grid(
     return {"year": yr, "rows": rows, "cached_seconds": LEAVE_GRID_CACHE_SECS}
 
 
+async def _sync_leave_balances_from_sheet(year: Optional[int] = None) -> dict:
+    """Sync remaining leave balances from the vacations Google Sheet into therapist records."""
+    yr = year or datetime.now(timezone.utc).year
+    rows = await _leave_balance_grid_rows(yr)
+    updated = 0
+    skipped = 0
+    for row in rows:
+        tid = row.get("therapist_id")
+        if not tid:
+            skipped += 1
+            continue
+        remaining_raw = row.get("remaining")
+        if remaining_raw is None or str(remaining_raw).strip() == "":
+            skipped += 1
+            continue
+        try:
+            remaining = float(str(remaining_raw).replace(",", "").strip())
+        except (TypeError, ValueError):
+            skipped += 1
+            continue
+        patch = {"leave_balance": remaining, "leave_balance_synced_at": now_iso(), "leave_balance_sync_year": yr}
+        if row.get("join_date"):
+            patch["join_date"] = row["join_date"]
+        await db.therapists.update_one({"id": tid}, {"$set": patch})
+        updated += 1
+    return {"year": yr, "updated": updated, "skipped": skipped, "total_rows": len(rows)}
+
+
+@api.post("/hr/leave-balance-sync")
+async def hr_leave_balance_sync(
+    year: Optional[int] = None,
+    refresh: bool = True,
+    _=Depends(hr_manager_access),
+):
+    """Pull leave balances from the shared Google Sheet into the database."""
+    yr = year or datetime.now(timezone.utc).year
+    if refresh:
+        _leave_grid_cache.pop(str(yr), None)
+    return await _sync_leave_balances_from_sheet(yr)
+
+
 @api.get("/hr/therapist/{tid}/profile")
 async def hr_therapist_profile(tid: str, _=Depends(hr_manager_access)):
     """Therapist summary for manager review — requests, leave, contract, training uploads."""
@@ -10254,6 +10309,187 @@ async def hr_therapist_profile(tid: str, _=Depends(hr_manager_access)):
         "hours_this_month": round(hours_month, 1),
         "hours_total": round(hours_total, 1),
         "assigned_clients": assigned,
+        "monthly_evaluations": [
+            {k: v for k, v in ev.items() if k != "file_data"}
+            for ev in (therapist.get("monthly_evaluations") or [])
+        ],
+        "annual_evaluations": [
+            {k: v for k, v in ev.items() if k != "file_data"}
+            for ev in (therapist.get("annual_evaluations") or [])
+        ],
+        "manager_meetings": therapist.get("manager_meetings") or [],
+    }
+
+
+def _default_probation_end(contract_start: Optional[str]) -> Optional[str]:
+    if not contract_start:
+        return None
+    try:
+        start_dt = datetime.fromisoformat(str(contract_start)[:10])
+        return (start_dt.date() + timedelta(days=90)).isoformat()
+    except Exception:
+        return None
+
+
+@api.put("/hr/therapist/{tid}/profile")
+async def hr_therapist_profile_update(tid: str, payload: TherapistHrProfileUpdate, user=Depends(hr_manager_access)):
+    therapist = await db.therapists.find_one({"id": tid}, {"_id": 0})
+    if not therapist:
+        raise HTTPException(status_code=404, detail="Therapist not found")
+    patch: dict = {}
+    trial_end = payload.probation_end or payload.trial_end
+    if trial_end is not None:
+        patch["probation_end"] = str(trial_end)[:10] if trial_end else None
+    if payload.annual_contract_end is not None:
+        patch["annual_contract_end"] = str(payload.annual_contract_end)[:10] if payload.annual_contract_end else None
+    if payload.meeting_date:
+        meetings = list(therapist.get("manager_meetings") or [])
+        meetings.append({
+            "id": str(uuid.uuid4()),
+            "date": str(payload.meeting_date)[:10],
+            "notes": (payload.meeting_notes or "").strip() or None,
+            "created_at": now_iso(),
+            "created_by": user.get("name") or _actor_display(user),
+        })
+        patch["manager_meetings"] = meetings
+    if patch:
+        await db.therapists.update_one({"id": tid}, {"$set": patch})
+    return await hr_therapist_profile(tid, user)
+
+
+@api.post("/hr/therapist/{tid}/evaluations")
+async def hr_upload_therapist_evaluation(
+    tid: str,
+    file: UploadFile = File(...),
+    eval_type: str = Form("monthly"),
+    period: Optional[str] = Form(None),
+    user=Depends(hr_manager_access),
+):
+    therapist = await db.therapists.find_one({"id": tid}, {"_id": 0, "id": 1})
+    if not therapist:
+        raise HTTPException(status_code=404, detail="Therapist not found")
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="File required")
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 10MB)")
+    ext = Path(file.filename).suffix.lower() or ".pdf"
+    if ext not in (".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".doc", ".docx"):
+        raise HTTPException(status_code=400, detail="Unsupported file type")
+    etype = (eval_type or "monthly").strip().lower()
+    if etype not in ("monthly", "annual"):
+        raise HTTPException(status_code=400, detail="eval_type must be monthly or annual")
+    eval_id = str(uuid.uuid4())
+    stored = f"eval_{tid}_{eval_id}{ext}"
+    file_data = _persist_upload(stored, content)
+    entry = {
+        "id": eval_id,
+        "file_path": stored,
+        "file_name": file.filename,
+        "file_data": file_data,
+        "uploaded_at": now_iso(),
+        "uploaded_by": user.get("name") or _actor_display(user),
+    }
+    if etype == "monthly":
+        entry["month"] = (period or datetime.now().strftime("%Y-%m"))[:7]
+        field = "monthly_evaluations"
+    else:
+        try:
+            entry["year"] = int((period or str(datetime.now().year))[:4])
+        except ValueError:
+            entry["year"] = datetime.now().year
+        field = "annual_evaluations"
+    await db.therapists.update_one(
+        {"id": tid},
+        {"$push": {field: entry}},
+    )
+    safe = {k: v for k, v in entry.items() if k != "file_data"}
+    return {"ok": True, "type": etype, "evaluation": safe}
+
+
+@api.get("/hr/therapist/{tid}/evaluations/{eval_id}/file")
+async def hr_download_therapist_evaluation(tid: str, eval_id: str, user=Depends(get_current_user)):
+    therapist = await db.therapists.find_one({"id": tid}, {"_id": 0})
+    if not therapist:
+        raise HTTPException(status_code=404, detail="Therapist not found")
+    if not (_is_portal_admin(user) or _is_hr_ops(user) or _is_jenan(user)):
+        if therapist.get("id") != user["id"]:
+            raise HTTPException(status_code=403, detail="Forbidden")
+    entry = None
+    for ev in (therapist.get("monthly_evaluations") or []) + (therapist.get("annual_evaluations") or []):
+        if ev.get("id") == eval_id:
+            entry = ev
+            break
+    if not entry:
+        raise HTTPException(status_code=404, detail="Evaluation not found")
+    content = _load_upload(entry.get("file_path"), entry.get("file_data"))
+    if not content:
+        raise HTTPException(status_code=404, detail=FILE_UNAVAILABLE_DETAIL)
+    return _bytes_file_response(content, entry.get("file_name") or entry.get("file_path") or "evaluation")
+
+
+@api.post("/hr/therapist/{tid}/contract-reminder")
+async def hr_contract_reminder(tid: str, user=Depends(hr_manager_access)):
+    """Notify Jenan to prepare trial / annual contracts for this therapist."""
+    therapist = await db.therapists.find_one({"id": tid}, {"_id": 0, "id": 1, "name": 1, "join_date": 1, "contract_start": 1, "probation_end": 1, "annual_contract_end": 1, "contract_period_end": 1})
+    if not therapist:
+        raise HTTPException(status_code=404, detail="Therapist not found")
+    tname = therapist.get("name") or "Therapist"
+    contract_start = therapist.get("contract_start") or therapist.get("join_date")
+    trial_end = therapist.get("probation_end") or _default_probation_end(contract_start)
+    annual_end = therapist.get("annual_contract_end") or therapist.get("contract_period_end")
+    parts = [f"Contract prep reminder for {tname}:"]
+    if trial_end:
+        parts.append(f"  • Trial period ends: {str(trial_end)[:10]}")
+    if annual_end:
+        parts.append(f"  • Annual contract ends: {str(annual_end)[:10]}")
+    if contract_start:
+        parts.append(f"  • Contract start: {str(contract_start)[:10]}")
+    msg = "\n".join(parts)
+    title = f"Contract reminder — {tname}"
+    jenan_id = await _jenan_therapist_id()
+    if jenan_id:
+        await _notify(jenan_id, "contract_reminder", title, msg, therapist_id=tid)
+    await _notify_hr_ops("contract_reminder", title, msg)
+    body = f"{msg}\n\nRequested by: {user.get('name') or 'Manager'}\n"
+    portal = _portal_base_url()
+    if portal:
+        body += f"\nOpen profile: {portal}/manager?tab=profiles\n"
+    body += "\n— Boost Growth Portal"
+    await _send_urgent_email(await _jenan_recipient_email(), title, body)
+    return {"ok": True, "message": "Jenan notified"}
+
+
+@api.get("/my-performance")
+async def therapist_performance(user=Depends(get_current_user)):
+    """Therapist view: manager meetings and evaluation attachments."""
+    tid = user["id"]
+    therapist = await db.therapists.find_one({"id": tid}, {"_id": 0, "pin_hash": 0, "password_hash": 0})
+    if not therapist:
+        raise HTTPException(status_code=403, detail="Therapist profile required")
+    therapist = await _ensure_contract_balance(therapist)
+    contract_start = therapist.get("contract_start") or therapist.get("join_date")
+    return {
+        "therapist_id": tid,
+        "therapist_name": therapist.get("name"),
+        "contract_start": contract_start,
+        "probation_end": therapist.get("probation_end") or _default_probation_end(contract_start),
+        "annual_contract_end": therapist.get("annual_contract_end") or therapist.get("contract_period_end"),
+        "manager_meetings": sorted(
+            therapist.get("manager_meetings") or [],
+            key=lambda m: m.get("date") or "",
+            reverse=True,
+        ),
+        "monthly_evaluations": sorted(
+            [{k: v for k, v in ev.items() if k != "file_data"} for ev in (therapist.get("monthly_evaluations") or [])],
+            key=lambda e: e.get("month") or e.get("uploaded_at") or "",
+            reverse=True,
+        ),
+        "annual_evaluations": sorted(
+            [{k: v for k, v in ev.items() if k != "file_data"} for ev in (therapist.get("annual_evaluations") or [])],
+            key=lambda e: str(e.get("year") or e.get("uploaded_at") or ""),
+            reverse=True,
+        ),
     }
 
 
@@ -10369,10 +10605,12 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
         raise HTTPException(status_code=404, detail="Not found")
     prev_status = req.get("status")
     effective_prev = _normalize_request_status(prev_status)
-    new_status = _coerce_manager_approve_to_hr(payload.status)
+    new_status = _coerce_manager_approve_to_hr(payload.status, payload.notify_hr)
     is_pa = _is_portal_admin(user)
     is_hr = _is_hr_ops(user)
     is_jenan_mgr = _is_jenan(user) and not is_pa
+    notify_hr = payload.notify_hr if payload.notify_hr is not None else (not is_jenan_mgr)
+    notify_therapist = payload.notify_therapist if payload.notify_therapist is not None else (not is_jenan_mgr)
 
     if is_pa:
         pass
@@ -10384,8 +10622,8 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
         if effective_prev == "in_progress":
             if new_status not in ("pending_hr", "rejected", "in_progress"):
                 raise HTTPException(status_code=400, detail="Manager must approve (forward to HR) or reject")
-        elif new_status not in ("pending_hr", "rejected", "in_progress", "pending_manager"):
-            raise HTTPException(status_code=400, detail="Manager must keep pending, approve (forward to HR), or reject")
+        elif new_status not in ("pending_hr", "rejected", "in_progress", "pending_manager", "approved"):
+            raise HTTPException(status_code=400, detail="Manager must choose pending, approve, or reject")
     elif is_hr:
         if effective_prev != "pending_hr":
             raise HTTPException(status_code=403, detail="HR can only act on HR-pending requests")
@@ -10401,7 +10639,7 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
         "status": new_status, "admin_note": payload.admin_note,
         "updated_at": now_iso(), "timeline": timeline,
     }})
-    if is_jenan_mgr and effective_prev in MANAGER_ACTIVE_REQUEST_STATUSES and new_status in MANAGER_HR_NOTIFY_STATUSES:
+    if is_jenan_mgr and effective_prev in MANAGER_ACTIVE_REQUEST_STATUSES and notify_hr and new_status in MANAGER_HR_NOTIFY_STATUSES:
         await _notify_hr_manager_decision(
             ntype="request",
             therapist_name=req.get("therapist_name") or "Staff",
@@ -10414,9 +10652,10 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
         "pending_hr": "Pending HR review", "in_progress": "In Progress",
         "approved": "Approved", "rejected": "Rejected", "done": "Completed",
     }
-    await _notify(req["therapist_id"], "request", "Request update",
-                  f"Your request '{req['title']}' is now: {status_map.get(new_status, new_status)}")
-    if new_status in ("approved", "done") and is_hr:
+    if notify_therapist:
+        await _notify(req["therapist_id"], "request", "Request update",
+                      f"Your request '{req['title']}' is now: {status_map.get(new_status, new_status)}")
+    if new_status in ("approved", "done") and is_hr and notify_therapist:
         email = await _therapist_email(req.get("therapist_id"))
         if email:
             ts = now_iso()[:16].replace("T", " ")
@@ -11465,10 +11704,12 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
         raise HTTPException(status_code=404, detail="Not found")
     prev_status = leave.get("status")
     effective_prev = _normalize_leave_status(prev_status)
-    new_status = _coerce_manager_approve_to_hr(payload.status)
+    new_status = _coerce_manager_approve_to_hr(payload.status, payload.notify_hr)
     is_pa = _is_portal_admin(user)
     is_hr = _is_hr_ops(user)
     is_jenan_mgr = _is_jenan(user) and not is_pa
+    notify_hr = payload.notify_hr if payload.notify_hr is not None else (not is_jenan_mgr)
+    notify_therapist = payload.notify_therapist if payload.notify_therapist is not None else (not is_jenan_mgr)
 
     if is_pa:
         pass
@@ -11477,8 +11718,8 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
             raise HTTPException(status_code=403, detail="Manager can only act on pending manager requests")
         if effective_prev == "pending_attachment" or (_leave_requires_document(leave.get("leave_type")) and not _leave_has_document(leave)):
             raise HTTPException(status_code=400, detail="Document attachment required before review")
-        if new_status not in ("pending_hr", "rejected", "pending_manager"):
-            raise HTTPException(status_code=400, detail="Manager must keep pending, approve (forward to HR), or reject")
+        if new_status not in ("pending_hr", "rejected", "pending_manager", "approved"):
+            raise HTTPException(status_code=400, detail="Manager must choose pending, approve, or reject")
     elif is_hr:
         if effective_prev != "pending_hr":
             raise HTTPException(status_code=403, detail="HR can only act on HR-pending requests")
@@ -11506,7 +11747,7 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
         "is_paid": is_paid,
         "timeline": timeline,
     }})
-    if is_jenan_mgr and effective_prev in MANAGER_FORWARD_HR_LEAVE_SOURCES and new_status in MANAGER_HR_NOTIFY_STATUSES:
+    if is_jenan_mgr and effective_prev in MANAGER_FORWARD_HR_LEAVE_SOURCES and notify_hr and new_status in MANAGER_HR_NOTIFY_STATUSES:
         tname = leave.get("leave_type") or "Leave"
         summary = (
             f"{tname} {leave.get('days')}d "
@@ -11531,8 +11772,8 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
                     {"id": leave["therapist_id"]},
                     {"$set": {"leave_balance": new_bal}},
                 )
-    # Notify therapist (in-app + email)
-    if leave.get("therapist_id"):
+    # Notify therapist (in-app + email) when requested
+    if leave.get("therapist_id") and notify_therapist:
         msg_map = {
             "approved": "Approved", "rejected": "Rejected", "done": "Completed",
             "cancelled": "Cancelled", "pending": "Pending", "pending_manager": "Pending manager review",
@@ -15112,6 +15353,17 @@ async def _run_startup():
                 )
         except Exception as e:
             logger.warning(f"Purchase sheet startup sync skipped: {e}")
+
+        try:
+            lb_sync = await _sync_leave_balances_from_sheet()
+            if lb_sync.get("updated"):
+                logger.info(
+                    "Synced leave balances from Google Sheet: %s therapist(s) for %s",
+                    lb_sync.get("updated"),
+                    lb_sync.get("year"),
+                )
+        except Exception as e:
+            logger.warning(f"Leave balance sheet startup sync skipped: {e}")
 
         await _fix_walaa_purchase_month_mismatch()
     except Exception:

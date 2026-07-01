@@ -26,6 +26,7 @@ const StaffLeave = lazy(() => import("./pages/StaffLeave"));
 const Billing = lazy(() => import("./pages/Billing"));
 const TherapistMyReports = lazy(() => import("./pages/TherapistMyReports"));
 const ManagerHub = lazy(() => import("./pages/ManagerHub"));
+const PerformanceMeetings = lazy(() => import("./pages/PerformanceMeetings"));
 const Purchases = lazy(() => import("./pages/Purchases"));
 const SupervisionCaseload = lazy(() => import("./pages/SupervisionCaseload"));
 const DesignPreview = lazy(() => import("./pages/DesignPreview"));
@@ -195,6 +196,7 @@ function AppRoutes() {
         <Route path="/waiting/school" element={<IntakeAccess><SchoolWaiting/></IntakeAccess>}/>
         <Route path="/my-requests" element={<TherapistRequests/>}/>
         <Route path="/my-reports" element={<MyReportsAccess><TherapistMyReports/></MyReportsAccess>}/>
+        <Route path="/my-performance" element={<Protected><PerformanceMeetings/></Protected>}/>
         <Route path="/my-learning" element={<MyLearningAccess><MyLearning/></MyLearningAccess>}/>
         <Route path="/my-leaves" element={<Navigate to="/my-requests" replace/>}/>
         <Route path="/staff-leave" element={<StaffLeaveAccess><StaffLeave/></StaffLeaveAccess>}/>

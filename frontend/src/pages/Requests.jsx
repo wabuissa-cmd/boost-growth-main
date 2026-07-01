@@ -30,19 +30,19 @@ const MANAGER_APPROVE_KEY = "manager_approve";
 
 const MANAGER_REVIEW_STATUS_MAP = {
   pending_manager: {
-    label: "Pending — notify HR",
+    label: "Pending",
     cls: "bg-[#FAF0D1] text-[#6B5218] border-[#E6C983]",
     icon: <Hourglass size={14} weight="duotone"/>,
     color: "#E6C983",
   },
   [MANAGER_APPROVE_KEY]: {
-    label: "Approve & forward to HR",
+    label: "Approve",
     cls: "bg-[#E5EBE1] text-[var(--brand-dark)] border-[#B4C2A9]",
     icon: <CheckCircle size={14} weight="duotone"/>,
     color: "#B4C2A9",
   },
   rejected: {
-    label: "Reject — notify HR",
+    label: "Reject",
     cls: "bg-[#F8EBE7] text-[#8A3F27] border-[#ECA6A6]",
     icon: <XCircle size={14} weight="duotone"/>,
     color: "#ECA6A6",
@@ -72,8 +72,8 @@ function managerReviewStatusOptions(currentStatus) {
 }
 
 function resolveManagerSaveStatus(status) {
-  if (status === MANAGER_APPROVE_KEY || status === PENDING_HR_STATUS) {
-    return PENDING_HR_STATUS;
+  if (status === MANAGER_APPROVE_KEY) {
+    return "approved";
   }
   return status;
 }
@@ -289,7 +289,13 @@ export default function Requests({ personal = false, embedded = false, managerVi
 
   const openManagerReview = (r) => {
     const keepStatus = isPendingManagerStatus(r.status) ? "pending_manager" : r.status;
-    setStatusEdit({ ...r, status: keepStatus, _managerReviewable: isManagerReviewableItem(r) });
+    setStatusEdit({
+      ...r,
+      status: keepStatus,
+      _managerReviewable: isManagerReviewableItem(r),
+      notify_hr: false,
+      notify_therapist: false,
+    });
   };
 
   const closeStatusModal = () => {
@@ -302,18 +308,19 @@ export default function Requests({ personal = false, embedded = false, managerVi
       alert("This request is awaiting an attachment from the therapist and cannot be reviewed yet.");
       return;
     }
-    if (isManager && statusEdit._managerReviewable && !(statusEdit.admin_note || "").trim()) {
-      alert("Please add a manager note before sending to HR.");
-      return;
-    }
     if (statusEdit._queueKind === "leave") {
       const finalStatus = isManager
         ? resolveManagerSaveStatus(statusEdit.status)
         : statusEdit.status;
-      await api.put(`/leaves/${statusEdit.leaveId}/status`, {
+      const payload = {
         status: finalStatus,
         admin_note: statusEdit.admin_note,
-      });
+      };
+      if (isManager) {
+        payload.notify_hr = !!statusEdit.notify_hr;
+        payload.notify_therapist = !!statusEdit.notify_therapist;
+      }
+      await api.put(`/leaves/${statusEdit.leaveId}/status`, payload);
       setStatusEdit(null);
       loadLeaves();
       return;
@@ -321,7 +328,15 @@ export default function Requests({ personal = false, embedded = false, managerVi
     const finalStatus = isManager
       ? resolveManagerSaveStatus(statusEdit.status)
       : statusEdit.status;
-    await api.put(`/requests/${statusEdit.id}/status`, { status: finalStatus, admin_note: statusEdit.admin_note });
+    const payload = {
+      status: finalStatus,
+      admin_note: statusEdit.admin_note,
+    };
+    if (isManager) {
+      payload.notify_hr = !!statusEdit.notify_hr;
+      payload.notify_therapist = !!statusEdit.notify_therapist;
+    }
+    await api.put(`/requests/${statusEdit.id}/status`, payload);
     setStatusEdit(null);
     load();
   };
@@ -406,6 +421,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
 
   const filtered = queueItems.filter(r => {
     if (filter === "all") return true;
+    if (filter === "pending") return isPendingManagerStatus(r.status) || r.status === PENDING_HR_STATUS;
     if (filter === "pending_manager") return isPendingManagerStatus(r.status);
     return r.status === filter;
   });
@@ -506,11 +522,8 @@ export default function Requests({ personal = false, embedded = false, managerVi
             )}
             <div className="flex gap-1.5 flex-wrap">
               <button onClick={() => setFilter("all")} className={`pill text-[10px] ${filter==="all" ? "bg-[var(--brand-sage)] text-white" : "bg-[#F0E9D8]"}`}>All ({queueItems.length})</button>
-              <button onClick={() => setFilter("pending_manager")} className={`pill text-[10px] border ${filter==="pending_manager" ? "bg-[var(--brand-sage)] text-white border-[var(--brand-sage)]" : STATUS_MAP.pending_manager.cls}`}>
-                Manager ({pendingManagerCount})
-              </button>
-              <button onClick={() => setFilter("pending_hr")} className={`pill text-[10px] border ${filter==="pending_hr" ? "bg-[var(--brand-sage)] text-white border-[var(--brand-sage)]" : STATUS_MAP.pending_hr.cls}`}>
-                HR ({pendingHrCount})
+              <button onClick={() => setFilter("pending")} className={`pill text-[10px] border ${filter==="pending" ? "bg-[var(--brand-sage)] text-white border-[var(--brand-sage)]" : STATUS_MAP.pending_manager.cls}`}>
+                Pending ({pendingCount})
               </button>
               {["in_progress", "approved", "rejected", "done"].map(k => (
                 <button key={k} onClick={() => setFilter(k)} className={`pill text-[10px] border ${filter===k ? "bg-[var(--brand-sage)] text-white border-[var(--brand-sage)]" : STATUS_MAP[k].cls}`}>
@@ -965,7 +978,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
               <>
                 <ModalBtnSecondary type="button" onClick={closeStatusModal}>Cancel</ModalBtnSecondary>
                 <ModalBtnPrimary data-testid="status-save-btn" type="button" onClick={handleManagerStatusSave}>
-                  {adminManagerPreview ? "Save" : "Save & send to HR"}
+                  Save decision
                 </ModalBtnPrimary>
               </>
             ) : (
@@ -984,7 +997,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
               )}
               {managerView && (
                 <p className="text-sm -mt-2 mb-2" style={{ color: "var(--text-secondary)" }}>
-                  Request details are read-only. Choose a status, add your manager note, then Save & send to HR. HR is notified for all three outcomes (pending, approve, or reject).
+                  Choose Approve, Pending, or Reject. Optionally notify HR for follow-up or notify the therapist directly.
                 </p>
               )}
               {queueItemAwaitingAttachment(statusEdit) && (
@@ -1143,17 +1156,41 @@ export default function Requests({ personal = false, embedded = false, managerVi
                   </div>
                   <FormField
                     label={managerView ? "Manager note" : "Response / note"}
-                    hint={managerView && isManager ? "Required — reason for HR" : "Optional"}
-                    required={managerView && isManager && statusEdit._managerReviewable && !adminManagerPreview}
+                    hint={managerView && isManager ? "Optional — include context for HR or therapist" : "Optional"}
+                    required={false}
                   >
                     <textarea
                       className="modal-input"
                       rows={3}
                       value={statusEdit.admin_note || ""}
                       onChange={e => setStatusEdit({ ...statusEdit, admin_note: e.target.value })}
-                      placeholder={managerView && isManager ? "Write the reason for your decision…" : ""}
+                      placeholder={managerView && isManager ? "Add notes if needed…" : ""}
                     />
                   </FormField>
+
+                  {managerView && isManager && statusEdit._managerReviewable && (
+                    <div className="space-y-2 mt-3 pt-3 border-t" style={{ borderColor: "#EDE9E3" }}>
+                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!statusEdit.notify_hr}
+                          onChange={e => setStatusEdit({ ...statusEdit, notify_hr: e.target.checked })}
+                        />
+                        <span style={{ color: "#2C3625" }}>Sent to HR for follow-up</span>
+                      </label>
+                      <button
+                        type="button"
+                        className="btn btn-secondary text-xs w-full"
+                        onClick={() => setStatusEdit({ ...statusEdit, notify_therapist: true })}
+                        style={statusEdit.notify_therapist ? { outline: "2px solid var(--brand)" } : undefined}
+                      >
+                        Notify therapist directly
+                      </button>
+                      {statusEdit.notify_therapist && (
+                        <p className="text-[10px] m-0" style={{ color: "#8B9E7A" }}>Therapist will be notified when you save.</p>
+                      )}
+                    </div>
+                  )}
 
                 </FormSection>
               )}

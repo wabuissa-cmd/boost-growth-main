@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import api from "../api";
-import { ArrowsClockwise } from "@phosphor-icons/react";
+import { ArrowsClockwise, CloudArrowDown } from "@phosphor-icons/react";
 
 /** Manager Hub leave table — synced from the shared vacations Google Sheet (one API call). */
 export default function LeaveBalanceSheetGrid({ year }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [syncedAt, setSyncedAt] = useState(null);
+  const [syncResult, setSyncResult] = useState(null);
   const [error, setError] = useState("");
 
   const load = async (refresh = false) => {
@@ -26,6 +28,22 @@ export default function LeaveBalanceSheetGrid({ year }) {
     }
   };
 
+  const syncToDb = async () => {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const { data } = await api.post("/hr/leave-balance-sync", null, {
+        params: { year, refresh: true },
+      });
+      setSyncResult(data);
+      await load(true);
+    } catch (e) {
+      alert(e.response?.data?.detail || e.message || "Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   useEffect(() => { load(); }, [year]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -36,10 +54,18 @@ export default function LeaveBalanceSheetGrid({ year }) {
           {syncedAt && !loading && (
             <> · updated {syncedAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</>
           )}
+          {syncResult?.updated != null && (
+            <> · DB sync: {syncResult.updated} therapist(s)</>
+          )}
         </span>
-        <button type="button" className="btn btn-ghost text-xs py-1 px-2" onClick={() => load(true)} disabled={loading}>
-          <ArrowsClockwise size={14} className={loading ? "animate-spin" : ""}/> Refresh
-        </button>
+        <div className="flex gap-1">
+          <button type="button" className="btn btn-ghost text-xs py-1 px-2" onClick={() => load(true)} disabled={loading || syncing}>
+            <ArrowsClockwise size={14} className={loading ? "animate-spin" : ""}/> Refresh
+          </button>
+          <button type="button" className="btn btn-secondary text-xs py-1 px-2" onClick={syncToDb} disabled={loading || syncing}>
+            <CloudArrowDown size={14} className={syncing ? "animate-spin" : ""}/> {syncing ? "Syncing…" : "Sync to DB"}
+          </button>
+        </div>
       </div>
 
       {error && (
