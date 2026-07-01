@@ -36,7 +36,7 @@ import "../dashboardLayout.css";
 const SCHEDULE_MOBILE_BP = 768;
 const SCHEDULE_TABLET_BP = 1024;
 
-const SCHEDULE_ZOOM = 72;
+const SCHEDULE_ZOOM = 80;
 
 function formatSlotHeader(ts) {
   return ts.replace(" AM", "a").replace(" PM", "p").replace(" - ", "–");
@@ -1248,16 +1248,16 @@ export default function Schedule() {
 
   // === SHEET VIEW === (matches Google Sheet: # | Therapist | Day | 10 time slots)
   const renderSheet = () => (
-    <div className="schedule-sheet-fit">
-        <table className="text-xs border-collapse sched-sheet sched-sheet-v2 w-full">
+    <div className="table-scroll overflow-x-auto">
+        <table className="text-xs border-collapse sched-sheet sched-sheet-v2" style={{ minWidth: 980 }}>
           {visibleTherapists.map((t, ti) => (
             <tbody key={t.id} className="sheet-therapist-group">
               <tr className="sheet-group-hours">
-                <th className="sheet-th sheet-idx" aria-hidden />
-                <th className="sheet-th sheet-therapist" aria-hidden />
-                <th className="sheet-th sheet-day">Day</th>
+                <th className="sheet-th sheet-idx" style={{ minWidth: 32, width: 32 }} aria-hidden />
+                <th className="sheet-th sheet-therapist" style={{ minWidth: 96 }} aria-hidden />
+                <th className="sheet-th sheet-day" style={{ minWidth: 58 }}>Day</th>
                 {TIME_SLOTS.map(ts => (
-                  <th key={ts} className="sheet-th sheet-time">
+                  <th key={ts} className="sheet-th sheet-time" style={{ minWidth: 68 }}>
                     {formatSlotHeader(ts)}
                   </th>
                 ))}
@@ -1369,11 +1369,11 @@ export default function Schedule() {
           <div className="font-bold text-lg" style={{ color: "#2C3625" }}>{getTherapistScheduleName(therapist)}</div>
         </div>
       </div>
-      <div className="table-scroll overflow-x-auto">
-        <table className="w-full text-xs border-collapse" style={{ minWidth: 1100 }}>
+      <div className="schedule-blocks-fit">
+        <table className="w-full text-xs border-collapse sched-blocks-table">
           <thead>
             <tr>
-              <th className="cell-base text-center font-bold" style={{ minWidth: 90, background: "#F6F4F0", color: "#2C3625" }}>Day</th>
+              <th className="cell-base text-center font-bold" style={{ background: "#F6F4F0", color: "#2C3625" }}>Day</th>
               {TIME_SLOTS.map(ts => (
                 <th key={ts} className="cell-base text-center font-bold" style={{ background: "#F6F4F0", color: "#2C3625" }}>
                   {ts.replace(' AM', 'a').replace(' PM', 'p')}
@@ -1460,7 +1460,7 @@ export default function Schedule() {
 
   const schedulePanelTitle = view === "sheet" ? "Team schedule" : "My schedule";
   const schedulePanelDesc = view === "sheet"
-    ? "All therapists in one table — fits your screen without horizontal scrolling"
+    ? "All therapists in one table — swipe horizontally on smaller screens"
     : "Sessions grouped by therapist — tap any cell to log or edit";
 
   return (
@@ -1809,6 +1809,9 @@ export default function Schedule() {
           <div className="schedule-page-loading no-print" style={{ padding: "2rem 0" }}><div className="spinner" /></div>
         )}
         <div className="schedule-page-grid-wrap">
+        {view === "sheet" && isScheduleTablet && (
+          <p className="schedule-sheet-hint no-print">Swipe table horizontally to see all time slots</p>
+        )}
         {view === "sheet" && renderSheet()}
         {view === "blocks" && (
           <div className="space-y-4 p-3 sm:p-4">

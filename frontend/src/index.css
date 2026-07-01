@@ -395,58 +395,34 @@ main, .page-enter { min-width: 0; }
     z-index: 6;
     box-shadow: 4px 0 6px -2px rgba(44, 54, 37, 0.12);
 }
-.sched-sheet .sheet-slot { min-width: 0; cursor: default; position: relative; }
+.sched-sheet .sheet-slot { min-width: 68px; cursor: default; position: relative; }
 
-/* Sheet view: fit viewport — no horizontal scroll */
-.schedule-sheet-fit {
+/* Blocks view (per-therapist): fit viewport — no horizontal scroll */
+.schedule-blocks-fit {
     width: 100%;
     max-width: 100%;
     overflow-x: hidden;
     overflow-y: visible;
 }
-.schedule-sheet-fit .sched-sheet {
+.schedule-blocks-fit .sched-blocks-table {
     width: 100%;
     max-width: 100%;
     table-layout: fixed;
 }
-.schedule-sheet-fit .sched-sheet .sheet-idx {
-    width: 2.2%;
-    min-width: 0 !important;
-}
-.schedule-sheet-fit .sched-sheet .sheet-therapist {
-    width: 7.5%;
-    min-width: 0 !important;
-    max-width: none !important;
-}
-.schedule-sheet-fit .sched-sheet .sheet-day {
-    width: 4.8%;
-    min-width: 0 !important;
-}
-.schedule-sheet-fit .sched-sheet .sheet-time,
-.schedule-sheet-fit .sched-sheet .sheet-slot {
+.schedule-blocks-fit .sched-blocks-table th,
+.schedule-blocks-fit .sched-blocks-table td {
     min-width: 0 !important;
     overflow: hidden;
 }
-.schedule-sheet-fit .sched-sheet .sheet-time {
-    font-size: 8px !important;
-    padding: 2px 1px !important;
-    letter-spacing: 0;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+.schedule-blocks-fit .sched-blocks-table th:first-child,
+.schedule-blocks-fit .sched-blocks-table td:first-child {
+    width: 12%;
 }
-.schedule-sheet-fit .sched-sheet-v2 .sheet-td,
-.schedule-sheet-fit .sched-sheet-v2 .sheet-th {
-    overflow: hidden;
+.schedule-blocks-fit .sched-blocks-table th:not(:first-child),
+.schedule-blocks-fit .sched-blocks-table td:not(:first-child) {
+    width: auto;
 }
-.schedule-sheet-fit .sched-sheet .sheet-therapist span {
-    font-size: 9px !important;
-    line-height: 1.1;
-}
-.schedule-sheet-fit .sched-sheet .sheet-therapist .w-7 {
-    width: 20px;
-    height: 20px;
-    font-size: 8px;
-}
+
 /* Clear separation between each therapist block */
 .sched-sheet tr.sheet-therapist-divider > td {
     border-bottom: 4px solid #2F4A35 !important;
@@ -572,11 +548,10 @@ main, .page-enter { min-width: 0; }
 
 /* Mobile responsive (≤768px) */
 @media (max-width: 768px) {
-    /* Schedule sheet: fit width on mobile (blocks view preferred on narrow screens) */
+    /* Schedule sheet: scroll whole table on mobile (no sticky columns) */
     .sched-sheet { font-size: 10px; }
-    .sched-sheet .sheet-th { font-size: 8px; padding: 3px 1px; min-width: 0 !important; }
-    .sched-sheet .sheet-td { padding: 2px 1px; height: 36px; min-height: 36px; font-size: 9px; }
-    .sched-sheet .sheet-slot { min-width: 0 !important; }
+    .sched-sheet .sheet-th { font-size: 9px; padding: 4px 3px; min-width: 72px !important; }
+    .sched-sheet .sheet-td { padding: 3px 2px; height: 38px; min-height: 38px; font-size: 9.5px; }
     .sched-sheet .sheet-idx,
     .sched-sheet .sheet-therapist,
     .sched-sheet .sheet-day,
@@ -589,8 +564,8 @@ main, .page-enter { min-width: 0; }
     }
     .sched-sheet .sheet-idx { width: 32px !important; min-width: 32px !important; padding: 2px !important; font-size: 10px; }
     .sched-sheet .sheet-therapist { min-width: 96px !important; max-width: none !important; padding: 2px 6px; }
-    .sched-sheet .sheet-day { width: auto !important; min-width: 0 !important; padding: 1px 2px; }
-    .sched-sheet .sheet-slot { min-width: 0 !important; }
+    .sched-sheet .sheet-day { width: 58px !important; min-width: 58px !important; padding: 1px 4px; }
+    .sched-sheet .sheet-slot { min-width: 72px !important; }
     .sched-sheet .sheet-therapist .w-7 { width: 22px; height: 22px; font-size: 9px; }
     .sched-sheet .sheet-therapist span { font-size: 10px !important; line-height: 1.1; }
     .schedule-cell-menu-btn { display: flex; }
@@ -2865,8 +2840,6 @@ textarea.modal-input {
     border: 1px solid var(--border-light);
     background: #fff;
     overflow: hidden;
-    overflow-x: hidden;
-    max-width: 100%;
 }
 .schedule-recent-activity-banner {
     display: flex;
