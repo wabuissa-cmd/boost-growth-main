@@ -5,6 +5,7 @@ import { useAuth } from "../auth";
 import {
   CheckCircle, XCircle, ArrowCounterClockwise, ArrowLeft, ArrowRight,
   GraduationCap, Clock, Target, User, Certificate, House, EnvelopeSimple,
+  ClipboardText,
 } from "@phosphor-icons/react";
 
 const LOGO_SRC = `${process.env.PUBLIC_URL || ""}/brand-assets/boost-growth-logo.png`.replace(/\/\//g, "/");
@@ -51,6 +52,7 @@ export default function CenterTest() {
   const [answers, setAnswers] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
+  const [reviewing, setReviewing] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -73,6 +75,7 @@ export default function CenterTest() {
     setCurrentIdx(0);
     setAnswers({});
     setResult(null);
+    setReviewing(false);
     setError("");
   };
 
@@ -82,6 +85,7 @@ export default function CenterTest() {
     setCurrentIdx(0);
     setAnswers({});
     setResult(null);
+    setReviewing(false);
     setError("");
   };
 
@@ -118,6 +122,7 @@ export default function CenterTest() {
         test_id: testId || meta?.testId || undefined,
       });
       setResult(data);
+      setReviewing(false);
       setStep("result");
     } catch (e) {
       const msg = formatErr(e.response?.data?.detail);
@@ -291,96 +296,143 @@ export default function CenterTest() {
 
         {!loading && step === "result" && result && (
           <div className={`center-test-card center-test-result${result.passed ? " pass" : " fail"}`}>
-            <div className="center-test-score-ring">
-              <svg viewBox="0 0 120 120" className="center-test-ring-svg">
-                <circle cx="60" cy="60" r="52" fill="none" stroke="var(--border-light)" strokeWidth="8" />
-                <circle
-                  cx="60" cy="60" r="52" fill="none"
-                  stroke={result.passed ? "var(--brand)" : "#b45309"}
-                  strokeWidth="8" strokeLinecap="round"
-                  strokeDasharray={`${2 * Math.PI * 52}`}
-                  strokeDashoffset={`${2 * Math.PI * 52 * (1 - result.percentage / 100)}`}
-                  transform="rotate(-90 60 60)"
-                />
-              </svg>
-              <div className="center-test-score-center">
-                <span className="center-test-score-pct">{result.percentage}%</span>
-              </div>
-            </div>
-
-            {result.passed ? (
+            {!reviewing ? (
               <>
-                <CheckCircle size={52} weight="fill" className="center-test-icon pass" />
-                <h2 className="center-test-result-title">Congratulations — you passed!</h2>
-                <p className="center-test-result-score-line">
-                  Your score: <strong>{result.percentage}%</strong>
-                  <span className="center-test-result-score-sub">
-                    ({result.score} of {result.total} correct)
-                  </span>
-                </p>
-                <div className="center-test-certificate-note">
-                  {fromPortal ? (
-                    <>
-                      <Certificate size={22} weight="duotone" />
-                      <p>
-                        Your certificate will be published in your staff portal.
-                        <span className="center-test-certificate-sub">
-                          Go to <strong>My Learning → My Certificates</strong> once your supervisor has uploaded it.
-                        </span>
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <EnvelopeSimple size={22} weight="duotone" />
-                      <p>
-                        Your certificate will be sent to your email.
-                        <span className="center-test-certificate-sub">
-                          Once your supervisor confirms your result, the certificate will arrive at the email address registered with the center.
-                        </span>
-                      </p>
-                    </>
-                  )}
+                <div className="center-test-score-ring">
+                  <svg viewBox="0 0 120 120" className="center-test-ring-svg">
+                    <circle cx="60" cy="60" r="52" fill="none" stroke="var(--border-light)" strokeWidth="8" />
+                    <circle
+                      cx="60" cy="60" r="52" fill="none"
+                      stroke={result.passed ? "var(--brand)" : "#b45309"}
+                      strokeWidth="8" strokeLinecap="round"
+                      strokeDasharray={`${2 * Math.PI * 52}`}
+                      strokeDashoffset={`${2 * Math.PI * 52 * (1 - result.percentage / 100)}`}
+                      transform="rotate(-90 60 60)"
+                    />
+                  </svg>
+                  <div className="center-test-score-center">
+                    <span className="center-test-score-pct">{result.percentage}%</span>
+                  </div>
                 </div>
-                <p className="center-test-success-note">
-                  Well done, <strong>{result.student_name}</strong>. Your result has been recorded.
-                </p>
-                {fromPortal && (
-                  <Link to="/my-learning" className="btn btn-secondary center-test-btn mt-3">
-                    <GraduationCap size={18} weight="duotone" /> Back to My Learning
-                  </Link>
+
+                {result.passed ? (
+                  <>
+                    <CheckCircle size={52} weight="fill" className="center-test-icon pass" />
+                    <h2 className="center-test-result-title">Congratulations — you passed!</h2>
+                    <p className="center-test-result-score-line">
+                      Your score: <strong>{result.percentage}%</strong>
+                      <span className="center-test-result-score-sub">
+                        ({result.score} of {result.total} correct)
+                      </span>
+                    </p>
+                    <div className="center-test-certificate-note">
+                      {fromPortal ? (
+                        <>
+                          <Certificate size={22} weight="duotone" />
+                          <p>
+                            Your certificate will be published in your staff portal.
+                            <span className="center-test-certificate-sub">
+                              Go to <strong>My Learning → My Certificates</strong> once your supervisor has uploaded it.
+                            </span>
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <EnvelopeSimple size={22} weight="duotone" />
+                          <p>
+                            Your certificate will be sent to your email.
+                            <span className="center-test-certificate-sub">
+                              Once your supervisor confirms your result, the certificate will arrive at the email address registered with the center.
+                            </span>
+                          </p>
+                        </>
+                      )}
+                    </div>
+                    <p className="center-test-success-note">
+                      Well done, <strong>{result.student_name}</strong>. Your result has been recorded.
+                    </p>
+                    <div className="center-test-fail-actions">
+                      <button
+                        type="button"
+                        className="btn btn-primary center-test-nav-btn"
+                        onClick={() => setReviewing(true)}
+                      >
+                        <ClipboardText size={18} weight="duotone" /> Review my answers
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary center-test-nav-btn"
+                        onClick={resetTest}
+                      >
+                        <House size={18} weight="duotone" /> Return to main page
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <XCircle size={52} weight="fill" className="center-test-icon fail" />
+                    <h2 className="center-test-result-title">You did not pass this assessment</h2>
+                    <p className="center-test-result-score-line">
+                      Your score: <strong>{result.percentage}%</strong>
+                      <span className="center-test-result-score-sub">
+                        ({result.score} of {result.total} correct — {threshold}% required to pass)
+                      </span>
+                    </p>
+                    <p className="center-test-fail-note">
+                      You may retake when you are ready, or return to the main page and try again later.
+                      {fromPortal
+                        ? ` Correct answers appear in My Learning only on attempts where you score ${threshold}% or higher.`
+                        : " If you pass on a later attempt, your certificate will be sent to your email."}
+                    </p>
+                    <div className="center-test-fail-actions">
+                      <button type="button" className="btn btn-primary center-test-nav-btn" onClick={retakeQuiz}>
+                        <ArrowCounterClockwise size={20} weight="bold" /> Retake assessment
+                      </button>
+                      <button type="button" className="btn btn-secondary center-test-nav-btn" onClick={resetTest}>
+                        <House size={18} weight="duotone" /> Return to main page
+                      </button>
+                    </div>
+                  </>
                 )}
               </>
             ) : (
               <>
-                <XCircle size={52} weight="fill" className="center-test-icon fail" />
-                <h2 className="center-test-result-title">You did not pass this assessment</h2>
-                <p className="center-test-result-score-line">
-                  Your score: <strong>{result.percentage}%</strong>
+                <h2 className="center-test-result-title">Your answers</h2>
+                <p className="center-test-result-score-line mb-3">
+                  Score: <strong>{result.percentage}%</strong>
                   <span className="center-test-result-score-sub">
-                    ({result.score} of {result.total} correct — {threshold}% required to pass)
+                    ({result.score} of {result.total} correct)
                   </span>
                 </p>
-                <p className="center-test-fail-note">
-                  {fromPortal ? (
-                    <>
-                      You may retake when you are ready, or return to the portal and try again later.
-                      Correct answers appear in <strong>My Learning</strong> only on attempts where you score {threshold}% or higher.
-                    </>
-                  ) : (
-                    <>
-                      You may retake when you are ready. If you pass on a later attempt, your certificate will be sent to your email.
-                    </>
-                  )}
-                </p>
-                <div className="center-test-fail-actions">
-                  <button type="button" className="btn btn-primary center-test-nav-btn" onClick={retakeQuiz}>
-                    <ArrowCounterClockwise size={20} weight="bold" /> Retake assessment
+                <div className="center-test-review-list">
+                  {(result.answers || []).map((a, i) => (
+                    <div
+                      key={a.question_id || i}
+                      className={`my-learning-answer${a.is_correct ? " correct" : " wrong"}`}
+                    >
+                      <div className="font-medium text-sm mb-1">
+                        Q{i + 1}. {a.question_text}
+                      </div>
+                      <div className="text-sm">
+                        Your answer: <strong>{a.selected_text || "—"}</strong>
+                        {!a.is_correct && a.correct_text && (
+                          <span className="block mt-1 text-green-800">Correct: {a.correct_text}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="center-test-fail-actions mt-4">
+                  <button
+                    type="button"
+                    className="btn btn-secondary center-test-nav-btn"
+                    onClick={() => setReviewing(false)}
+                  >
+                    <ArrowLeft size={18} /> Back to results
                   </button>
-                  {fromPortal && (
-                    <Link to="/home" className="btn btn-secondary center-test-nav-btn">
-                      <House size={18} weight="duotone" /> Return to portal
-                    </Link>
-                  )}
+                  <button type="button" className="btn btn-secondary center-test-nav-btn" onClick={resetTest}>
+                    <House size={18} weight="duotone" /> Return to main page
+                  </button>
                 </div>
               </>
             )}

@@ -2472,6 +2472,12 @@ textarea.modal-input {
     padding: 0.55rem 0.65rem;
     font-size: 0.78rem;
 }
+.center-test-review-list {
+    text-align: left;
+    max-height: 22rem;
+    overflow-y: auto;
+    margin-top: 0.5rem;
+}
 .center-test-fail-actions {
     display: flex;
     flex-wrap: wrap;
