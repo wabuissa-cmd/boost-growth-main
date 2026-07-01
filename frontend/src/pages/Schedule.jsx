@@ -194,8 +194,11 @@ export default function Schedule() {
   const [addSpecialistOpen, setAddSpecialistOpen] = useState(false);
   const [addTherapistId, setAddTherapistId] = useState("");
   const [scheduleTherapistBusy, setScheduleTherapistBusy] = useState(false);
+  const [prepRelinkBusy, setPrepRelinkBusy] = useState(false);
+  const [buildInfo, setBuildInfo] = useState(null);
   const adminEditsRef = useRef(null);
   const scheduleInitialLoadRef = useRef(true);
+  const prepRelinkWeekRef = useRef(null);
   const [jumpedToWeekISO, setJumpedToWeekISO] = useState(null);
   const [showHolidays, setShowHolidays] = useState(false);
   const [closures, setClosures] = useState([]);
@@ -346,17 +349,34 @@ export default function Schedule() {
     }
   }, [weekStartISO, weekEndISO, weekSessions, canSeePrepBadges, user, therapists, opsCanSeeAllPreps]);
 
+  const syncPrepFromHistory = useCallback(async (silent = false) => {
+    if (!canManagePrep || !weekStartISO) return;
+    setPrepRelinkBusy(true);
+    try {
+      await api.post("/schedule/relink-prep", null, { params: { week_start: weekStartISO } });
+      invalidateCache("/schedule");
+      invalidateCache("/schedule/preparations");
+      await loadPreparations();
+      if (!silent) alert("Prep badges synced from session history for this week.");
+    } catch (err) {
+      if (!silent) alert(err?.response?.data?.detail || "Could not sync prep badges.");
+    } finally {
+      setPrepRelinkBusy(false);
+    }
+  }, [canManagePrep, weekStartISO, loadPreparations]);
+
   const load = useCallback(async (force = false) => {
     const yr = weekStart.getFullYear();
     const ws = weekStartISO;
     const we = weekEndISO;
     if (scheduleInitialLoadRef.current) setScheduleLoading(true);
     setScheduleError(null);
+    const refreshLists = force || scheduleInitialLoadRef.current;
     try {
       const [c, t, cl, lv, sess] = await Promise.all([
         cachedGet("/schedule", { params: { week_start: weekStartISO }, force: true }),
-        cachedGet("/therapists", { force }).catch(() => []),
-        cachedGet("/clients", { force }).catch(() => []),
+        cachedGet("/therapists", { force: refreshLists }).catch(() => []),
+        cachedGet("/clients", { force: refreshLists }).catch(() => []),
         cachedGet("/leaves", { params: { year: yr }, force }).catch(() => []),
         canSeePrepBadges
           ? cachedGet("/sessions", { force: true }).catch(() => [])
@@ -407,6 +427,18 @@ export default function Schedule() {
 
   useEffect(() => { loadClosures(); }, [loadClosures]);
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!canManagePrep || !weekStartISO || scheduleLoading) return;
+    if (prepRelinkWeekRef.current === weekStartISO) return;
+    prepRelinkWeekRef.current = weekStartISO;
+    syncPrepFromHistory(true);
+  }, [canManagePrep, weekStartISO, scheduleLoading, syncPrepFromHistory]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    api.get("/version").then((r) => setBuildInfo(r.data)).catch(() => {});
+  }, [isAdmin]);
 
   useEffect(() => {
     const refreshPrep = () => loadPreparations();
@@ -1428,6 +1460,7 @@ export default function Schedule() {
           { n: view === "blocks" ? "My schedule" : "Team schedule", label: "View", color: "var(--text-secondary)" },
           { n: visibleTherapists.length, label: "Therapists", color: "#6B5218" },
           { n: clients.length, label: "Clients", color: "var(--brand-dark)" },
+          ...(buildInfo?.build ? [{ n: buildInfo.build, label: `Build${buildInfo.js ? ` · ${buildInfo.js}` : ""}`, color: "var(--brand-sage)" }] : []),
         ]}
         toolbar={(
           <div className="flex items-center gap-1.5 flex-wrap schedule-toolbar schedule-toolbar--wrap relative">
@@ -1525,6 +1558,18 @@ export default function Schedule() {
                       </div>
                     )}
                     <button type="button" onClick={() => { setShowHolidays(true); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start min-h-[36px]">Official holidays</button>
+                    {canManagePrep && (
+                      <button
+                        type="button"
+                        data-testid="sync-prep-history-btn"
+                        disabled={prepRelinkBusy}
+                        onClick={() => { syncPrepFromHistory(false); setAdminEditsOpen(false); }}
+                        className="btn btn-outline text-xs w-full justify-start min-h-[36px]"
+                      >
+                        <CheckCircle size={14} weight="fill" />
+                        {prepRelinkBusy ? "Syncing prep…" : "Sync prep from history"}
+                      </button>
+                    )}
                     <button type="button" onClick={() => { setDraft(); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start min-h-[36px]">Save as Draft</button>
                     <button type="button" onClick={() => { openPublishModal(); setAdminEditsOpen(false); }} className="btn btn-primary text-xs w-full justify-start min-h-[36px]">Publish Week</button>
                     <button

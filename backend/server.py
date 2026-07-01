@@ -13131,6 +13131,9 @@ async def shutdown():
 FRONTEND_DIR = ROOT_DIR / "static"
 
 if FRONTEND_DIR.is_dir():
+    _SPA_INDEX_HEADERS = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"}
+    _SPA_ASSET_HEADERS = {"Cache-Control": "public, max-age=31536000, immutable"}
+
     @app.get("/{spa_path:path}")
     async def serve_frontend(spa_path: str = ""):
         """Serve CRA build; unknown paths → index.html for client-side routing."""
@@ -13139,8 +13142,9 @@ if FRONTEND_DIR.is_dir():
         if spa_path:
             asset = FRONTEND_DIR / spa_path
             if asset.is_file():
-                return FileResponse(asset)
+                headers = _SPA_ASSET_HEADERS if re.search(r"\.[a-f0-9]{8}\.(js|css)$", spa_path) else None
+                return FileResponse(asset, headers=headers)
         index = FRONTEND_DIR / "index.html"
         if index.is_file():
-            return FileResponse(index)
+            return FileResponse(index, headers=_SPA_INDEX_HEADERS)
         raise HTTPException(status_code=404, detail="Frontend not built — run build or deploy with Dockerfile")

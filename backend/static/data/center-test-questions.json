@@ -1,0 +1,109 @@
+{
+  "testId": "aba-behavioral-assessment",
+  "courseName": "Behavioral Assessment in ABA",
+  "passThreshold": 80,
+  "title": "Post-Training Assessment",
+  "courseTopic": "Behavioral Assessment in ABA: Core Tools and Considerations",
+  "instructor": "Ms. Jenan Almuhaisin",
+  "questions": [
+    {
+      "id": "q1",
+      "text": "What does \"VB-MAPP\" stand for?",
+      "choices": [
+        { "id": "a", "text": "The Visual Performance and Matching Assessment Program" },
+        { "id": "b", "text": "The Verbal Behavior Milestones Assessment and Placement Program" },
+        { "id": "c", "text": "The Verbal Behavior and Monitoring Assessed Program" }
+      ]
+    },
+    {
+      "id": "q2",
+      "text": "A correct example of an \"Intraverbal\" skill is:",
+      "choices": [
+        { "id": "a", "text": "The child says \"yes\" when the therapist asks, \"Do you want a cookie?\"" },
+        { "id": "b", "text": "The child says, \"I don't want the ball.\"" },
+        { "id": "c", "text": "The child says, \"Wow! That's a big car!\"" },
+        { "id": "d", "text": "The child says \"yes\" when the therapist asks, \"Did you go to school today?\"" }
+      ]
+    },
+    {
+      "id": "q3",
+      "text": "The possible score for each item on the VB-MAPP assessment is:",
+      "choices": [
+        { "id": "a", "text": "Score 1/2, 1, or zero" },
+        { "id": "b", "text": "Score 1 or 1/2 only" },
+        { "id": "c", "text": "Score from 1 to 4 depends on the skill" },
+        { "id": "d", "text": "Score zero of full score" }
+      ]
+    },
+    {
+      "id": "q4",
+      "text": "Which assessment tool evaluates the self-care domain using a separate subtest?",
+      "choices": [
+        { "id": "a", "text": "ABLLS-R" },
+        { "id": "b", "text": "ESDM" },
+        { "id": "c", "text": "PEAK" },
+        { "id": "d", "text": "VB-MAPP" }
+      ]
+    },
+    {
+      "id": "q5",
+      "text": "You are assessing the Labeling domain on the ABLLS-R. The child correctly named 3 items. What is the appropriate score?\nScoring criteria:\n* Score \"1\" = Names at least 2 items.\n* Score \"2\" = Names at least 4 items.\n* Score \"3\" = Names at least 6 items.\n* Score \"4\" = Names 10 or more items.",
+      "choices": [
+        { "id": "a", "text": "Score \"1\"" },
+        { "id": "b", "text": "Score \"2\"" },
+        { "id": "c", "text": "Score \"3\"" },
+        { "id": "d", "text": "Score \"4\"" }
+      ]
+    },
+    {
+      "id": "q6",
+      "text": "You are conducting an assessment session and will assess Tact, Writing, and Motor Imitation. What should you consider?",
+      "choices": [
+        { "id": "a", "text": "Assess all Tact skills first, then Writing, then Motor Imitation" },
+        { "id": "b", "text": "Assume the child's performance in each skill without direct observation" },
+        { "id": "c", "text": "Vary skills from different domains to avoid boredom and maintain motivation" },
+        { "id": "d", "text": "None of the above" }
+      ]
+    },
+    {
+      "id": "q7",
+      "text": "The abbreviation \"LR\" in VB-MAPP means:",
+      "choices": [
+        { "id": "a", "text": "Learning Repertoire" },
+        { "id": "b", "text": "Receptive Language" },
+        { "id": "c", "text": "Listener Responding" },
+        { "id": "d", "text": "All of the above" }
+      ]
+    },
+    {
+      "id": "q8",
+      "text": "When writing an assessment report and explaining results, you should:",
+      "choices": [
+        { "id": "a", "text": "Present strengths before areas for improvement (weaknesses)" },
+        { "id": "b", "text": "Present all skills together without a specific order" },
+        { "id": "c", "text": "Present weaknesses before strengths" },
+        { "id": "d", "text": "None of the above" }
+      ]
+    },
+    {
+      "id": "q9",
+      "text": "A report states: \"The child was able to follow three-step instructions, select verbs, select adjectives, and respond to his name.\" What should be corrected?",
+      "choices": [
+        { "id": "a", "text": "Present simpler skills first, then more advanced skills, to maintain a logical order" },
+        { "id": "b", "text": "The report is correct and needs no changes" },
+        { "id": "c", "text": "The report includes unnecessary details" },
+        { "id": "d", "text": "None of the above" }
+      ]
+    },
+    {
+      "id": "q10",
+      "text": "When writing the background information section, what is the most appropriate order?",
+      "choices": [
+        { "id": "a", "text": "Child's name, then previous interventions, then diagnosis and medical history" },
+        { "id": "b", "text": "Child's name, age, and diagnosis first, then medical history, then language level, and finally previous interventions" },
+        { "id": "c", "text": "No specific order is required" },
+        { "id": "d", "text": "Diagnosis first, then age, then what the family wants from us" }
+      ]
+    }
+  ]
+}
