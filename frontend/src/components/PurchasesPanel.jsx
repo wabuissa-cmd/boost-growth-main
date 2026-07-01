@@ -135,7 +135,7 @@ export default function PurchasesPanel({ compact = true }) {
         >
           <div>
             <h2 className="font-bold text-sm m-0 flex items-center gap-1.5" style={{ color: "#2C3625" }}>
-              <ShoppingBag size={16} weight="duotone" style={{ color: "#7A8A6A" }}/>
+              <ShoppingBag size={14} weight="duotone" style={{ color: "#7A8A6A" }}/>
               Purchases
             </h2>
             <p className="text-xs mt-0.5 mb-0" style={{ color: "#8B9E7A" }}>Your work-related expenses</p>
@@ -144,7 +144,7 @@ export default function PurchasesPanel({ compact = true }) {
         </button>
         {expanded && (
           <button type="button" className="btn btn-primary text-[11px] px-2.5 py-1 min-h-0 mt-2 w-full" onClick={() => setOpen(true)}>
-            <Plus size={13}/> Log Purchase
+            <Plus size={12}/> Log Purchase
           </button>
         )}
       </div>

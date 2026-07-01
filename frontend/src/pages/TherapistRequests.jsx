@@ -16,23 +16,23 @@ import {
   leaveRequiresDocument, ATTACHMENT_REQUIRED_MSG,
 } from "../leaveUtils";
 
-const WORKFLOW_FOOTER_AR =
-  "يمرّ طلبك أولاً إلى مديرتك المباشرة أ. جنان، ثم إلى الموارد البشرية، وبعدها سيُحدَّث الوضع في صفحتك.";
+const WORKFLOW_FOOTER =
+  "Your request goes first to your direct manager Ms. Jenan, then to HR. Your status will update on this page.";
 
 const LEAVE_REQUEST_TYPES = [
-  { id: "Annual", labelAr: "اجازة سنوية", labelEn: "Annual leave", icon: Sun, color: "#7A8A6A", needsFile: false },
-  { id: "Unpaid", labelAr: "اجازة غير مدفوعة", labelEn: "Unpaid leave", icon: ClockAfternoon, color: "#C28E6A", needsFile: false },
-  { id: "Sickleave", labelAr: "اجازة مرضية", labelEn: "Sick leave", icon: Heartbeat, color: "#9B7BAB", needsFile: true },
-  { id: "Permission", labelAr: "استئذان", labelEn: "Permission", icon: CalendarBlank, color: "#6BAA9B", needsFile: true },
+  { id: "Annual", label: "Annual leave", icon: Sun, color: "#7A8A6A", needsFile: false },
+  { id: "Unpaid", label: "Unpaid leave", icon: ClockAfternoon, color: "#C28E6A", needsFile: false },
+  { id: "Sickleave", label: "Sick leave", icon: Heartbeat, color: "#9B7BAB", needsFile: true },
+  { id: "Permission", label: "Permission", icon: CalendarBlank, color: "#6BAA9B", needsFile: true },
 ];
 
 const GENERAL_REQUEST_TYPES = [
-  { id: "companies", labelAr: "طلب لشركات", labelEn: "Companies", icon: Buildings, color: "#6B8F71", needsDescription: false },
-  { id: "other", labelAr: "أخرى", labelEn: "Other", icon: Briefcase, color: "#8B7BA8", needsDescription: true },
+  { id: "companies", label: "Companies", icon: Buildings, color: "#6B8F71", needsDescription: false },
+  { id: "other", label: "Other", icon: Briefcase, color: "#8B7BA8", needsDescription: true },
 ];
 
 const GENERAL_TYPE_LABELS = Object.fromEntries(
-  GENERAL_REQUEST_TYPES.map((t) => [t.id, { ar: t.labelAr, en: t.labelEn, color: t.color }]),
+  GENERAL_REQUEST_TYPES.map((t) => [t.id, { label: t.label, color: t.color }]),
 );
 
 const STATUS_MAP = {
@@ -79,9 +79,9 @@ function fmtContractPeriod(start, end) {
 
 function WorkflowFooter() {
   return (
-    <div className="req-workflow-footer" dir="rtl">
-      <Info size={16} weight="duotone" className="shrink-0" />
-      <p>{WORKFLOW_FOOTER_AR}</p>
+    <div className="req-workflow-footer">
+      <Info size={14} weight="duotone" className="shrink-0" />
+      <p>{WORKFLOW_FOOTER}</p>
     </div>
   );
 }
@@ -97,15 +97,14 @@ function TypeCard({ meta, active, onClick, testId }) {
       style={{ "--type-color": meta.color }}
     >
       <span className="req-type-card-icon">
-        <Icon size={20} weight="duotone" />
+        <Icon size={17} weight="duotone" />
       </span>
       <span className="req-type-card-copy">
-        <span className="req-type-card-ar" dir="rtl">{meta.labelAr}</span>
-        <span className="req-type-card-en">{meta.labelEn}</span>
+        <span className="req-type-card-label">{meta.label}</span>
       </span>
       {meta.needsFile && (
         <span className="req-type-card-badge" title="Attachment required">
-          <Paperclip size={11} weight="bold" />
+          <Paperclip size={10} weight="bold" />
         </span>
       )}
     </button>
@@ -259,7 +258,7 @@ export default function TherapistRequests() {
       } else if (isGeneralType(type)) {
         const label = GENERAL_TYPE_LABELS[type];
         await api.post("/requests", {
-          title: type === "companies" ? "طلب لشركات" : "طلب عام",
+          title: type === "companies" ? "Companies request" : "General request",
           description: form.description || form.notes || "",
           request_type: type,
           priority: "normal",
@@ -282,8 +281,7 @@ export default function TherapistRequests() {
       return {
         key: `leave-${l.id}`,
         kind: "leave",
-        title: tp.label,
-        titleAr: LEAVE_REQUEST_TYPES.find((t) => t.id === l.leave_type)?.labelAr || tp.label,
+        title: LEAVE_REQUEST_TYPES.find((t) => t.id === l.leave_type)?.label || tp.label,
         subtitle: fmtLeaveSchedule(l),
         notes: l.notes,
         admin_note: l.admin_note,
@@ -298,13 +296,11 @@ export default function TherapistRequests() {
     const reqItems = requests.map((r) => {
       const st = STATUS_MAP[r.status] || STATUS_MAP.pending;
       const gl = GENERAL_TYPE_LABELS[r.request_type];
-      const title = gl ? gl.en : (r.title || r.request_type);
-      const titleAr = gl ? gl.ar : title;
+      const title = gl ? gl.label : (r.title || r.request_type);
       return {
         key: `req-${r.id}`,
         kind: "request",
         title,
-        titleAr,
         subtitle: r.description || r.title,
         notes: null,
         admin_note: r.admin_note,
@@ -338,7 +334,7 @@ export default function TherapistRequests() {
       <RequestsPageHeader
         badge="MY REQUESTS"
         title="My Requests"
-        subtitle="الإجازات · الطلبات العامة — نافذة واحدة لكل طلباتك"
+        subtitle="Leave · general requests — one window for all your requests"
         stats={[
           { label: "Leave", n: leaves.length, color: "#2C3625" },
           { label: "General", n: requests.length, color: "#375568" },
@@ -350,19 +346,20 @@ export default function TherapistRequests() {
         <div className="card requests-page-error" role="alert">{pageError}</div>
       )}
 
-      <div className={`req-split req-split--payment-left${hidePurchases ? " req-split--no-sidebar" : ""}`}>
+      <div className="req-my-requests-stack">
         {!hidePurchases && (
-          <aside className="req-sidebar-stack req-sidebar-stack--payment">
+          <section className="req-my-requests-section req-my-requests-section--payment" aria-label="Payment requests">
             <PurchasesPanel compact />
-          </aside>
+          </section>
         )}
 
+        <section className="req-my-requests-section req-my-requests-section--submit" aria-label="Submit request">
         <main className="req-unified-window card">
           <div className="req-unified-head">
-            <ListChecks size={24} weight="duotone" className="shrink-0" />
+            <ListChecks size={20} weight="duotone" className="shrink-0" />
             <div className="min-w-0">
-              <h2 className="req-unified-title">New Request</h2>
-              <p className="req-unified-sub">اختر نوع الطلب واملأ التفاصيل أدناه</p>
+              <h2 className="req-unified-title">Submit Request</h2>
+              <p className="req-unified-sub">Choose a request type and fill in the details below</p>
             </div>
           </div>
 
@@ -370,9 +367,9 @@ export default function TherapistRequests() {
             {/* Section 1: Leave */}
             <section className="req-unified-section">
               <div className="req-unified-section-head">
-                <span className="req-unified-section-num">١</span>
+                <span className="req-unified-section-num">1</span>
                 <div>
-                  <h3 className="req-unified-section-title" dir="rtl">الإجازات</h3>
+                  <h3 className="req-unified-section-title">Leave</h3>
                   <p className="req-unified-section-desc">Annual · unpaid · sick · permission</p>
                 </div>
               </div>
@@ -427,7 +424,7 @@ export default function TherapistRequests() {
 
               {isLeaveType(form.selectedType) && form.selectedType !== "Permission" && (
                 <div className="req-unified-form">
-                  <FormSection title={`${selectedMeta?.labelEn} details`}>
+                  <FormSection title={`${selectedMeta?.label} details`}>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <FormField label="From">
                         <input
@@ -465,7 +462,7 @@ export default function TherapistRequests() {
                         </div>
                         <FormField label="Medical report" required hint="PDF or image — required">
                           <label className="req-file-upload">
-                            <UploadSimple size={18} weight="duotone" />
+                            <UploadSimple size={15} weight="duotone" />
                             <span>{form.attachmentFile ? form.attachmentFile.name : "Choose file"}</span>
                             <input
                               type="file"
@@ -557,7 +554,7 @@ export default function TherapistRequests() {
                     </div>
                     <FormField label="Supporting document" required hint="PDF or image — required">
                       <label className="req-file-upload">
-                        <UploadSimple size={18} weight="duotone" />
+                        <UploadSimple size={15} weight="duotone" />
                         <span>{form.attachmentFile ? form.attachmentFile.name : "Choose file"}</span>
                         <input
                           type="file"
@@ -589,9 +586,9 @@ export default function TherapistRequests() {
             {/* Section 2: General */}
             <section className="req-unified-section">
               <div className="req-unified-section-head">
-                <span className="req-unified-section-num">٢</span>
+                <span className="req-unified-section-num">2</span>
                 <div>
-                  <h3 className="req-unified-section-title" dir="rtl">جينرال</h3>
+                  <h3 className="req-unified-section-title">General</h3>
                   <p className="req-unified-section-desc">Companies · other requests</p>
                 </div>
               </div>
@@ -610,17 +607,16 @@ export default function TherapistRequests() {
 
               {isGeneralType(form.selectedType) && (
                 <div className="req-unified-form">
-                  <FormSection title={`${selectedMeta?.labelEn} request`}>
+                  <FormSection title={`${selectedMeta?.label} request`}>
                     {form.selectedType === "other" && (
-                      <FormField label="Description" required hint="اشرحي طلبك بالتفصيل">
+                      <FormField label="Description" required hint="Describe your request in detail">
                         <textarea
                           data-testid="req-description"
                           className="modal-input"
                           rows={4}
                           value={form.description}
                           onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                          placeholder="اكتبي تفاصيل الطلب هنا…"
-                          dir="rtl"
+                          placeholder="Enter request details here…"
                         />
                       </FormField>
                     )}
@@ -692,7 +688,7 @@ export default function TherapistRequests() {
                         </span>
                       )}
                       <span className="pill text-[10px]" style={{ background: `${item.typeColor}22`, color: item.typeColor }}>
-                        <span dir="rtl">{item.titleAr}</span>
+                        {item.title}
                       </span>
                       {item.unpaid && (
                         <span className="pill text-[10px] font-bold bg-[#F8EBE7] text-[#8A3F27] border border-[#ECA6A6]">
@@ -724,6 +720,7 @@ export default function TherapistRequests() {
             </section>
           </div>
         </main>
+        </section>
       </div>
     </div>
   );
