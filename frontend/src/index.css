@@ -2893,8 +2893,9 @@ textarea.modal-input {
     border-radius: 0.75rem;
 }
 .schedule-day-recent {
-    box-shadow: inset 0 0 0 2px var(--brand) !important;
+    /* Use a soft highlight (avoid “black box” look) */
     background: #EDF6E8 !important;
+    box-shadow: inset 0 0 0 1px rgba(107, 143, 113, 0.45) !important;
 }
 .schedule-day-recent::after {
     content: "✓";
