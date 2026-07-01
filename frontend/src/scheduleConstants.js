@@ -67,8 +67,19 @@ const THERAPIST_FIRST_NAME_OVERRIDES = {
   hajer: "Hajar",
 };
 
+function familyByFirstName(first) {
+  const fl = (first || "").toLowerCase();
+  if (!fl) return null;
+  for (const [k, v] of Object.entries(THERAPIST_FAMILY_NAMES)) {
+    if (k.toLowerCase().replace(/^ms/, "") === fl) return v;
+  }
+  return null;
+}
+
 export function getTherapistScheduleName(t) {
   if (!t) return "";
+  const keyLower = (t.key || "").toLowerCase();
+  if (PORTAL_GREETING_OVERRIDES[keyLower]) return PORTAL_GREETING_OVERRIDES[keyLower];
   const raw = (t.name || "").replace(/^Ms\.?\s*/i, "").trim();
   let first = raw.split(/\s+/)[0] || raw;
   const firstLower = first.toLowerCase();
@@ -76,7 +87,7 @@ export function getTherapistScheduleName(t) {
     first = THERAPIST_FIRST_NAME_OVERRIDES[firstLower];
   }
   if (firstLower === "najla") return "Najla Alhamad";
-  const family = therapistFamilyName(t.key);
+  const family = therapistFamilyName(t.key) || familyByFirstName(first);
   if (family) {
     const parts = raw.split(/\s+/).filter(Boolean);
     if (parts.length >= 2 && parts[parts.length - 1].toLowerCase() === family.toLowerCase()) {

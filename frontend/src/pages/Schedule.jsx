@@ -27,7 +27,7 @@ import ParentWhatsAppModal from "../components/ParentWhatsAppModal";
 import ParentCancellationModal from "../components/ParentCancellationModal";
 import LogSessionModal, { slotToTime24, addHoursToTime } from "../components/LogSessionModal";
 import SchedulePrepBadge from "../components/SchedulePrepBadge";
-import { buildPrepLookup, buildSessionPrepLookup, buildSuppressionLookup, getCellStatusBadge, mergePrepLookups, therapistPrepIdAliases } from "../schedulePrepUtils";
+import { buildPrepLookup, buildSessionPrepLookup, buildSuppressionLookup, getCellStatusBadge, mergePrepLookups, buildAllTherapistIdAliases } from "../schedulePrepUtils";
 import { buildParentMessages } from "../scheduleParentMessages";
 import { sortTherapistsForSchedule, sortTherapistsForScheduleWeek, getTherapistScheduleName, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
 import { cachedGet, invalidateCache } from "../dataCache";
@@ -153,10 +153,8 @@ export default function Schedule() {
   const canManagePrep = !!user && (hasOpsAccess(user) || scheduleAdmin || hasFullClientAccess(user));
   const canManageCover = !!user && (hasOpsAccess(user) || scheduleAdmin || hasFullClientAccess(user));
   const parentCancelOps = canParentCancellationOps(user);
-  const [view, setView] = useState(() => {
-    // Default to "Per Therapist" (blocks) view for all users per business request.
-    return "blocks";
-  });
+  const [view, setView] = useState("blocks");
+  const [viewBootstrapped, setViewBootstrapped] = useState(false);
   const [isScheduleNarrow, setIsScheduleNarrow] = useState(
     () => typeof window !== "undefined" && window.innerWidth <= SCHEDULE_MOBILE_BP,
   );
@@ -195,6 +193,7 @@ export default function Schedule() {
   const [addTherapistId, setAddTherapistId] = useState("");
   const [scheduleTherapistBusy, setScheduleTherapistBusy] = useState(false);
   const [prepRelinkBusy, setPrepRelinkBusy] = useState(false);
+  const [prepSyncMessage, setPrepSyncMessage] = useState("");
   const [buildInfo, setBuildInfo] = useState(null);
   const [loadedJsHash, setLoadedJsHash] = useState(null);
   const adminEditsRef = useRef(null);
@@ -325,6 +324,11 @@ export default function Schedule() {
     alert(`Week duplicated: ${dupSource} → ${dupTarget}. Navigate to that week to view.`);
   };
 
+  const therapistIdAliases = useMemo(
+    () => buildAllTherapistIdAliases(therapists, user),
+    [therapists, user],
+  );
+
   const loadPreparations = useCallback(async () => {
     if (!user) return;
     if (!canSeePrepBadges) return;
@@ -340,16 +344,16 @@ export default function Schedule() {
       setPreparations(rows);
       const supLookup = buildSuppressionLookup(sups);
       setSuppressionLookup(supLookup);
-      const idAliases = therapistPrepIdAliases(ownTherapist, user);
-      const sessionKeys = buildSessionPrepLookup(weekSessions, weekStartISO, weekEndISO, idAliases, supLookup);
-      setPrepLookup(mergePrepLookups(buildPrepLookup(rows), sessionKeys));
+      const sessionKeys = buildSessionPrepLookup(weekSessions, weekStartISO, weekEndISO, therapistIdAliases, supLookup);
+      setPrepLookup(mergePrepLookups(buildPrepLookup(rows, therapistIdAliases), sessionKeys));
+      return rows.length;
     } catch {
       setPreparations([]);
       setSuppressionLookup(new Set());
-      const idAliases = therapistPrepIdAliases(ownTherapist, user);
-      setPrepLookup(buildSessionPrepLookup(weekSessions, weekStartISO, weekEndISO, idAliases, new Set()));
+      setPrepLookup(buildSessionPrepLookup(weekSessions, weekStartISO, weekEndISO, therapistIdAliases, new Set()));
+      return 0;
     }
-  }, [weekStartISO, weekEndISO, weekSessions, canSeePrepBadges, user, therapists, opsCanSeeAllPreps]);
+  }, [weekStartISO, weekEndISO, weekSessions, canSeePrepBadges, user, therapists, opsCanSeeAllPreps, therapistIdAliases]);
 
   const load = useCallback(async (force = false) => {
     const yr = weekStart.getFullYear();
@@ -397,20 +401,26 @@ export default function Schedule() {
   const syncPrepFromHistory = useCallback(async (silent = false) => {
     if (!canManagePrep || !weekStartISO) return;
     setPrepRelinkBusy(true);
+    setPrepSyncMessage("");
     try {
-      await api.post("/schedule/relink-prep", null, { params: { week_start: weekStartISO } });
+      const { data } = await api.post("/schedule/relink-prep", {}, { params: { week_start: weekStartISO } });
       invalidateCache("/schedule");
       invalidateCache("/schedule/preparations");
       invalidateCache("/sessions");
       await load(true);
-      await loadPreparations();
-      if (!silent) alert("Prep badges synced from session history for this week.");
+      const rowCount = await loadPreparations();
+      const linked = data?.linked_count ?? rowCount ?? 0;
+      const msg = `Linked ${linked} prep marker(s) for ${formatDateRange(weekStart)}.`;
+      setPrepSyncMessage(msg);
+      if (!silent) window.alert(msg);
     } catch (err) {
-      if (!silent) alert(err?.response?.data?.detail || "Could not sync prep badges.");
+      const errMsg = err?.response?.data?.detail || "Could not sync prep badges.";
+      setPrepSyncMessage(errMsg);
+      if (!silent) window.alert(errMsg);
     } finally {
       setPrepRelinkBusy(false);
     }
-  }, [canManagePrep, weekStartISO, loadPreparations, load]);
+  }, [canManagePrep, weekStartISO, weekStart, loadPreparations, load]);
 
   useEffect(() => {
     if (!user || !canSeePrepBadges) return;
@@ -436,7 +446,14 @@ export default function Schedule() {
 
   useEffect(() => {
     lastPrepSyncWeekRef.current = null;
+    setPrepSyncMessage("");
   }, [weekStartISO]);
+
+  useEffect(() => {
+    if (!user || viewBootstrapped) return;
+    if (scheduleAdmin || opsCanSeeAllPreps) setView("sheet");
+    setViewBootstrapped(true);
+  }, [user, scheduleAdmin, opsCanSeeAllPreps, viewBootstrapped]);
 
   useEffect(() => {
     if (!canManagePrep || !weekStartISO || scheduleLoading || scheduleLoadedWeek !== weekStartISO) return;
@@ -1044,7 +1061,7 @@ export default function Schedule() {
     canSeePrepBadges
       ? getCellStatusBadge(
         cell, therapistId, day, weekStartISO, clients,
-        prepLookup, preparations, weekSessions, suppressionLookup,
+        prepLookup, preparations, weekSessions, suppressionLookup, therapistIdAliases,
       )
       : null
   );
@@ -1644,7 +1661,7 @@ export default function Schedule() {
       {canManagePrep && buildInfo?.build && !buildMismatch && (
         <div className="no-print mb-2 text-[10px] font-medium" style={{ color: "var(--brand-sage)" }} data-testid="schedule-build-ok">
           Portal build {buildInfo.build} · JS {loadedJsHash || buildInfo.js}
-          {prepLookup.size > 0 ? ` · ${prepLookup.size} prep badge(s)` : preparations.length > 0 ? ` · ${preparations.length} prep row(s)` : " · no prep badges yet"}
+          {prepSyncMessage ? ` · ${prepSyncMessage}` : prepLookup.size > 0 ? ` · ${prepLookup.size} prep badge(s)` : preparations.length > 0 ? ` · ${preparations.length} prep row(s)` : " · no prep badges yet"}
         </div>
       )}
 

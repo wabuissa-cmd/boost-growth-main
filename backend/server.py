@@ -2714,7 +2714,23 @@ async def relink_schedule_prep(week_start: str = Query(...), user=Depends(get_cu
     start = base.strftime("%Y-%m-%d")
     end = (base + timedelta(days=4)).strftime("%Y-%m-%d")
     await _sync_schedule_preparations_for_week(start, end)
-    return {"ok": True, "week_start": week_start, "start": start, "end": end}
+    rows = await db.schedule_preparations.find(
+        {"session_date": {"$gte": start, "$lte": end}},
+        {"_id": 0, "therapist_id": 1, "client_id": 1, "session_date": 1},
+    ).to_list(5000)
+    unique = {
+        (r.get("therapist_id"), r.get("client_id"), (r.get("session_date") or "")[:10])
+        for r in rows
+        if r.get("therapist_id") and r.get("client_id")
+    }
+    return {
+        "ok": True,
+        "week_start": week_start,
+        "start": start,
+        "end": end,
+        "linked_count": len(unique),
+        "row_count": len(rows),
+    }
 
 
 def _can_manage_schedule_prep(user: dict) -> bool:

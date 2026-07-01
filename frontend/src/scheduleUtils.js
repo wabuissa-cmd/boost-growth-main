@@ -395,13 +395,38 @@ export function canTherapistLogScheduleCell(cell) {
 /** @deprecated use canTherapistLogScheduleCell */
 export const canSpecialistLogScheduleCell = canTherapistLogScheduleCell;
 
+/** Strip duplicated surname tokens (e.g. "Ahmed Al-Saud Al-Saud" → "Ahmed Al-Saud"). */
+export function dedupeScheduleDisplayName(text) {
+  const s = (text || "").trim().replace(/\s+/g, " ");
+  if (!s) return s;
+  const parts = s.split(" ");
+  while (parts.length >= 2 && parts[parts.length - 1].toLowerCase() === parts[parts.length - 2].toLowerCase()) {
+    parts.pop();
+  }
+  const half = Math.floor(parts.length / 2);
+  if (parts.length >= 4 && parts.length % 2 === 0) {
+    const a = parts.slice(0, half).join(" ").toLowerCase();
+    const b = parts.slice(half).join(" ").toLowerCase();
+    if (a === b) return parts.slice(0, half).join(" ");
+  }
+  return parts.join(" ");
+}
+
 /** Primary label shown inside a schedule grid cell (preserves full Excel text when stored in note). */
 export function scheduleCellDisplayLabel(cell, serviceShort) {
   if (!cell) return "";
-  if (cell.note?.trim()) return cell.note.trim();
+  if (cell.note?.trim()) {
+    const note = cell.note.trim();
+    if (note.includes("|")) {
+      const [head, ...rest] = note.split("|");
+      const namePart = dedupeScheduleDisplayName(rest.join("|").trim());
+      return namePart ? `${head.trim()} | ${namePart}` : head.trim();
+    }
+    return dedupeScheduleDisplayName(note);
+  }
   const short = serviceShort || cell.service_code || "";
   if (cell.child_name?.trim()) {
-    return `${short} | ${cell.child_name.trim()}`;
+    return `${short} | ${dedupeScheduleDisplayName(cell.child_name.trim())}`;
   }
   return short;
 }
