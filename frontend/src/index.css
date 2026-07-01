@@ -423,6 +423,34 @@ main, .page-enter { min-width: 0; }
     width: auto;
 }
 
+/* Blocks view: make day column look like a header (not boxed like session cells) */
+.sched-blocks-table .schedule-blocks-head {
+    background: #F6F4F0;
+    color: #2C3625;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    padding: 6px 4px;
+    border: 1px solid #E2DDD4;
+    position: sticky;
+    top: 0;
+    z-index: 3;
+}
+.sched-blocks-table .schedule-blocks-day-head {
+    text-align: center;
+    width: 12%;
+    border-right: 2px solid #E2DDD4;
+}
+.sched-blocks-table .schedule-blocks-day {
+    background: #F6F4F0;
+    color: #2C3625;
+    font-weight: 800;
+    border: 1px solid #E2DDD4;
+    border-right: 2px solid #E2DDD4;
+    padding: 6px 4px;
+    text-align: center;
+    vertical-align: middle;
+}
+
 /* Clear separation between each therapist block */
 .sched-sheet tr.sheet-therapist-divider > td {
     border-bottom: 4px solid #2F4A35 !important;

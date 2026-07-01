@@ -3,6 +3,7 @@ import { findClientForScheduleCell, isScheduleClientLogCell, normScheduleName, s
 
 /** Only completed sessions count as prepared (green checkmark). */
 const LOGGED_PREP_STATUSES = new Set(["Completed"]);
+const ALLOW_FUTURE_PREP_BADGES = false;
 
 /** Build lookup keys for a prep record returned by the API. */
 export function prepRecordKeys(rec, idAliases = null) {
@@ -346,6 +347,10 @@ export function getCellStatusBadge(
   if (cell.state === "cancel_therapist") return "therapist_cancel";
 
   const sessionDate = toISODate(addDays(new Date(weekStart + "T12:00:00"), day));
+  if (!ALLOW_FUTURE_PREP_BADGES) {
+    const today = toISODate(new Date());
+    if (sessionDate > today) return null;
+  }
   const childName = scheduleCellChildName(cell);
   const client = childName ? findClientForScheduleCell(childName, clients) : null;
 

@@ -3483,6 +3483,7 @@ async def _sync_schedule_preparations_for_week(start: str, end: str) -> dict:
 async def list_schedule_preparations(
     week_start: str,
     therapist_id: Optional[str] = None,
+    include_future: bool = False,
     user=Depends(get_current_user),
 ):
     """Prep-complete markers for schedule slots in a week (Sun–Thu)."""
@@ -3507,6 +3508,9 @@ async def list_schedule_preparations(
     suppressions = await _list_prep_suppressions(start, end, tid)
     merged = _merge_schedule_preparation_markers(db_items, computed)
     items = _filter_suppressed_markers(merged, suppressions)
+    if not include_future:
+        today = now_iso()[:10]
+        items = [it for it in items if (_session_date_iso(it.get("session_date")) or "") <= today]
     # Also drop computed session markers blocked by suppression (frontend uses week sessions too).
     return {"items": items, "suppressions": suppressions}
 
@@ -3613,6 +3617,9 @@ async def list_client_prep_history(cid: str, user=Depends(get_current_user)):
     items = await db.prep_history.find({"client_id": cid}, {"_id": 0}).sort(
         [("session_date", -1), ("prepared_at", -1)]
     ).to_list(500)
+    # Hide future-dated prep rows by default (these confuse schedule badges + history).
+    today = now_iso()[:10]
+    items = [it for it in items if (_session_date_iso(it.get("session_date")) or "") <= today]
     therapists = {
         t["id"]: t
         async for t in db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1})
@@ -7191,7 +7198,10 @@ def _discover_invoice_sheets(wb, client_file_no: str = None) -> list:
         if fn_padded and (fn_padded in sn_compact or (fn_stripped and fn_stripped in sn_compact)):
             try:
                 ws = wb[name]
-                if _sheet_has_session_table(ws) and _invoice_number_from_name(sn):
+                # Some historical attendance files name tabs like "061 HS" without an invoice number.
+                # If the tab clearly contains a session table and is tagged with this client's file_no,
+                # treat it as an invoice sheet — downstream ingest will generate a stable invoice id.
+                if _sheet_has_session_table(ws):
                     candidates.append(name)
                     continue
             except Exception:
@@ -7219,7 +7229,9 @@ def _discover_invoice_sheets(wb, client_file_no: str = None) -> list:
             except Exception:
                 inv = None
         if not inv:
-            continue
+            # Keep non-INV tabs (e.g. "061 HS") when they were accepted as candidates.
+            # They will be ingested with a generated invoice_number later.
+            inv = f"TAB:{name}"
         prev = by_num.get(inv)
         if not prev:
             by_num[inv] = name

@@ -487,7 +487,7 @@ function PrepOnlyRow({ rec, findT, bordered = false, canRemove = false, onRemove
       <td className={`${cell} font-bold`}>{fmtDate(rec.session_date)}</td>
       <td className={cell}>
         <span className="pill text-[10px] uppercase" style={{ background: "#E5EBE1", color: "var(--brand-dark)" }}>
-          Prep complete
+          Preparation logged · تم تسجيل التحضير
         </span>
       </td>
       <td className={cell}>{rec.time_slot || "—"}</td>
@@ -976,7 +976,8 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
                             canRemove={canManagePrep}
                             onRemove={async (row) => {
                               await api.delete(`/prep-history/${row.id}`);
-                              await fetchPrepHistory();
+                              const rows = await fetchPrepHistory();
+                              setPrepHistory(rows);
                             }}
                           />
                         ))}

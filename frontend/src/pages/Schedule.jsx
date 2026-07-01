@@ -1373,9 +1373,9 @@ export default function Schedule() {
         <table className="w-full text-xs border-collapse sched-blocks-table">
           <thead>
             <tr>
-              <th className="cell-base text-center font-bold" style={{ background: "#F6F4F0", color: "#2C3625" }}>Day</th>
+              <th className="schedule-blocks-head schedule-blocks-day-head">Day</th>
               {TIME_SLOTS.map(ts => (
-                <th key={ts} className="cell-base text-center font-bold" style={{ background: "#F6F4F0", color: "#2C3625" }}>
+                <th key={ts} className="schedule-blocks-head">
                   {ts.replace(' AM', 'a').replace(' PM', 'p')}
                 </th>
               ))}
@@ -1388,7 +1388,10 @@ export default function Schedule() {
               const closureLabel = closureLabelFor(therapist.id, dayISO);
               return (
               <tr key={di} className={leaveInfo ? "schedule-leave-row" : ""}>
-                <td className={`cell-base text-center font-bold${recentActiveDayIndices.has(di) ? " schedule-day-recent" : ""}`} style={{ background: leaveInfo && !closureLabel ? "#FEF9C3" : "#F6F4F0", color: "#2C3625", position: "relative" }}>
+                <td
+                  className={`schedule-blocks-day${recentActiveDayIndices.has(di) ? " schedule-day-recent" : ""}`}
+                  style={{ background: leaveInfo && !closureLabel ? "#FEF9C3" : undefined, position: "relative" }}
+                >
                   <div className="text-[11px] tracking-wider">{DAYS_SHORT[di].toUpperCase()}</div>
                   <div className="text-[10px] font-normal" style={{ color: "var(--brand-sage)" }}>{addDays(weekStart, di).getDate()}/{addDays(weekStart, di).getMonth() + 1}</div>
                   {leaveInfo && !closureLabel && (

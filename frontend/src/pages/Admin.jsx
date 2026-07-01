@@ -114,6 +114,10 @@ export default function Admin() {
   const [clientImportFile, setClientImportFile] = useState(null);
   const [clientImporting, setClientImporting] = useState(false);
   const [driveSyncing, setDriveSyncing] = useState(false);
+  const [driveSingleFileNo, setDriveSingleFileNo] = useState("");
+  const [driveSingleDryRun, setDriveSingleDryRun] = useState(true);
+  const [driveSingleSyncing, setDriveSingleSyncing] = useState(false);
+  const [driveSingleResult, setDriveSingleResult] = useState(null);
   const [fullRestoring, setFullRestoring] = useState(false);
   const [restoreProgress, setRestoreProgress] = useState("");
 
@@ -614,6 +618,47 @@ export default function Admin() {
     }
   };
 
+  const syncSingleDriveClient = async () => {
+    const raw = (driveSingleFileNo || "").trim();
+    const fileNo = raw ? String(raw).padStart(3, "0") : "";
+    if (!fileNo) {
+      alert("أدخل رقم ملف الطفل أولاً (مثال: 061)");
+      return;
+    }
+    setDriveSingleSyncing(true);
+    setDriveSingleResult(null);
+    try {
+      const { data } = await api.post(
+        "/admin/sync-active-clients-from-drive",
+        {
+          file_nos: [fileNo],
+          ensure_missing_clients: true,
+          dry_run: driveSingleDryRun,
+        },
+        { timeout: 300000 },
+      );
+      const row = (data?.results || [])[0] || null;
+      setDriveSingleResult({ ...(data || {}), file_no: fileNo, row });
+      if (row?.status === "error") {
+        alert(`Drive sync error for #${fileNo}: ${(row.error || "").slice(0, 140)}`);
+      } else if (row?.status === "skipped") {
+        alert(`Drive sync skipped for #${fileNo}: ${row.reason || "client not in portal"}`);
+      } else if (row?.status === "meta_synced") {
+        alert(`#${fileNo}: تم تحديث روابط Drive فقط (لا يوجد Attendance Sheet داخل الفولدر).`);
+      } else if (row?.status === "synced") {
+        alert(`#${fileNo}: synced · ${row.sessions_added || 0} جلسة · ${(row.invoices_added || []).length} فاتورة`);
+      } else {
+        alert(`#${fileNo}: ${row?.status || "done"}`);
+      }
+      checkDataHealth();
+    } catch (e) {
+      setDriveSingleResult({ ok: false, file_no: fileNo, error: e.response?.data?.detail || e.message });
+      alert("Sync failed: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setDriveSingleSyncing(false);
+    }
+  };
+
   const runFullRestoreFromDrive = async () => {
     if (!window.confirm(
       "استعادة كاملة من Drive؟\n\n"
@@ -814,6 +859,63 @@ export default function Admin() {
                 {driveSyncing ? <span className="spinner" /> : "مزامنة Drive (فواتير)"}
               </button>
             </div>
+          </ToolRow>
+
+          <ToolRow
+            title="مزامنة طفل واحد من Drive"
+            desc="تشخيص سريع: أدخل رقم الملف ثم نفّذ Sync لهذا الطفل فقط. فعّل Dry run أولاً لمعرفة هل يوجد Attendance Sheet داخل فولدره."
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                data-testid="drive-single-file-no"
+                className="input text-xs w-[120px]"
+                placeholder="File # (061)"
+                value={driveSingleFileNo}
+                onChange={(e) => setDriveSingleFileNo(e.target.value)}
+              />
+              <label className="flex items-center gap-2 text-xs cursor-pointer px-2 py-1 rounded-lg border"
+                style={{ borderColor: "#E2DDD4", background: "#fff", color: "#5C6853" }}
+              >
+                <input
+                  type="checkbox"
+                  checked={driveSingleDryRun}
+                  onChange={(e) => setDriveSingleDryRun(e.target.checked)}
+                />
+                Dry run
+              </label>
+              <button
+                type="button"
+                data-testid="drive-single-sync-btn"
+                onClick={syncSingleDriveClient}
+                disabled={driveSingleSyncing || driveSyncing || clientImporting || recovering || fullRestoring}
+                className="btn btn-gold text-xs"
+              >
+                {driveSingleSyncing ? <span className="spinner" /> : "Sync الطفل"}
+              </button>
+            </div>
+            {driveSingleResult && (
+              <div className="mt-2 text-[11px] whitespace-pre-wrap rounded-lg p-2 border"
+                style={{
+                  borderColor: driveSingleResult?.row?.status === "error" ? "#E8C4C4" : "#E2DDD4",
+                  background: driveSingleResult?.row?.status === "error" ? "#FDF8F8" : "#FFFFFF",
+                  color: driveSingleResult?.row?.status === "error" ? "#8A3F27" : "#3D4F35",
+                }}
+              >
+                <div className="font-bold mb-1">
+                  #{driveSingleResult.file_no} · {driveSingleResult?.row?.client_name || "—"} · {driveSingleResult?.row?.status || "—"}
+                </div>
+                {driveSingleResult?.row?.sheet_url && (
+                  <div>sheet_url: {driveSingleResult.row.sheet_url}</div>
+                )}
+                {driveSingleResult?.row?.reason && <div>reason: {driveSingleResult.row.reason}</div>}
+                {driveSingleResult?.row?.error && <div>error: {driveSingleResult.row.error}</div>}
+                {driveSingleResult?.row?.status === "synced" && (
+                  <div>
+                    sessions_added: {driveSingleResult.row.sessions_added || 0} · invoices_added: {(driveSingleResult.row.invoices_added || []).length}
+                  </div>
+                )}
+              </div>
+            )}
           </ToolRow>
 
           {healthData && !healthData.error && (
