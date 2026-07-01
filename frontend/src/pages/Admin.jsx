@@ -120,6 +120,8 @@ export default function Admin() {
   const [driveSingleResult, setDriveSingleResult] = useState(null);
   const [fullRestoring, setFullRestoring] = useState(false);
   const [restoreProgress, setRestoreProgress] = useState("");
+  const [markingPayments, setMarkingPayments] = useState(false);
+  const [markPaymentsResult, setMarkPaymentsResult] = useState(null);
 
   const chunkArray = (arr, size) => {
     const out = [];
@@ -340,8 +342,8 @@ export default function Admin() {
 
   const setUnifiedLaunchPassword = async () => {
     if (!window.confirm(
-      "Set password Boost@2026 for ALL therapists with email?\n\n" +
-      "Everyone must change it on first login. Existing passwords will stop working."
+      "Set password growth2026 for ALL therapists with email?\n\n" +
+      "Everyone can log in immediately with this password. Existing passwords will stop working."
     )) return;
     setUnifiedLaunchSetting(true);
     setUnifiedLaunchResult(null);
@@ -352,6 +354,22 @@ export default function Admin() {
       alert("Failed: " + (e.response?.data?.detail || e.message));
     } finally {
       setUnifiedLaunchSetting(false);
+    }
+  };
+
+  const markAllPaymentsPaid = async () => {
+    if (!window.confirm(
+      "Mark ALL invoices as PAID?\n\nException: Fahad Suliman (#079) stays PARTIAL (half paid).\n\nRe-runnable."
+    )) return;
+    setMarkingPayments(true);
+    setMarkPaymentsResult(null);
+    try {
+      const { data } = await api.post("/admin/mark-all-payments-complete");
+      setMarkPaymentsResult(data);
+    } catch (e) {
+      alert("Failed: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setMarkingPayments(false);
     }
   };
 
@@ -858,8 +876,23 @@ export default function Admin() {
               >
                 {driveSyncing ? <span className="spinner" /> : "مزامنة Drive (فواتير)"}
               </button>
+              <button
+                type="button"
+                data-testid="mark-all-payments-btn"
+                onClick={markAllPaymentsPaid}
+                disabled={markingPayments || clientImporting || recovering || fullRestoring}
+                className="btn btn-outline text-xs"
+              >
+                {markingPayments ? <span className="spinner" /> : "تعليم الفواتير مدفوعة"}
+              </button>
             </div>
           </ToolRow>
+          {markPaymentsResult && (
+            <div className="text-xs p-3 rounded-lg mb-3" style={{ background: "#E5EBE1", color: "#3D4F35" }}>
+              <div><strong>{markPaymentsResult.message}</strong></div>
+              <button type="button" onClick={() => setMarkPaymentsResult(null)} className="btn btn-outline text-xs mt-1">Dismiss</button>
+            </div>
+          )}
 
           <ToolRow
             title="مزامنة طفل واحد من Drive"
@@ -997,7 +1030,7 @@ export default function Admin() {
         </div>
         <ToolRow
           title="Set unified launch password"
-          desc="Set Boost@2026 for every therapist with email. They must choose a new password on first login. Deploys will NOT reset this — run only when you are ready to send credentials."
+          desc="Set growth2026 for every therapist with email. Specialists log in immediately — no forced password change. Deploys will NOT reset this — run only when you are ready to send credentials."
         >
           <button
             type="button"

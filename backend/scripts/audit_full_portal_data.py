@@ -152,6 +152,54 @@ async def main():
         except Exception as e:
             print(f"  prep diagnostics skipped: {e}")
 
+    # --- Per-child data completeness (official list) ---
+    print("\n--- Per-child data check (official file_nos) ---")
+    missing_invoices: list[str] = []
+    missing_sessions: list[str] = []
+    missing_drive: list[str] = []
+    child_rows: list[dict] = []
+    async for c in db.clients.find(_active_client_filter(), {"_id": 0}).sort("file_no", 1):
+        fn = str(c.get("file_no") or "").zfill(3)
+        if fn not in OFFICIAL_CLIENT_FILE_NOS:
+            continue
+        n_inv = await db.invoices.count_documents({"client_id": c["id"]})
+        n_sess = await db.sessions.count_documents({"client_id": c["id"]})
+        has_drive = bool((c.get("drive_url") or c.get("attendance_sheet_url") or "").strip())
+        row = {
+            "file_no": fn,
+            "name": c.get("name"),
+            "invoices": n_inv,
+            "sessions": n_sess,
+            "drive": has_drive,
+        }
+        child_rows.append(row)
+        if n_inv == 0:
+            missing_invoices.append(f"#{fn} {c.get('name')}")
+        if n_sess == 0:
+            missing_sessions.append(f"#{fn} {c.get('name')}")
+        if not has_drive:
+            missing_drive.append(f"#{fn} {c.get('name')}")
+
+    for row in child_rows:
+        flags = []
+        if row["invoices"] == 0:
+            flags.append("no invoices")
+        if row["sessions"] == 0:
+            flags.append("no sessions")
+        if not row["drive"]:
+            flags.append("no drive url")
+        status = "OK" if not flags else ", ".join(flags)
+        print(f"  #{row['file_no']} {row['name']}: inv={row['invoices']} sess={row['sessions']} · {status}")
+
+    if missing_invoices:
+        print(f"\n  Missing invoices ({len(missing_invoices)}): {', '.join(missing_invoices[:8])}")
+        if len(missing_invoices) > 8:
+            print(f"    ... +{len(missing_invoices) - 8} more")
+    if missing_sessions:
+        print(f"  Missing sessions ({len(missing_sessions)}): {', '.join(missing_sessions[:8])}")
+        if len(missing_sessions) > 8:
+            print(f"    ... +{len(missing_sessions) - 8} more")
+
     # --- Invoice / session gaps per client ---
     print("\n--- Clients missing billing data (active, no invoices) ---")
     gap_count = 0
@@ -221,6 +269,10 @@ async def main():
         "schedule_cells": schedule_cells,
         "stored_backups": stored_backups,
         "missing_official_file_nos": missing_official,
+        "missing_invoices": missing_invoices,
+        "missing_sessions": missing_sessions,
+        "missing_drive_url": missing_drive,
+        "child_rows": child_rows,
         "focus_week_cells": focus_cells,
         "clients_without_billing": gap_count,
     }

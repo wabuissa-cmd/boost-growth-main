@@ -419,7 +419,9 @@ THERAPIST_BOOTSTRAP_PASSWORDS = {
 }
 
 LAUNCH_PASSWORD_SUFFIX = "Launch2026"
-UNIFIED_LAUNCH_PASSWORD = "Boost@2026"
+UNIFIED_LAUNCH_PASSWORD = "growth2026"
+# Clients whose invoices stay partial (half paid) during bulk mark-paid rollout.
+PARTIAL_PAYMENT_CLIENT_FILE_NOS = frozenset({"079"})  # Fahad Suliman — half paid (not Fahad Alyahya #011)
 
 
 async def _migrate_bootstrap_therapist_passwords() -> int:
@@ -1353,7 +1355,7 @@ async def set_unified_launch_password(_=Depends(admin_only)):
             continue
         await db.therapists.update_one({"id": t["id"]}, {"$set": {
             "password_hash": pw_hash,
-            "must_change_password": True,
+            "must_change_password": False,
             "launch_credentials_generated_at": ts,
             "temp_password_set_at": ts,
         }})
@@ -6893,29 +6895,75 @@ THERAPIST_EMAIL_MIGRATIONS = [
 ]
 
 
+async def _partial_payment_client_ids() -> tuple[list[str], list[dict]]:
+    """Resolve client ids for PARTIAL_PAYMENT_CLIENT_FILE_NOS (e.g. Fahad Alyahya #011)."""
+    ids: list[str] = []
+    rows: list[dict] = []
+    for fn in sorted(PARTIAL_PAYMENT_CLIENT_FILE_NOS):
+        c = await db.clients.find_one(
+            {"file_no": fn},
+            {"_id": 0, "id": 1, "name": 1, "file_no": 1},
+        )
+        if c:
+            ids.append(c["id"])
+            rows.append(c)
+    return ids, rows
+
+
 async def _migrate_mark_all_payments_complete(force: bool = False) -> dict:
-    """One-time: mark every existing client + invoice as paid. New invoices stay pending by default."""
-    flag = await db.meta.find_one({"key": "payment_status_bulk_complete_v1"})
+    """Mark every client + invoice paid except PARTIAL_PAYMENT_CLIENT_FILE_NOS (half-paid)."""
+    flag = await db.meta.find_one({"key": "payment_status_bulk_complete_v2"})
     if flag and not force:
         return {"skipped": True, "reason": "already applied"}
 
+    partial_ids, partial_clients = await _partial_payment_client_ids()
+
     inv_r = await db.invoices.update_many(
-        {"payment_status": {"$ne": "complete"}},
+        {
+            "client_id": {"$nin": partial_ids},
+            "payment_status": {"$ne": "complete"},
+        },
         {"$set": {"payment_status": "complete"}},
     )
     cl_r = await db.clients.update_many(
-        {"payment_status": {"$ne": "complete"}},
+        {
+            "id": {"$nin": partial_ids},
+            "payment_status": {"$ne": "complete"},
+        },
         {"$set": {"payment_status": "complete"}},
     )
+
+    partial_inv_count = 0
+    for cid in partial_ids:
+        async for inv in db.invoices.find({"client_id": cid}, {"_id": 0, "id": 1, "amount": 1}):
+            amount = float(inv.get("amount") or 0)
+            patch: dict = {"payment_status": "partial"}
+            if amount > 0:
+                patch["amount_paid"] = round(amount / 2, 2)
+            await db.invoices.update_one({"id": inv["id"]}, {"$set": patch})
+            partial_inv_count += 1
+        await db.clients.update_one({"id": cid}, {"$set": {"payment_status": "partial"}})
+
     await db.meta.update_one(
-        {"key": "payment_status_bulk_complete_v1"},
-        {"$set": {"done": True, "at": now_iso(), "invoices": inv_r.modified_count, "clients": cl_r.modified_count}},
+        {"key": "payment_status_bulk_complete_v2"},
+        {
+            "$set": {
+                "done": True,
+                "at": now_iso(),
+                "invoices_complete": inv_r.modified_count,
+                "clients_complete": cl_r.modified_count,
+                "partial_clients": partial_clients,
+                "partial_invoices": partial_inv_count,
+            }
+        },
         upsert=True,
     )
     return {
         "skipped": False,
         "invoices_updated": inv_r.modified_count,
         "clients_updated": cl_r.modified_count,
+        "partial_clients": partial_clients,
+        "partial_invoices_updated": partial_inv_count,
     }
 
 
@@ -11144,8 +11192,16 @@ async def admin_fix_swapped_session_dates(body: FixSwappedSessionDatesIn, _=Depe
 
 @api.post("/admin/mark-all-payments-complete")
 async def admin_mark_all_payments_complete(_=Depends(admin_only)):
-    """Mark all clients and invoices as payment complete (re-runnable)."""
-    return await _migrate_mark_all_payments_complete(force=True)
+    """Mark all clients/invoices paid except partial-payment exceptions (Fahad #079 = half paid)."""
+    result = await _migrate_mark_all_payments_complete(force=True)
+    partial = result.get("partial_clients") or []
+    names = ", ".join(f"#{c.get('file_no')} {c.get('name')}" for c in partial) or "none"
+    result["message"] = (
+        f"Marked {result.get('invoices_updated', 0)} invoice(s) and "
+        f"{result.get('clients_updated', 0)} client(s) as paid. "
+        f"Partial (half paid): {names}."
+    )
+    return result
 
 
 # ------------------- Cancel-Notify (in-app + queued email) -------------------
