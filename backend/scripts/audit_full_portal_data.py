@@ -44,11 +44,13 @@ async def main():
 
     from server import (  # noqa: E402
         _active_client_filter,
+        _billing_active_client_filter,
         _prep_week_diagnostics,
         _schedule_week_start_variants,
         _therapist_identity_token,
         therapist_schedule_display_name,
         OFFICIAL_CLIENT_FILE_NOS,
+        INACTIVE_CLIENT_FILE_NOS,
     )
 
     client = AsyncIOMotorClient(url)
@@ -58,6 +60,7 @@ async def main():
 
     # --- Core counts ---
     active_clients = await db.clients.count_documents(_active_client_filter())
+    billing_active_clients = await db.clients.count_documents(_billing_active_client_filter())
     deleted_clients = await db.clients.count_documents({"deleted": True})
     total_clients = await db.clients.count_documents({})
     invoices = await db.invoices.count_documents({})
@@ -71,9 +74,12 @@ async def main():
     clients_with_invoices = len(await db.invoices.distinct("client_id"))
     clients_with_sessions = len(await db.sessions.distinct("client_id"))
 
+    expected_billing = len(OFFICIAL_CLIENT_FILE_NOS - INACTIVE_CLIENT_FILE_NOS)
     print("--- Collection counts ---")
     rows = [
-        ("clients (active)", active_clients, active_clients >= 20),
+        ("clients (portal total)", active_clients, True),
+        ("clients (billing-active)", billing_active_clients, billing_active_clients >= expected_billing),
+        ("clients (inactive)", active_clients - billing_active_clients, True),
         ("clients (soft-deleted)", deleted_clients, True),
         ("clients (total)", total_clients, True),
         ("therapists", len(therapists), 12 <= len(therapists) <= 20),
@@ -90,6 +96,7 @@ async def main():
     print(f"\n  Clients with invoices: {clients_with_invoices}")
     print(f"  Clients with sessions: {clients_with_sessions}")
     print(f"  Official seed file_nos: {len(OFFICIAL_CLIENT_FILE_NOS)}")
+    print(f"  Known inactive file_nos: {', '.join(sorted(INACTIVE_CLIENT_FILE_NOS))}")
 
     # --- Missing official clients ---
     present_file_nos = {
@@ -152,13 +159,13 @@ async def main():
         except Exception as e:
             print(f"  prep diagnostics skipped: {e}")
 
-    # --- Per-child data completeness (official list) ---
-    print("\n--- Per-child data check (official file_nos) ---")
+    # --- Per-child data completeness (official list, billing-active only) ---
+    print("\n--- Per-child data check (billing-active official file_nos) ---")
     missing_invoices: list[str] = []
     missing_sessions: list[str] = []
     missing_drive: list[str] = []
     child_rows: list[dict] = []
-    async for c in db.clients.find(_active_client_filter(), {"_id": 0}).sort("file_no", 1):
+    async for c in db.clients.find(_billing_active_client_filter(), {"_id": 0}).sort("file_no", 1):
         fn = str(c.get("file_no") or "").zfill(3)
         if fn not in OFFICIAL_CLIENT_FILE_NOS:
             continue
@@ -201,9 +208,9 @@ async def main():
             print(f"    ... +{len(missing_sessions) - 8} more")
 
     # --- Invoice / session gaps per client ---
-    print("\n--- Clients missing billing data (active, no invoices) ---")
+    print("\n--- Clients missing billing data (billing-active, no invoices) ---")
     gap_count = 0
-    async for c in db.clients.find(_active_client_filter(), {"_id": 0, "id": 1, "name": 1, "file_no": 1}):
+    async for c in db.clients.find(_billing_active_client_filter(), {"_id": 0, "id": 1, "name": 1, "file_no": 1}):
         n_inv = await db.invoices.count_documents({"client_id": c["id"]})
         n_sess = await db.sessions.count_documents({"client_id": c["id"]})
         if n_inv == 0 and n_sess == 0:
@@ -260,6 +267,8 @@ async def main():
 
     summary = {
         "active_clients": active_clients,
+        "billing_active_clients": billing_active_clients,
+        "inactive_clients": active_clients - billing_active_clients,
         "deleted_clients": deleted_clients,
         "therapists": len(therapists),
         "duplicate_therapist_groups": len(dup_tokens),

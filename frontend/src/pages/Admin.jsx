@@ -954,7 +954,10 @@ export default function Admin() {
           {healthData && !healthData.error && (
             <div className="text-xs p-3 rounded-xl space-y-2" style={{ background: "#FAFAF7", border: "1px solid #E2DDD4" }}>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <div><span style={{ color: "#8B9E7A" }}>أطفال</span><br /><strong>{healthData.clients}</strong></div>
+                <div><span style={{ color: "#8B9E7A" }}>أطفال نشطون</span><br /><strong>{healthData.clients}</strong></div>
+                {healthData.clients_inactive > 0 && (
+                  <div><span style={{ color: "#8B9E7A" }}>غير نشطين</span><br /><strong>{healthData.clients_inactive}</strong></div>
+                )}
                 <div><span style={{ color: "#8B9E7A" }}>فواتير</span><br /><strong>{healthData.invoices}</strong></div>
                 <div><span style={{ color: "#8B9E7A" }}>جلسات</span><br /><strong>{healthData.sessions}</strong></div>
                 <div><span style={{ color: "#8B9E7A" }}>تحضير</span><br /><strong>{healthData.prep_history}</strong></div>
@@ -965,6 +968,13 @@ export default function Admin() {
                 <div><span style={{ color: "#8B9E7A" }}>خلايا جدول</span><br /><strong>{healthData.schedule_cells_total}</strong></div>
                 <div><span style={{ color: "#8B9E7A" }}>نسخ احتياطية</span><br /><strong>{healthData.stored_backups}</strong></div>
               </div>
+              {healthData.missing_invoices?.length > 0 && (
+                <div className="p-2 rounded-lg" style={{ background: "#FDF8F3", color: "#8A3F27" }}>
+                  <strong>بدون فواتير ({healthData.missing_invoices.length}):</strong>{" "}
+                  {healthData.missing_invoices.slice(0, 6).join(" · ")}
+                  {healthData.missing_invoices.length > 6 ? ` · +${healthData.missing_invoices.length - 6}` : ""}
+                </div>
+              )}
               {healthData.last_backup_at && (
                 <div style={{ color: "#5C6853" }}>
                   آخر نسخة: {healthData.last_backup_at.slice(0, 19).replace("T", " ")}

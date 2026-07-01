@@ -38,7 +38,13 @@ def _active_client_filter(extra: Optional[dict] = None) -> dict:
         q.update(extra)
     return q
 
-INACTIVE_CLIENT_FILE_NOS = frozenset({"047"})
+
+def _billing_active_client_filter(extra: Optional[dict] = None) -> dict:
+    """Non-deleted clients still on active billing / audit lists."""
+    return _active_client_filter({"status": {"$ne": "Inactive"}, **(extra or {})})
+
+
+INACTIVE_CLIENT_FILE_NOS = frozenset({"018", "023", "030", "037", "047", "063"})
 
 
 async def _client_data_score(client_id: str) -> int:
@@ -1780,9 +1786,24 @@ async def _get_data_health_snapshot() -> dict:
         {"_id": 0, "created_at": 1, "id": 1, "source": 1},
         sort=[("created_at", -1)],
     )
-    clients = await db.clients.count_documents(_active_client_filter())
+    clients_total = await db.clients.count_documents(_active_client_filter())
+    clients_billing = await db.clients.count_documents(_billing_active_client_filter())
+    clients_inactive = clients_total - clients_billing
+
+    missing_invoices: List[str] = []
+    async for c in db.clients.find(_billing_active_client_filter(), {"_id": 0, "id": 1, "file_no": 1, "name": 1}):
+        fn = str(c.get("file_no") or "").zfill(3)
+        if fn not in OFFICIAL_CLIENT_FILE_NOS:
+            continue
+        n_inv = await db.invoices.count_documents({"client_id": c["id"]})
+        if n_inv == 0:
+            missing_invoices.append(f"#{fn} {c.get('name')}")
+
+    expected_billing = len(OFFICIAL_CLIENT_FILE_NOS - INACTIVE_CLIENT_FILE_NOS)
     return {
-        "clients": clients,
+        "clients": clients_billing,
+        "clients_total": clients_total,
+        "clients_inactive": clients_inactive,
         "invoices": await db.invoices.count_documents({}),
         "sessions": await db.sessions.count_documents({}),
         "prep_history": await db.prep_history.count_documents({}),
@@ -1794,7 +1815,8 @@ async def _get_data_health_snapshot() -> dict:
         "last_backup_at": (last_backup or {}).get("created_at"),
         "last_backup_id": ((last_backup or {}).get("id") or "")[:8] or None,
         "last_backup_source": (last_backup or {}).get("source"),
-        "ok": clients >= 20 and dup_groups == 0,
+        "missing_invoices": missing_invoices,
+        "ok": clients_billing >= expected_billing and dup_groups == 0 and not missing_invoices,
     }
 
 
@@ -1864,8 +1886,9 @@ async def _run_auto_recover(*, store_backup: bool = False) -> dict:
         "current": await _sync_schedule_preparations_for_week(current_week, current_end),
     }
 
-    clients = await db.clients.count_documents(_active_client_filter())
-    if clients < 20:
+    clients = await db.clients.count_documents(_billing_active_client_filter())
+    expected_billing = len(OFFICIAL_CLIENT_FILE_NOS - INACTIVE_CLIENT_FILE_NOS)
+    if clients < expected_billing:
         results["seed_master"] = await _seed_master_data_impl()
 
     if store_backup:
@@ -2033,11 +2056,15 @@ async def _seed_master_data_impl() -> dict:
             update["co_therapist_ids"] = co_ids
         if sup_name:
             update["supervisor"] = sup_name
+        if file_no in INACTIVE_CLIENT_FILE_NOS:
+            update["status"] = "Inactive"
         if match:
             await db.clients.update_one({"file_no": file_no}, {"$set": update})
             results["clients"]["updated"].append({"file_no": file_no, "name": name})
         else:
             cid = str(uuid.uuid4())
+            if file_no not in INACTIVE_CLIENT_FILE_NOS:
+                update.setdefault("status", "Active")
             doc = {"id": cid, "file_no": file_no, "color": "#7A8A6A",
                    "billing_mode": "hours", "payment_status": "pending",
                    "created_at": now_iso(), **update}
@@ -13641,6 +13668,8 @@ async def restore_official_clients(body: RestoreClientsIn, _=Depends(admin_only)
         }
         if seed["file_no"] in CLIENT_ATTENDANCE_SHEETS:
             fields["attendance_sheet_url"] = CLIENT_ATTENDANCE_SHEETS[seed["file_no"]]
+        if seed["file_no"] in INACTIVE_CLIENT_FILE_NOS:
+            fields["status"] = "Inactive"
         if match:
             await db.clients.update_one({"id": match["id"]}, {"$set": fields})
             updated += 1
