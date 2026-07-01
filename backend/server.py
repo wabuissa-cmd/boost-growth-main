@@ -3153,6 +3153,62 @@ async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) 
         )
 
 
+async def _ensure_session_schedule_prep_markers(
+    sess: dict,
+    user_id: str,
+    *,
+    notes: Optional[str] = None,
+) -> None:
+    """Guarantee schedule_preparations + prep_history stay in sync after logging a session."""
+    status = (sess.get("status") or "").strip()
+    if status not in ("Completed", "No Show"):
+        return
+    client_id = sess.get("client_id")
+    session_date = (sess.get("session_date") or "")[:10]
+    if not client_id or not session_date:
+        return
+    client = await db.clients.find_one(_active_client_filter({"id": client_id}), {"_id": 0, "name": 1})
+    client_name = (client or {}).get("name")
+    prepared_by = user_id or sess.get("created_by") or ""
+    source = "no_show" if status == "No Show" else "session"
+    try:
+        await _auto_mark_schedule_preparation_for_session(sess, user_id)
+    except Exception:
+        logger.exception("Auto-mark schedule preparation failed for session %s", sess.get("id"))
+    for tid in [t for t in (sess.get("therapist_ids") or []) if t]:
+        cell = await _resolve_schedule_cell_for_prep(
+            tid, client_id, session_date, client_name=client_name,
+        )
+        try:
+            await _upsert_session_prep_markers(
+                therapist_id=tid,
+                client_id=client_id,
+                session_date=session_date,
+                prepared_by=prepared_by,
+                client_name=client_name,
+                cell=cell,
+            )
+        except Exception:
+            logger.exception("Schedule prep marker upsert failed for %s/%s", tid, client_id)
+        time_slot = (cell or {}).get("time_slot") or sess.get("start_time") or ""
+        try:
+            await _upsert_prep_history(
+                therapist_id=tid,
+                client_id=client_id,
+                session_date=session_date,
+                prepared_by=prepared_by,
+                time_slot=time_slot,
+                client_name=client_name,
+                notes=notes if notes is not None else sess.get("note"),
+                invoice_id=sess.get("invoice_id"),
+                session_id=sess.get("id"),
+                schedule_cell_id=(cell or {}).get("id"),
+                source=source,
+            )
+        except Exception:
+            logger.exception("Prep history upsert failed for %s/%s", tid, client_id)
+
+
 async def _related_therapist_ids_for_prep(
     therapist_id: str,
     client_id: str,
@@ -8281,10 +8337,13 @@ async def create_session(payload: SessionIn, user=Depends(get_current_user)):
     doc = _attach_open_invoice_to_session(doc, client or {}, invs)
     await db.sessions.insert_one(doc)
     doc.pop("_id", None)
-    try:
-        await _auto_mark_schedule_preparation_for_session(doc, user["id"])
-    except Exception:
-        logger.exception("Auto-mark schedule preparation failed")
+    if payload.status in ("Completed", "No Show"):
+        try:
+            await _ensure_session_schedule_prep_markers(
+                doc, user["id"], notes=payload.note,
+            )
+        except Exception:
+            logger.exception("Schedule prep sync failed for new session %s", sid)
     if payload.status == "Cancelled":
         for tid in therapist_ids:
             try:
@@ -8296,47 +8355,6 @@ async def create_session(payload: SessionIn, user=Depends(get_current_user)):
                 )
             except Exception:
                 logger.exception("Clear prep marker after %s session", payload.status)
-    elif payload.status == "No Show":
-        client_name = (client or {}).get("name")
-        try:
-            for prep_tid in therapist_ids:
-                if not prep_tid:
-                    continue
-                await _upsert_prep_history(
-                    therapist_id=prep_tid,
-                    client_id=payload.client_id,
-                    session_date=payload.session_date,
-                    prepared_by=user["id"],
-                    time_slot=payload.start_time or "",
-                    client_name=client_name,
-                    notes=payload.note,
-                    invoice_id=doc.get("invoice_id"),
-                    session_id=sid,
-                    source="no_show",
-                )
-            await _auto_mark_schedule_preparation_for_session(doc, user["id"])
-        except Exception:
-            logger.exception("No Show prep history / schedule marker failed")
-    try:
-        if payload.status == "Completed":
-            client_name = (client or {}).get("name")
-            for prep_tid in therapist_ids:
-                if not prep_tid:
-                    continue
-                await _upsert_prep_history(
-                    therapist_id=prep_tid,
-                    client_id=payload.client_id,
-                    session_date=payload.session_date,
-                    prepared_by=user["id"],
-                    time_slot=payload.start_time or "",
-                    client_name=client_name,
-                    notes=payload.note,
-                    invoice_id=doc.get("invoice_id"),
-                    session_id=sid,
-                    source="session",
-                )
-    except Exception:
-        logger.exception("Prep history log failed")
     # Admin alerts
     cname = client.get("name") if client else "—"
     if user.get("role") == "therapist":
@@ -8393,44 +8411,10 @@ async def update_session(sid: str, payload: SessionIn, user=Depends(get_current_
     await db.sessions.update_one({"id": sid}, {"$set": patch})
     updated = await db.sessions.find_one({"id": sid}, {"_id": 0})
     try:
-        if updated.get("status") == "Completed":
-            await _auto_mark_schedule_preparation_for_session(updated, user["id"])
-            client = await db.clients.find_one(_active_client_filter({"id": updated.get("client_id")}), {"_id": 0, "name": 1})
-            client_name = (client or {}).get("name")
-            for prep_tid in therapist_ids:
-                if not prep_tid:
-                    continue
-                await _upsert_prep_history(
-                    therapist_id=prep_tid,
-                    client_id=updated.get("client_id"),
-                    session_date=updated.get("session_date"),
-                    prepared_by=user["id"],
-                    time_slot=updated.get("start_time") or "",
-                    client_name=client_name,
-                    notes=patch.get("note"),
-                    invoice_id=updated.get("invoice_id"),
-                    session_id=sid,
-                    source="session",
-                )
-        elif updated.get("status") == "No Show":
-            client = await db.clients.find_one(_active_client_filter({"id": updated.get("client_id")}), {"_id": 0, "name": 1})
-            client_name = (client or {}).get("name")
-            for prep_tid in therapist_ids:
-                if not prep_tid:
-                    continue
-                await _upsert_prep_history(
-                    therapist_id=prep_tid,
-                    client_id=updated.get("client_id"),
-                    session_date=updated.get("session_date"),
-                    prepared_by=user["id"],
-                    time_slot=updated.get("start_time") or "",
-                    client_name=client_name,
-                    notes=patch.get("note"),
-                    invoice_id=updated.get("invoice_id"),
-                    session_id=sid,
-                    source="no_show",
-                )
-            await _auto_mark_schedule_preparation_for_session(updated, user["id"])
+        if updated.get("status") in ("Completed", "No Show"):
+            await _ensure_session_schedule_prep_markers(
+                updated, user["id"], notes=patch.get("note"),
+            )
         elif updated.get("status") == "Cancelled":
             for tid in therapist_ids:
                 await _clear_schedule_preparation_marker(

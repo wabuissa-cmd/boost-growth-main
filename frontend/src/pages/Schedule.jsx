@@ -149,7 +149,8 @@ export default function Schedule() {
   const isAdmin = scheduleAdmin;
   const opsCanSeeAllPreps = hasFullClientAccess(user) || scheduleAdmin || hasOpsAccess(user);
   const canQuickLog = !scheduleAdmin && !scheduleLead;
-  const canSeePrepBadges = !!user && (opsCanSeeAllPreps || canQuickLog);
+  const canQuickLogOwnRow = !scheduleAdmin;
+  const canSeePrepBadges = !!user && (opsCanSeeAllPreps || canQuickLog || canQuickLogOwnRow);
   const canManagePrep = !!user && (hasOpsAccess(user) || scheduleAdmin || hasFullClientAccess(user));
   const canManageCover = !!user && (hasOpsAccess(user) || scheduleAdmin || hasFullClientAccess(user));
   const parentCancelOps = canParentCancellationOps(user);
@@ -941,6 +942,17 @@ export default function Schedule() {
   const handleCellClick = (e, therapist_id, day, time_slot, existing) => {
     if (e) e.stopPropagation();
     const cell = existing || findCellAt(therapist_id, day, time_slot, cellMap, cells);
+    const onOwnRow = selfTherapist?.id && therapist_id === selfTherapist.id;
+    if (onOwnRow && canQuickLogOwnRow && cell?.state === "cancel_therapist") {
+      return;
+    }
+    if (onOwnRow && canQuickLogOwnRow) {
+      if (view !== "blocks") return;
+      if (isScheduleClientLogCell(cell) && canSpecialistLogScheduleCell(cell)) {
+        openQuickLogFromCell(cell, therapist_id, day, time_slot);
+      }
+      return;
+    }
     if (canQuickLog && cell?.state === "cancel_therapist") {
       return;
     }
@@ -1432,7 +1444,7 @@ export default function Schedule() {
                   const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
                   const statusBadge = cellStatusBadge(cell, therapist.id, di);
                   return (
-                    <td key={ts} className={cellClassNameBlock(cell, canEditRow(therapist.id), leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts), canQuickLog && therapist.id === selfTherapist?.id, statusBadge)}
+                    <td key={ts} className={cellClassNameBlock(cell, canEditRow(therapist.id), leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts), (canQuickLog || canQuickLogOwnRow) && therapist.id === selfTherapist?.id, statusBadge)}
                       colSpan={colSpan}
                       style={cellStyle}
                       data-testid={`cell-${therapist.id}-${di}-${ts}`}
