@@ -2028,6 +2028,9 @@ async def _log_therapist_cancel_prep_history(cell: dict, user_id: str) -> None:
         schedule_cell_id=cell.get("id"),
         source="therapist_cancel",
     )
+
+
+async def _sync_schedule_preparations_to_prep_history(client_id: Optional[str] = None) -> None:
     """One-time backfill: legacy schedule_preparations → prep_history."""
     q: dict = {}
     if client_id:
@@ -2246,6 +2249,12 @@ async def _sync_prep_history_to_schedule_markers(start: str, end: str) -> None:
                     week_start = cell.get("week_start")
                     day = cell.get("day")
                     break
+        stale_cell_id = row.get("schedule_cell_id")
+        if cell_id and cell_id != stale_cell_id:
+            await db.prep_history.update_one(
+                {"id": row.get("id")},
+                {"$set": {"schedule_cell_id": cell_id}},
+            )
         try:
             await _upsert_schedule_preparation(
                 therapist_id=tid,
@@ -11499,6 +11508,17 @@ async def _import_schedule_grid(
     return inserted, skipped_unknown
 
 
+async def _relink_prep_markers_after_schedule_import(week_start: str) -> None:
+    """Re-attach prep badges to new cell IDs after Excel re-import."""
+    try:
+        base = datetime.fromisoformat(str(week_start)[:10])
+    except ValueError:
+        return
+    start = base.strftime("%Y-%m-%d")
+    end = (base + timedelta(days=4)).strftime("%Y-%m-%d")
+    await _sync_schedule_preparations_for_week(start, end)
+
+
 async def _clear_schedule_span(
     therapist_id: str,
     day: int,
@@ -11725,6 +11745,7 @@ async def import_schedule_excel(file: UploadFile = File(...),
         grid, week_start, t_by_name, clear_existing == "true",
         merge_anchors=merge_anchors, merge_skip=merge_skip,
     )
+    await _relink_prep_markers_after_schedule_import(week_start)
     return {
         "cells_inserted": inserted,
         "week_start": week_start,
@@ -11770,6 +11791,7 @@ async def import_schedule_google(body: dict, _=Depends(import_access)):
         grid, week_start, t_by_name, bool(clear_existing),
         merge_anchors=merge_anchors, merge_skip=merge_skip,
     )
+    await _relink_prep_markers_after_schedule_import(week_start)
     return {
         "cells_inserted": inserted,
         "week_start": week_start,

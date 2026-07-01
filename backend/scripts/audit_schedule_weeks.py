@@ -37,7 +37,16 @@ async def main():
         meta = await db.schedule_weeks.find_one({"week_start": ws}, {"_id": 0, "status": 1})
         status = (meta or {}).get("status") or "(none)"
         print(f"{ws}  | {n:5} | {status}")
-    print("\nAll week_starts with cells (top 15 by count):")
+    print("\nPrep markers for trial week (2026-06-28 Sun–Thu):")
+    start, end = "2026-06-28", "2026-07-02"
+    prep_n = await db.schedule_preparations.count_documents(
+        {"session_date": {"$gte": start, "$lte": end}}
+    )
+    hist_n = await db.prep_history.count_documents(
+        {"session_date": {"$gte": start, "$lte": end}}
+    )
+    print(f"  schedule_preparations: {prep_n}")
+    print(f"  prep_history: {hist_n}")
     pipeline = [
         {"$group": {"_id": "$week_start", "n": {"$sum": 1}}},
         {"$sort": {"n": -1}},
