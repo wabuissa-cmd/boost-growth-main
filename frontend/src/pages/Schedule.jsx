@@ -410,7 +410,16 @@ export default function Schedule() {
       await load(true);
       const rowCount = await loadPreparations();
       const linked = data?.linked_count ?? rowCount ?? 0;
-      const msg = `Linked ${linked} prep marker(s) for ${formatDateRange(weekStart)}.`;
+      let msg = `Linked ${linked} prep marker(s) for ${formatDateRange(weekStart)}.`;
+      if (linked === 0 && data?.before) {
+        const b = data.before;
+        msg += ` Sources: ${b.completed_sessions} completed session(s), ${b.prep_history} prep_history, ${b.prep_by_week_start} marker(s) by week_start.`;
+        if (data.recovery) {
+          const r = data.recovery;
+          const fixes = Object.entries(r).filter(([, v]) => v > 0).map(([k, v]) => `${k}=${v}`);
+          if (fixes.length) msg += ` Recovered: ${fixes.join(", ")}.`;
+        }
+      }
       setPrepSyncMessage(msg);
       if (!silent) window.alert(msg);
     } catch (err) {

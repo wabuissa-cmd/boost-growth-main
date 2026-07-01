@@ -1941,9 +1941,29 @@ def _week_start_variants_for_session_date(session_date: str) -> List[str]:
     return _schedule_week_start_variants(sd)
 
 
+def _session_date_iso(value) -> Optional[str]:
+    """Normalize session_date from str, datetime, or date to yyyy-mm-dd."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d")
+    if hasattr(value, "isoformat") and not isinstance(value, str):
+        try:
+            return value.isoformat()[:10]
+        except Exception:
+            pass
+    text = str(value).strip()
+    if not text:
+        return None
+    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+        return text[:10]
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})", text)
+    return m.group(1) if m else None
+
+
 def _session_date_query(session_date: str) -> dict:
     """Mongo filter for a calendar day (handles yyyy-mm-dd and ISO datetimes)."""
-    sd = (session_date or "")[:10]
+    sd = _session_date_iso(session_date)
     if not sd:
         return {}
     return {"session_date": {"$regex": f"^{re.escape(sd)}"}}
@@ -1951,15 +1971,196 @@ def _session_date_query(session_date: str) -> dict:
 
 def _session_date_range_query(start: str, end: str) -> dict:
     """Mongo filter for session_date within an inclusive yyyy-mm-dd range."""
-    start = (start or "")[:10]
-    end = (end or "")[:10]
+    from datetime import date as date_cls
+    start = _session_date_iso(start) or ""
+    end = _session_date_iso(end) or ""
     if not start or not end:
         return {}
+    clauses: list = [
+        {"session_date": {"$gte": start, "$lte": end}},
+        {"session_date": {"$gte": f"{start}T", "$lte": f"{end}T23:59:59.999Z"}},
+        {"session_date": {"$gte": f"{start}T", "$lte": f"{end}T23:59:59.999+00:00"}},
+    ]
+    try:
+        start_dt = datetime.fromisoformat(start).replace(tzinfo=timezone.utc)
+        end_dt = datetime.fromisoformat(end).replace(
+            hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc
+        )
+        clauses.append({"session_date": {"$gte": start_dt, "$lte": end_dt}})
+    except ValueError:
+        pass
+    try:
+        d0 = date_cls.fromisoformat(start)
+        d1 = date_cls.fromisoformat(end)
+        day = d0
+        while day <= d1:
+            clauses.append({"session_date": {"$regex": f"^{re.escape(day.isoformat())}"}})
+            day += timedelta(days=1)
+    except ValueError:
+        pass
+    return {"$or": clauses}
+
+
+def _shift_calendar_year(iso_date: str, delta_years: int) -> Optional[str]:
+    """Return iso_date shifted by delta_years (e.g. 2025-06-28 → 2026-06-28)."""
+    from datetime import date as date_cls
+    sd = _session_date_iso(iso_date)
+    if not sd:
+        return None
+    try:
+        d = date_cls.fromisoformat(sd)
+        return d.replace(year=d.year + delta_years).isoformat()
+    except ValueError:
+        return None
+
+
+def _prep_week_marker_scope_query(start: str, end: str) -> dict:
+    """Match schedule_preparation rows by session_date OR week_start for a Sun–Thu week."""
+    start = _session_date_iso(start) or ""
+    end = _session_date_iso(end) or ""
+    week_variants = _schedule_week_start_variants(start) if start else []
+    clauses: list = [_session_date_range_query(start, end)]
+    if week_variants:
+        clauses.append({"week_start": {"$in": week_variants}})
+    return {"$or": clauses}
+
+
+async def _recover_misdated_week_prep(start: str, end: str) -> dict:
+    """Repair prep/session rows stored under wrong year or session_date before relink."""
+    start = _session_date_iso(start) or ""
+    end = _session_date_iso(end) or ""
+    stats = {
+        "remapped_sessions": 0,
+        "remapped_history": 0,
+        "fixed_prep_markers": 0,
+        "history_from_prepared_at": 0,
+    }
+    if not start or not end:
+        return stats
+
+    primary_hist = await db.prep_history.count_documents(_session_date_range_query(start, end))
+    primary_sess = await db.sessions.count_documents({
+        **_session_date_range_query(start, end),
+        "status": "Completed",
+    })
+    if not primary_hist and not primary_sess:
+        alt_start = _shift_calendar_year(start, -1)
+        alt_end = _shift_calendar_year(end, -1)
+        if alt_start and alt_end:
+            alt_sessions = await db.sessions.find(
+                {
+                    **_session_date_range_query(alt_start, alt_end),
+                    "status": "Completed",
+                },
+                {"_id": 0},
+            ).to_list(5000)
+            for sess in alt_sessions:
+                old_sd = _session_date_iso(sess.get("session_date"))
+                new_sd = _shift_calendar_year(old_sd, 1) if old_sd else None
+                if not new_sd or not (start <= new_sd <= end):
+                    continue
+                await db.sessions.update_one({"id": sess["id"]}, {"$set": {"session_date": new_sd}})
+                stats["remapped_sessions"] += 1
+
+            alt_hist = await db.prep_history.find(
+                _session_date_range_query(alt_start, alt_end),
+                {"_id": 0},
+            ).to_list(5000)
+            for row in alt_hist:
+                old_sd = _session_date_iso(row.get("session_date"))
+                new_sd = _shift_calendar_year(old_sd, 1) if old_sd else None
+                if not new_sd or not (start <= new_sd <= end):
+                    continue
+                await db.prep_history.update_one({"id": row["id"]}, {"$set": {"session_date": new_sd}})
+                stats["remapped_history"] += 1
+
+    hist_by_prepared = await db.prep_history.find(
+        {
+            "prepared_at": {
+                "$gte": f"{start}T00:00:00",
+                "$lte": f"{end}T23:59:59.999Z",
+            },
+        },
+        {"_id": 0},
+    ).to_list(5000)
+    for row in hist_by_prepared:
+        sd = _session_date_iso(row.get("session_date"))
+        if sd and start <= sd <= end:
+            continue
+        pa = _session_date_iso(row.get("prepared_at"))
+        if pa and start <= pa <= end:
+            await db.prep_history.update_one({"id": row["id"]}, {"$set": {"session_date": pa}})
+            stats["history_from_prepared_at"] += 1
+
+    week_variants = _schedule_week_start_variants(start)
+    prep_rows = await db.schedule_preparations.find(
+        {"week_start": {"$in": week_variants}},
+        {"_id": 0},
+    ).to_list(5000)
+    for row in prep_rows:
+        sd = _session_date_iso(row.get("session_date"))
+        if sd and start <= sd <= end:
+            continue
+        corrected = _schedule_cell_date_iso(row)
+        if corrected and start <= corrected <= end:
+            await db.schedule_preparations.update_one(
+                {"id": row["id"]},
+                {"$set": {"session_date": corrected}},
+            )
+            stats["fixed_prep_markers"] += 1
+            tid = row.get("therapist_id")
+            cid = row.get("client_id")
+            if tid and cid:
+                key = _prep_history_key(tid, cid, corrected, row.get("time_slot"))
+                hit = await db.prep_history.find_one(key, {"_id": 0, "id": 1})
+                if not hit:
+                    doc = {
+                        **key,
+                        "id": str(uuid.uuid4()),
+                        "client_name": row.get("client_name") or "",
+                        "prepared_by": row.get("prepared_by") or "",
+                        "prepared_at": row.get("prepared_at") or now_iso(),
+                        "notes": "",
+                        "source": "schedule",
+                        "schedule_cell_id": row.get("schedule_cell_id"),
+                    }
+                    await db.prep_history.insert_one(doc)
+
+    return stats
+
+
+async def _prep_week_diagnostics(start: str, end: str) -> dict:
+    """Counts for relink troubleshooting (primary range + year-shift + week_start scope)."""
+    start = _session_date_iso(start) or ""
+    end = _session_date_iso(end) or ""
+    alt_start = _shift_calendar_year(start, -1) or ""
+    alt_end = _shift_calendar_year(end, -1) or ""
+    week_variants = _schedule_week_start_variants(start) if start else []
     return {
-        "$or": [
-            {"session_date": {"$gte": start, "$lte": end}},
-            {"session_date": {"$gte": f"{start}T", "$lte": f"{end}T23:59:59.999Z"}},
-        ]
+        "prep_history": await db.prep_history.count_documents(_session_date_range_query(start, end)),
+        "completed_sessions": await db.sessions.count_documents({
+            **_session_date_range_query(start, end),
+            "status": "Completed",
+        }),
+        "schedule_preparations": await db.schedule_preparations.count_documents(
+            _prep_week_marker_scope_query(start, end)
+        ),
+        "prep_suppressions": await db.schedule_prep_suppressions.count_documents(
+            _session_date_range_query(start, end)
+        ),
+        "schedule_cells": await db.schedule_cells.count_documents(
+            {"week_start": {"$in": week_variants}} if week_variants else {"week_start": start}
+        ),
+        "prep_history_year_shift": await db.prep_history.count_documents(
+            _session_date_range_query(alt_start, alt_end)
+        ) if alt_start and alt_end else 0,
+        "sessions_year_shift": await db.sessions.count_documents({
+            **_session_date_range_query(alt_start, alt_end),
+            "status": "Completed",
+        }) if alt_start and alt_end else 0,
+        "prep_by_week_start": await db.schedule_preparations.count_documents(
+            {"week_start": {"$in": week_variants}}
+        ) if week_variants else 0,
     }
 
 
@@ -2469,7 +2670,7 @@ async def _sync_prep_history_to_schedule_markers(start: str, end: str) -> None:
     for row in rows:
         tid = row.get("therapist_id")
         cid = row.get("client_id")
-        sd = (row.get("session_date") or "")[:10]
+        sd = _session_date_iso(row.get("session_date"))
         if not tid or not cid or not sd:
             continue
         stale_cell_id = row.get("schedule_cell_id")
@@ -2795,8 +2996,9 @@ async def _refresh_schedule_preparation_cell_ids(start: str, end: str) -> None:
         )
 
 
-async def _sync_schedule_preparations_for_week(start: str, end: str) -> None:
+async def _sync_schedule_preparations_for_week(start: str, end: str) -> dict:
     """Backfill schedule prep markers from completed sessions (idempotent)."""
+    recovery = await _recover_misdated_week_prep(start, end)
     sessions = await db.sessions.find(
         {
             **_session_date_range_query(start, end),
@@ -2819,6 +3021,7 @@ async def _sync_schedule_preparations_for_week(start: str, end: str) -> None:
         await _refresh_schedule_preparation_cell_ids(start, end)
     except Exception:
         logger.exception("refresh schedule preparation cell ids for %s–%s", start, end)
+    return recovery
 
 
 @api.get("/schedule/preparations")
@@ -2865,16 +3068,18 @@ async def relink_schedule_prep(week_start: str = Query(...), user=Depends(get_cu
         raise HTTPException(status_code=400, detail="Invalid week_start")
     start = base.strftime("%Y-%m-%d")
     end = (base + timedelta(days=4)).strftime("%Y-%m-%d")
-    await _sync_schedule_preparations_for_week(start, end)
+    before = await _prep_week_diagnostics(start, end)
+    recovery = await _sync_schedule_preparations_for_week(start, end)
     rows = await db.schedule_preparations.find(
-        _session_date_range_query(start, end),
+        _prep_week_marker_scope_query(start, end),
         {"_id": 0, "therapist_id": 1, "client_id": 1, "session_date": 1},
     ).to_list(5000)
     unique = {
-        (r.get("therapist_id"), r.get("client_id"), (r.get("session_date") or "")[:10])
+        (r.get("therapist_id"), r.get("client_id"), _session_date_iso(r.get("session_date")))
         for r in rows
-        if r.get("therapist_id") and r.get("client_id")
+        if r.get("therapist_id") and r.get("client_id") and _session_date_iso(r.get("session_date"))
     }
+    after = await _prep_week_diagnostics(start, end)
     return {
         "ok": True,
         "week_start": week_start,
@@ -2882,6 +3087,9 @@ async def relink_schedule_prep(week_start: str = Query(...), user=Depends(get_cu
         "end": end,
         "linked_count": len(unique),
         "row_count": len(rows),
+        "recovery": recovery,
+        "before": before,
+        "after": after,
     }
 
 
