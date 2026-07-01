@@ -4,7 +4,7 @@ import api, { formatErr } from "../api";
 import { useAuth } from "../auth";
 import {
   CheckCircle, XCircle, ArrowCounterClockwise, ArrowLeft, ArrowRight,
-  GraduationCap, Clock, Target, User, Certificate, House,
+  GraduationCap, Clock, Target, User, Certificate, House, EnvelopeSimple,
 } from "@phosphor-icons/react";
 
 const LOGO_SRC = `${process.env.PUBLIC_URL || ""}/brand-assets/boost-growth-logo.png`.replace(/\/\//g, "/");
@@ -67,14 +67,6 @@ export default function CenterTest() {
       }
     })();
   }, [testId]);
-
-  useEffect(() => {
-    if (!fromPortal || studentName.trim()) return;
-    const raw = (user?.name || "").replace(/^Ms\.?\s*/i, "").trim();
-    if (raw.split(/\s+/).filter(Boolean).length >= 2) {
-      setStudentName(raw);
-    }
-  }, [fromPortal, user, studentName]);
 
   const retakeQuiz = () => {
     setStep("quiz");
@@ -327,13 +319,27 @@ export default function CenterTest() {
                   </span>
                 </p>
                 <div className="center-test-certificate-note">
-                  <Certificate size={22} weight="duotone" />
-                  <p>
-                    Your certificate will be published in your staff portal.
-                    <span className="center-test-certificate-sub">
-                      Go to <strong>My Learning → My Certificates</strong> once your supervisor has uploaded it.
-                    </span>
-                  </p>
+                  {fromPortal ? (
+                    <>
+                      <Certificate size={22} weight="duotone" />
+                      <p>
+                        Your certificate will be published in your staff portal.
+                        <span className="center-test-certificate-sub">
+                          Go to <strong>My Learning → My Certificates</strong> once your supervisor has uploaded it.
+                        </span>
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <EnvelopeSimple size={22} weight="duotone" />
+                      <p>
+                        Your certificate will be sent to your email.
+                        <span className="center-test-certificate-sub">
+                          Once your supervisor confirms your result, the certificate will arrive at the email address registered with the center.
+                        </span>
+                      </p>
+                    </>
+                  )}
                 </div>
                 <p className="center-test-success-note">
                   Well done, <strong>{result.student_name}</strong>. Your result has been recorded.
@@ -355,19 +361,26 @@ export default function CenterTest() {
                   </span>
                 </p>
                 <p className="center-test-fail-note">
-                  You may retake when you are ready, or return to the portal and try again later.
-                  Correct answers appear in <strong>My Learning</strong> only on attempts where you score {threshold}% or higher.
+                  {fromPortal ? (
+                    <>
+                      You may retake when you are ready, or return to the portal and try again later.
+                      Correct answers appear in <strong>My Learning</strong> only on attempts where you score {threshold}% or higher.
+                    </>
+                  ) : (
+                    <>
+                      You may retake when you are ready. If you pass on a later attempt, your certificate will be sent to your email.
+                    </>
+                  )}
                 </p>
                 <div className="center-test-fail-actions">
                   <button type="button" className="btn btn-primary center-test-nav-btn" onClick={retakeQuiz}>
                     <ArrowCounterClockwise size={20} weight="bold" /> Retake assessment
                   </button>
-                  <Link
-                    to={fromPortal ? "/home" : "/login"}
-                    className="btn btn-secondary center-test-nav-btn"
-                  >
-                    <House size={18} weight="duotone" /> Return to site
-                  </Link>
+                  {fromPortal && (
+                    <Link to="/home" className="btn btn-secondary center-test-nav-btn">
+                      <House size={18} weight="duotone" /> Return to portal
+                    </Link>
+                  )}
                 </div>
               </>
             )}
