@@ -3207,6 +3207,91 @@ async def _ensure_session_schedule_prep_markers(
             )
         except Exception:
             logger.exception("Prep history upsert failed for %s/%s", tid, client_id)
+    try:
+        anchor = None
+        for tid in [t for t in (sess.get("therapist_ids") or []) if t]:
+            anchor = await _resolve_schedule_cell_for_prep(
+                tid, client_id, session_date, client_name=client_name,
+            )
+            if anchor:
+                break
+        await _mark_client_day_schedule_prep_cells(
+            client_id,
+            session_date,
+            prepared_by,
+            client_name=client_name,
+            anchor_cell=anchor,
+        )
+    except Exception:
+        logger.exception("Propagate schedule prep cells for session %s", sess.get("id"))
+
+
+async def _schedule_cells_for_client_day(client_id: str, session_date: str) -> List[dict]:
+    """All schedule cells for a client on a calendar day (any therapist row)."""
+    sd = (session_date or "")[:10]
+    if not client_id or not sd:
+        return []
+    week_variants = _week_start_variants_for_session_date(sd)
+    base_q: dict = {
+        "state": {"$nin": ["cancel_therapist"]},
+        "service_code": {"$nin": ["LEAVE", "BREAK", "AVC", ""]},
+    }
+    if week_variants:
+        base_q["week_start"] = {"$in": week_variants}
+    cells = await db.schedule_cells.find(base_q, {"_id": 0}).to_list(2000)
+    out: list = []
+    for cell in cells:
+        if _schedule_cell_date_iso(cell) != sd:
+            continue
+        if await _cell_matches_session_client(cell, client_id):
+            out.append(cell)
+    return out
+
+
+async def _mark_client_day_schedule_prep_cells(
+    client_id: str,
+    session_date: str,
+    prepared_by: str,
+    *,
+    client_name: Optional[str] = None,
+    anchor_cell: Optional[dict] = None,
+) -> int:
+    """Mirror prep onto every schedule cell for this client+day (supervision / co-therapist rows)."""
+    sd = (session_date or "")[:10]
+    if not client_id or not sd:
+        return 0
+    if not client_name:
+        client = await db.clients.find_one(_active_client_filter({"id": client_id}), {"_id": 0, "name": 1})
+        client_name = (client or {}).get("name")
+    cells = await _schedule_cells_for_client_day(client_id, sd)
+    if anchor_cell and anchor_cell.get("id"):
+        if not any(c.get("id") == anchor_cell.get("id") for c in cells):
+            cells.append(anchor_cell)
+    marked = 0
+    seen: set = set()
+    for cell in cells:
+        tid = cell.get("therapist_id")
+        if not tid:
+            continue
+        key = (tid, cell.get("id"))
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            await _upsert_session_prep_markers(
+                therapist_id=tid,
+                client_id=client_id,
+                session_date=sd,
+                prepared_by=prepared_by,
+                client_name=client_name,
+                cell=cell,
+            )
+            marked += 1
+        except Exception:
+            logger.exception(
+                "propagate prep marker for %s / %s / %s", tid, client_id, sd,
+            )
+    return marked
 
 
 async def _related_therapist_ids_for_prep(
@@ -3232,6 +3317,10 @@ async def _related_therapist_ids_for_prep(
         ).to_list(100)
         for row in hist_rows:
             tid = row.get("therapist_id")
+            if tid:
+                ids.add(tid)
+        for cell in await _schedule_cells_for_client_day(client_id, sd):
+            tid = cell.get("therapist_id")
             if tid:
                 ids.add(tid)
     return [t for t in ids if t]
@@ -3521,13 +3610,29 @@ async def _clear_prep_suppressions(
     if not therapist_id or not client_id or not sd:
         return 0
     deleted = 0
-    for tid in await _expand_therapist_ids(therapist_id):
-        base = {"therapist_id": tid, "client_id": client_id, "session_date": sd}
-        clauses: list = [base]
-        if schedule_cell_id:
-            clauses.append({**base, "schedule_cell_id": schedule_cell_id})
-        result = await db.schedule_prep_suppressions.delete_many({"$or": clauses})
-        deleted += int(result.deleted_count or 0)
+    expanded = await _expand_therapist_ids(therapist_id)
+    tid_filter = {"$in": expanded} if len(expanded) > 1 else expanded[0]
+    # Drop blanket and cell-scoped suppressions so re-prep always restores the badge.
+    result = await db.schedule_prep_suppressions.delete_many({
+        "therapist_id": tid_filter,
+        "client_id": client_id,
+        "session_date": sd,
+    })
+    deleted += int(result.deleted_count or 0)
+    if schedule_cell_id:
+        for cell in await _schedule_cells_for_client_day(client_id, sd):
+            if cell.get("id") == schedule_cell_id:
+                other_tid = cell.get("therapist_id")
+                if other_tid and other_tid not in expanded:
+                    extra = await _expand_therapist_ids(other_tid)
+                    extra_filter = {"$in": extra} if len(extra) > 1 else extra[0]
+                    r2 = await db.schedule_prep_suppressions.delete_many({
+                        "therapist_id": extra_filter,
+                        "client_id": client_id,
+                        "session_date": sd,
+                    })
+                    deleted += int(r2.deleted_count or 0)
+                break
     return deleted
 
 
@@ -3851,6 +3956,11 @@ async def mark_schedule_preparation(payload: SchedulePreparationIn, user=Depends
             raise HTTPException(status_code=403, detail="Forbidden")
         if not await _therapist_assigned_to_client(uid, payload.client_id):
             raise HTTPException(status_code=403, detail="Forbidden")
+    anchor_cell = None
+    if payload.schedule_cell_id:
+        anchor_cell = await db.schedule_cells.find_one(
+            {"id": payload.schedule_cell_id}, {"_id": 0},
+        )
     doc = await _upsert_schedule_preparation(
         therapist_id=payload.therapist_id,
         client_id=payload.client_id,
@@ -3862,6 +3972,19 @@ async def mark_schedule_preparation(payload: SchedulePreparationIn, user=Depends
         day=payload.day,
         notes=payload.notes,
     )
+    try:
+        client = await db.clients.find_one(
+            _active_client_filter({"id": payload.client_id}), {"_id": 0, "name": 1},
+        )
+        await _mark_client_day_schedule_prep_cells(
+            payload.client_id,
+            payload.session_date,
+            user["id"],
+            client_name=(client or {}).get("name"),
+            anchor_cell=anchor_cell,
+        )
+    except Exception:
+        logger.exception("Propagate schedule prep from mark_schedule_preparation")
     return doc
 
 

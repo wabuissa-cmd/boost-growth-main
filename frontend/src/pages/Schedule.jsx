@@ -200,6 +200,7 @@ export default function Schedule() {
   const adminEditsRef = useRef(null);
   const scheduleInitialLoadRef = useRef(true);
   const lastPrepSyncWeekRef = useRef(null);
+  const prepFetchGenRef = useRef(0);
   const [jumpedToWeekISO, setJumpedToWeekISO] = useState(null);
   const [showHolidays, setShowHolidays] = useState(false);
   const [closures, setClosures] = useState([]);
@@ -334,12 +335,14 @@ export default function Schedule() {
     if (!user) return;
     if (!canSeePrepBadges) return;
     const ownTherapist = resolveSelfTherapist(user, therapists);
+    const fetchGen = ++prepFetchGenRef.current;
     try {
       const prepParams = { week_start: weekStartISO };
       if (ownTherapist?.id && !opsCanSeeAllPreps) {
         prepParams.therapist_id = ownTherapist.id;
       }
       const { data } = await api.get("/schedule/preparations", { params: prepParams });
+      if (fetchGen !== prepFetchGenRef.current) return 0;
       const rows = Array.isArray(data) ? data : (data?.items ?? []);
       const sups = Array.isArray(data) ? [] : (data?.suppressions ?? []);
       setPreparations(rows);
@@ -349,6 +352,7 @@ export default function Schedule() {
       setPrepLookup(mergePrepLookups(buildPrepLookup(rows, therapistIdAliases), sessionKeys));
       return rows.length;
     } catch {
+      if (fetchGen !== prepFetchGenRef.current) return 0;
       setPreparations([]);
       setSuppressionLookup(new Set());
       setPrepLookup(buildSessionPrepLookup(weekSessions, weekStartISO, weekEndISO, therapistIdAliases, new Set()));
@@ -465,12 +469,7 @@ export default function Schedule() {
     setViewBootstrapped(true);
   }, [user, scheduleAdmin, opsCanSeeAllPreps, viewBootstrapped]);
 
-  useEffect(() => {
-    if (!canManagePrep || !weekStartISO || scheduleLoading || scheduleLoadedWeek !== weekStartISO) return;
-    if (lastPrepSyncWeekRef.current === weekStartISO) return;
-    lastPrepSyncWeekRef.current = weekStartISO;
-    syncPrepFromHistory(true);
-  }, [canManagePrep, weekStartISO, scheduleLoading, scheduleLoadedWeek, syncPrepFromHistory]);
+  // Prep relink is manual (Sync prep toolbar) — auto relink on every page load caused badge flicker.
 
   useEffect(() => {
     const m = document.querySelector('script[src*="main."]')?.src?.match(/main\.([a-f0-9]+)\.js/);

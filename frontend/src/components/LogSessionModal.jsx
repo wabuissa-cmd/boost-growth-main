@@ -126,6 +126,12 @@ export default function LogSessionModal({
       { ...form, status: normalizeSessionStatus(form.status) },
       client?.id,
     );
+    if (scheduleContext?.therapist_id) {
+      payload.therapist_ids = mergeSessionTherapistIds(
+        [scheduleContext.therapist_id],
+        payload.therapist_ids,
+      );
+    }
     if (!payload.therapist_ids?.length) {
       alert("Please select at least one therapist for this session.");
       return;
