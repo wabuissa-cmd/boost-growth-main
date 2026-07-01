@@ -8495,22 +8495,33 @@ async def _backfill_purchase_months() -> int:
     fixed = 0
     items = await db.staff_purchases.find(
         {},
-        {"_id": 0, "id": 1, "purchase_date": 1, "reimbursement_date": 1, "purchase_month": 1},
+        {"_id": 0, "id": 1, "purchase_date": 1, "reimbursement_date": 1, "purchase_month": 1, "sync_source": 1},
     ).to_list(5000)
     for doc in items:
         existing = (doc.get("purchase_month") or "").strip()
-        if existing and len(existing) >= 7:
-            continue
         src = doc.get("purchase_date") or doc.get("reimbursement_date")
         if not src or len(str(src)) < 7:
             continue
-        pm = str(src)[:7]
+        pm_from_date = str(src)[:7]
+        is_sheet = doc.get("sync_source") == "google_sheet"
+        if existing and len(existing) >= 7:
+            if is_sheet or existing == pm_from_date:
+                continue
         await db.staff_purchases.update_one(
             {"id": doc["id"]},
-            {"$set": {"purchase_month": pm, "updated_at": now_iso()}},
+            {"$set": {"purchase_month": pm_from_date, "updated_at": now_iso()}},
         )
         fixed += 1
     return fixed
+
+
+def _purchase_month_key(doc: dict) -> str:
+    pm = (doc.get("purchase_month") or "").strip()
+    if len(pm) >= 7:
+        return pm[:7]
+    src = doc.get("purchase_date") or doc.get("reimbursement_date") or ""
+    s = str(src)
+    return s[:7] if len(s) >= 7 else ""
 
 
 async def _fix_walaa_purchase_month_mismatch():
@@ -8870,17 +8881,22 @@ async def list_purchases(
         q["status"] = _normalize_purchase_status(status)
     if month:
         month = month.strip()
-        q["$or"] = [
+        month_clauses = [
             {"purchase_month": month},
             {"purchase_date": {"$regex": f"^{re.escape(month)}"}},
             {"reimbursement_date": {"$regex": f"^{re.escape(month)}"}},
         ]
+        if len(month) >= 7 and month[4] == "-":
+            mm = month[5:7]
+            month_clauses.append({"purchase_month": {"$regex": f"-{re.escape(mm)}$"}})
+        q["$or"] = month_clauses
     items = await db.staff_purchases.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
     therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1}).to_list(500)
     t_by_id = {t["id"]: t for t in therapists}
     for it in items:
-        if not it.get("purchase_month") and it.get("purchase_date"):
-            it["purchase_month"] = str(it["purchase_date"])[:7]
+        pm = _purchase_month_key(it)
+        if pm:
+            it["purchase_month"] = pm
         t = t_by_id.get(it.get("therapist_id"))
         if t:
             it["therapist_name"] = therapist_schedule_display_name(t)

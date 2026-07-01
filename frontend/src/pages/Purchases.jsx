@@ -9,7 +9,7 @@ import {
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
 import { getTherapistScheduleName } from "../scheduleConstants";
-import { yearMonthTabs, formatMonthValue } from "../monthTabs";
+import { yearMonthTabs, formatMonthValue, purchaseMonthKey, resolvePurchaseYear } from "../monthTabs";
 import { canAccessPurchases, canManagePurchaseStatus, canSupervisorReviewPurchases, canManagerFinalizePurchases, isJenan, isWalaaOps, showAdminNav, showSystemAdmin, useAuth } from "../auth";
 import "../clientInfoLayout.css";
 
@@ -100,17 +100,6 @@ export default function Purchases({ embedded = false }) {
   useEffect(() => {
     load();
   }, [filterStatus, filterMonth]);
-
-  useEffect(() => {
-    if (!allItems.length || !filterMonth) return;
-    const hasCurrent = allItems.some((p) => (p.purchase_month || (p.purchase_date || "").slice(0, 7)) === filterMonth);
-    if (hasCurrent) return;
-    const tabs = yearMonthTabs();
-    const firstWithData = tabs.find((m) =>
-      allItems.some((p) => (p.purchase_month || (p.purchase_date || "").slice(0, 7)) === m.value)
-    );
-    if (firstWithData) setFilterMonth(firstWithData.value);
-  }, [allItems, filterMonth]);
 
   useEffect(() => {
     Promise.all([
@@ -254,7 +243,8 @@ export default function Purchases({ embedded = false }) {
     }
   };
 
-  const monthTabs = useMemo(() => yearMonthTabs(), []);
+  const purchaseYear = useMemo(() => resolvePurchaseYear(allItems), [allItems]);
+  const monthTabs = useMemo(() => yearMonthTabs(purchaseYear), [purchaseYear]);
   const selected = useMemo(
     () => items.find(p => p.id === selectedId) || pendingQueue.find(p => p.id === selectedId) || null,
     [items, pendingQueue, selectedId]
@@ -346,7 +336,7 @@ export default function Purchases({ embedded = false }) {
       <div className="min-w-0">
       <div className="card overflow-hidden mb-4">
         <div className="px-3 py-2 border-b text-[10px] font-bold tracking-wider" style={{ borderColor: "#E2DDD4", background: "#FAFAF7", color: "#5C6853" }}>
-          CALENDAR MONTHS · JAN – JUL {new Date().getFullYear()}
+          CALENDAR MONTHS · JAN – JUL {purchaseYear}
         </div>
         <div className="flex gap-0 overflow-x-auto border-b" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
           <button
@@ -362,7 +352,7 @@ export default function Purchases({ embedded = false }) {
           </button>
           {monthTabs.map((m) => {
             const active = filterMonth === m.value;
-            const count = allItems.filter((p) => (p.purchase_month || (p.purchase_date || "").slice(0, 7)) === m.value).length;
+            const count = allItems.filter((p) => purchaseMonthKey(p) === m.value).length;
             return (
               <button
                 key={m.value}
