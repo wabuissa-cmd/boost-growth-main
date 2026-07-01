@@ -153,7 +153,9 @@ export default function LogSessionModal({
             notes: payload.note || "",
           });
         } catch (prepErr) {
-          console.warn("schedule prep marker", prepErr?.response?.data?.detail || prepErr);
+          const detail = prepErr?.response?.data?.detail;
+          alert(formatErr(detail) || "Session saved but the schedule prep badge could not be set. Try Sync prep badges.");
+          console.warn("schedule prep marker", detail || prepErr);
         }
       }
       invalidateCache("/sessions");

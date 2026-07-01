@@ -236,6 +236,8 @@ const SCHEDULE_CHILD_NAME_ALIASES = {
   abdularahman: "abdulrahman",
   aljouhrah: "aljoharah",
   ameerah: "ameirah",
+  mohmmed: "mohammed",
+  alaqeel: "alaqel",
 };
 
 function applyScheduleChildNameAliases(name) {
@@ -255,6 +257,9 @@ const SCHEDULE_SHORT_LABEL_FILES = {
   "abdulaziz a": "024",
   "abdulaziz w": "040",
   "khalid ibrahim": "072",
+  "mohammed alaqeel": "027",
+  "mohammed alaqel": "027",
+  "mohmmed alaqel": "027",
 };
 
 function lookupClientByLabel(label, clients = []) {

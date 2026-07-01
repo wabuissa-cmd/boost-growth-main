@@ -116,26 +116,70 @@ function addPrepMarkKeys(set, tid, cid, date, idAliases) {
   }
 }
 
-/** Logged sessions → therapist + client + date keys (primary source of truth). */
+function scheduleCellSessionDate(cell, fallbackWeekStart) {
+  const ws = (cell?.week_start || fallbackWeekStart || "").slice(0, 10);
+  const day = cell?.day;
+  if (!ws || day == null) return null;
+  return toISODate(addDays(new Date(`${ws}T12:00:00`), day));
+}
+
+/** Logged sessions → therapist + client + date keys; mirrors prep onto every schedule cell for that client+day. */
 export function buildSessionPrepLookup(
   sessions,
   weekStartISO,
   weekEndISO,
   idAliases = null,
   suppressionLookup = null,
+  cells = [],
+  clients = [],
 ) {
   const set = new Set();
+  const completedClientDates = new Set();
   for (const s of sessions || []) {
     const date = (s.session_date || "").slice(0, 10);
     if (!date || date < weekStartISO || date > weekEndISO) continue;
     if (!LOGGED_PREP_STATUSES.has(s.status)) continue;
     const cid = s.client_id;
     if (!cid) continue;
+    completedClientDates.add(`${cid}|${date}`);
     for (const tid of s.therapist_ids || []) {
       if (suppressionLookup?.has(`suppress:${tid}|${cid}|${date}`)) continue;
       addPrepMarkKeys(set, tid, cid, date, idAliases);
     }
   }
+  if (cells.length && clients.length && completedClientDates.size) {
+    for (const cell of cells) {
+      if (!isScheduleClientLogCell(cell)) continue;
+      const sessionDate = scheduleCellSessionDate(cell, weekStartISO);
+      if (!sessionDate || sessionDate < weekStartISO || sessionDate > weekEndISO) continue;
+      const childName = scheduleCellChildName(cell);
+      const client = childName ? findClientForScheduleCell(childName, clients) : null;
+      if (!client?.id || !completedClientDates.has(`${client.id}|${sessionDate}`)) continue;
+      const tid = cell.therapist_id;
+      if (!tid) continue;
+      if (suppressionLookup?.has(`suppress:${tid}|${client.id}|${sessionDate}`)) continue;
+      if (cell.id) set.add(`cell:${cell.id}`);
+      addPrepMarkKeys(set, tid, client.id, sessionDate, idAliases);
+    }
+  }
+  return set;
+}
+
+/** Immediately add prep badge keys after logging from a schedule cell (before API refresh). */
+export function optimisticPrepKeysFromScheduleLog(scheduleContext, client, idAliases = null) {
+  const set = new Set();
+  if (!scheduleContext?.therapist_id || !client?.id) return set;
+  const sessionDate = (scheduleContext.session_date || "").slice(0, 10);
+  if (!sessionDate) return set;
+  const rec = {
+    therapist_id: scheduleContext.therapist_id,
+    client_id: client.id,
+    session_date: sessionDate,
+    time_slot: scheduleContext.time_slot || "",
+    schedule_cell_id: scheduleContext.schedule_cell_id || null,
+    client_name: client.name,
+  };
+  for (const k of prepRecordKeys(rec, idAliases)) set.add(k);
   return set;
 }
 

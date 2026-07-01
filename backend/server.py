@@ -3495,8 +3495,7 @@ def _require_same_day_session(user: dict, session_date: str) -> None:
 async def _computed_schedule_preparation_markers(
     start: str, end: str, therapist_id: Optional[str] = None
 ) -> list:
-    """Build prep markers directly from logged sessions — source of truth for green badges."""
-    alias_map = await _build_therapist_id_alias_map()
+    """Build prep markers from completed sessions on every schedule row for that client+day."""
     filter_ids: Optional[set] = None
     if therapist_id:
         filter_ids = set(await _expand_therapist_ids(therapist_id))
@@ -3509,14 +3508,6 @@ async def _computed_schedule_preparation_markers(
     ).to_list(5000)
     if not sessions:
         return []
-    client_ids = list({s.get("client_id") for s in sessions if s.get("client_id")})
-    clients: dict = {}
-    if client_ids:
-        async for c in db.clients.find(
-            _active_client_filter({"id": {"$in": client_ids}}),
-            {"_id": 0, "id": 1, "name": 1},
-        ):
-            clients[c["id"]] = c
     markers: list = []
     seen: set = set()
     for sess in sessions:
@@ -3524,32 +3515,39 @@ async def _computed_schedule_preparation_markers(
         sd = (sess.get("session_date") or "")[:10]
         if not cid or not sd:
             continue
-        for tid in sess.get("therapist_ids") or []:
+        client = await db.clients.find_one(
+            _active_client_filter({"id": cid}), {"_id": 0, "name": 1},
+        )
+        client_name = (client or {}).get("name")
+        cells = await _schedule_cells_for_client_day(cid, sd)
+        targets: list = cells if cells else []
+        if not targets:
+            for tid in sess.get("therapist_ids") or []:
+                if filter_ids and tid not in filter_ids:
+                    continue
+                cell = await _resolve_schedule_cell_for_prep(
+                    tid, cid, sd, client_name=client_name,
+                )
+                targets.append(cell or {"therapist_id": tid})
+        for cell in targets:
+            tid = cell.get("therapist_id")
+            if not tid:
+                continue
             if filter_ids and tid not in filter_ids:
                 continue
-            key = (tid, cid, sd)
+            cell_id = cell.get("id")
+            key = (tid, cell_id or "", cid, sd)
             if key in seen:
                 continue
             seen.add(key)
-            cell_id = None
-            time_slot = ""
-            week_start = None
-            day = None
-            client_name = (clients.get(cid) or {}).get("name")
-            cell = await _resolve_schedule_cell_for_prep(tid, cid, sd, client_name=client_name)
-            if cell:
-                cell_id = cell.get("id")
-                time_slot = cell.get("time_slot") or ""
-                week_start = cell.get("week_start")
-                day = cell.get("day")
             markers.append({
                 "therapist_id": tid,
                 "client_id": cid,
                 "session_date": sd,
-                "time_slot": time_slot,
+                "time_slot": cell.get("time_slot") or "",
                 "schedule_cell_id": cell_id,
-                "week_start": week_start,
-                "day": day,
+                "week_start": cell.get("week_start"),
+                "day": cell.get("day"),
                 "client_name": client_name,
                 "source": "session",
                 "marker_type": "prep",
@@ -4524,6 +4522,8 @@ SCHEDULE_CHILD_NAME_ALIASES = {
     "abdularahman": "abdulrahman",
     "aljouhrah": "aljoharah",
     "ameerah": "ameirah",
+    "mohmmed": "mohammed",
+    "alaqeel": "alaqel",
 }
 
 # Schedule grid abbreviations (e.g. "Abdulaziz A" on Shatha's row)
@@ -4531,6 +4531,9 @@ SCHEDULE_SHORT_LABEL_FILES = {
     "abdulaziz a": "024",
     "abdulaziz w": "040",
     "khalid ibrahim": "072",
+    "mohammed alaqeel": "027",
+    "mohammed alaqel": "027",
+    "mohmmed alaqel": "027",
 }
 
 

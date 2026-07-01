@@ -27,7 +27,7 @@ import ParentWhatsAppModal from "../components/ParentWhatsAppModal";
 import ParentCancellationModal from "../components/ParentCancellationModal";
 import LogSessionModal, { slotToTime24, addHoursToTime } from "../components/LogSessionModal";
 import SchedulePrepBadge from "../components/SchedulePrepBadge";
-import { buildPrepLookup, buildSessionPrepLookup, buildSuppressionLookup, getCellStatusBadge, mergePrepLookups, buildAllTherapistIdAliases } from "../schedulePrepUtils";
+import { buildPrepLookup, buildSessionPrepLookup, buildSuppressionLookup, getCellStatusBadge, mergePrepLookups, buildAllTherapistIdAliases, optimisticPrepKeysFromScheduleLog } from "../schedulePrepUtils";
 import { buildParentMessages } from "../scheduleParentMessages";
 import { sortTherapistsForSchedule, sortTherapistsForScheduleWeek, getTherapistScheduleName, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
 import { cachedGet, invalidateCache } from "../dataCache";
@@ -348,17 +348,21 @@ export default function Schedule() {
       setPreparations(rows);
       const supLookup = buildSuppressionLookup(sups);
       setSuppressionLookup(supLookup);
-      const sessionKeys = buildSessionPrepLookup(weekSessions, weekStartISO, weekEndISO, therapistIdAliases, supLookup);
+      const sessionKeys = buildSessionPrepLookup(
+        weekSessions, weekStartISO, weekEndISO, therapistIdAliases, supLookup, cells, clients,
+      );
       setPrepLookup(mergePrepLookups(buildPrepLookup(rows, therapistIdAliases), sessionKeys));
       return rows.length;
     } catch {
       if (fetchGen !== prepFetchGenRef.current) return 0;
       setPreparations([]);
       setSuppressionLookup(new Set());
-      setPrepLookup(buildSessionPrepLookup(weekSessions, weekStartISO, weekEndISO, therapistIdAliases, new Set()));
+      setPrepLookup(buildSessionPrepLookup(
+        weekSessions, weekStartISO, weekEndISO, therapistIdAliases, new Set(), cells, clients,
+      ));
       return 0;
     }
-  }, [weekStartISO, weekEndISO, weekSessions, canSeePrepBadges, user, therapists, opsCanSeeAllPreps, therapistIdAliases]);
+  }, [weekStartISO, weekEndISO, weekSessions, canSeePrepBadges, user, therapists, opsCanSeeAllPreps, therapistIdAliases, cells, clients]);
 
   const load = useCallback(async (force = false) => {
     const yr = weekStart.getFullYear();
@@ -898,7 +902,7 @@ export default function Schedule() {
     if (!isScheduleClientLogCell(cell)) return;
     const sessionDate = toISODate(addDays(weekStart, day));
     const today = toISODate(new Date());
-    if (sessionDate !== today) {
+    if (!hasFullClientAccess(user) && sessionDate !== today) {
       alert("Preparation is only allowed on the session day until 11:59 PM.\nالتحضير مسموح فقط في يوم الجلسة حتى 11:59 مساءً.");
       return;
     }
@@ -946,7 +950,6 @@ export default function Schedule() {
       return;
     }
     if (onOwnRow && canQuickLogOwnRow) {
-      if (view !== "blocks") return;
       if (isScheduleClientLogCell(cell) && canSpecialistLogScheduleCell(cell)) {
         openQuickLogFromCell(cell, therapist_id, day, time_slot);
       }
@@ -2208,7 +2211,40 @@ export default function Schedule() {
           scheduleContext={quickLog.scheduleContext}
           onClose={() => setQuickLog(null)}
           onSaved={() => {
+            const ctx = quickLog?.scheduleContext;
+            const cl = quickLog?.client;
+            const sessionDate = ctx?.week_start != null && ctx?.day != null
+              ? toISODate(addDays(new Date(`${ctx.week_start}T12:00:00`), ctx.day))
+              : (quickLog?.prefill?.session_date || "").slice(0, 10);
             setQuickLog(null);
+            if (ctx?.therapist_id && cl?.id && sessionDate) {
+              const optimisticRec = {
+                therapist_id: ctx.therapist_id,
+                client_id: cl.id,
+                session_date: sessionDate,
+                time_slot: ctx.time_slot || "",
+                schedule_cell_id: ctx.schedule_cell_id || null,
+                client_name: cl.name,
+                source: "prep",
+                marker_type: "prep",
+              };
+              setPreparations((prev) => {
+                const key = `${optimisticRec.therapist_id}|${optimisticRec.client_id}|${sessionDate}`;
+                const filtered = (prev || []).filter(
+                  (r) => `${r.therapist_id}|${r.client_id}|${(r.session_date || "").slice(0, 10)}` !== key
+                    || r.schedule_cell_id !== optimisticRec.schedule_cell_id,
+                );
+                return [...filtered, optimisticRec];
+              });
+              setPrepLookup((prev) => mergePrepLookups(
+                prev,
+                optimisticPrepKeysFromScheduleLog(
+                  { ...ctx, session_date: sessionDate },
+                  cl,
+                  therapistIdAliases,
+                ),
+              ));
+            }
             invalidateCache("/sessions");
             invalidateCache("/schedule/preparations");
             load(true).then(() => loadPreparations());
