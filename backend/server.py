@@ -2922,6 +2922,9 @@ async def _upsert_schedule_preparation(
         doc["id"] = str(uuid.uuid4())
         await db.schedule_preparations.insert_one(doc)
     doc.pop("_id", None)
+    await _clear_prep_suppressions(
+        therapist_id, client_id, session_date, schedule_cell_id,
+    )
     await _upsert_prep_history(
         therapist_id=therapist_id,
         client_id=client_id,
@@ -3389,6 +3392,57 @@ def _filter_suppressed_markers(markers: list, suppressions: list) -> list:
     return out
 
 
+async def _clear_prep_suppressions(
+    therapist_id: str,
+    client_id: str,
+    session_date: str,
+    schedule_cell_id: Optional[str] = None,
+) -> int:
+    """Remove badge suppressions when prep is logged again for the same slot."""
+    sd = (session_date or "")[:10]
+    if not therapist_id or not client_id or not sd:
+        return 0
+    base = {"therapist_id": therapist_id, "client_id": client_id, "session_date": sd}
+    clauses: list = [base]
+    if schedule_cell_id:
+        clauses.append({**base, "schedule_cell_id": schedule_cell_id})
+    result = await db.schedule_prep_suppressions.delete_many({"$or": clauses})
+    return int(result.deleted_count or 0)
+
+
+async def _reconcile_stale_prep_suppressions(start: str, end: str) -> int:
+    """Drop suppressions that block badges even though prep/sessions exist again."""
+    cleared = 0
+    suppressions = await _list_prep_suppressions(start, end)
+    for s in suppressions:
+        tid = s.get("therapist_id")
+        cid = s.get("client_id")
+        sd = _session_date_iso(s.get("session_date"))
+        if not tid or not cid or not sd:
+            continue
+        has_prep = await db.schedule_preparations.find_one(
+            {"therapist_id": tid, "client_id": cid, **_session_date_query(sd)},
+            {"_id": 0, "id": 1},
+        )
+        has_hist = await db.prep_history.find_one(
+            {"therapist_id": tid, "client_id": cid, **_session_date_query(sd)},
+            {"_id": 0, "id": 1},
+        )
+        has_session = await db.sessions.find_one(
+            {
+                "client_id": cid,
+                **_session_date_query(sd),
+                "status": {"$in": list(_LOGGED_PREP_SESSION_STATUSES)},
+                "therapist_ids": tid,
+            },
+            {"_id": 0, "id": 1},
+        )
+        if has_prep or has_hist or has_session:
+            await db.schedule_prep_suppressions.delete_one({"id": s["id"]})
+            cleared += 1
+    return cleared
+
+
 async def _list_prep_suppressions(start: str, end: str, therapist_id: Optional[str] = None) -> list:
     q: dict = _session_date_range_query(start, end)
     if therapist_id:
@@ -3547,6 +3601,10 @@ async def _sync_schedule_preparations_for_week(start: str, end: str) -> dict:
         await _refresh_schedule_preparation_cell_ids(start, end)
     except Exception:
         logger.exception("refresh schedule preparation cell ids for %s–%s", start, end)
+    try:
+        recovery["cleared_suppressions"] = await _reconcile_stale_prep_suppressions(start, end)
+    except Exception:
+        logger.exception("reconcile prep suppressions for %s–%s", start, end)
     return recovery
 
 
