@@ -670,7 +670,7 @@ export default function TherapistRequests() {
               <div className="req-panel-list req-panel-list--inline">
                 {historyItems.length === 0 && (
                   <div className="requests-page-empty">
-                    <div className="requests-page-empty-icon"><CalendarBlank size={28} weight="duotone" /></div>
+                    <div className="requests-page-empty-icon"><CalendarBlank size={22} weight="duotone" /></div>
                     <h3 className="requests-page-empty-title">No requests yet</h3>
                     <p className="requests-page-empty-text">Choose a type above to submit your first request.</p>
                   </div>

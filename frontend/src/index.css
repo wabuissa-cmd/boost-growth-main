@@ -3396,6 +3396,40 @@ textarea.modal-input {
     color: var(--text-muted);
 }
 
+/* My Requests — vertical stack (payment top, submit form below) */
+.req-my-requests-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+.req-my-requests-section {
+    width: 100%;
+    min-width: 0;
+}
+.req-my-requests-section--payment .req-panel-purchases--compact {
+    flex: none;
+    min-height: auto;
+    max-height: none;
+}
+.req-my-requests-section--payment .req-panel-list--compact {
+    max-height: min(360px, 45vh);
+}
+.req-my-requests-section--submit .req-unified-window {
+    min-height: auto;
+}
+.requests-page .requests-page-hero-icon {
+    width: 42px;
+    height: 42px;
+}
+.requests-page .requests-page-hero-icon svg {
+    width: 22px;
+    height: 22px;
+}
+.requests-page-empty-icon {
+    width: 44px;
+    height: 44px;
+}
+
 /* Home page — therapist sections */
 .home-page {
     padding: 0 1.25rem 2rem;
