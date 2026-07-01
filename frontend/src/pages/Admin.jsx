@@ -111,6 +111,8 @@ export default function Admin() {
   const [loadingHealth, setLoadingHealth] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [recoverResult, setRecoverResult] = useState(null);
+  const [clientImportFile, setClientImportFile] = useState(null);
+  const [clientImporting, setClientImporting] = useState(false);
 
   const loadDeletedClients = async () => {
     try {
@@ -511,6 +513,34 @@ export default function Admin() {
     }
   };
 
+  const importActiveClientsAndSync = async () => {
+    if (!clientImportFile) {
+      alert("اختر ملف Active Clients (Excel أو CSV) أولاً");
+      return;
+    }
+    if (!window.confirm(
+      "استيراد ملف Active Clients ثم مزامنة التحضير تلقائياً؟\n\n"
+      + "يُحدّث بيانات الأطفال (الاسم، رقم الملف، الخدمة، المشرف). "
+      + "الفواتير والجلسات تحتاج Sync من Drive أو رفع Excel لكل طفل."
+    )) return;
+    setClientImporting(true);
+    setRecoverResult(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", clientImportFile);
+      const { data } = await api.post("/admin/import-clients-and-sync", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setRecoverResult(data);
+      setHealthData(data.health_after || null);
+      setClientImportFile(null);
+    } catch (e) {
+      setRecoverResult({ ok: false, summary_ar: e.response?.data?.detail || e.message });
+    } finally {
+      setClientImporting(false);
+    }
+  };
+
   const restoreStoredBackup = async (backupId, dryRun = true) => {
     if (!dryRun && !window.confirm("Restore this backup into the live database? Existing records with same IDs will be overwritten.")) return;
     setRestoringBackupId(backupId);
@@ -594,12 +624,39 @@ export default function Admin() {
               type="button"
               data-testid="auto-recover-btn"
               onClick={runAutoRecover}
-              disabled={recovering}
+              disabled={recovering || clientImporting}
               className="btn btn-gold text-sm"
             >
               {recovering ? <span className="spinner" /> : "إصلاح تلقائي"}
             </button>
           </div>
+
+          <ToolRow
+            title="استيراد Active Clients + مزامنة"
+            desc="ارفع ملف Active Clients (Excel) — يُحدّث الأطفال ثم يُصلح التحضير ويربط علامات ✓ من prep_history. الفواتير: Sync من Drive أو Import لكل طفل."
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="btn btn-outline text-xs cursor-pointer">
+                {clientImportFile ? clientImportFile.name.slice(0, 28) : "اختر ملف Excel"}
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  data-testid="active-clients-import-file"
+                  onChange={(e) => setClientImportFile(e.target.files?.[0] || null)}
+                />
+              </label>
+              <button
+                type="button"
+                data-testid="import-active-clients-sync-btn"
+                onClick={importActiveClientsAndSync}
+                disabled={!clientImportFile || clientImporting || recovering}
+                className="btn btn-primary text-xs"
+              >
+                {clientImporting ? <span className="spinner" /> : "استيراد + مزامنة"}
+              </button>
+            </div>
+          </ToolRow>
 
           {healthData && !healthData.error && (
             <div className="text-xs p-3 rounded-xl space-y-2" style={{ background: "#FAFAF7", border: "1px solid #E2DDD4" }}>

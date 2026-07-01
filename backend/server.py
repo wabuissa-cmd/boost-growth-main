@@ -11686,13 +11686,90 @@ def _extract_intake_child_name(r: dict) -> str:
             return s
     return ""
 
-@api.post("/import/clients")
-async def import_clients(
-    file: UploadFile = File(...),
-    replace_missing: bool = Form(False),
-    _=Depends(import_access),
-):
-    rows = _read_table(file)
+def _parse_active_clients_sheet(ws) -> List[dict]:
+    """Parse Boost 'Active Clients' tab: file # (B), name (C), service (H), supervisor (J)."""
+    by_file: dict = {}
+    out: List[dict] = []
+    for row in ws.iter_rows(min_row=3, values_only=True):
+        cells = list(row) + [None] * 12
+        file_num, name, service, supervisor = cells[1], cells[2], cells[7], cells[9]
+        if file_num and name:
+            file_key = str(file_num).strip()
+            if not file_key.replace("0", "").isdigit():
+                continue
+            if file_key in by_file:
+                current = by_file[file_key]
+            else:
+                current = {
+                    "file_no": file_key.zfill(3),
+                    "name": str(name).strip(),
+                    "services": [],
+                    "supervisor": _normalize_supervisor_value(supervisor),
+                }
+                by_file[file_key] = current
+                out.append(current)
+            if service:
+                svc = str(service).strip()
+                if svc and svc not in current["services"]:
+                    current["services"].append(svc)
+            sup = _normalize_supervisor_value(supervisor)
+            if sup:
+                current["supervisor"] = sup
+        elif by_file and service:
+            last = out[-1] if out else None
+            if last:
+                svc = str(service).strip()
+                if svc and svc not in last["services"]:
+                    last["services"].append(svc)
+    rows: List[dict] = []
+    for c in out:
+        svc_joined = " / ".join(c["services"]) if c["services"] else None
+        rows.append({
+            "file_no": c["file_no"],
+            "name": c["name"],
+            "service_type": svc_joined,
+            "service": svc_joined,
+            "supervisor": c.get("supervisor"),
+        })
+    return rows
+
+
+def _read_clients_import_rows(content: bytes, filename: str) -> List[dict]:
+    """Read client rows from CSV/Excel, including Boost Active Clients workbook layout."""
+    import io
+    import pandas as pd
+
+    low = (filename or "").lower()
+    if low.endswith((".xlsx", ".xls")):
+        import openpyxl
+
+        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        active_ws = None
+        for sn in wb.sheetnames:
+            if sn.strip().lower().startswith("active client"):
+                active_ws = wb[sn]
+                break
+        if active_ws is not None:
+            parsed = _parse_active_clients_sheet(active_ws)
+            wb.close()
+            if parsed:
+                return parsed
+        wb.close()
+        xl = pd.ExcelFile(io.BytesIO(content), engine="openpyxl")
+        sheet = _pick_excel_sheet(xl, for_intake=False)
+        df_raw = pd.read_excel(io.BytesIO(content), sheet_name=sheet, header=None, engine="openpyxl")
+        hdr = _detect_table_header_row(df_raw)
+        df = pd.read_excel(io.BytesIO(content), sheet_name=sheet, header=hdr, engine="openpyxl")
+        return _rows_from_dataframe(df)
+    if low.endswith(".csv"):
+        df_raw = pd.read_csv(io.BytesIO(content), header=None)
+        hdr = _detect_table_header_row(df_raw)
+        df = pd.read_csv(io.BytesIO(content), header=hdr)
+        return _rows_from_dataframe(df)
+    raise HTTPException(400, "Upload .xlsx, .xls, or .csv")
+
+
+async def _import_clients_from_rows(rows: List[dict], replace_missing: bool = False) -> dict:
     created, updated, skipped = 0, 0, 0
     file_nos_in_file: set = set()
     therapists = await db.therapists.find({}, {"_id": 0}).to_list(100)
@@ -11757,6 +11834,50 @@ async def import_clients(
         "removed_missing": removed_missing,
         "dedupe_removed": dedupe.get("removed") if isinstance(dedupe, dict) else None,
     }
+
+
+@api.post("/import/clients")
+async def import_clients(
+    file: UploadFile = File(...),
+    replace_missing: bool = Form(False),
+    _=Depends(import_access),
+):
+    content = await file.read()
+    rows = _read_clients_import_rows(content, file.filename or "")
+    return await _import_clients_from_rows(rows, replace_missing)
+
+
+@api.post("/admin/import-clients-and-sync")
+async def admin_import_clients_and_sync(
+    file: UploadFile = File(...),
+    replace_missing: bool = Form(False),
+    _=Depends(admin_only),
+):
+    """Upload Active Clients Excel/CSV, then auto-recover + relink prep badges."""
+    content = await file.read()
+    rows = _read_clients_import_rows(content, file.filename or "")
+    import_result = await _import_clients_from_rows(rows, replace_missing)
+    recover_result = await _run_auto_recover(store_backup=True)
+    imp = import_result
+    parts = [
+        f"استيراد: {imp.get('created', 0)} جديد · {imp.get('updated', 0)} محدّث · {imp.get('skipped', 0)} تخطّى",
+    ]
+    if imp.get("removed_missing"):
+        parts.append(f"{imp['removed_missing']} محذوف (غير موجود في الملف)")
+    rec = recover_result.get("summary_ar") or ""
+    if rec:
+        parts.append(rec)
+    parts.append(
+        "ملاحظة: الفواتير والجلسات لا تُستورد من هذا الملف — استخدم Sync من Drive أو رفع Excel لكل طفل."
+    )
+    return {
+        "ok": True,
+        "import": import_result,
+        "recover": recover_result,
+        "health_after": recover_result.get("health_after"),
+        "summary_ar": " · ".join(parts),
+    }
+
 
 WAITING_LIST_SHEET_ID = "14DLxQZOWSRnS_4kWeOsgKfpYMQiZ6hQiv2be_-J_hBg"
 WAITING_LIST_SHEET_URL = f"https://docs.google.com/spreadsheets/d/{WAITING_LIST_SHEET_ID}/edit"
