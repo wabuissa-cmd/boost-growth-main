@@ -598,7 +598,8 @@ function ChangePasswordModal() {
     <div className="fixed inset-0 bg-black/60 modal-backdrop flex items-center justify-center p-4 z-[100]">
       <form onSubmit={submit} className="card p-6 w-full max-w-md modal-card">
         <div className="font-display text-2xl mb-1" style={{color: "#2C3625"}}>Set a New Password</div>
-        <div className="text-sm mb-4" style={{color: "#5C6853"}}>For security, please change the temporary password your admin set for you.</div>
+        <div className="text-sm mb-1" style={{color: "#5C6853"}}>For security, please change the temporary password your admin set for you.</div>
+        <div className="text-sm mb-4" dir="rtl" style={{color: "#5C6853"}}>لأسباب أمنية، يُرجى تعيين كلمة مرور جديدة قبل استخدام البوابة.</div>
         <label className="label">Current / Temporary password</label>
         <input data-testid="cpw-old" className="input mb-3" type="password" required autoFocus value={oldPwd} onChange={e=>setOldPwd(e.target.value)} />
         <label className="label">New password (min 6 characters)</label>

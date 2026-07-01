@@ -107,6 +107,8 @@ export default function Admin() {
   const [launchGenerating, setLaunchGenerating] = useState(false);
   const [unifiedLaunchResult, setUnifiedLaunchResult] = useState(null);
   const [unifiedLaunchSetting, setUnifiedLaunchSetting] = useState(false);
+  const [forcePwChangeResult, setForcePwChangeResult] = useState(null);
+  const [forcingPwChange, setForcingPwChange] = useState(false);
   const [healthData, setHealthData] = useState(null);
   const [loadingHealth, setLoadingHealth] = useState(false);
   const [recovering, setRecovering] = useState(false);
@@ -343,17 +345,36 @@ export default function Admin() {
   const setUnifiedLaunchPassword = async () => {
     if (!window.confirm(
       "Set password growth2026 for ALL therapists with email?\n\n" +
-      "Everyone can log in immediately with this password. Existing passwords will stop working."
+      "Everyone can log in with this password. They will be asked to set a new password on next login.\n" +
+      "Existing passwords will stop working."
     )) return;
     setUnifiedLaunchSetting(true);
     setUnifiedLaunchResult(null);
     try {
-      const { data } = await api.post("/admin/set-unified-launch-password");
+      const { data } = await api.post("/admin/set-unified-launch-password", { force_change: true });
       setUnifiedLaunchResult(data);
     } catch (e) {
       alert("Failed: " + (e.response?.data?.detail || e.message));
     } finally {
       setUnifiedLaunchSetting(false);
+    }
+  };
+
+  const forceTherapistPasswordChange = async () => {
+    if (!window.confirm(
+      "إجبار جميع الأخصائيين (ذوي البريد) على تغيير كلمة المرور عند الدخول القادم؟\n\n" +
+      "Force all therapists with email to change password on next login?\n\n" +
+      "Does NOT reset passwords — they keep growth2026 (or their current password) until they choose a new one."
+    )) return;
+    setForcingPwChange(true);
+    setForcePwChangeResult(null);
+    try {
+      const { data } = await api.post("/admin/force-therapist-password-change");
+      setForcePwChangeResult(data);
+    } catch (e) {
+      alert("Failed: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setForcingPwChange(false);
     }
   };
 
@@ -1040,7 +1061,7 @@ export default function Admin() {
         </div>
         <ToolRow
           title="Set unified launch password"
-          desc="Set growth2026 for every therapist with email. Specialists log in immediately — no forced password change. Deploys will NOT reset this — run only when you are ready to send credentials."
+          desc="Set growth2026 for every therapist with email. On next login they must choose a new password. Deploys will NOT reset this — run only when you are ready to send credentials."
         >
           <button
             type="button"
@@ -1061,6 +1082,31 @@ export default function Admin() {
               </div>
             )}
             <button type="button" onClick={() => setUnifiedLaunchResult(null)} className="btn btn-outline text-xs mt-1">Dismiss</button>
+          </div>
+        )}
+        <ToolRow
+          title="إجبار تغيير كلمة المرور عند الدخول القادم"
+          desc="For therapists already on growth2026: flags every therapist with email to set a new password on next login. Does not change their current password."
+        >
+          <button
+            type="button"
+            data-testid="force-therapist-password-change-btn"
+            onClick={forceTherapistPasswordChange}
+            disabled={forcingPwChange}
+            className="btn btn-outline text-sm"
+          >
+            {forcingPwChange ? <span className="spinner" /> : <><Key size={14} className="inline mr-1" /> إجبار تغيير كلمة المرور عند الدخول القادم</>}
+          </button>
+        </ToolRow>
+        {forcePwChangeResult && (
+          <div className="text-xs p-3 rounded-lg mb-3 space-y-1" style={{ background: "#F0E9D8", color: "#5C4A1F" }}>
+            <div><strong>{forcePwChangeResult.message}</strong></div>
+            {forcePwChangeResult.no_email?.length > 0 && (
+              <div className="text-[11px]" style={{ color: "#6B5218" }}>
+                {forcePwChangeResult.no_email.length} therapist(s) skipped (no email).
+              </div>
+            )}
+            <button type="button" onClick={() => setForcePwChangeResult(null)} className="btn btn-outline text-xs mt-1">Dismiss</button>
           </div>
         )}
         <ToolRow

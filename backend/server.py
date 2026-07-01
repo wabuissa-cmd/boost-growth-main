@@ -877,6 +877,9 @@ class ChangePasswordIn(BaseModel):
 class LaunchCredentialsIn(BaseModel):
     force: bool = False
 
+class UnifiedLaunchPasswordIn(BaseModel):
+    force_change: bool = True
+
 class TherapistIn(BaseModel):
     name: str
     email: Optional[str] = None
@@ -1346,13 +1349,14 @@ async def generate_launch_credentials(body: LaunchCredentialsIn, _=Depends(admin
     }
 
 @api.post("/admin/set-unified-launch-password")
-async def set_unified_launch_password(_=Depends(admin_only)):
+async def set_unified_launch_password(body: UnifiedLaunchPasswordIn = UnifiedLaunchPasswordIn(), _=Depends(admin_only)):
     """Set the same launch password for every therapist with email. Admin-triggered only — never on deploy."""
     therapists = await db.therapists.find({}, {"_id": 0}).sort("name", 1).to_list(500)
     ts = now_iso()
     updated = []
     no_email = []
     pw_hash = hash_password(UNIFIED_LAUNCH_PASSWORD)
+    force_change = bool(body.force_change)
 
     for t in therapists:
         email = (t.get("email") or "").strip()
@@ -1361,22 +1365,57 @@ async def set_unified_launch_password(_=Depends(admin_only)):
             continue
         await db.therapists.update_one({"id": t["id"]}, {"$set": {
             "password_hash": pw_hash,
-            "must_change_password": False,
+            "must_change_password": force_change,
             "launch_credentials_generated_at": ts,
             "temp_password_set_at": ts,
         }})
         updated.append({"id": t["id"], "name": t.get("name"), "email": email})
 
+    change_note = (
+        "They must set a new password on next login."
+        if force_change
+        else "No forced password change on login."
+    )
     return {
         "ok": True,
         "password": UNIFIED_LAUNCH_PASSWORD,
+        "force_change": force_change,
         "generated_at": ts,
         "updated_count": len(updated),
         "updated": updated,
         "no_email": no_email,
         "message": (
             f"{len(updated)} therapists updated. "
-            f"Password: {UNIFIED_LAUNCH_PASSWORD} until they change it."
+            f"Password: {UNIFIED_LAUNCH_PASSWORD}. {change_note}"
+        ),
+    }
+
+
+@api.post("/admin/force-therapist-password-change")
+async def force_therapist_password_change(_=Depends(admin_only)):
+    """Require all therapists with email to change password on next login (does not reset passwords)."""
+    therapists = await db.therapists.find({}, {"_id": 0}).sort("name", 1).to_list(500)
+    ts = now_iso()
+    updated = []
+    no_email = []
+    for t in therapists:
+        email = (t.get("email") or "").strip()
+        if not email:
+            no_email.append({"id": t["id"], "name": t.get("name")})
+            continue
+        await db.therapists.update_one({"id": t["id"]}, {"$set": {
+            "must_change_password": True,
+            "password_change_required_at": ts,
+        }})
+        updated.append({"id": t["id"], "name": t.get("name"), "email": email})
+    return {
+        "ok": True,
+        "updated_at": ts,
+        "updated_count": len(updated),
+        "updated": updated,
+        "no_email": no_email,
+        "message": (
+            f"{len(updated)} therapist(s) will be prompted to set a new password on next login."
         ),
     }
 
@@ -1413,6 +1452,9 @@ async def me(user: dict = Depends(get_current_user)):
                 user["key"] = therapist["key"]
             if therapist.get("name"):
                 user["name"] = therapist["name"]
+            user["must_change_password"] = bool(therapist.get("must_change_password"))
+    elif user.get("role") == "therapist":
+        user["must_change_password"] = bool(user.get("must_change_password"))
     user["ops_access"] = _is_portal_admin(user) or _is_hr_ops(user) or bool(_is_client_lead(user))
     user["client_lead"] = _is_client_lead(user)
     user["hr_ops"] = _is_hr_ops(user)
