@@ -61,6 +61,7 @@ export default function Purchases({ embedded = false }) {
   const canDelete = showSystemAdmin(user);
   const canSyncSheet = isJenan(user) || isWalaaOps(user) || showAdminNav(user);
   const [items, setItems] = useState([]);
+  const [allItems, setAllItems] = useState([]);
   const [pendingQueue, setPendingQueue] = useState([]);
   const [selectedId, setSelectedId] = useState("");
   const [therapists, setTherapists] = useState([]);
@@ -69,11 +70,7 @@ export default function Purchases({ embedded = false }) {
   const [form, setForm] = useState(emptyPurchaseForm);
   const [submitting, setSubmitting] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
-  const [filterMonth, setFilterMonth] = useState(() => {
-    const tabs = yearMonthTabs();
-    const now = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
-    return tabs.some((m) => m.value === now) ? now : tabs[0]?.value || "";
-  });
+  const [filterMonth, setFilterMonth] = useState("");
   const [settings, setSettings] = useState({ day_of_month: 25, enabled: true, therapist_ids: [] });
   const [savingSettings, setSavingSettings] = useState(false);
   const [sending, setSending] = useState(false);
@@ -83,17 +80,37 @@ export default function Purchases({ embedded = false }) {
     const params = {};
     if (filterStatus) params.status = filterStatus;
     if (filterMonth) params.month = filterMonth;
-    const [listRes, pendingRes] = await Promise.all([
-      api.get("/purchases", { params }),
-      canManageStatus ? api.get("/purchases", { params: { status: "pending" } }) : Promise.resolve({ data: [] }),
-    ]);
-    setItems(Array.isArray(listRes.data) ? listRes.data : []);
-    setPendingQueue(Array.isArray(pendingRes.data) ? pendingRes.data : []);
+    try {
+      const [listRes, allRes, pendingRes] = await Promise.all([
+        api.get("/purchases", { params }),
+        api.get("/purchases"),
+        canManageStatus ? api.get("/purchases", { params: { status: "pending" } }) : Promise.resolve({ data: [] }),
+      ]);
+      setItems(Array.isArray(listRes.data) ? listRes.data : []);
+      setAllItems(Array.isArray(allRes.data) ? allRes.data : []);
+      setPendingQueue(Array.isArray(pendingRes.data) ? pendingRes.data : []);
+    } catch (e) {
+      setItems([]);
+      setAllItems([]);
+      setPendingQueue([]);
+      console.warn("Purchases load failed", e);
+    }
   };
 
   useEffect(() => {
     load();
   }, [filterStatus, filterMonth]);
+
+  useEffect(() => {
+    if (!allItems.length || !filterMonth) return;
+    const hasCurrent = allItems.some((p) => (p.purchase_month || (p.purchase_date || "").slice(0, 7)) === filterMonth);
+    if (hasCurrent) return;
+    const tabs = yearMonthTabs();
+    const firstWithData = tabs.find((m) =>
+      allItems.some((p) => (p.purchase_month || (p.purchase_date || "").slice(0, 7)) === m.value)
+    );
+    if (firstWithData) setFilterMonth(firstWithData.value);
+  }, [allItems, filterMonth]);
 
   useEffect(() => {
     Promise.all([
@@ -332,9 +349,20 @@ export default function Purchases({ embedded = false }) {
           CALENDAR MONTHS · JAN – JUL {new Date().getFullYear()}
         </div>
         <div className="flex gap-0 overflow-x-auto border-b" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+          <button
+            key="all-months"
+            type="button"
+            onClick={() => setFilterMonth("")}
+            className={`shrink-0 px-4 py-3 text-xs font-bold border-b-2 transition min-h-[48px] min-w-[5.5rem] ${
+              !filterMonth ? "border-[#7A8A6A] text-[#2C3625] bg-white" : "border-transparent text-[#8B9E7A] hover:text-[#5C6853]"
+            }`}
+          >
+            <span className="block text-[11px] leading-tight">All</span>
+            <span className="block text-[9px] font-semibold opacity-70 mt-0.5">months</span>
+          </button>
           {monthTabs.map((m) => {
             const active = filterMonth === m.value;
-            const count = items.filter((p) => p.purchase_month === m.value).length;
+            const count = allItems.filter((p) => (p.purchase_month || (p.purchase_date || "").slice(0, 7)) === m.value).length;
             return (
               <button
                 key={m.value}

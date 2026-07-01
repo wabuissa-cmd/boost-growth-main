@@ -3750,6 +3750,7 @@ def _can_view_all_purchases(user: dict) -> bool:
         or _is_hr_ops(user)
         or _is_client_lead(user)
         or _is_walaa_ops(user)
+        or _is_jenan(user)
     )
 
 
@@ -8489,6 +8490,29 @@ def _read_purchases_xlsx(content: bytes, months: Optional[List[str]] = None) -> 
     return records, tabs_used
 
 
+async def _backfill_purchase_months() -> int:
+    """Ensure purchase_month is set from purchase_date / reimbursement_date for month filters."""
+    fixed = 0
+    items = await db.staff_purchases.find(
+        {},
+        {"_id": 0, "id": 1, "purchase_date": 1, "reimbursement_date": 1, "purchase_month": 1},
+    ).to_list(5000)
+    for doc in items:
+        existing = (doc.get("purchase_month") or "").strip()
+        if existing and len(existing) >= 7:
+            continue
+        src = doc.get("purchase_date") or doc.get("reimbursement_date")
+        if not src or len(str(src)) < 7:
+            continue
+        pm = str(src)[:7]
+        await db.staff_purchases.update_one(
+            {"id": doc["id"]},
+            {"$set": {"purchase_month": pm, "updated_at": now_iso()}},
+        )
+        fixed += 1
+    return fixed
+
+
 async def _fix_walaa_purchase_month_mismatch():
     """Walaa's Emergent/emergency website payment belongs in May (month 5), not June."""
     walaa = await db.therapists.find_one(
@@ -8845,11 +8869,18 @@ async def list_purchases(
     if status:
         q["status"] = _normalize_purchase_status(status)
     if month:
-        q["purchase_month"] = month
+        month = month.strip()
+        q["$or"] = [
+            {"purchase_month": month},
+            {"purchase_date": {"$regex": f"^{re.escape(month)}"}},
+            {"reimbursement_date": {"$regex": f"^{re.escape(month)}"}},
+        ]
     items = await db.staff_purchases.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
     therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1}).to_list(500)
     t_by_id = {t["id"]: t for t in therapists}
     for it in items:
+        if not it.get("purchase_month") and it.get("purchase_date"):
+            it["purchase_month"] = str(it["purchase_date"])[:7]
         t = t_by_id.get(it.get("therapist_id"))
         if t:
             it["therapist_name"] = therapist_schedule_display_name(t)
@@ -11338,7 +11369,7 @@ async def schedule_cancel_notify(payload: CancelNotifyIn, user=Depends(schedule_
             )
             sent.append({"user_id": rid, "notification_id": n["id"]})
         therapist = await db.therapists.find_one({"id": rid}, {"_id": 0})
-        send_mail = payload.send_email or payload.state in ("cancel_therapist", "cancel_child")
+        send_mail = payload.send_email or payload.state == "cancel_therapist"
         if send_mail:
             recipient = payload.extra_email if len(recipients) == 1 and payload.extra_email else (therapist.get("email") if therapist else None)
             if recipient:
@@ -12412,6 +12443,75 @@ async def _upsert_intake_rows(rows: List[dict], detected_columns: List[str], par
     }
 
 
+async def _upsert_school_waiting_rows(rows: List[dict], detected_columns: List[str], parse_meta: str, replace_google_stale: bool = False) -> dict:
+    """Upsert school waiting list only — does not touch pre/post intake queues."""
+    school_rows = [
+        r for r in rows
+        if r.get("intake_type") == "school" or r.get("list_category") == "school"
+    ]
+    created, updated, skipped = 0, 0, 0
+    synced_keys: set = set()
+    for doc in school_rows:
+        name = (doc.get("child_name") or "").strip()
+        if not name:
+            skipped += 1
+            continue
+        intake_type = "school"
+        list_category = "school"
+        name_key = _intake_name_key(name, intake_type, list_category)
+        synced_keys.add(name_key)
+        match = await _find_intake_for_upsert(name, intake_type, list_category)
+        db_doc = {k: v for k, v in doc.items() if v is not None}
+        db_doc["child_name"] = name
+        db_doc["intake_type"] = intake_type
+        db_doc["list_category"] = list_category
+        db_doc["name_key"] = name_key
+        if replace_google_stale:
+            db_doc["sync_source"] = "google_sheet"
+        if match:
+            await db.intake.update_one({"id": match["id"]}, {"$set": db_doc})
+            await db.intake.delete_many({"name_key": name_key, "id": {"$ne": match["id"]}})
+            updated += 1
+        else:
+            try:
+                await db.intake.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "created_at": now_iso(),
+                    **db_doc,
+                })
+                created += 1
+            except Exception as e:
+                logger.warning(f"School intake insert skipped for {name}: {e}")
+                skipped += 1
+    stale_removed = 0
+    if replace_google_stale and synced_keys:
+        q = {
+            "$or": [{"intake_type": "school"}, {"list_category": "school"}],
+            "name_key": {"$nin": list(synced_keys)},
+            "sync_source": {"$ne": "manual"},
+        }
+        r = await db.intake.delete_many(q)
+        stale_removed = r.deleted_count
+    deduped = await _dedupe_intake_records()
+    school_count = await db.intake.count_documents({"$or": [{"intake_type": "school"}, {"list_category": "school"}]})
+    hint = None
+    if not school_rows:
+        hint = f"No school waiting rows found ({parse_meta}). Columns seen: {', '.join(detected_columns[:12])}"
+    return {
+        "created": created,
+        "updated": updated,
+        "skipped": skipped,
+        "removed_stale": stale_removed,
+        "deduped": deduped,
+        "school_count": school_count,
+        "rows_in_file": len(school_rows),
+        "detected_columns": detected_columns,
+        "parse_meta": parse_meta,
+        "message": f"School waiting: {updated} updated, {created} added, {skipped} skipped · {school_count} in queue",
+        "hint": hint,
+    }
+
+
 @api.post("/admin/fix-school-intake")
 async def admin_fix_school_intake(_=Depends(import_access)):
     """Re-sync all waiting lists from Google Sheet tabs (pre / post / school)."""
@@ -12465,6 +12565,71 @@ async def import_intake_google(body: dict = None, _=Depends(import_access)):
     result = await _upsert_intake_rows(rows, detected_columns, parse_meta, replace_google_stale=True)
     result["sheet_id"] = WAITING_LIST_SHEET_ID
     result["sheet_url"] = WAITING_LIST_SHEET_URL
+    return result
+
+
+@api.post("/import/school-waiting-google")
+async def import_school_waiting_google(body: dict = None, _=Depends(import_access)):
+    """Sync school waiting list only from the SS waiting sheet tab — does not alter pre/post intake."""
+    import httpx
+    body = body or {}
+    sheet_url = (body.get("url") or body.get("sheet_url") or WAITING_LIST_SHEET_URL).strip()
+    export_url = _google_sheet_export_url(sheet_url)
+    async with httpx.AsyncClient(follow_redirects=True, timeout=120.0) as client:
+        resp = await client.get(export_url)
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not download school waiting sheet (HTTP {resp.status_code}). Share link must be viewable.",
+        )
+    try:
+        rows, detected_columns, parse_meta = _read_intake_rows(resp.content, "school_waiting_list.xlsx")
+    except Exception as e:
+        logger.exception("School waiting Google Sheet parse failed")
+        raise HTTPException(status_code=400, detail=f"Could not parse school waiting sheet: {e}")
+    result = await _upsert_school_waiting_rows(rows, detected_columns, parse_meta, replace_google_stale=True)
+    result["sheet_url"] = sheet_url
+    return result
+
+
+async def _ensure_school_waiting_records() -> dict:
+    """Upsert the 6 official SS waiting-list clients — never touches pre/post intake."""
+    created, updated = 0, 0
+    for item in SCHOOL_WAITING_SEED:
+        name = item.get("child_name", "").strip()
+        if not name:
+            continue
+        match = await _find_intake_for_upsert(name, "school", "school")
+        doc = {
+            **item,
+            "child_name": name,
+            "intake_type": "school",
+            "list_category": "school",
+            "name_key": _intake_name_key(name, "school", "school"),
+            "sync_source": "seed",
+        }
+        if match:
+            await db.intake.update_one({"id": match["id"]}, {"$set": doc})
+            updated += 1
+        else:
+            await db.intake.insert_one({
+                "id": str(uuid.uuid4()),
+                "status": item.get("status") or "new",
+                "priority": bool(item.get("priority")),
+                "created_at": now_iso(),
+                **doc,
+            })
+            created += 1
+    school_count = await db.intake.count_documents({"$or": [{"intake_type": "school"}, {"list_category": "school"}]})
+    return {"created": created, "updated": updated, "school_count": school_count}
+
+
+@api.post("/admin/seed-school-waiting")
+async def seed_school_waiting(_=Depends(import_access)):
+    """Seed / refresh the 6 SS waiting-list clients without altering pre/post intake."""
+    result = await _ensure_school_waiting_records()
+    result["ok"] = True
+    result["message"] = f"School waiting: {result['created']} added, {result['updated']} updated · {result['school_count']} total"
     return result
 
 # ------------------- Historical Schedule Loader -------------------
@@ -13734,6 +13899,15 @@ INTAKE_SEED = [
     {"intake_type": "post", "child_name": "Leena Alshahrani", "service": "HS", "phone": "530511175", "district": "Alnarjis", "priority": False},
 ]
 
+SCHOOL_WAITING_SEED = [
+    {"intake_type": "school", "list_category": "school", "child_name": "Mohammed AlAqeel", "service": "SS", "school_start_date": "23/08/2026", "language": "Arabic", "status": "new", "priority": False},
+    {"intake_type": "school", "list_category": "school", "child_name": "Ameerah Alshehri", "service": "SS", "school_start_date": "23/08/2026", "language": "Arabic", "status": "new", "priority": False},
+    {"intake_type": "school", "list_category": "school", "child_name": "Abdulrahman Alshawi", "service": "SS", "language": "Arabic", "status": "new", "priority": False},
+    {"intake_type": "school", "list_category": "school", "child_name": "khalid Abunyan", "service": "SS", "school_start_date": "12/07/2026", "language": "Arabic", "status": "new", "priority": False},
+    {"intake_type": "school", "list_category": "school", "child_name": "Saif AlHoury", "service": "SS", "school_start_date": "05/07/2026", "language": "English", "status": "new", "priority": False},
+    {"intake_type": "school", "list_category": "school", "child_name": "Aljouhrah Alduailij", "service": "SS", "school_start_date": "19/07/2025", "status": "new", "priority": False},
+]
+
 # ------------------- Directory Seed (Internal Team) -------------------
 DIRECTORY_SEED = [
     {"name":"Genan Almuhaisen","role":"Direct Manager","phone":"","email":"genan@boostgrowthsa.com"},
@@ -14103,6 +14277,18 @@ async def _run_startup():
                 })
             logger.info(f"Seeded {len(INTAKE_SEED)} intake records from waiting list")
 
+        try:
+            school_seed = await _ensure_school_waiting_records()
+            if school_seed.get("created") or school_seed.get("updated"):
+                logger.info(
+                    "School waiting seed: %s added, %s updated (%s total)",
+                    school_seed.get("created", 0),
+                    school_seed.get("updated", 0),
+                    school_seed.get("school_count", 0),
+                )
+        except Exception as e:
+            logger.warning(f"School waiting seed skipped: {e}")
+
         # Seed Directory (only if empty)
         if await db.directory.count_documents({}) == 0:
             for item in DIRECTORY_SEED:
@@ -14214,6 +14400,13 @@ async def _run_startup():
             await _send_purchase_reminders(force=False)
         except Exception:
             logger.exception("Purchase reminder check failed")
+
+        try:
+            pm_fixed = await _backfill_purchase_months()
+            if pm_fixed:
+                logger.info(f"Backfilled purchase_month on {pm_fixed} staff purchase(s)")
+        except Exception as e:
+            logger.warning(f"Purchase month backfill skipped: {e}")
 
         await _fix_walaa_purchase_month_mismatch()
     except Exception:

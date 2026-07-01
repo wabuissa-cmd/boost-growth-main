@@ -7,7 +7,7 @@ import { Plus, MagnifyingGlass, Trash, PencilSimple, UsersThree, EnvelopeSimple 
 import ClientInfoLayout from "../components/ClientInfoLayout";
 import ClientPickerSheet from "../components/ClientPickerSheet";
 import "../clientInfoLayout.css";
-import { enrichClientForCardView, formatClientStatus } from "../attendanceUtils";
+import { enrichClientForCardView, formatClientStatus, computeAgeFromBirthDate } from "../attendanceUtils";
 import { getTherapistScheduleName, sortTherapistsForSchedule } from "../scheduleConstants";
 import {
   ModalBase, FormSection, FormField,
@@ -98,8 +98,13 @@ export default function Clients() {
   }, []);
 
   const save = async () => {
-    if (edit.id) await api.put(`/clients/${edit.id}`, edit);
-    else await api.post("/clients", edit);
+    const payload = { ...edit };
+    if (payload.birth_date) {
+      const computed = computeAgeFromBirthDate(payload.birth_date);
+      if (computed) payload.age = computed;
+    }
+    if (edit.id) await api.put(`/clients/${edit.id}`, payload);
+    else await api.post("/clients", payload);
     setEdit(null); load();
   };
   const remove = async (client) => {
@@ -305,10 +310,29 @@ export default function Clients() {
                 <input className="modal-input" value={edit.file_no || ""} onChange={e => setEdit({ ...edit, file_no: e.target.value })} placeholder="009" />
               </FormField>
               <FormField label="Birth date">
-                <input type="date" className="modal-input" value={edit.birth_date || ""} onChange={e => setEdit({ ...edit, birth_date: e.target.value })} />
+                <input
+                  type="date"
+                  className="modal-input"
+                  value={edit.birth_date || ""}
+                  onChange={e => {
+                    const birth_date = e.target.value;
+                    const computed = computeAgeFromBirthDate(birth_date);
+                    setEdit(prev => ({
+                      ...prev,
+                      birth_date,
+                      ...(computed ? { age: computed } : {}),
+                    }));
+                  }}
+                />
               </FormField>
-              <FormField label="Age (legacy text)">
-                <input className="modal-input" value={edit.age || ""} onChange={e => setEdit({ ...edit, age: e.target.value })} placeholder="Optional if birth date set" />
+              <FormField label="Age" hint={edit.birth_date ? "Calculated from birth date" : "Enter manually if no birth date"}>
+                {edit.birth_date && computeAgeFromBirthDate(edit.birth_date) ? (
+                  <div className="modal-input text-sm" style={{ background: "#F5F5F0", color: "#3D4F35" }}>
+                    {computeAgeFromBirthDate(edit.birth_date)}
+                  </div>
+                ) : (
+                  <input className="modal-input" value={edit.age || ""} onChange={e => setEdit({ ...edit, age: e.target.value })} placeholder="e.g. 4 years" />
+                )}
               </FormField>
               <FormField label="Parent name">
                 <input className="modal-input" value={edit.parent_name || ""} onChange={e => setEdit({ ...edit, parent_name: e.target.value })} />

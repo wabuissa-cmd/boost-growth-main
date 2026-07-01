@@ -1576,10 +1576,15 @@ main, .page-enter { min-width: 0; }
     .mobile-nav-bar,
     .sidebar-toggle-btn { display: none !important; }
     .no-screen-seal { display: block !important; }
-    .invoice-print-header { position: relative; min-height: 56px; }
+    .invoice-print-root.printable { position: relative; }
+    .invoice-print-seal-footer {
+        position: relative;
+        min-height: 84px;
+        margin-top: 4px;
+    }
     .invoice-company-seal {
         position: absolute;
-        top: 8px;
+        bottom: 8px;
         width: 72px;
         height: 72px;
         object-fit: contain;

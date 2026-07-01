@@ -1181,18 +1181,21 @@ export default function Schedule() {
         cellId = data?.id;
       }
       const cn = opts.cancelNotify;
-      if (
-        cn && (payload.state === "cancel_therapist" || payload.state === "cancel_child") && cellId
-        && (cn.send_email || cn.send_in_app)
-      ) {
-        await api.post("/schedule/cancel-notify", {
-          cell_id: cellId,
-          state: payload.state,
-          message: cn.message,
-          recipient_ids: cn.recipient_ids || [],
-          send_email: !!cn.send_email,
-          send_in_app: cn.send_in_app !== false,
-        });
+      const wantsNotify = cn && (cn.send_email || cn.send_in_app) && (cn.recipient_ids || []).length > 0;
+      if (wantsNotify && payload.state === "cancel_therapist" && cellId) {
+        try {
+          await api.post("/schedule/cancel-notify", {
+            cell_id: cellId,
+            state: payload.state,
+            message: cn.message,
+            recipient_ids: cn.recipient_ids || [],
+            send_email: !!cn.send_email,
+            send_in_app: cn.send_in_app !== false,
+          });
+        } catch (notifyErr) {
+          console.warn("Cancel notify failed", notifyErr);
+          alert("Session saved, but cancellation notification could not be sent. Check your connection and try again from the cell menu.");
+        }
       }
       await load();
       await loadPendingCancellations();
@@ -1201,6 +1204,8 @@ export default function Schedule() {
         setParentCancelFocus(cellId);
         setParentCancelOpen(true);
       }
+    } catch (err) {
+      alert(err.response?.data?.detail || err.message || "Could not save session");
     } finally {
       setPanelSaving(false);
     }

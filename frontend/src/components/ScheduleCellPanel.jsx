@@ -28,8 +28,8 @@ function buildCancelNotify(form) {
   return {
     recipient_ids: form.therapist_id ? [form.therapist_id] : [],
     message: defaultMsg,
-    send_email: true,
-    send_in_app: true,
+    send_email: form.state === "cancel_therapist",
+    send_in_app: form.state === "cancel_therapist",
   };
 }
 

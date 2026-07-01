@@ -11,7 +11,7 @@ import PageBanner from "../../components/PageBanner";
 import "../../clientInfoLayout.css";
 import "../../dashboardLayout.css";
 
-import { WAITING_LIST_SHEET_URL } from "../../constants/waiting";
+import { WAITING_LIST_SHEET_URL, SCHOOL_WAITING_SHEET_URL } from "../../constants/waiting";
 
 const STATUS = { new: "New", contacted: "Contacted", scheduled: "Scheduled", completed: "Completed" };
 const STATUS_COLORS = {
@@ -87,11 +87,16 @@ export default function WaitingPage({ mode }) {
   };
 
   const syncFromGoogle = async () => {
-    if (!window.confirm("Sync waiting list from the official Google Sheet?\n\nOnly names currently in the sheet will remain. Stale rows are removed.")) return;
+    const confirmMsg = isSchool
+      ? "Sync school waiting list from the SS Waiting sheet?\n\nOnly school placement rows are updated. Pre/Post intake lists are not changed."
+      : "Sync waiting list from the official Google Sheet?\n\nOnly names currently in the sheet will remain. Stale rows are removed.";
+    if (!window.confirm(confirmMsg)) return;
     setSyncing(true);
     setSyncResult(null);
     try {
-      const { data } = await api.post("/import/intake-google", { sheet_url: WAITING_LIST_SHEET_URL });
+      const endpoint = isSchool ? "/import/school-waiting-google" : "/import/intake-google";
+      const sheetUrl = isSchool ? SCHOOL_WAITING_SHEET_URL : WAITING_LIST_SHEET_URL;
+      const { data } = await api.post(endpoint, { sheet_url: sheetUrl });
       const schoolNote = data.school_count != null ? ` · ${data.school_count} school` : "";
       setSyncResult({ ok: true, msg: `${data.message || "Sync complete"}${schoolNote}` });
       load();
@@ -190,7 +195,7 @@ export default function WaitingPage({ mode }) {
               className="w-full text-left px-3 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] flex items-center gap-1.5">
               {syncing ? <span className="spinner" /> : <ArrowsClockwise size={13} />} Sync Sheet
             </button>
-            <a href={WAITING_LIST_SHEET_URL} target="_blank" rel="noreferrer"
+            <a href={isSchool ? SCHOOL_WAITING_SHEET_URL : WAITING_LIST_SHEET_URL} target="_blank" rel="noreferrer"
               className="block w-full text-left px-3 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] border-t no-underline"
               style={{ color: "#374151", borderColor: "#EDE9E3" }}>
               Open Google Sheet

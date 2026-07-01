@@ -117,7 +117,12 @@ export default function Billing() {
   }, []);
 
   const load = useCallback(() => {
-    api.get("/billing/dashboard").then(r => setData(r.data)).catch(() => setData(null));
+    api.get("/billing/dashboard").then(r => setData(r.data)).catch(() => setData({
+      summary: { unpaid: 0, partial: 0, reminders_soon: 0 },
+      items: [],
+      unpaid: [],
+      partial: [],
+    }));
     loadSupport();
   }, [loadSupport]);
 

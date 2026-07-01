@@ -1702,15 +1702,7 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
 
         <div className="flex-1 overflow-y-auto bg-white min-h-0 invoice-print-body">
           {/* Logo + Title */}
-          <div className="px-4 pt-3 pb-2 flex items-center justify-between border-b-2 relative invoice-print-header" style={{borderColor: "var(--brand-sage)"}}>
-            {pdfSeal?.includeSeal && sealImageOk && (
-              <img
-                src={COMPANY_SEAL_SRC}
-                alt=""
-                className={`invoice-company-seal invoice-company-seal--${pdfSeal.sealPosition || "right"} no-screen-seal`}
-                onError={() => setSealImageOk(false)}
-              />
-            )}
+          <div className="px-4 pt-3 pb-2 flex items-center justify-between border-b-2 invoice-print-header" style={{borderColor: "var(--brand-sage)"}}>
             <div className="flex items-center gap-2">
               <div className="w-10 h-10 rounded-lg flex items-center justify-center p-1.5" style={{background: "var(--brand-sage)"}}>
                 <img src={`${process.env.PUBLIC_URL || ""}/bg-logo.png`.replace(/\/\//g, "/")} alt="" className="w-full h-full object-contain"/>
@@ -1940,6 +1932,16 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
           <div className="px-8 py-3 text-[10px] text-center" style={{color: "var(--brand-sage)"}}>
             Generated {new Date().toLocaleString('en-US')} · Boost Growth Center · boost-growthsa.com
           </div>
+          {pdfSeal?.includeSeal && sealImageOk && (
+            <div className="invoice-print-seal-footer no-screen-seal">
+              <img
+                src={COMPANY_SEAL_SRC}
+                alt=""
+                className={`invoice-company-seal invoice-company-seal--${pdfSeal.sealPosition || "right"}`}
+                onError={() => setSealImageOk(false)}
+              />
+            </div>
+          )}
         </div>
 
         {/* Invoice Details popup */}
