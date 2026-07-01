@@ -136,9 +136,6 @@ export function getCellStyle(cell, clients = []) {
   if (code === "LEAVE" && SERVICE_CELL_COLORS.LEAVE) {
     return { ...SERVICE_CELL_COLORS.LEAVE };
   }
-  if (cell.color) {
-    return { background: cell.color, borderColor: cell.color, color: readable(cell.color) };
-  }
   if (META_SERVICE_CODES.has(code) || (!cell.child_name && code && SERVICE_CELL_COLORS[code])) {
     const s = SERVICE_CELL_COLORS[code];
     if (s) return { ...s };
@@ -149,6 +146,9 @@ export function getCellStyle(cell, clients = []) {
       const bg = deepenHex(cc, 0.78);
       return { background: bg, borderColor: deepenHex(cc, 0.65), color: readable(bg) };
     }
+  }
+  if (cell.color) {
+    return { background: cell.color, borderColor: cell.color, color: readable(cell.color) };
   }
   if (code && SERVICE_CELL_COLORS[code]) {
     return { ...SERVICE_CELL_COLORS[code] };

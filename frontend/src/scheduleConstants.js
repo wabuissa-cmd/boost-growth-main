@@ -69,8 +69,6 @@ const THERAPIST_FIRST_NAME_OVERRIDES = {
 
 export function getTherapistScheduleName(t) {
   if (!t) return "";
-  const key = (t.key || "").toLowerCase();
-  if (THERAPIST_DISPLAY_NAMES[key]) return THERAPIST_DISPLAY_NAMES[key];
   const raw = (t.name || "").replace(/^Ms\.?\s*/i, "").trim();
   let first = raw.split(/\s+/)[0] || raw;
   const firstLower = first.toLowerCase();

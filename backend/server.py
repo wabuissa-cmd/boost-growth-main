@@ -1945,10 +1945,72 @@ async def list_schedule(week_start: Optional[str] = None, user=Depends(get_curre
         for ws in variants:
             cells = await db.schedule_cells.find({"week_start": ws}, {"_id": 0}).to_list(5000)
             if cells:
-                return cells
+                return await _enrich_schedule_cells_with_client_colors(cells)
         return []
     cells = await db.schedule_cells.find(q, {"_id": 0}).to_list(5000)
+    return await _enrich_schedule_cells_with_client_colors(cells)
+
+
+async def _enrich_schedule_cells_with_client_colors(cells: list) -> list:
+    """Restore child cell colors from clients table (schedule_color / color) on load."""
+    if not cells:
+        return cells
+    client_fields = {"_id": 0, "name": 1, "schedule_color": 1, "color": 1}
+    clients = await db.clients.find(_active_client_filter(), client_fields).to_list(800)
+    if not clients:
+        return cells
+    by_name = {c["name"]: c for c in clients if c.get("name")}
+    meta_codes = {"LEAVE", "AVC", "MEETING", "SUPERVISION", "OBSERVATION", "BREAK", "AVAILABLE", "OS", "SS", "HS"}
+
+    def _match_client(child_name: str) -> Optional[dict]:
+        label = (child_name or "").strip()
+        if not label:
+            return None
+        if label in by_name:
+            return by_name[label]
+        for cn, c in by_name.items():
+            if label == cn or label.startswith(cn + " "):
+                return c
+        first = label.split()[0] if label.split() else label
+        if len(first) >= 3:
+            fl = first.lower()
+            hits = [c for c in clients if (c.get("name") or "").split()[0].lower() == fl]
+            if len(hits) == 1:
+                return hits[0]
+        return None
+
+    for cell in cells:
+        if cell.get("state") in ("cancel_child", "cancel_therapist", "available"):
+            continue
+        code = (cell.get("service_code") or "").upper()
+        child = _schedule_cell_child_label(cell)
+        if not child or (code in meta_codes and not child):
+            continue
+        client = _match_client(child)
+        if not client:
+            continue
+        color = client.get("schedule_color") or client.get("color")
+        if color:
+            cell["color"] = color
     return cells
+
+
+async def _backfill_schedule_cell_colors_for_week(week_start: str) -> int:
+    """Persist client colors onto schedule cells for a week (non-destructive)."""
+    cells = await db.schedule_cells.find({"week_start": week_start}, {"_id": 0}).to_list(5000)
+    if not cells:
+        return 0
+    enriched = await _enrich_schedule_cells_with_client_colors(cells)
+    updated = 0
+    for orig, cell in zip(cells, enriched):
+        new_color = cell.get("color")
+        if new_color and orig.get("color") != new_color:
+            await db.schedule_cells.update_one(
+                {"id": orig["id"]},
+                {"$set": {"color": new_color}},
+            )
+            updated += 1
+    return updated
 
 
 def _prep_history_key(therapist_id: str, client_id: str, session_date: str, time_slot: Optional[str] = None) -> dict:
@@ -5804,13 +5866,9 @@ _SCHEDULE_THERAPIST_SKIP = frozenset({
 
 
 def therapist_schedule_display_name(t: Optional[dict]) -> str:
-    """Canonical therapist label (e.g. Ms. Maha) — source of truth for UI labels."""
+    """Full therapist label (first + family) — source of truth for schedule/portal display."""
     if not t:
         return ""
-    key = t.get("key") or ""
-    canonical = THERAPIST_DISPLAY_NAMES.get(key)
-    if canonical:
-        return canonical
     raw = re.sub(r"^Ms\.?\s*", "", (t.get("name") or ""), flags=re.I).strip()
     first = (raw.split()[0] if raw.split() else raw) or raw
     first_lower = first.lower()
@@ -5876,16 +5934,15 @@ async def _migrate_personal_therapist_accounts() -> dict:
 
 
 async def _migrate_therapist_display_names() -> int:
-    """Align therapist DB names with client-info spelling; sync schedule-format labels in related records."""
+    """Align therapist DB names with full first+family spelling; sync labels in related records."""
     updated = 0
     therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1}).to_list(500)
     for t in therapists:
-        key = t.get("key") or ""
-        canonical = THERAPIST_DISPLAY_NAMES.get(key)
-        if canonical and (t.get("name") or "") != canonical:
-            await db.therapists.update_one({"id": t["id"]}, {"$set": {"name": canonical}})
-            await db.users.update_many({"therapist_id": t["id"]}, {"$set": {"name": canonical}})
-            t["name"] = canonical
+        display = therapist_schedule_display_name(t)
+        if display and (t.get("name") or "") != display:
+            await db.therapists.update_one({"id": t["id"]}, {"$set": {"name": display}})
+            await db.users.update_many({"therapist_id": t["id"]}, {"$set": {"name": display}})
+            t["name"] = display
             updated += 1
     for t in therapists:
         tid = t.get("id")
@@ -12423,6 +12480,19 @@ async def _run_startup():
                 logger.info(f"Schedule week therapist_order migration: fixed {n} week(s)")
         except Exception as e:
             logger.warning(f"Schedule week therapist_order migration skipped: {e}")
+
+        try:
+            n = await _backfill_schedule_cell_colors_for_week("2026-06-28")
+            if n:
+                logger.info(f"Schedule cell color backfill for 2026-06-28: updated {n} cell(s)")
+        except Exception as e:
+            logger.warning(f"Schedule cell color backfill skipped: {e}")
+
+        try:
+            await _sync_schedule_preparations_for_week("2026-06-28", "2026-07-02")
+            logger.info("Prep relink for week 2026-06-28 complete")
+        except Exception as e:
+            logger.warning(f"Prep relink for week 2026-06-28 skipped: {e}")
 
         try:
             pay = await _migrate_mark_all_payments_complete()
