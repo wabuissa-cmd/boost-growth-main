@@ -1,9 +1,30 @@
-/** Excel schedule row order (matches master therapist list). */
+/** Excel column order — 28 Jun 2026 sheet (Ms. Maha, Ms. Fahda, then rest). */
 export const THERAPIST_SCHEDULE_ORDER = [
-  "msmaha", "msfahda", "msrazan", "msmanal", "msasma", "mshajer", "msrahaf",
-  "msshatha", "msalhanouf", "mswaad", "msnajla", "msbodoor", "msfatimah", "msshoroq",
-  "msabeer", "msjenan",
+  "msmaha", "msfahda", "msrazan", "msmanal", "mshajer", "msrahaf",
+  "msshatha", "msalhanouf", "mswaad", "msfatimah", "msshoroq",
+  "msabeer", "msnajla", "msasma", "msbodoor", "msjenan", "mswalaa",
 ];
+
+/** Canonical display labels — same spelling everywhere (schedule, clients, directory). */
+export const THERAPIST_DISPLAY_NAMES = {
+  msabeer: "Ms. Abeer",
+  msalhanouf: "Ms. Alhanouf",
+  msbodoor: "Ms. Bodour",
+  msfahda: "Ms. Fahda",
+  msfatimah: "Ms. Fatimah",
+  mshajer: "Ms. Hajar",
+  msjenan: "Ms. Jenan",
+  msmaha: "Ms. Maha",
+  msmanal: "Ms. Manal",
+  msnajla: "Ms. Najla",
+  msrahaf: "Ms. Rahaf",
+  msrazan: "Ms. Razan",
+  msasma: "Ms. Asma",
+  msshatha: "Ms. Shatha",
+  msshoroq: "Ms. Shroug",
+  mswaad: "Ms. Waad",
+  mswalaa: "Ms. Walaa",
+};
 
 /** Family names for full schedule display (First + Family). */
 export const THERAPIST_FAMILY_NAMES = {
@@ -48,6 +69,8 @@ const THERAPIST_FIRST_NAME_OVERRIDES = {
 
 export function getTherapistScheduleName(t) {
   if (!t) return "";
+  const key = (t.key || "").toLowerCase();
+  if (THERAPIST_DISPLAY_NAMES[key]) return THERAPIST_DISPLAY_NAMES[key];
   const raw = (t.name || "").replace(/^Ms\.?\s*/i, "").trim();
   let first = raw.split(/\s+/)[0] || raw;
   const firstLower = first.toLowerCase();
@@ -114,8 +137,12 @@ export function sortTherapistsForSchedule(list) {
 
 /** Prefer Excel/week-specific therapist column order when available. */
 export function sortTherapistsForScheduleWeek(list, orderIds = null) {
-  if (!orderIds?.length) return sortTherapistsForSchedule(list);
-  const orderMap = new Map(orderIds.map((id, i) => [id, i]));
+  const fallback = sortTherapistsForSchedule(list);
+  if (!orderIds?.length) return fallback;
+  const valid = new Set(list.map((t) => t.id));
+  const filtered = orderIds.filter((id) => valid.has(id));
+  if (!filtered.length) return fallback;
+  const orderMap = new Map(filtered.map((id, i) => [id, i]));
   return [...list].sort((a, b) => {
     const ia = orderMap.has(a.id) ? orderMap.get(a.id) : 9999;
     const ib = orderMap.has(b.id) ? orderMap.get(b.id) : 9999;

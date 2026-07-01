@@ -1919,7 +1919,7 @@ export default function Schedule() {
 
           <FormSection title="Recipients">
             <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-              {therapists.map(t => (
+              {sortForWeek(therapists).map(t => (
                 <label
                   key={t.id}
                   className="flex items-center gap-1.5 text-xs cursor-pointer pill px-2 py-1"

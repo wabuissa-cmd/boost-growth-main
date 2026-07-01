@@ -5788,18 +5788,29 @@ THERAPIST_FIRST_NAME_OVERRIDES = {
     "hajer": "Hajar",
 }
 
-# Excel / website therapist column order (matches frontend scheduleConstants.js).
+# Excel column order — 28 Jun 2026 sheet (matches frontend scheduleConstants.js).
 THERAPIST_SCHEDULE_ORDER = [
-    "msmaha", "msfahda", "msrazan", "msmanal", "msasma", "mshajer", "msrahaf",
-    "msshatha", "msalhanouf", "mswaad", "msnajla", "msbodoor", "msfatimah", "msshoroq",
-    "msabeer", "msjenan",
+    "msmaha", "msfahda", "msrazan", "msmanal", "mshajer", "msrahaf",
+    "msshatha", "msalhanouf", "mswaad", "msfatimah", "msshoroq",
+    "msabeer", "msnajla", "msasma", "msbodoor", "msjenan", "mswalaa",
 ]
+
+_SCHEDULE_THERAPIST_SKIP = frozenset({
+    "therapist's name", "therapists name", "days", "service",
+    "school support", "home session", "outdoor session",
+    "therapist cancelation", "client cancelation",
+    "various-service (school & home)",
+})
 
 
 def therapist_schedule_display_name(t: Optional[dict]) -> str:
-    """Full schedule header name (e.g. Maha Althunayan) — source of truth for UI labels."""
+    """Canonical therapist label (e.g. Ms. Maha) — source of truth for UI labels."""
     if not t:
         return ""
+    key = t.get("key") or ""
+    canonical = THERAPIST_DISPLAY_NAMES.get(key)
+    if canonical:
+        return canonical
     raw = re.sub(r"^Ms\.?\s*", "", (t.get("name") or ""), flags=re.I).strip()
     first = (raw.split()[0] if raw.split() else raw) or raw
     first_lower = first.lower()
@@ -11534,6 +11545,41 @@ async def _save_week_therapist_order(week_start: str, therapist_order: List[str]
     )
 
 
+async def _canonical_therapist_order_ids() -> List[str]:
+    """Map THERAPIST_SCHEDULE_ORDER keys to therapist ids (Excel column order)."""
+    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "key": 1}).to_list(500)
+    key_to_id = {(t.get("key") or "").lower(): t["id"] for t in therapists if t.get("key")}
+    ordered = [key_to_id[k] for k in THERAPIST_SCHEDULE_ORDER if k in key_to_id]
+    seen = set(ordered)
+    for t in therapists:
+        if t["id"] not in seen:
+            ordered.append(t["id"])
+            seen.add(t["id"])
+    return ordered
+
+
+async def _migrate_schedule_week_therapist_orders() -> int:
+    """Fix therapist_order for weeks already imported (e.g. trial week 2026-06-28)."""
+    canonical = await _canonical_therapist_order_ids()
+    if not canonical:
+        return 0
+    updated = 0
+    for week_start in ("2026-06-28",):
+        n_cells = await db.schedule_cells.count_documents({"week_start": week_start})
+        if not n_cells:
+            continue
+        doc = await db.schedule_weeks.find_one({"week_start": week_start}, {"therapist_order": 1})
+        existing = (doc or {}).get("therapist_order") or []
+        if existing != canonical:
+            await db.schedule_weeks.update_one(
+                {"week_start": week_start},
+                {"$set": {"therapist_order": canonical, "updated_at": now_iso()}},
+                upsert=True,
+            )
+            updated += 1
+    return updated
+
+
 async def _import_schedule_grid(
     grid: List[List[str]],
     week_start: str,
@@ -11590,6 +11636,9 @@ async def _import_schedule_grid(
                     continue
                 name_c = r[1] if len(r) > 1 else ""
                 if name_c and name_c.lower() not in SCHEDULE_DAYS_MAP:
+                    if name_c.lower() in _SCHEDULE_THERAPIST_SKIP:
+                        i += 1
+                        continue
                     tid = _resolve_schedule_therapist(name_c, t_by_name)
                     if tid:
                         current_t_id = tid
@@ -12367,6 +12416,13 @@ async def _run_startup():
                 logger.info(f"Therapist display-name migration: updated {n} record(s)")
         except Exception as e:
             logger.warning(f"Therapist display-name migration skipped: {e}")
+
+        try:
+            n = await _migrate_schedule_week_therapist_orders()
+            if n:
+                logger.info(f"Schedule week therapist_order migration: fixed {n} week(s)")
+        except Exception as e:
+            logger.warning(f"Schedule week therapist_order migration skipped: {e}")
 
         try:
             pay = await _migrate_mark_all_payments_complete()

@@ -8,7 +8,7 @@ import ClientInfoLayout from "../components/ClientInfoLayout";
 import ClientPickerSheet from "../components/ClientPickerSheet";
 import "../clientInfoLayout.css";
 import { enrichClientForCardView, formatClientStatus } from "../attendanceUtils";
-import { getTherapistScheduleName } from "../scheduleConstants";
+import { getTherapistScheduleName, sortTherapistsForSchedule } from "../scheduleConstants";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -108,7 +108,9 @@ export default function Clients() {
     if (selectedClientId === client.id) setSelectedClientId(null);
     load();
   };
-  const findT = id => therapists.find(t => t.id === id);
+  const sortedTherapists = useMemo(() => sortTherapistsForSchedule(therapists), [therapists]);
+
+  const findT = id => sortedTherapists.find(t => t.id === id) || therapists.find(t => t.id === id);
 
   const activeCount = items.filter(c => (c.status || "Active") !== "Inactive").length;
 
@@ -370,12 +372,12 @@ export default function Clients() {
             <FormField label="Main therapist">
               <select className="modal-input" value={edit.main_therapist_id || ""} onChange={e => setEdit({ ...edit, main_therapist_id: e.target.value || null })}>
                 <option value="">— None —</option>
-                {therapists.map(t => <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>)}
+                {sortedTherapists.map(t => <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>)}
               </select>
             </FormField>
             <FormField label="Co-therapists">
               <div className="flex flex-wrap gap-1.5">
-                {therapists.map(t => {
+                {sortedTherapists.map(t => {
                   const sel = (edit.co_therapist_ids || []).includes(t.id);
                   return (
                     <button

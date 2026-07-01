@@ -9,7 +9,7 @@ ENV CI=true \
     DISABLE_ESLINT_PLUGIN=true \
     SKIP_PREFLIGHT_CHECK=true \
     NODE_OPTIONS=--max-old-space-size=2048
-ENV RAILWAY_DEPLOY_REV=walaa-cert-dropdown-v1
+ENV RAILWAY_DEPLOY_REV=cert-notify-trainee-v1
 RUN npm run build
 
 FROM python:3.11-slim
@@ -23,8 +23,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ .
 COPY --from=frontend /app/frontend/build ./static
+ARG RAILWAY_GIT_COMMIT_SHA=dev
 ARG GIT_COMMIT=dev
-RUN echo "${GIT_COMMIT}" > BUILD_VERSION.txt
+RUN printf '%s' "$(echo "${RAILWAY_GIT_COMMIT_SHA:-$GIT_COMMIT}" | cut -c1-7)" > BUILD_VERSION.txt
 
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8080
