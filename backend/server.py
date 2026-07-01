@@ -1933,6 +1933,36 @@ def _schedule_week_start_variants(week_start: str) -> List[str]:
     return out
 
 
+def _week_start_variants_for_session_date(session_date: str) -> List[str]:
+    """Week-start keys to search schedule_cells for a session/prep date."""
+    sd = (session_date or "")[:10]
+    if not sd:
+        return []
+    return _schedule_week_start_variants(sd)
+
+
+def _session_date_query(session_date: str) -> dict:
+    """Mongo filter for a calendar day (handles yyyy-mm-dd and ISO datetimes)."""
+    sd = (session_date or "")[:10]
+    if not sd:
+        return {}
+    return {"session_date": {"$regex": f"^{re.escape(sd)}"}}
+
+
+def _session_date_range_query(start: str, end: str) -> dict:
+    """Mongo filter for session_date within an inclusive yyyy-mm-dd range."""
+    start = (start or "")[:10]
+    end = (end or "")[:10]
+    if not start or not end:
+        return {}
+    return {
+        "$or": [
+            {"session_date": {"$gte": start, "$lte": end}},
+            {"session_date": {"$gte": f"{start}T", "$lte": f"{end}T23:59:59.999Z"}},
+        ]
+    }
+
+
 @api.get("/schedule")
 async def list_schedule(week_start: Optional[str] = None, user=Depends(get_current_user)):
     q: dict = {}
@@ -2226,6 +2256,69 @@ async def _cell_matches_session_client(cell: dict, client_id: str) -> bool:
     return True
 
 
+async def _schedule_cells_for_prep_match(
+    therapist_ids: List[str],
+    session_date: str,
+    *,
+    stale_cell_id: Optional[str] = None,
+) -> List[dict]:
+    """Load schedule cells for prep matching — scoped to the session week, not all history."""
+    sd = (session_date or "")[:10]
+    week_variants = _week_start_variants_for_session_date(sd)
+    base_q: dict = {
+        "state": {"$nin": ["cancel_therapist", "cancel_child"]},
+        "service_code": {"$nin": ["LEAVE", "BREAK", "AVC", ""]},
+    }
+    if week_variants:
+        base_q["week_start"] = {"$in": week_variants}
+    if therapist_ids:
+        base_q["therapist_id"] = {"$in": therapist_ids}
+    cells = await db.schedule_cells.find(base_q, {"_id": 0}).to_list(2000)
+    if stale_cell_id:
+        stale = await db.schedule_cells.find_one({"id": stale_cell_id}, {"_id": 0})
+        if stale and stale.get("id") not in {c.get("id") for c in cells}:
+            cells.append(stale)
+    return cells
+
+
+async def _upsert_session_prep_markers(
+    *,
+    therapist_id: str,
+    client_id: str,
+    session_date: str,
+    prepared_by: str,
+    client_name: Optional[str],
+    cell: Optional[dict] = None,
+) -> None:
+    """Write schedule_preparation rows for a therapist+client+date (with or without a grid cell)."""
+    week_start = (cell or {}).get("week_start") or _normalize_week_start(session_date)
+    day = (cell or {}).get("day")
+    cell_id = (cell or {}).get("id")
+    slot = (cell or {}).get("time_slot") or ""
+    await _upsert_schedule_preparation(
+        therapist_id=therapist_id,
+        client_id=client_id,
+        session_date=session_date,
+        prepared_by=prepared_by,
+        time_slot=slot,
+        schedule_cell_id=cell_id,
+        week_start=week_start,
+        day=day,
+        client_name=client_name,
+    )
+    await _upsert_schedule_preparation(
+        therapist_id=therapist_id,
+        client_id=client_id,
+        session_date=session_date,
+        prepared_by=prepared_by,
+        time_slot="",
+        schedule_cell_id=cell_id,
+        week_start=week_start,
+        day=day,
+        client_name=client_name,
+    )
+
+
 async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) -> None:
     """When a completed session is logged, mark matching schedule cells as prepared."""
     if (sess.get("status") or "").strip() != "Completed":
@@ -2236,16 +2329,11 @@ async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) 
         return
     client = await db.clients.find_one(_active_client_filter({"id": client_id}), {"_id": 0, "name": 1})
     client_name = (client or {}).get("name")
-    therapist_ids = sess.get("therapist_ids") or []
-    cells = await db.schedule_cells.find(
-        {
-            "therapist_id": {"$in": therapist_ids},
-            "state": {"$nin": ["cancel_therapist", "cancel_child"]},
-            "service_code": {"$nin": ["LEAVE", "BREAK", "AVC", ""]},
-        },
-        {"_id": 0},
-    ).to_list(800)
+    therapist_ids = [t for t in (sess.get("therapist_ids") or []) if t]
+    cells = await _schedule_cells_for_prep_match(therapist_ids, session_date)
     marked = set()
+    matched_tids: set = set()
+    prepared_by = user_id or sess.get("created_by") or ""
     for cell in cells:
         slot_date = _schedule_cell_date_iso(cell)
         if slot_date != session_date:
@@ -2259,28 +2347,25 @@ async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) 
         if key in marked:
             continue
         marked.add(key)
-        await _upsert_schedule_preparation(
+        matched_tids.add(tid)
+        await _upsert_session_prep_markers(
             therapist_id=tid,
             client_id=client_id,
             session_date=session_date,
-            prepared_by=user_id or sess.get("created_by") or "",
-            time_slot=cell.get("time_slot") or "",
-            schedule_cell_id=cell.get("id"),
-            week_start=cell.get("week_start"),
-            day=cell.get("day"),
+            prepared_by=prepared_by,
             client_name=client_name,
+            cell=cell,
         )
-        # Date-level marker (no time_slot) so frontend always matches even if slot strings differ.
-        await _upsert_schedule_preparation(
+    for tid in therapist_ids:
+        if tid in matched_tids:
+            continue
+        await _upsert_session_prep_markers(
             therapist_id=tid,
             client_id=client_id,
             session_date=session_date,
-            prepared_by=user_id or sess.get("created_by") or "",
-            time_slot="",
-            schedule_cell_id=cell.get("id"),
-            week_start=cell.get("week_start"),
-            day=cell.get("day"),
+            prepared_by=prepared_by,
             client_name=client_name,
+            cell=None,
         )
 
 
@@ -2294,7 +2379,7 @@ async def _related_therapist_ids_for_prep(
     ids: set = {therapist_id}
     if client_id and sd:
         sessions = await db.sessions.find(
-            {"client_id": client_id, "session_date": sd},
+            {"client_id": client_id, **_session_date_query(sd)},
             {"_id": 0, "therapist_ids": 1},
         ).to_list(100)
         for sess in sessions:
@@ -2302,7 +2387,7 @@ async def _related_therapist_ids_for_prep(
                 if tid:
                     ids.add(tid)
         hist_rows = await db.prep_history.find(
-            {"client_id": client_id, "session_date": sd},
+            {"client_id": client_id, **_session_date_query(sd)},
             {"_id": 0, "therapist_id": 1},
         ).to_list(100)
         for row in hist_rows:
@@ -2350,27 +2435,35 @@ async def _resolve_schedule_cell_for_prep(
     search_ids = list(dict.fromkeys(
         [therapist_id] + [t for t in (extra_therapist_ids or []) if t and t != therapist_id]
     ))
+    week_variants = _week_start_variants_for_session_date(sd)
     for tid in search_ids:
-        cells = await db.schedule_cells.find({"therapist_id": tid}, {"_id": 0}).to_list(800)
+        q: dict = {
+            "therapist_id": tid,
+            "state": {"$nin": ["cancel_therapist", "cancel_child"]},
+            "service_code": {"$nin": ["LEAVE", "BREAK", "AVC", ""]},
+        }
+        if week_variants:
+            q["week_start"] = {"$in": week_variants}
+        cells = await db.schedule_cells.find(q, {"_id": 0}).to_list(500)
         hit = await _scan_cells(cells)
         if hit:
             return hit
 
     # Dual specialists: client may be scheduled under a co-therapist's column.
-    all_cells = await db.schedule_cells.find(
-        {
-            "state": {"$nin": ["cancel_therapist", "cancel_child"]},
-            "service_code": {"$nin": ["LEAVE", "BREAK", "AVC", ""]},
-        },
-        {"_id": 0},
-    ).to_list(800)
+    fallback_q: dict = {
+        "state": {"$nin": ["cancel_therapist", "cancel_child"]},
+        "service_code": {"$nin": ["LEAVE", "BREAK", "AVC", ""]},
+    }
+    if week_variants:
+        fallback_q["week_start"] = {"$in": week_variants}
+    all_cells = await db.schedule_cells.find(fallback_q, {"_id": 0}).to_list(2000)
     return await _scan_cells(all_cells)
 
 
 async def _sync_prep_history_to_schedule_markers(start: str, end: str) -> None:
     """Mirror prep_history rows into schedule_preparations for schedule badge display."""
     rows = await db.prep_history.find(
-        {"session_date": {"$gte": start, "$lte": end}},
+        _session_date_range_query(start, end),
         {"_id": 0},
     ).to_list(5000)
     for row in rows:
@@ -2382,7 +2475,9 @@ async def _sync_prep_history_to_schedule_markers(start: str, end: str) -> None:
         stale_cell_id = row.get("schedule_cell_id")
         related = await _related_therapist_ids_for_prep(tid, cid, sd)
         marked_cell_ids: set = set()
+        linked_tids: set = set()
         primary_cell_id = None
+        prepared_by = row.get("prepared_by") or ""
         for rtid in related:
             cell = await _resolve_schedule_cell_for_prep(
                 rtid,
@@ -2392,42 +2487,38 @@ async def _sync_prep_history_to_schedule_markers(start: str, end: str) -> None:
                 stale_cell_id=stale_cell_id if rtid == tid else None,
                 extra_therapist_ids=related,
             )
-            if not cell or not cell.get("id"):
-                continue
-            if cell["id"] in marked_cell_ids:
-                continue
-            marked_cell_ids.add(cell["id"])
-            if not primary_cell_id:
-                primary_cell_id = cell["id"]
-            marker_tid = cell.get("therapist_id") or rtid
-            time_slot = (cell.get("time_slot") or row.get("time_slot") or "").strip()
-            week_start = cell.get("week_start")
-            day = cell.get("day")
-            try:
-                await _upsert_schedule_preparation(
-                    therapist_id=marker_tid,
-                    client_id=cid,
-                    session_date=sd,
-                    prepared_by=row.get("prepared_by") or "",
-                    time_slot=time_slot,
-                    schedule_cell_id=cell.get("id"),
-                    week_start=week_start,
-                    day=day,
-                    client_name=row.get("client_name"),
-                )
-                await _upsert_schedule_preparation(
-                    therapist_id=marker_tid,
-                    client_id=cid,
-                    session_date=sd,
-                    prepared_by=row.get("prepared_by") or "",
-                    time_slot="",
-                    schedule_cell_id=cell.get("id"),
-                    week_start=week_start,
-                    day=day,
-                    client_name=row.get("client_name"),
-                )
-            except Exception:
-                logger.exception("sync prep_history to schedule marker %s", row.get("id"))
+            if cell and cell.get("id"):
+                if cell["id"] in marked_cell_ids:
+                    continue
+                marked_cell_ids.add(cell["id"])
+                if not primary_cell_id:
+                    primary_cell_id = cell["id"]
+                marker_tid = cell.get("therapist_id") or rtid
+                linked_tids.add(marker_tid)
+                try:
+                    await _upsert_session_prep_markers(
+                        therapist_id=marker_tid,
+                        client_id=cid,
+                        session_date=sd,
+                        prepared_by=prepared_by,
+                        client_name=row.get("client_name"),
+                        cell=cell,
+                    )
+                except Exception:
+                    logger.exception("sync prep_history to schedule marker %s", row.get("id"))
+            elif rtid not in linked_tids:
+                linked_tids.add(rtid)
+                try:
+                    await _upsert_session_prep_markers(
+                        therapist_id=rtid,
+                        client_id=cid,
+                        session_date=sd,
+                        prepared_by=prepared_by,
+                        client_name=row.get("client_name"),
+                        cell=None,
+                    )
+                except Exception:
+                    logger.exception("sync prep_history marker without cell %s", row.get("id"))
         if primary_cell_id and primary_cell_id != stale_cell_id:
             await db.prep_history.update_one(
                 {"id": row.get("id")},
@@ -2457,7 +2548,7 @@ async def _computed_schedule_preparation_markers(
     """Build prep markers directly from logged sessions — source of truth for green badges."""
     sessions = await db.sessions.find(
         {
-            "session_date": {"$gte": start, "$lte": end},
+            **_session_date_range_query(start, end),
             "status": {"$in": list(_LOGGED_PREP_SESSION_STATUSES)},
         },
         {"_id": 0},
@@ -2572,7 +2663,7 @@ def _filter_suppressed_markers(markers: list, suppressions: list) -> list:
 
 
 async def _list_prep_suppressions(start: str, end: str, therapist_id: Optional[str] = None) -> list:
-    q: dict = {"session_date": {"$gte": start, "$lte": end}}
+    q: dict = _session_date_range_query(start, end)
     if therapist_id:
         q["therapist_id"] = therapist_id
     return await db.schedule_prep_suppressions.find(q, {"_id": 0}).to_list(2000)
@@ -2675,7 +2766,7 @@ async def _cleanup_prep_for_deleted_session(sess: dict) -> None:
 async def _refresh_schedule_preparation_cell_ids(start: str, end: str) -> None:
     """Update stale schedule_cell_id on preparation markers after grid re-import."""
     rows = await db.schedule_preparations.find(
-        {"session_date": {"$gte": start, "$lte": end}},
+        _session_date_range_query(start, end),
         {"_id": 0},
     ).to_list(5000)
     for row in rows:
@@ -2708,7 +2799,7 @@ async def _sync_schedule_preparations_for_week(start: str, end: str) -> None:
     """Backfill schedule prep markers from completed sessions (idempotent)."""
     sessions = await db.sessions.find(
         {
-            "session_date": {"$gte": start, "$lte": end},
+            **_session_date_range_query(start, end),
             "status": {"$in": list(_LOGGED_PREP_SESSION_STATUSES)},
         },
         {"_id": 0},
@@ -2746,7 +2837,7 @@ async def list_schedule_preparations(
         raise HTTPException(status_code=400, detail="Invalid week_start")
     end = (base + timedelta(days=4)).strftime("%Y-%m-%d")
     start = base.strftime("%Y-%m-%d")
-    q: dict = {"session_date": {"$gte": start, "$lte": end}}
+    q: dict = _session_date_range_query(start, end)
     tid = therapist_id
     if user.get("role") == "therapist" and not _has_full_client_access(user):
         tid = await _resolve_user_therapist_id(user) or user.get("id")
@@ -2776,7 +2867,7 @@ async def relink_schedule_prep(week_start: str = Query(...), user=Depends(get_cu
     end = (base + timedelta(days=4)).strftime("%Y-%m-%d")
     await _sync_schedule_preparations_for_week(start, end)
     rows = await db.schedule_preparations.find(
-        {"session_date": {"$gte": start, "$lte": end}},
+        _session_date_range_query(start, end),
         {"_id": 0, "therapist_id": 1, "client_id": 1, "session_date": 1},
     ).to_list(5000)
     unique = {

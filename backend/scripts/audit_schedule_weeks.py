@@ -45,8 +45,20 @@ async def main():
     hist_n = await db.prep_history.count_documents(
         {"session_date": {"$gte": start, "$lte": end}}
     )
+    sess_n = await db.sessions.count_documents(
+        {"session_date": {"$gte": start, "$lte": end}, "status": "Completed"}
+    )
     print(f"  schedule_preparations: {prep_n}")
     print(f"  prep_history: {hist_n}")
+    print(f"  completed sessions: {sess_n}")
+    if hist_n:
+        sample = await db.prep_history.find(
+            {"session_date": {"$gte": start, "$lte": end}},
+            {"_id": 0, "therapist_id": 1, "client_id": 1, "session_date": 1, "client_name": 1},
+        ).limit(3).to_list(3)
+        print("  prep_history sample:", sample)
+    cells_week = await db.schedule_cells.count_documents({"week_start": "2026-06-28"})
+    print(f"  schedule_cells (2026-06-28): {cells_week}")
     pipeline = [
         {"$group": {"_id": "$week_start", "n": {"$sum": 1}}},
         {"$sort": {"n": -1}},
