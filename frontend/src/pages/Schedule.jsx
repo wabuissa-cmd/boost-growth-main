@@ -196,9 +196,10 @@ export default function Schedule() {
   const [scheduleTherapistBusy, setScheduleTherapistBusy] = useState(false);
   const [prepRelinkBusy, setPrepRelinkBusy] = useState(false);
   const [buildInfo, setBuildInfo] = useState(null);
+  const [loadedJsHash, setLoadedJsHash] = useState(null);
   const adminEditsRef = useRef(null);
   const scheduleInitialLoadRef = useRef(true);
-  const prepRelinkWeekRef = useRef(null);
+  const lastPrepSyncWeekRef = useRef(null);
   const [jumpedToWeekISO, setJumpedToWeekISO] = useState(null);
   const [showHolidays, setShowHolidays] = useState(false);
   const [closures, setClosures] = useState([]);
@@ -213,6 +214,7 @@ export default function Schedule() {
   const [parentCancelFocus, setParentCancelFocus] = useState(null);
   const [pendingCancellations, setPendingCancellations] = useState([]);
   const [scheduleLoading, setScheduleLoading] = useState(true);
+  const [scheduleLoadedWeek, setScheduleLoadedWeek] = useState(null);
   const [scheduleError, setScheduleError] = useState(null);
   const [prepLookup, setPrepLookup] = useState(() => new Set());
   const [preparations, setPreparations] = useState([]);
@@ -349,22 +351,6 @@ export default function Schedule() {
     }
   }, [weekStartISO, weekEndISO, weekSessions, canSeePrepBadges, user, therapists, opsCanSeeAllPreps]);
 
-  const syncPrepFromHistory = useCallback(async (silent = false) => {
-    if (!canManagePrep || !weekStartISO) return;
-    setPrepRelinkBusy(true);
-    try {
-      await api.post("/schedule/relink-prep", null, { params: { week_start: weekStartISO } });
-      invalidateCache("/schedule");
-      invalidateCache("/schedule/preparations");
-      await loadPreparations();
-      if (!silent) alert("Prep badges synced from session history for this week.");
-    } catch (err) {
-      if (!silent) alert(err?.response?.data?.detail || "Could not sync prep badges.");
-    } finally {
-      setPrepRelinkBusy(false);
-    }
-  }, [canManagePrep, weekStartISO, loadPreparations]);
-
   const load = useCallback(async (force = false) => {
     const yr = weekStart.getFullYear();
     const ws = weekStartISO;
@@ -399,12 +385,32 @@ export default function Schedule() {
         setWeekTherapistOrder(Array.isArray(st?.therapist_order) ? st.therapist_order : []);
       } catch (_) { setWeekStatus("published"); setWeekTherapistOrder([]); }
       scheduleInitialLoadRef.current = false;
+      setScheduleLoadedWeek(ws);
     } catch (err) {
       setScheduleError(err?.response?.data?.detail || "Could not load schedule. Please try again.");
+      setScheduleLoadedWeek(null);
     } finally {
       setScheduleLoading(false);
     }
   }, [weekStartISO, weekStart, weekEndISO, canSeePrepBadges]);
+
+  const syncPrepFromHistory = useCallback(async (silent = false) => {
+    if (!canManagePrep || !weekStartISO) return;
+    setPrepRelinkBusy(true);
+    try {
+      await api.post("/schedule/relink-prep", null, { params: { week_start: weekStartISO } });
+      invalidateCache("/schedule");
+      invalidateCache("/schedule/preparations");
+      invalidateCache("/sessions");
+      await load(true);
+      await loadPreparations();
+      if (!silent) alert("Prep badges synced from session history for this week.");
+    } catch (err) {
+      if (!silent) alert(err?.response?.data?.detail || "Could not sync prep badges.");
+    } finally {
+      setPrepRelinkBusy(false);
+    }
+  }, [canManagePrep, weekStartISO, loadPreparations, load]);
 
   useEffect(() => {
     if (!user || !canSeePrepBadges) return;
@@ -429,16 +435,27 @@ export default function Schedule() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    if (!canManagePrep || !weekStartISO || scheduleLoading) return;
-    if (prepRelinkWeekRef.current === weekStartISO) return;
-    prepRelinkWeekRef.current = weekStartISO;
-    syncPrepFromHistory(true);
-  }, [canManagePrep, weekStartISO, scheduleLoading, syncPrepFromHistory]);
+    lastPrepSyncWeekRef.current = null;
+  }, [weekStartISO]);
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!canManagePrep || !weekStartISO || scheduleLoading || scheduleLoadedWeek !== weekStartISO) return;
+    if (lastPrepSyncWeekRef.current === weekStartISO) return;
+    lastPrepSyncWeekRef.current = weekStartISO;
+    syncPrepFromHistory(true);
+  }, [canManagePrep, weekStartISO, scheduleLoading, scheduleLoadedWeek, syncPrepFromHistory]);
+
+  useEffect(() => {
+    const m = document.querySelector('script[src*="main."]')?.src?.match(/main\.([a-f0-9]+)\.js/);
+    if (m) setLoadedJsHash(m[1]);
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
     api.get("/version").then((r) => setBuildInfo(r.data)).catch(() => {});
-  }, [isAdmin]);
+  }, [user]);
+
+  const buildMismatch = Boolean(buildInfo?.js && loadedJsHash && buildInfo.js !== loadedJsHash);
 
   useEffect(() => {
     const refreshPrep = () => loadPreparations();
@@ -1460,7 +1477,11 @@ export default function Schedule() {
           { n: view === "blocks" ? "My schedule" : "Team schedule", label: "View", color: "var(--text-secondary)" },
           { n: visibleTherapists.length, label: "Therapists", color: "#6B5218" },
           { n: clients.length, label: "Clients", color: "var(--brand-dark)" },
-          ...(buildInfo?.build ? [{ n: buildInfo.build, label: `Build${buildInfo.js ? ` · ${buildInfo.js}` : ""}`, color: "var(--brand-sage)" }] : []),
+          ...(buildInfo?.build ? [{
+            n: buildMismatch ? `${buildInfo.build} ⚠` : buildInfo.build,
+            label: `Build${buildInfo.js ? ` · srv ${buildInfo.js}` : ""}${loadedJsHash ? ` · you ${loadedJsHash}` : ""}`,
+            color: buildMismatch ? "#B45309" : "var(--brand-sage)",
+          }] : []),
         ]}
         toolbar={(
           <div className="flex items-center gap-1.5 flex-wrap schedule-toolbar schedule-toolbar--wrap relative">
@@ -1478,6 +1499,19 @@ export default function Schedule() {
                 <MagnifyingGlass size={13} className="absolute top-1/2 -translate-y-1/2 left-2" style={{ color: "var(--brand-sage)" }} />
                 <input data-testid="schedule-search-input" className="input pl-7 py-1 text-[11px] min-h-0 h-7" placeholder="Search therapist…" value={search} onChange={e => setSearch(e.target.value)} />
               </div>
+            )}
+            {canManagePrep && (
+              <button
+                type="button"
+                data-testid="sync-prep-toolbar-btn"
+                disabled={prepRelinkBusy}
+                onClick={() => syncPrepFromHistory(false)}
+                className="btn btn-gold text-[11px] flex items-center gap-1 px-2 py-1 min-h-0 shrink-0"
+                title="Re-link green prep badges from session history for this week"
+              >
+                <CheckCircle size={14} weight="fill" />
+                {prepRelinkBusy ? "Syncing prep…" : "Sync prep"}
+              </button>
             )}
             <div className="schedule-parent-actions flex items-center gap-1.5 flex-wrap shrink-0">
             {canNotifySchedule && (
@@ -1595,6 +1629,24 @@ export default function Schedule() {
           </div>
         )}
       />
+
+      {buildMismatch && (
+        <div
+          className="no-print mb-3 p-3 rounded-xl border-2 text-sm font-semibold"
+          style={{ borderColor: "#E8A317", background: "#FEF3C7", color: "#78350F" }}
+          data-testid="schedule-build-mismatch-banner"
+        >
+          Your browser is running an old app bundle (JS {loadedJsHash}) — the server expects {buildInfo?.js} (build {buildInfo?.build}).
+          Press <strong>Cmd+Shift+R</strong> (Mac) or <strong>Ctrl+Shift+R</strong> (Windows) to hard-refresh, then open Schedule again.
+        </div>
+      )}
+
+      {canManagePrep && buildInfo?.build && !buildMismatch && (
+        <div className="no-print mb-2 text-[10px] font-medium" style={{ color: "var(--brand-sage)" }} data-testid="schedule-build-ok">
+          Portal build {buildInfo.build} · JS {loadedJsHash || buildInfo.js}
+          {prepLookup.size > 0 ? ` · ${prepLookup.size} prep badge(s)` : preparations.length > 0 ? ` · ${preparations.length} prep row(s)` : " · no prep badges yet"}
+        </div>
+      )}
 
       {addSpecialistOpen && (
         <ModalBase
