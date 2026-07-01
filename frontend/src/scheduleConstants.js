@@ -112,6 +112,18 @@ export function sortTherapistsForSchedule(list) {
   });
 }
 
+/** Prefer Excel/week-specific therapist column order when available. */
+export function sortTherapistsForScheduleWeek(list, orderIds = null) {
+  if (!orderIds?.length) return sortTherapistsForSchedule(list);
+  const orderMap = new Map(orderIds.map((id, i) => [id, i]));
+  return [...list].sort((a, b) => {
+    const ia = orderMap.has(a.id) ? orderMap.get(a.id) : 9999;
+    const ib = orderMap.has(b.id) ? orderMap.get(b.id) : 9999;
+    if (ia !== ib) return ia - ib;
+    return sortTherapistsForSchedule([a, b])[0] === a ? -1 : 1;
+  });
+}
+
 export function scheduleOwnBlockOnly(user) {
   if (!user) return false;
   const key = (user.key || "").toLowerCase();

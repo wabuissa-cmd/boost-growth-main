@@ -16,7 +16,7 @@ from typing import Dict, List, Optional
 
 import bcrypt
 import jwt
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Form
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Form, Query
 from fastapi.responses import FileResponse, Response
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
@@ -1607,7 +1607,13 @@ async def schedule_week_status(week_start: str, user=Depends(get_current_user)):
     week_start = _normalize_week_start(week_start)
     doc = await db.schedule_weeks.find_one({"week_start": week_start}, {"_id": 0})
     status = (doc or {}).get("status") or "published"
-    return {"week_start": week_start, "status": status, "published_at": (doc or {}).get("published_at")}
+    therapist_order = (doc or {}).get("therapist_order") or []
+    return {
+        "week_start": week_start,
+        "status": status,
+        "published_at": (doc or {}).get("published_at"),
+        "therapist_order": therapist_order,
+    }
 
 @api.post("/schedule/publish")
 async def publish_schedule_week(body: dict, admin=Depends(ops_or_admin)):
@@ -2216,6 +2222,40 @@ async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) 
         )
 
 
+async def _resolve_schedule_cell_for_prep(
+    therapist_id: str,
+    client_id: str,
+    session_date: str,
+    client_name: Optional[str] = None,
+    stale_cell_id: Optional[str] = None,
+) -> Optional[dict]:
+    """Match schedule cell by id, client, or child name — survives Excel re-import."""
+    sd = (session_date or "")[:10]
+    if stale_cell_id:
+        cell = await db.schedule_cells.find_one({"id": stale_cell_id}, {"_id": 0})
+        if cell and _schedule_cell_date_iso(cell) == sd:
+            if await _cell_matches_session_client(cell, client_id):
+                return cell
+    cells = await db.schedule_cells.find({"therapist_id": therapist_id}, {"_id": 0}).to_list(800)
+    for cell in cells:
+        if _schedule_cell_date_iso(cell) != sd:
+            continue
+        if await _cell_matches_session_client(cell, client_id):
+            return cell
+    if client_name:
+        want = _normalize_intake_name(client_name)
+        first = want.split()[0] if want else ""
+        for cell in cells:
+            if _schedule_cell_date_iso(cell) != sd:
+                continue
+            label = _normalize_intake_name(_schedule_cell_child_label(cell))
+            if not label:
+                continue
+            if label == want or (first and len(first) >= 3 and (label.startswith(first) or first == label.split()[0])):
+                return cell
+    return None
+
+
 async def _sync_prep_history_to_schedule_markers(start: str, end: str) -> None:
     """Mirror prep_history rows into schedule_preparations for schedule badge display."""
     rows = await db.prep_history.find(
@@ -2228,28 +2268,18 @@ async def _sync_prep_history_to_schedule_markers(start: str, end: str) -> None:
         sd = (row.get("session_date") or "")[:10]
         if not tid or not cid or not sd:
             continue
-        cell_id = row.get("schedule_cell_id")
+        stale_cell_id = row.get("schedule_cell_id")
+        cell = await _resolve_schedule_cell_for_prep(
+            tid, cid, sd, client_name=row.get("client_name"), stale_cell_id=stale_cell_id,
+        )
+        cell_id = cell.get("id") if cell else None
         time_slot = (row.get("time_slot") or "").strip()
         week_start = None
         day = None
-        if cell_id:
-            cell = await db.schedule_cells.find_one({"id": cell_id}, {"_id": 0})
-            if cell:
-                time_slot = cell.get("time_slot") or time_slot
-                week_start = cell.get("week_start")
-                day = cell.get("day")
-        if not cell_id:
-            cells = await db.schedule_cells.find({"therapist_id": tid}, {"_id": 0}).to_list(600)
-            for cell in cells:
-                if _schedule_cell_date_iso(cell) != sd:
-                    continue
-                if await _cell_matches_session_client(cell, cid):
-                    cell_id = cell.get("id")
-                    time_slot = cell.get("time_slot") or time_slot
-                    week_start = cell.get("week_start")
-                    day = cell.get("day")
-                    break
-        stale_cell_id = row.get("schedule_cell_id")
+        if cell:
+            time_slot = cell.get("time_slot") or time_slot
+            week_start = cell.get("week_start")
+            day = cell.get("day")
         if cell_id and cell_id != stale_cell_id:
             await db.prep_history.update_one(
                 {"id": row.get("id")},
@@ -2319,7 +2349,6 @@ async def _computed_schedule_preparation_markers(
             {"_id": 0, "id": 1, "name": 1},
         ):
             clients[c["id"]] = c
-    cells = await db.schedule_cells.find({}, {"_id": 0}).to_list(4000)
     markers: list = []
     seen: set = set()
     for sess in sessions:
@@ -2338,18 +2367,13 @@ async def _computed_schedule_preparation_markers(
             time_slot = ""
             week_start = None
             day = None
-            for cell in cells:
-                if cell.get("therapist_id") != tid:
-                    continue
-                if _schedule_cell_date_iso(cell) != sd:
-                    continue
-                if not await _cell_matches_session_client(cell, cid):
-                    continue
+            client_name = (clients.get(cid) or {}).get("name")
+            cell = await _resolve_schedule_cell_for_prep(tid, cid, sd, client_name=client_name)
+            if cell:
                 cell_id = cell.get("id")
                 time_slot = cell.get("time_slot") or ""
                 week_start = cell.get("week_start")
                 day = cell.get("day")
-                break
             markers.append({
                 "therapist_id": tid,
                 "client_id": cid,
@@ -2358,7 +2382,7 @@ async def _computed_schedule_preparation_markers(
                 "schedule_cell_id": cell_id,
                 "week_start": week_start,
                 "day": day,
-                "client_name": (clients.get(cid) or {}).get("name"),
+                "client_name": client_name,
                 "source": "session",
             })
     return markers
@@ -2525,6 +2549,38 @@ async def _cleanup_prep_for_deleted_session(sess: dict) -> None:
     await db.prep_history.delete_many({"client_id": cid, "session_date": sd})
 
 
+async def _refresh_schedule_preparation_cell_ids(start: str, end: str) -> None:
+    """Update stale schedule_cell_id on preparation markers after grid re-import."""
+    rows = await db.schedule_preparations.find(
+        {"session_date": {"$gte": start, "$lte": end}},
+        {"_id": 0},
+    ).to_list(5000)
+    for row in rows:
+        tid = row.get("therapist_id")
+        cid = row.get("client_id")
+        sd = (row.get("session_date") or "")[:10]
+        if not tid or not cid or not sd:
+            continue
+        stale = row.get("schedule_cell_id")
+        cell = await _resolve_schedule_cell_for_prep(
+            tid, cid, sd, client_name=row.get("client_name"), stale_cell_id=stale,
+        )
+        if not cell:
+            continue
+        new_id = cell.get("id")
+        if not new_id or new_id == stale:
+            continue
+        await db.schedule_preparations.update_one(
+            {"id": row["id"]},
+            {"$set": {
+                "schedule_cell_id": new_id,
+                "week_start": cell.get("week_start"),
+                "day": cell.get("day"),
+                "time_slot": cell.get("time_slot") or row.get("time_slot") or "",
+            }},
+        )
+
+
 async def _sync_schedule_preparations_for_week(start: str, end: str) -> None:
     """Backfill schedule prep markers from completed sessions (idempotent)."""
     sessions = await db.sessions.find(
@@ -2545,6 +2601,10 @@ async def _sync_schedule_preparations_for_week(start: str, end: str) -> None:
         await _sync_prep_history_to_schedule_markers(start, end)
     except Exception:
         logger.exception("sync prep_history to schedule markers for %s–%s", start, end)
+    try:
+        await _refresh_schedule_preparation_cell_ids(start, end)
+    except Exception:
+        logger.exception("refresh schedule preparation cell ids for %s–%s", start, end)
 
 
 @api.get("/schedule/preparations")
@@ -2577,6 +2637,22 @@ async def list_schedule_preparations(
     items = _filter_suppressed_markers(merged, suppressions)
     # Also drop computed session markers blocked by suppression (frontend uses week sessions too).
     return {"items": items, "suppressions": suppressions}
+
+
+@api.post("/schedule/relink-prep")
+async def relink_schedule_prep(week_start: str = Query(...), user=Depends(get_current_user)):
+    """Admin: force re-sync prep markers for a week from sessions + prep_history."""
+    if not _can_manage_schedule_prep(user):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    week_start = _normalize_week_start(week_start)
+    try:
+        base = datetime.fromisoformat(str(week_start)[:10])
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid week_start")
+    start = base.strftime("%Y-%m-%d")
+    end = (base + timedelta(days=4)).strftime("%Y-%m-%d")
+    await _sync_schedule_preparations_for_week(start, end)
+    return {"ok": True, "week_start": week_start, "start": start, "end": end}
 
 
 def _can_manage_schedule_prep(user: dict) -> bool:
@@ -5711,6 +5787,13 @@ THERAPIST_FIRST_NAME_OVERRIDES = {
     "bodoor": "Bodour",
     "hajer": "Hajar",
 }
+
+# Excel / website therapist column order (matches frontend scheduleConstants.js).
+THERAPIST_SCHEDULE_ORDER = [
+    "msmaha", "msfahda", "msrazan", "msmanal", "msasma", "mshajer", "msrahaf",
+    "msshatha", "msalhanouf", "mswaad", "msnajla", "msbodoor", "msfatimah", "msshoroq",
+    "msabeer", "msjenan",
+]
 
 
 def therapist_schedule_display_name(t: Optional[dict]) -> str:
@@ -11372,6 +11455,85 @@ def _normalize_week_start(week_start: str) -> str:
     return sunday.isoformat()
 
 
+def _schedule_state_from_excel_fill(cell) -> Optional[str]:
+    """Detect cancel states from Excel cell background (pink = client, yellow = therapist)."""
+    try:
+        fill = cell.fill
+        if not fill or getattr(fill, "fill_type", None) != "solid":
+            return None
+        color = ""
+        for attr in ("fgColor", "start_color"):
+            part = getattr(fill, attr, None)
+            if part is None:
+                continue
+            rgb = getattr(part, "rgb", None) or getattr(part, "value", None)
+            if rgb:
+                s = str(rgb).upper()
+                color = s[-6:] if len(s) >= 6 else s
+                break
+        if not color:
+            return None
+        if color in ("FCE0E8", "E8A4BD", "F4C2D0", "F8D7E3"):
+            return "cancel_child"
+        if color in ("FFF4C4", "E8C572", "FFE599", "FFF2CC"):
+            return "cancel_therapist"
+    except Exception:
+        return None
+    return None
+
+
+def _extract_schedule_cell_fills(ws) -> dict:
+    """Map 0-based (row, col) -> cancel state from Excel fills."""
+    fills: dict = {}
+    max_row = ws.max_row or 0
+    max_col = ws.max_column or 0
+    for r in range(1, max_row + 1):
+        for c in range(1, max_col + 1):
+            state = _schedule_state_from_excel_fill(ws.cell(row=r, column=c))
+            if state:
+                fills[(r - 1, c - 1)] = state
+    return fills
+
+
+def _cell_import_meta_key(therapist_id: str, day: int, time_slot: str, child_name: Optional[str]) -> str:
+    child = _normalize_intake_name(child_name or "")
+    slot = (time_slot or "").strip()
+    return f"{therapist_id}|{day}|{slot}|{child}"
+
+
+async def _snapshot_week_cell_overrides(week_start: str) -> dict:
+    """Preserve cancellation/cover metadata across Excel re-import."""
+    overrides: dict = {}
+    async for cell in db.schedule_cells.find({"week_start": week_start}, {"_id": 0}).batch_size(200):
+        state = cell.get("state") or "normal"
+        cover = (cell.get("cover_child_name") or "").strip() or None
+        if state not in ("cancel_child", "cancel_therapist") and not cover:
+            continue
+        key = _cell_import_meta_key(
+            cell.get("therapist_id") or "",
+            cell.get("day", 0),
+            cell.get("time_slot") or "",
+            _schedule_cell_child_label(cell),
+        )
+        overrides[key] = {
+            "state": state,
+            "cover_child_name": cover,
+            "parent_notify_pending": cell.get("parent_notify_pending"),
+        }
+    return overrides
+
+
+async def _save_week_therapist_order(week_start: str, therapist_order: List[str]) -> None:
+    """Persist Excel column order for schedule grid rendering."""
+    if not therapist_order:
+        return
+    await db.schedule_weeks.update_one(
+        {"week_start": week_start},
+        {"$set": {"therapist_order": therapist_order, "updated_at": now_iso()}},
+        upsert=True,
+    )
+
+
 async def _import_schedule_grid(
     grid: List[List[str]],
     week_start: str,
@@ -11379,9 +11541,12 @@ async def _import_schedule_grid(
     clear_existing: bool,
     merge_anchors: Optional[dict] = None,
     merge_skip: Optional[set] = None,
+    cell_fill_states: Optional[dict] = None,
 ):
     merge_anchors = merge_anchors or {}
     merge_skip = merge_skip or set()
+    cell_fill_states = cell_fill_states or {}
+    preserved = await _snapshot_week_cell_overrides(week_start) if clear_existing else {}
     if clear_existing:
         await db.schedule_cells.delete_many({"week_start": week_start})
     client_colors: dict = {}
@@ -11395,6 +11560,7 @@ async def _import_schedule_grid(
     inserted = 0
     skipped_unknown = []
     pending_cells: List[dict] = []
+    therapist_order: List[str] = []
     time_slots = list(SCHEDULE_TIME_SLOTS)
     i = 0
     while i < len(grid):
@@ -11427,6 +11593,8 @@ async def _import_schedule_grid(
                     tid = _resolve_schedule_therapist(name_c, t_by_name)
                     if tid:
                         current_t_id = tid
+                        if tid not in therapist_order:
+                            therapist_order.append(tid)
                     elif name_c and name_c not in skipped_unknown:
                         skipped_unknown.append(name_c)
                         current_t_id = None
@@ -11479,6 +11647,10 @@ async def _import_schedule_grid(
                             await _clear_schedule_span(
                                 current_t_id, day_idx, canonical_ts, duration, week_start
                             )
+                        meta_key = _cell_import_meta_key(current_t_id, day_idx, canonical_ts, child)
+                        preserved_meta = preserved.get(meta_key) or {}
+                        excel_state = cell_fill_states.get((i, col_idx))
+                        cell_state = preserved_meta.get("state") or excel_state or "normal"
                         pending_cells.append({
                             "id": str(uuid.uuid4()),
                             "therapist_id": current_t_id,
@@ -11488,7 +11660,8 @@ async def _import_schedule_grid(
                             "child_name": child,
                             "note": note,
                             "custom_time": custom,
-                            "state": "normal",
+                            "state": cell_state,
+                            "cover_child_name": preserved_meta.get("cover_child_name"),
                             "color": cell_color,
                             "duration": duration,
                             "week_start": week_start,
@@ -11505,6 +11678,7 @@ async def _import_schedule_grid(
                 pending_cells.clear()
             continue
         i += 1
+    await _save_week_therapist_order(week_start, therapist_order)
     return inserted, skipped_unknown
 
 
@@ -11640,7 +11814,8 @@ def _load_schedule_xlsx_bytes(content: bytes, sheet_name: Optional[str] = None):
         raw.append([ws.cell(row=r, column=c).value for c in range(1, max_col + 1)])
     grid = _normalize_schedule_grid(raw)
     merge_anchors, merge_skip = _extract_horizontal_merges(ws)
-    return grid, merge_anchors, merge_skip, ws.title, wb.sheetnames
+    fill_states = _extract_schedule_cell_fills(ws)
+    return grid, merge_anchors, merge_skip, ws.title, wb.sheetnames, fill_states
 
 
 async def _seed_schedule_week_2026_05_24(t_by_name: dict):
@@ -11730,12 +11905,13 @@ async def import_schedule_excel(file: UploadFile = File(...),
         grid = _normalize_schedule_grid(list(csv.reader(io.StringIO(text))))
         merge_anchors, merge_skip = {}, set()
         used_sheet = None
+        fill_states = {}
     else:
-        grid, merge_anchors, merge_skip, used_sheet, sheet_names = _load_schedule_xlsx_bytes(content, sheet_name)
+        grid, merge_anchors, merge_skip, used_sheet, sheet_names, fill_states = _load_schedule_xlsx_bytes(content, sheet_name)
         if not sheet_name:
             picked = _pick_sheet_for_week(sheet_names, week_start)
             if picked and picked != used_sheet:
-                grid, merge_anchors, merge_skip, used_sheet, _ = _load_schedule_xlsx_bytes(content, picked)
+                grid, merge_anchors, merge_skip, used_sheet, _, fill_states = _load_schedule_xlsx_bytes(content, picked)
         logger.info(
             f"Schedule Excel sheet={used_sheet!r} merges: {len(merge_anchors)} anchors, {len(merge_skip)} covered"
         )
@@ -11744,6 +11920,7 @@ async def import_schedule_excel(file: UploadFile = File(...),
     inserted, skipped = await _import_schedule_grid(
         grid, week_start, t_by_name, clear_existing == "true",
         merge_anchors=merge_anchors, merge_skip=merge_skip,
+        cell_fill_states=fill_states,
     )
     await _relink_prep_markers_after_schedule_import(week_start)
     return {
@@ -11753,6 +11930,7 @@ async def import_schedule_excel(file: UploadFile = File(...),
         "sheet_used": used_sheet,
         "merge_spans_detected": len(merge_anchors),
         "week_start_warning": week_warning,
+        "prep_relinked": True,
     }
 
 
@@ -11775,11 +11953,11 @@ async def import_schedule_google(body: dict, _=Depends(import_access)):
             detail=f"Could not download Google Sheet (HTTP {resp.status_code}). Share link must be viewable.",
         )
     content = resp.content
-    grid, merge_anchors, merge_skip, used_sheet, sheet_names = _load_schedule_xlsx_bytes(content, sheet_name)
+    grid, merge_anchors, merge_skip, used_sheet, sheet_names, fill_states = _load_schedule_xlsx_bytes(content, sheet_name)
     if not sheet_name:
         picked = _pick_sheet_for_week(sheet_names, week_start)
         if picked and picked != used_sheet:
-            grid, merge_anchors, merge_skip, used_sheet, _ = _load_schedule_xlsx_bytes(content, picked)
+            grid, merge_anchors, merge_skip, used_sheet, _, fill_states = _load_schedule_xlsx_bytes(content, picked)
     logger.info(
         f"Google schedule import week={week_start} sheet={used_sheet!r} "
         f"merges={len(merge_anchors)} bytes={len(content)}"
@@ -11790,6 +11968,7 @@ async def import_schedule_google(body: dict, _=Depends(import_access)):
     inserted, skipped = await _import_schedule_grid(
         grid, week_start, t_by_name, bool(clear_existing),
         merge_anchors=merge_anchors, merge_skip=merge_skip,
+        cell_fill_states=fill_states,
     )
     await _relink_prep_markers_after_schedule_import(week_start)
     return {
@@ -11800,6 +11979,7 @@ async def import_schedule_google(body: dict, _=Depends(import_access)):
         "merge_spans_detected": len(merge_anchors),
         "available_sheets": sheet_names[:30],
         "week_start_warning": week_warning,
+        "prep_relinked": True,
     }
 
 @api.get("/")

@@ -249,6 +249,12 @@ main, .page-enter { min-width: 0; }
 .cell-base.schedule-cell-therapist-cancel:not(.editable) {
     cursor: not-allowed;
 }
+.cell-base.schedule-cell-client-cancel {
+    background: var(--pink-cancel) !important;
+    border-color: var(--pink-cancel-border) !important;
+    color: #8B3A55 !important;
+    opacity: 0.98;
+}
 .schedule-cell-cover-tag {
     font-size: 9px;
     font-weight: 600;

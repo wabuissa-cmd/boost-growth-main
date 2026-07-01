@@ -29,7 +29,7 @@ import LogSessionModal, { slotToTime24, addHoursToTime } from "../components/Log
 import SchedulePrepBadge from "../components/SchedulePrepBadge";
 import { buildPrepLookup, buildSessionPrepLookup, buildSuppressionLookup, getCellStatusBadge, mergePrepLookups, therapistPrepIdAliases } from "../schedulePrepUtils";
 import { buildParentMessages } from "../scheduleParentMessages";
-import { sortTherapistsForSchedule, getTherapistScheduleName, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
+import { sortTherapistsForSchedule, sortTherapistsForScheduleWeek, getTherapistScheduleName, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
 import { cachedGet, invalidateCache } from "../dataCache";
 import "../dashboardLayout.css";
 
@@ -128,6 +128,7 @@ function cellClassNameBlock(cell, isAdmin, leaveInfo, selected, copied, canQuick
     parts.push("has-event");
     if (cell.state === "available" || cell.service_code === "AVAILABLE") parts.push("cell-available");
     if (cell.state === "cancel_therapist") parts.push("schedule-cell-therapist-cancel");
+    if (cell.state === "cancel_child") parts.push("schedule-cell-client-cancel");
     if (statusBadge) parts.push("has-prep-badge");
   } else {
     parts.push("cell-empty");
@@ -179,6 +180,7 @@ export default function Schedule() {
   const [dupClear, setDupClear] = useState(false);
   const [clipboard, setClipboard] = useState(null);  // copied cell content
   const [weekStatus, setWeekStatus] = useState("published");
+  const [weekTherapistOrder, setWeekTherapistOrder] = useState([]);
   const [selection, setSelection] = useState(null);
   const [selectAnchor, setSelectAnchor] = useState(null);
   const [mergeForm, setMergeForm] = useState({ label: "", color: "#E5EBE1", quick: "MEETING" });
@@ -374,7 +376,8 @@ export default function Schedule() {
       try {
         const st = await cachedGet("/schedule/week-status", { params: { week_start: weekStartISO }, force });
         setWeekStatus(st?.status || "published");
-      } catch (_) { setWeekStatus("published"); }
+        setWeekTherapistOrder(Array.isArray(st?.therapist_order) ? st.therapist_order : []);
+      } catch (_) { setWeekStatus("published"); setWeekTherapistOrder([]); }
       scheduleInitialLoadRef.current = false;
     } catch (err) {
       setScheduleError(err?.response?.data?.detail || "Could not load schedule. Please try again.");
@@ -554,22 +557,27 @@ export default function Schedule() {
     [closures]
   );
 
+  const sortForWeek = useCallback(
+    (list) => sortTherapistsForScheduleWeek(list, weekTherapistOrder),
+    [weekTherapistOrder],
+  );
+
   const visibleTherapists = useMemo(() => {
     let list = therapists.filter(t => !isHiddenFromSchedule(t));
     if (search) list = list.filter(t => t.name.toLowerCase().includes(search.toLowerCase()));
-    return sortTherapistsForSchedule(list);
-  }, [therapists, search]);
+    return sortForWeek(list);
+  }, [therapists, search, sortForWeek]);
 
   const addableScheduleTherapists = useMemo(
-    () => sortTherapistsForSchedule(
+    () => sortForWeek(
       therapists.filter((t) => isHiddenFromSchedule({ ...t, show_on_schedule: false }))
     ),
-    [therapists],
+    [therapists, sortForWeek],
   );
 
   const manuallyShownTherapists = useMemo(
-    () => sortTherapistsForSchedule(therapists.filter((t) => t.show_on_schedule === true)),
-    [therapists],
+    () => sortForWeek(therapists.filter((t) => t.show_on_schedule === true)),
+    [therapists, sortForWeek],
   );
 
   const addTherapistToSchedule = async () => {

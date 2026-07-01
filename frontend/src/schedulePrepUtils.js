@@ -18,8 +18,9 @@ export function prepRecordKeys(rec) {
   if (tid && cid && date && slot) {
     keys.push(`slot:${tid}|${cid}|${date}|${slot}`);
   }
-  if (tid && cid && date && rec.client_name) {
-    keys.push(`name:${tid}|${normScheduleName(rec.client_name)}|${date}`);
+  const label = rec.client_name || rec.child_name;
+  if (tid && date && label) {
+    keys.push(`name:${tid}|${normScheduleName(label)}|${date}`);
   }
   return keys;
 }
@@ -114,14 +115,16 @@ export function mergePrepLookups(...lookups) {
 }
 
 export function prepKeysForCell(cell, therapistId, day, weekStart, clientId, clientName) {
-  if (!cell || !clientId) return [];
+  if (!cell) return [];
   const sessionDate = toISODate(addDays(new Date(weekStart + "T12:00:00"), day));
   const keys = [];
   if (cell.id) keys.push(`cell:${cell.id}`);
-  keys.push(`mark:${therapistId}|${clientId}|${sessionDate}`);
+  if (clientId) keys.push(`mark:${therapistId}|${clientId}|${sessionDate}`);
   const slot = (cell.time_slot || "").trim();
-  if (slot) keys.push(`slot:${therapistId}|${clientId}|${sessionDate}|${slot}`);
-  if (clientName) keys.push(`name:${therapistId}|${normScheduleName(clientName)}|${sessionDate}`);
+  if (clientId && slot) keys.push(`slot:${therapistId}|${clientId}|${sessionDate}|${slot}`);
+  const childFromCell = scheduleCellChildName(cell);
+  const nameForKey = clientName || childFromCell;
+  if (nameForKey) keys.push(`name:${therapistId}|${normScheduleName(nameForKey)}|${sessionDate}`);
   return keys;
 }
 
@@ -220,10 +223,8 @@ function isCellPreparedMark(
 
   // Explicit prep marks (from prep-history / preparations API)
   if (cell.id && prepLookup?.has(`cell:${cell.id}`)) return true;
-  if (client) {
-    const keys = prepKeysForCell(cell, therapistId, day, weekStart, client.id, client.name);
-    if (keys.some((k) => prepLookup?.has(k))) return true;
-  }
+  const nameKeys = prepKeysForCell(cell, therapistId, day, weekStart, client?.id, client?.name || childName);
+  if (nameKeys.some((k) => prepLookup?.has(k))) return true;
   for (const rec of preparations || []) {
     if (prepRecordMatchesCell(rec, cell, therapistId, sessionDate, childName, client)) return true;
   }
@@ -309,9 +310,10 @@ export function isCellPrepComplete(
 
   if (cell.id && prepLookup.has(`cell:${cell.id}`)) return true;
 
+  const nameKeys = prepKeysForCell(cell, therapistId, day, weekStart, client?.id, client?.name || childName);
+  if (nameKeys.some((k) => prepLookup.has(k))) return true;
+
   if (client) {
-    const keys = prepKeysForCell(cell, therapistId, day, weekStart, client.id, client.name);
-    if (keys.some((k) => prepLookup.has(k))) return true;
     if (sessionMatchesCell(weekSessions, cell, therapistId, sessionDate, client, clients, suppressionLookup)) return true;
   } else if (sessionMatchesCell(weekSessions, cell, therapistId, sessionDate, null, clients, suppressionLookup)) {
     return true;
