@@ -11,10 +11,13 @@ import {
   CheckCircle, Warning, XCircle, Clock,
 } from "@phosphor-icons/react";
 import { resolveSelfTherapist } from "../scheduleUtils";
+import { resolveLogSessionTimes } from "../scheduleTimeUtils";
 import {
   ModalBase, ModalBtnPrimary, ModalBtnSecondary,
 } from "./Modal";
 import { getTherapistScheduleName } from "../scheduleConstants";
+
+export { slotToTime24, addHoursToTime, scheduleCellSessionTimes } from "../scheduleTimeUtils";
 
 const ALLOWED_SESSION_STATUSES = new Set(["Completed", "Cancelled", "No Show"]);
 
@@ -36,26 +39,6 @@ function computeHours(st, et) {
   let diff = (h2 * 60 + m2) - (h1 * 60 + m1);
   if (diff < 0) diff += 24 * 60;
   return Math.round(diff / 30) / 2;
-}
-
-export function slotToTime24(slot) {
-  if (!slot) return "08:00";
-  const m = slot.match(/(\d+):(\d+)\s*(AM|PM)?/i);
-  if (!m) return "08:00";
-  let h = parseInt(m[1], 10);
-  const min = m[2];
-  const ap = (m[3] || "").toUpperCase();
-  if (ap === "PM" && h < 12) h += 12;
-  if (ap === "AM" && h === 12) h = 0;
-  return `${String(h).padStart(2, "0")}:${min}`;
-}
-
-export function addHoursToTime(time24, hours) {
-  const [h, m] = time24.split(":").map(Number);
-  const total = h * 60 + m + Math.round(hours * 60);
-  const nh = Math.floor(total / 60) % 24;
-  const nm = total % 60;
-  return `${String(nh).padStart(2, "0")}:${String(nm).padStart(2, "0")}`;
 }
 
 function FieldLabel({ children, required }) {
@@ -85,11 +68,10 @@ export default function LogSessionModal({
         note: session.note || "",
       };
     }
-    const start = prefill?.start_time || "14:00";
-    const end = prefill?.end_time || "16:00";
+    const { start_time: start, end_time: end } = resolveLogSessionTimes({ prefill, scheduleContext });
     return {
       client_id: client?.id,
-      session_date: prefill?.session_date || toISODate(new Date()),
+      session_date: prefill?.session_date || scheduleContext?.session_date || toISODate(new Date()),
       start_time: start,
       end_time: end,
       hours: computeHours(start, end),
@@ -146,7 +128,7 @@ export default function LogSessionModal({
             therapist_id: scheduleContext.therapist_id,
             client_id: client.id,
             session_date: form.session_date,
-            time_slot: scheduleContext.time_slot || "",
+            time_slot: form.start_time || scheduleContext.time_slot || "",
             schedule_cell_id: scheduleContext.schedule_cell_id || null,
             week_start: scheduleContext.week_start || null,
             day: scheduleContext.day,
@@ -280,19 +262,23 @@ export default function LogSessionModal({
             <div className="log-session-field">
               <FieldLabel>From</FieldLabel>
               <input
+                data-testid="sess-start-time"
                 type="time"
                 className="modal-input log-session-input"
-                value={form.start_time}
-                onChange={e => setForm({ ...form, start_time: e.target.value })}
+                value={form.start_time || ""}
+                disabled={saving}
+                onChange={e => setForm({ ...form, start_time: e.target.value, hours: computeHours(e.target.value, form.end_time) })}
               />
             </div>
             <div className="log-session-field">
               <FieldLabel>To</FieldLabel>
               <input
+                data-testid="sess-end-time"
                 type="time"
                 className="modal-input log-session-input"
-                value={form.end_time}
-                onChange={e => setForm({ ...form, end_time: e.target.value })}
+                value={form.end_time || ""}
+                disabled={saving}
+                onChange={e => setForm({ ...form, end_time: e.target.value, hours: computeHours(form.start_time, e.target.value) })}
               />
             </div>
           </div>

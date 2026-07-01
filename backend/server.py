@@ -1094,6 +1094,29 @@ class SessionIn(BaseModel):
     location: Optional[str] = None  # which location used (HS / SS)
     service_type: Optional[str] = None  # HS / SS — links session to open invoice
 
+
+def _session_hours_from_times(start_time: Optional[str], end_time: Optional[str]) -> Optional[float]:
+    """Compute billable hours from therapist-edited HH:MM times."""
+    if not start_time or not end_time:
+        return None
+    try:
+        h1, m1 = [int(x) for x in start_time.split(":")[:2]]
+        h2, m2 = [int(x) for x in end_time.split(":")[:2]]
+    except (TypeError, ValueError):
+        return None
+    diff = (h2 * 60 + m2) - (h1 * 60 + m1)
+    if diff < 0:
+        diff += 24 * 60
+    return round(diff / 30) / 2
+
+
+def _apply_session_time_edits(payload: SessionIn) -> SessionIn:
+    """Honor therapist-edited start/end on create and update."""
+    computed = _session_hours_from_times(payload.start_time, payload.end_time)
+    if computed is not None:
+        payload.hours = computed
+    return payload
+
 class RequestIn(BaseModel):
     title: str
     description: Optional[str] = ""
@@ -3228,7 +3251,7 @@ async def _ensure_session_schedule_prep_markers(
             )
         except Exception:
             logger.exception("Schedule prep marker upsert failed for %s/%s", tid, client_id)
-        time_slot = (cell or {}).get("time_slot") or sess.get("start_time") or ""
+        time_slot = sess.get("start_time") or (cell or {}).get("time_slot") or ""
         try:
             await _upsert_prep_history(
                 therapist_id=tid,
@@ -8688,6 +8711,7 @@ def _attach_open_invoice_to_session(doc: dict, client: dict, invoices: list) -> 
 async def create_session(payload: SessionIn, user=Depends(get_current_user)):
     if (payload.status or "").strip() == "No Service":
         raise HTTPException(status_code=400, detail="No Service is no longer available")
+    payload = _apply_session_time_edits(payload)
     _require_same_day_session(user, payload.session_date)
     sid = str(uuid.uuid4())
     resolved_uid = await _resolve_user_therapist_id(user) if user.get("role") == "therapist" else None
@@ -8754,6 +8778,7 @@ async def update_session(sid: str, payload: SessionIn, user=Depends(get_current_
         )
     if (payload.status or "").strip() == "No Service":
         raise HTTPException(status_code=400, detail="No Service is no longer available")
+    payload = _apply_session_time_edits(payload)
     _require_same_day_session(user, payload.session_date)
     resolved_uid = await _resolve_user_therapist_id(user) if user.get("role") == "therapist" else None
     therapist_ids = _merge_session_therapist_ids(payload.therapist_ids, user, resolved_uid)

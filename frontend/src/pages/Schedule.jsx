@@ -25,7 +25,8 @@ import SchedulePageHeader from "../components/SchedulePageHeader";
 import ScheduleHolidaysModal from "../components/ScheduleHolidaysModal";
 import ParentWhatsAppModal from "../components/ParentWhatsAppModal";
 import ParentCancellationModal from "../components/ParentCancellationModal";
-import LogSessionModal, { slotToTime24, addHoursToTime } from "../components/LogSessionModal";
+import LogSessionModal from "../components/LogSessionModal";
+import { scheduleCellSessionTimes } from "../scheduleTimeUtils";
 import SchedulePrepBadge from "../components/SchedulePrepBadge";
 import { buildPrepLookup, buildSessionPrepLookup, buildSuppressionLookup, getCellStatusBadge, mergePrepLookups, buildAllTherapistIdAliases, optimisticPrepKeysFromScheduleLog } from "../schedulePrepUtils";
 import { buildParentMessages } from "../scheduleParentMessages";
@@ -921,8 +922,7 @@ export default function Schedule() {
       }
     }
     if (!client) return;
-    const start = slotToTime24(time_slot);
-    const dur = parseFloat(cell.duration) || 1;
+    const times = scheduleCellSessionTimes(cell, time_slot);
     setQuickLog({
       client,
       cell,
@@ -932,11 +932,14 @@ export default function Schedule() {
         schedule_cell_id: cell?.id || null,
         week_start: weekStartISO,
         day,
+        session_date: sessionDate,
+        slot_start: times.slot_start,
+        slot_end: times.slot_end,
       },
       prefill: {
         session_date: sessionDate,
-        start_time: start,
-        end_time: addHoursToTime(start, dur),
+        start_time: times.start_time,
+        end_time: times.end_time,
         service_type: cell.service_code === "SS" ? "SS" : (cell.service_code === "HS" ? "HS" : client.service_type || "HS"),
       },
     });
@@ -2204,6 +2207,7 @@ export default function Schedule() {
 
       {quickLog && (
         <LogSessionModal
+          key={`${quickLog.client?.id}-${quickLog.scheduleContext?.schedule_cell_id || ""}-${quickLog.prefill?.session_date || ""}`}
           client={quickLog.client}
           therapists={therapists}
           currentUser={user}
