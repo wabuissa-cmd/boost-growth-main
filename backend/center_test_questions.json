@@ -40,7 +40,7 @@
     },
     {
       "id": "q4",
-      "text": "Which assessment tool evaluates the self-care domain using a separate subtest?",
+      "text": "Which assessment tool evaluates the Self-Care domain using a separate subtest rather than as one of its primary domains?",
       "choices": [
         { "id": "a", "text": "ABLLS-R" },
         { "id": "b", "text": "ESDM" },
@@ -51,7 +51,7 @@
     },
     {
       "id": "q5",
-      "text": "You are assessing the Labeling domain on the ABLLS-R. The child correctly named 3 items. What is the appropriate score?\nScoring criteria:\n* Score \"1\" = Names at least 2 items.\n* Score \"2\" = Names at least 4 items.\n* Score \"3\" = Names at least 6 items.\n* Score \"4\" = Names 10 or more items.",
+      "text": "You are scoring the Labeling domain in the ABLLS-R. The child correctly named 3 items. Based on the scoring criteria below, what score should be assigned?\nScoring criteria:\n* Score \"1\" = Names at least 2 items.\n* Score \"2\" = Names at least 4 items.\n* Score \"3\" = Names at least 6 items.\n* Score \"4\" = Names 10 or more items.",
       "choices": [
         { "id": "a", "text": "Score \"1\"" },
         { "id": "b", "text": "Score \"2\"" },
@@ -62,12 +62,12 @@
     },
     {
       "id": "q6",
-      "text": "You are conducting an assessment session and will assess Tact, Writing, and Motor Imitation. What should you consider?",
+      "text": "You are conducting an assessment session and are going to assess the Tact, Writing, and Motor Imitation domains. Which of the following should you consider?",
       "choices": [
-        { "id": "a", "text": "Assess all Tact skills first, then Writing, then Motor Imitation" },
-        { "id": "b", "text": "Assume the child's performance in each skill without direct observation" },
-        { "id": "c", "text": "Vary skills from different domains to avoid boredom and maintain motivation" },
-        { "id": "d", "text": "None of the above" }
+        { "id": "a", "text": "Assess all tact skills first, then all writing skills, followed by all motor imitation skills" },
+        { "id": "b", "text": "Assume the child's performance in each skill and score it without direct observation of his performance" },
+        { "id": "c", "text": "Intersperse skills from different domains to avoid boredom and to maintain child's motivation" },
+        { "id": "d", "text": "None" }
       ],
       "correct": "c"
     },
@@ -95,23 +95,23 @@
     },
     {
       "id": "q9",
-      "text": "A report states: \"The child was able to follow three-step instructions, select verbs, select adjectives, and respond to his name.\" What should be corrected?",
+      "text": "You read an assessment report that stated:\n \"The child was able to follow three-step instructions, select actions, select adjectives, and respond to his name.\"\n What should be corrected in this report?",
       "choices": [
-        { "id": "a", "text": "Present simpler skills first, then more advanced skills, to maintain a logical order" },
-        { "id": "b", "text": "The report is correct and needs no changes" },
-        { "id": "c", "text": "The report includes unnecessary details" },
-        { "id": "d", "text": "None of the above" }
+        { "id": "a", "text": "Present the simpler skills first, followed by the more advanced skills, to maintain a logical order" },
+        { "id": "b", "text": "The report is correct and does not require any revisions" },
+        { "id": "c", "text": "The report includes unnecessary details." },
+        { "id": "d", "text": "None" }
       ],
       "correct": "a"
     },
     {
       "id": "q10",
-      "text": "When writing the background information section, what is the most appropriate order?",
+      "text": "When writing the Background Information section, which order of information is the most appropriate?",
       "choices": [
-        { "id": "a", "text": "Child's name, then previous interventions, then diagnosis and medical history" },
-        { "id": "b", "text": "Child's name, age, and diagnosis first, then medical history, then language level, and finally previous interventions" },
-        { "id": "c", "text": "No specific order is required" },
-        { "id": "d", "text": "Diagnosis first, then age, then what the family wants from us" }
+        { "id": "a", "text": "The child's name, then the previous interventions, followed by the diagnosis and medical history" },
+        { "id": "b", "text": "The child's name, age and diagnosis first, followed by the medical history, then the level of language, and finally the previous interventions" },
+        { "id": "c", "text": "No specific order is  needed; any order is acceptable " },
+        { "id": "d", "text": "The diagnosis first, followed by the age, after that what the family want us to do" }
       ],
       "correct": "b"
     }
