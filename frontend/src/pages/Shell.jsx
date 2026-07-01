@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, Suspense, useMemo } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { useAuth, showAdminNav, isClientLead, isWalaaOps, isHrOps, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, showSystemAdmin, canImportData, showMyPortalNav, showMyReportsNav, showAcademicPortfolioNav, isJenan, canViewReports, directManagerLabel, canViewSupervisionCaseload } from "../auth";
+import { useAuth, showAdminNav, isClientLead, isWalaaOps, isHrOps, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, showSystemAdmin, canImportData, showMyPortalNav, showMyReportsNav, showAcademicPortfolioNav, isJenan, canViewReports, directManagerLabel, canViewSupervisionCaseload, canAccessManagerHub } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch, cachedGet } from "../dataCache";
 import { getPortalDisplayName } from "../scheduleConstants";
@@ -159,6 +159,9 @@ export default function Shell() {
 
   // Admin tools — Reports always last (Jenan + portal admin); Import/Admin before Reports for admins
   const adminTools = [
+    ...(canAccessManagerHub(user) && showSystemAdmin(user) && !jenanManager
+      ? [{ to: "/manager", label: "Manager Hub (Jenan view)", testid: "nav-manager-hub-preview", icon: <ListChecks size={17} weight="duotone"/> }]
+      : []),
     ...(canImportData(user)
       ? [{ to: "/import", label: "Import", testid: "nav-import", icon: <UploadSimple size={17} weight="duotone"/> }]
       : []),
@@ -240,7 +243,7 @@ export default function Shell() {
   const openNotification = (n) => {
     setShowNotif(false);
     if (n.type === "leave_request" || n.type === "request_new") {
-      navigate("/manager?tab=staff");
+      navigate(canAccessManagerHub(user) ? "/manager?tab=staff" : "/staff-leave?tab=other");
       return;
     }
     if (n.type === "parent_cancel_pending") {

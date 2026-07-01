@@ -1,6 +1,6 @@
 import { Component, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth, isJenan, isClientLead, isWalaaOps, isHrOps, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, hasFullClientAccess, showSystemAdmin, canImportData, canViewReports, showMyReportsNav, showAcademicPortfolioNav, canViewSupervisionCaseload } from "./auth";
+import { AuthProvider, useAuth, isJenan, isClientLead, isWalaaOps, isHrOps, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, hasFullClientAccess, showSystemAdmin, canImportData, canViewReports, showMyReportsNav, showAcademicPortfolioNav, canViewSupervisionCaseload, canAccessManagerHub } from "./auth";
 import Login from "./pages/Login";
 import Shell from "./pages/Shell";
 import AuthenticatedFileViewer from "./components/AuthenticatedFileViewer";
@@ -131,7 +131,7 @@ function ManagerHubAccess({ children }) {
   const { user } = useAuth();
   if (user === null) return <Loading/>;
   if (!user) return <Navigate to="/login" replace />;
-  if (!isJenan(user)) return <Navigate to="/home" replace />;
+  if (!canAccessManagerHub(user)) return <Navigate to="/home" replace />;
   return children;
 }
 

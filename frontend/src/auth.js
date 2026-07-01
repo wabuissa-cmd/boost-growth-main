@@ -149,6 +149,13 @@ export function canManageLeaves(user) {
   return isJenan(user);
 }
 
+/** Manager Hub — Jenan queue; portal admin / Walaa ops for temporary review access */
+export function canAccessManagerHub(user) {
+  if (!user) return false;
+  if (user.can_access_manager_hub) return true;
+  return isJenan(user) || showSystemAdmin(user);
+}
+
 export function canManagePurchaseStatus(user) {
   return isJenan(user) || isClientLead(user) || isPortalAdmin(user) || isHrOps(user) || isWalaaOps(user);
 }

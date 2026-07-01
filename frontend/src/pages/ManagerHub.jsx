@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
 import api from "../api";
-import { useAuth, isJenan } from "../auth";
+import { useAuth, canAccessManagerHub, isJenan } from "../auth";
 import PageBanner from "../components/PageBanner";
 import Requests from "./Requests";
 import LeaveBalance from "./LeaveBalance";
@@ -200,9 +200,11 @@ export default function ManagerHub() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  if (!isJenan(user)) {
+  if (!canAccessManagerHub(user)) {
     return <Navigate to="/home" replace />;
   }
+
+  const adminPreview = canAccessManagerHub(user) && !isJenan(user);
 
   const tabParam = searchParams.get("tab");
   // tab=leave is a legacy alias — leave requests live in the unified staff queue
@@ -221,8 +223,10 @@ export default function ManagerHub() {
   return (
     <div className="page-enter">
       <PageBanner
-        title="Manager Hub"
-        subtitle="All therapist requests in one queue · leave balances · profiles"
+        title={adminPreview ? "Manager Hub (Jenan view)" : "Manager Hub"}
+        subtitle={adminPreview
+          ? "Temporary admin preview — same queue Jenan uses for leave & staff requests"
+          : "All therapist requests in one queue · leave balances · profiles"}
         badge={(
           <Link to="/my-requests" className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0">
             <FileText size={13}/> My Requests

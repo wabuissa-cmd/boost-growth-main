@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import api, { API, openAuthenticatedFile } from "../api";
-import { useAuth, showAdminNav, canEditStaffRequests, canManageLeaves, canHrReviewLeaves, isJenan } from "../auth";
+import { useAuth, showAdminNav, canEditStaffRequests, canManageLeaves, canHrReviewLeaves, isJenan, showSystemAdmin } from "../auth";
 import { Navigate } from "react-router-dom";
 import { Plus, PencilSimple, Trash, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Package, UploadSimple, Eye, FileArrowDown, FileText, Buildings, ListChecks } from "@phosphor-icons/react";
 import {
@@ -221,6 +221,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
   const hrReview = !personal && canHrReviewLeaves(user);
   const isPortalAdminUser = !personal && showAdminNav(user);
   const isManager = !personal && isJenan(user) && !isPortalAdminUser;
+  const adminManagerPreview = managerView && isPortalAdminUser && showSystemAdmin(user);
   const staffLabel = managerView ? "Therapists' Requests" : "Staff Requests";
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState(managerView ? "pending_manager" : "all");
@@ -399,10 +400,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
   const queueItems = useMemo(() => {
     const staff = items.filter(r => r.request_type !== "leave");
     if (!managerView) return staff;
-    const pendingLeaveStatuses = new Set(["pending", "pending_manager", "pending_attachment"]);
-    const leaves = staffLeaves
-      .filter(l => pendingLeaveStatuses.has(l.status))
-      .map(normalizeLeaveForQueue);
+    const leaves = staffLeaves.map(normalizeLeaveForQueue);
     return [...staff, ...leaves].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
   }, [items, staffLeaves, managerView]);
 
@@ -412,7 +410,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
     return r.status === filter;
   });
 
-  if (!personal && !canEditStaffRequests(user)) {
+  if (!personal && !canEditStaffRequests(user) && !(managerView && showSystemAdmin(user))) {
     return <Navigate to="/my-requests" replace/>;
   }
 
@@ -963,11 +961,11 @@ export default function Requests({ personal = false, embedded = false, managerVi
           onClose={closeStatusModal}
           size="md"
           footer={
-            managerView && isManager && statusEdit._managerReviewable && !queueItemAwaitingAttachment(statusEdit) ? (
+            managerView && (isManager || adminManagerPreview) && (adminManagerPreview || statusEdit._managerReviewable) && !queueItemAwaitingAttachment(statusEdit) ? (
               <>
                 <ModalBtnSecondary type="button" onClick={closeStatusModal}>Cancel</ModalBtnSecondary>
                 <ModalBtnPrimary data-testid="status-save-btn" type="button" onClick={handleManagerStatusSave}>
-                  Save & send to HR
+                  {adminManagerPreview ? "Save" : "Save & send to HR"}
                 </ModalBtnPrimary>
               </>
             ) : (
@@ -1119,13 +1117,15 @@ export default function Requests({ personal = false, embedded = false, managerVi
                 )}
               </FormSection>
 
-              {(!managerView || (isManager && statusEdit._managerReviewable)) && !queueItemAwaitingAttachment(statusEdit) && (
+              {(!managerView || adminManagerPreview || (isManager && statusEdit._managerReviewable)) && !queueItemAwaitingAttachment(statusEdit) && (
                 <FormSection title="Status">
                   <div className="grid grid-cols-1 gap-2">
-                    {(managerView && isManager
-                      ? managerReviewStatusOptions(
-                          isPendingManagerStatus(statusEdit.status) ? "pending_manager" : statusEdit.status
-                        )
+                    {(managerView && (isManager || adminManagerPreview)
+                      ? (adminManagerPreview
+                        ? allowedStatusOptions(user, statusEdit.status)
+                        : managerReviewStatusOptions(
+                            isPendingManagerStatus(statusEdit.status) ? "pending_manager" : statusEdit.status
+                          ))
                       : allowedStatusOptions(user, statusEdit.status)
                     ).map(k => {
                       const v = MANAGER_REVIEW_STATUS_MAP[k] || STATUS_MAP[k] || STATUS_MAP.pending;
@@ -1144,7 +1144,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                   <FormField
                     label={managerView ? "Manager note" : "Response / note"}
                     hint={managerView && isManager ? "Required — reason for HR" : "Optional"}
-                    required={managerView && isManager && statusEdit._managerReviewable}
+                    required={managerView && isManager && statusEdit._managerReviewable && !adminManagerPreview}
                   >
                     <textarea
                       className="modal-input"
