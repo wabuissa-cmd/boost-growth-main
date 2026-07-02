@@ -1265,10 +1265,10 @@ export default function Schedule() {
       : null
   );
 
-  const restoreCellCancellation = async (cell) => {
+  const restoreCellCancellation = async (cell, { closePanelAfter = false } = {}) => {
     if (!cell?.id) return;
     const label = cell.state === "cancel_therapist" ? "therapist cancellation" : "client cancellation";
-    if (!window.confirm(`Restore this session and remove the ${label}?`)) return;
+    if (!window.confirm(`Clear ${label} and restore this session to normal?`)) return;
     try {
       const payload = buildScheduleCellPayload(cell, weekStartISO, {
         state: "normal",
@@ -1280,10 +1280,11 @@ export default function Schedule() {
       await loadPendingCancellations();
       setCtxMenu(null);
       if (panelForm?.id === cell.id) {
-        setPanelForm((f) => (f ? { ...f, state: "normal", cover_child_name: null } : f));
+        if (closePanelAfter) closePanel();
+        else setPanelForm((f) => (f ? { ...f, state: "normal", cover_child_name: null } : f));
       }
     } catch (err) {
-      alert(err?.response?.data?.detail || "Could not restore session");
+      alert(err?.response?.data?.detail || "Could not clear cancellation");
     }
   };
 
@@ -1372,13 +1373,20 @@ export default function Schedule() {
     setPanelSaving(true);
     const wasCancelTherapist = panelForm.state === "cancel_therapist";
     try {
-      const payload = { ...panelForm, week_start: weekStartISO };
-      if (payload.state !== "cancel_child") {
-        payload.cover_child_name = null;
-      }
-      if (payload.service_code !== "LEAVE" && payload.duration) {
-        payload.duration = clampMergeDuration(payload.duration);
-      }
+      const resolvedState = panelForm.service_code === "AVAILABLE"
+        ? "available"
+        : (isScheduleCancelState(panelForm.state) ? panelForm.state : "normal");
+      const payload = buildScheduleCellPayload(panelForm, weekStartISO, {
+        note: panelForm.note || null,
+        custom_time: panelForm.custom_time || null,
+        child_name: panelForm.child_name?.trim() ? panelForm.child_name.trim() : null,
+        service_code: panelForm.service_code || "SS",
+        state: resolvedState,
+        cover_child_name: resolvedState === "cancel_child" ? (panelForm.cover_child_name || null) : null,
+        duration: panelForm.service_code !== "LEAVE" && panelForm.duration
+          ? clampMergeDuration(panelForm.duration)
+          : (panelForm.duration || 1),
+      });
       if (payload.service_code === "AVAILABLE") {
         payload.state = "available";
         payload.color = "#FFFFFF";
@@ -2100,7 +2108,7 @@ export default function Schedule() {
           canManageCover={canManageCover}
           showPrepBadge={cellStatusBadge(panelForm, panelForm.therapist_id, panelForm.day) === "prep"}
           onClearPrep={() => clearPrepFromCell(panelForm.therapist_id, panelForm.day, panelForm, true)}
-          onRestoreCancellation={() => restoreCellCancellation(panelForm)}
+          onRestoreCancellation={() => restoreCellCancellation(panelForm, { closePanelAfter: true })}
           mergedSlotCount={
             selection?.therapist_id === panelForm.therapist_id && selection?.day === panelForm.day
               ? selection.slots?.length || 0
@@ -2135,17 +2143,6 @@ export default function Schedule() {
             <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
               onClick={ctxAction(() => copyCell(ctxMenu))}>
               Copy Cell
-            </button>
-          )}
-          {ctxMenu.cell && isScheduleCancelState(ctxMenu.cell.state) && (
-            <button
-              type="button"
-              data-testid="schedule-restore-cancellation"
-              className="w-full text-left px-3 py-2 hover:bg-[#E5EBE1]"
-              style={{ color: "#3D4F35" }}
-              onClick={ctxAction(() => restoreCellCancellation(ctxMenu.cell))}
-            >
-              Restore session (remove cancel)
             </button>
           )}
           {canManagePrep && ctxMenu.cell && isScheduleClientLogCell(ctxMenu.cell) && (
@@ -2255,18 +2252,26 @@ export default function Schedule() {
           <>
           <div className="my-1 border-t" style={{ borderColor: "#EDE9E3" }} />
           <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--brand-sage)" }}>Remove</div>
-          <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#FCE0E8]" style={{ color: "#8A3F27" }}
-            onClick={ctxAction(async () => {
-              if (ctxMenu.cell?.id) {
-                if (!window.confirm("Clear this cell?")) return;
-                await remove(ctxMenu.cell.id);
-              } else {
-                await bulkFillAt("clear", ctxMenu);
-              }
-              setCtxMenu(null);
-            })}>
-            Clear Cell
-          </button>
+          {ctxMenu.cell && isScheduleCancelState(ctxMenu.cell.state) ? (
+            <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#E5EBE1]" style={{ color: "#3D4F35" }}
+              data-testid="schedule-restore-cancellation"
+              onClick={ctxAction(() => restoreCellCancellation(ctxMenu.cell))}>
+              Clear cancellation
+            </button>
+          ) : (
+            <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#FCE0E8]" style={{ color: "#8A3F27" }}
+              onClick={ctxAction(async () => {
+                if (ctxMenu.cell?.id) {
+                  if (!window.confirm("Clear this cell?")) return;
+                  await remove(ctxMenu.cell.id);
+                } else {
+                  await bulkFillAt("clear", ctxMenu);
+                }
+                setCtxMenu(null);
+              })}>
+              Clear Cell
+            </button>
+          )}
           </>
           )}
         </div>

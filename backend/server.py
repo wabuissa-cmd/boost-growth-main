@@ -4816,11 +4816,20 @@ async def create_schedule_cell(payload: ScheduleCellIn, _=Depends(schedule_edit_
                       f"{doc.get('service_code')} | {doc.get('child_name') or ''} at {doc.get('time_slot')}")
     return doc
 
+def _normalize_schedule_cell_state(state: Optional[str]) -> str:
+    """Treat blank/null as normal so cancellations can be cleared via API."""
+    s = (state or "").strip()
+    if not s or s == "normal":
+        return "normal"
+    return s
+
+
 @api.put("/schedule/{cid}")
 async def update_schedule_cell(cid: str, payload: ScheduleCellIn, user=Depends(schedule_edit_or_admin)):
     prev = await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
     prev_state = (prev or {}).get("state")
     update = _strip_session_cell_color(payload.model_dump())
+    update["state"] = _normalize_schedule_cell_state(update.get("state"))
     await db.schedule_cells.update_one({"id": cid}, {"$set": update})
     cell = await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
     if cell and cell.get("child_name"):

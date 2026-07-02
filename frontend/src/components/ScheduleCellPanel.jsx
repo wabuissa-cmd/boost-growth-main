@@ -353,11 +353,15 @@ export default function ScheduleCellPanel({
                     <button
                       key={s.id}
                       type="button"
-                      onClick={() => setForm(f => ({
-                        ...f,
-                        state: s.id,
-                        cover_child_name: s.id === "cancel_child" ? f.cover_child_name : null,
-                      }))}
+                      onClick={() => setForm(f => {
+                        const togglingOff = f.state === s.id && CANCEL_STATES.has(s.id);
+                        const nextState = togglingOff ? "normal" : s.id;
+                        return {
+                          ...f,
+                          state: nextState,
+                          cover_child_name: nextState === "cancel_child" ? f.cover_child_name : null,
+                        };
+                      })}
                       className={`pill text-xs px-2 py-1 ${form.state === s.id ? "ring-2 ring-[#5C8A47]" : ""}`}
                       style={{ background: s.swatch, color: "#2C3625" }}
                     >
@@ -481,7 +485,7 @@ export default function ScheduleCellPanel({
               style={{ borderColor: "#5C8A47", color: "#2C4A22", background: "#E5EBE1" }}
               onClick={onRestoreCancellation}
             >
-              Restore session — remove cancellation
+              Clear cancellation
             </button>
           )}
           {canManagePrep && showPrepBadge && onClearPrep && (
