@@ -1,4 +1,4 @@
-import { getChildColor, readable } from "./childColors";
+import { getChildColor } from "./childColors";
 import { TIME_SLOTS, startOfWeek, addDays, toISODate } from "./api";
 import { MAX_SCHEDULE_MERGE_SLOTS } from "./scheduleConstants";
 
@@ -123,6 +123,23 @@ export const SCHEDULE_COLOR_SWATCHES = [
   "#6FA8DC", "#E6B8AF", "#F9CB9C", "#CFE2F3",
 ];
 
+export function normalizeServiceCode(raw) {
+  return (raw || "").trim().toUpperCase();
+}
+
+export const SCHEDULE_CANCEL_STATES = new Set(["cancel_therapist", "cancel_child"]);
+
+export function isScheduleCancelState(state) {
+  return SCHEDULE_CANCEL_STATES.has(state);
+}
+
+/** True when a cell represents a client session (HS/SS/OS or named child). */
+export function isScheduleSessionCell(cell) {
+  if (!cell) return false;
+  if (CLIENT_SESSION_CODES.has(normalizeServiceCode(cell.service_code))) return true;
+  return !!scheduleCellChildName(cell);
+}
+
 function parseTimeSlotHour(timeSlot) {
   const s = (timeSlot || "").trim();
   const m = s.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
@@ -186,7 +203,8 @@ export function getCellStyle(cell, clients = []) {
   if (cell.state === "cancel_child") {
     return { background: "#FCE0E8", color: "#8B3A55", borderColor: "#E8A4BD" };
   }
-  const code = (cell.service_code || "").toUpperCase();
+  const code = normalizeServiceCode(cell.service_code);
+  const timeSlot = (cell.time_slot || "").trim();
   if (code === "LEAVE" && SERVICE_CELL_COLORS.LEAVE) {
     return { ...SERVICE_CELL_COLORS.LEAVE };
   }
@@ -195,23 +213,24 @@ export function getCellStyle(cell, clients = []) {
     if (s) return { ...s };
   }
   // SS/HS/OS always use shift tint below — do not pin to shift 1 via SERVICE_CELL_COLORS.
-  if (!CLIENT_SESSION_CODES.has(code) && !cell.child_name && code && SERVICE_CELL_COLORS[code]) {
+  const childName = scheduleCellChildName(cell);
+  if (!CLIENT_SESSION_CODES.has(code) && !childName && code && SERVICE_CELL_COLORS[code]) {
     const s = SERVICE_CELL_COLORS[code];
     if (s) return { ...s };
   }
 
-  const childName = scheduleCellChildName(cell);
-  const isClientSession = childName || CLIENT_SESSION_CODES.has(code);
+  const isClientSession = isScheduleSessionCell(cell);
   if (isClientSession && !META_SERVICE_CODES.has(code)) {
-    const base = clientSessionBaseStyle(code, cell.time_slot);
+    const base = clientSessionBaseStyle(code, timeSlot);
     if (childName) {
-      return { ...base, ...childSessionAccentStyle(childName, cell.time_slot) };
+      return { ...base, ...childSessionAccentStyle(childName, timeSlot) };
     }
     return base;
   }
 
-  if (cell.color && !childName) {
-    return { background: cell.color, borderColor: cell.color, color: readable(cell.color) };
+  // Legacy DB rainbow fills — ignore; use shift band for any timed non-meta cell.
+  if (timeSlot && code !== "AVAILABLE") {
+    return { ...shiftSessionStyle(timeSlot) };
   }
   if (code && SERVICE_CELL_COLORS[code]) {
     return { ...SERVICE_CELL_COLORS[code] };
@@ -522,7 +541,7 @@ export function buildScheduleCellPayload(cell, weekStartISO, overrides = {}) {
     cover_child_name: cell.cover_child_name || null,
     custom_time: cell.custom_time || null,
     state: cell.state || "normal",
-    color: cell.color || null,
+    color: isScheduleSessionCell(cell) ? null : (cell.color || null),
     duration: cell.duration || 1,
     week_start: weekStartISO,
     ...overrides,

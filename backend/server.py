@@ -2913,6 +2913,17 @@ async def _enrich_schedule_cells_with_client_colors(cells: list) -> list:
     return cells
 
 
+_CLIENT_SESSION_CODES = frozenset({"SS", "HS", "OS"})
+
+
+def _strip_session_cell_color(doc: dict) -> dict:
+    """Session cells use client-side shift tints — do not persist legacy per-child fills."""
+    code = (doc.get("service_code") or "").strip().upper()
+    if code in _CLIENT_SESSION_CODES or (doc.get("child_name") or "").strip():
+        doc["color"] = None
+    return doc
+
+
 async def _backfill_schedule_cell_colors_for_week(week_start: str) -> int:
     """Persist client colors onto schedule cells for a week (non-destructive)."""
     cells = await db.schedule_cells.find({"week_start": week_start}, {"_id": 0}).to_list(5000)
@@ -4621,6 +4632,21 @@ async def _mark_parent_cancel_pending(cell_id: str) -> None:
     )
 
 
+async def _clear_parent_cancel_pending(cell_id: str) -> None:
+    await db.schedule_cells.update_one(
+        {"id": cell_id},
+        {
+            "$set": {"parent_notify_pending": False},
+            "$unset": {
+                "parent_cancel_marked_at": "",
+                "parent_notify_sent_at": "",
+                "parent_notify_sent_by": "",
+                "parent_notify_message": "",
+            },
+        },
+    )
+
+
 async def _notify_parent_cancel_pending(cell: dict, actor: str = "") -> None:
     child = (cell.get("child_name") or "—").strip()
     slot = cell.get("time_slot") or ""
@@ -4780,7 +4806,7 @@ async def _ensure_co_therapist_from_schedule(therapist_id: str, child_name: Opti
 @api.post("/schedule")
 async def create_schedule_cell(payload: ScheduleCellIn, _=Depends(schedule_edit_or_admin)):
     cid = str(uuid.uuid4())
-    doc = {"id": cid, **payload.model_dump(), "created_at": now_iso()}
+    doc = _strip_session_cell_color({"id": cid, **payload.model_dump(), "created_at": now_iso()})
     await db.schedule_cells.insert_one(doc)
     doc.pop("_id", None)
     if doc.get("child_name"):
@@ -4792,12 +4818,18 @@ async def create_schedule_cell(payload: ScheduleCellIn, _=Depends(schedule_edit_
 
 @api.put("/schedule/{cid}")
 async def update_schedule_cell(cid: str, payload: ScheduleCellIn, user=Depends(schedule_edit_or_admin)):
-    update = payload.model_dump()
+    prev = await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
+    prev_state = (prev or {}).get("state")
+    update = _strip_session_cell_color(payload.model_dump())
     await db.schedule_cells.update_one({"id": cid}, {"$set": update})
     cell = await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
     if cell and cell.get("child_name"):
         await _ensure_co_therapist_from_schedule(cell.get("therapist_id"), cell.get("child_name"))
     actor = _actor_display(user)
+    new_state = (cell or {}).get("state") or "normal"
+    if prev_state in ("cancel_therapist", "cancel_child") and new_state not in ("cancel_therapist", "cancel_child"):
+        await _clear_parent_cancel_pending(cid)
+        cell = await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
     if cell and cell.get("state") == "cancel_therapist":
         await _mark_parent_cancel_pending(cid)
         await _notify_parent_cancel_pending(cell, actor)
@@ -5083,12 +5115,6 @@ async def update_client_schedule_color(cid: str, body: ClientScheduleColorIn, _=
         raise HTTPException(status_code=404, detail="Client not found")
     color = body.color
     await db.clients.update_one({"id": cid}, {"$set": {"schedule_color": color}})
-    name = (client.get("name") or "").strip()
-    if name:
-        await db.schedule_cells.update_many(
-            {"child_name": {"$regex": f"^{re.escape(name)}($|\\s)"}},
-            {"$set": {"color": color}},
-        )
     return {"ok": True, "schedule_color": color, "client_id": cid}
 
 @api.delete("/clients/{cid}")
@@ -14411,7 +14437,8 @@ async def duplicate_week(body: dict, _=Depends(ops_or_admin)):
     inserted = 0
     for c in cells:
         new_c = {**c, "id": str(uuid.uuid4()), "week_start": target,
-                 "state": "normal", "created_at": now_iso()}
+                 "state": "normal", "color": None, "created_at": now_iso()}
+        new_c = _strip_session_cell_color(new_c)
         await db.schedule_cells.insert_one(new_c)
         inserted += 1
     return {"copied": inserted}
@@ -14933,14 +14960,6 @@ async def _import_schedule_grid(
     preserved = await _snapshot_week_cell_overrides(week_start) if clear_existing else {}
     if clear_existing:
         await db.schedule_cells.delete_many({"week_start": week_start})
-    client_colors: dict = {}
-    async for cl in db.clients.find(
-        _active_client_filter({}),
-        {"_id": 0, "name": 1, "schedule_color": 1, "color": 1},
-    ):
-        name = cl.get("name")
-        if name:
-            client_colors[name] = cl.get("schedule_color") or cl.get("color")
     inserted = 0
     skipped_unknown = []
     pending_cells: List[dict] = []
@@ -15011,14 +15030,6 @@ async def _import_schedule_grid(
                                 )
                             continue
                         service, child, custom, note = parsed
-                        cell_color = None
-                        if child:
-                            resolved = await _find_client_by_schedule_child_name(child)
-                            if resolved:
-                                child = resolved.get("name") or child
-                                cell_color = resolved.get("schedule_color") or resolved.get("color")
-                        if not cell_color and child:
-                            cell_color = client_colors.get(child)
                         merge_cols = float(merge_anchors.get((i, col_idx), 1))
                         custom_dur = _duration_from_custom(canonical_ts, custom, time_slots) if custom else 1.0
                         if custom and custom_dur > 1:
@@ -15049,7 +15060,7 @@ async def _import_schedule_grid(
                             "custom_time": custom,
                             "state": cell_state,
                             "cover_child_name": preserved_meta.get("cover_child_name"),
-                            "color": cell_color,
+                            "color": None,
                             "duration": duration,
                             "week_start": week_start,
                             "created_at": now_iso(),

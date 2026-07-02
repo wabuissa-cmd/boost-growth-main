@@ -7,7 +7,7 @@ import {
   findCellAt, isHiddenFromSchedule, scheduleDisplaySpan, scheduleCoveredSlotKeys,
   scheduleCellSlotKey,
   resolveSelfTherapist, findClientForScheduleCell, isScheduleClientLogCell, scheduleCellChildName,
-  canSpecialistLogScheduleCell,
+  canSpecialistLogScheduleCell, isScheduleCancelState,
   recentCompletedSessionDates, dayIndicesForDates, weekStartISOForDate,
   SHIFT_BANDS, SHIFT_SESSION_STYLES, shiftTimeHeaderStyle,
 } from "../scheduleUtils";
@@ -866,8 +866,8 @@ export default function Schedule() {
   );
 
   const canEditRow = useCallback(
-    (tid) => scheduleAdmin || (scheduleLead && (view === "sheet" || tid === selfTherapist?.id)),
-    [scheduleAdmin, scheduleLead, selfTherapist?.id, view]
+    (tid) => scheduleAdmin || hasOpsAccess(user) || (scheduleLead && (view === "sheet" || tid === selfTherapist?.id)),
+    [scheduleAdmin, scheduleLead, selfTherapist?.id, view, user]
   );
   const canNotifySchedule = scheduleAdmin || scheduleLead || hasOpsAccess(user);
 
@@ -1116,7 +1116,8 @@ export default function Schedule() {
     if (e) e.stopPropagation();
     const cell = existing || findCellAt(therapist_id, day, time_slot, cellMap, cells);
     const onOwnRow = selfTherapist?.id && therapist_id === selfTherapist.id;
-    if (onOwnRow && canQuickLogOwnRow && cell?.state === "cancel_therapist") {
+    const blockedCancelQuickLog = cell?.state === "cancel_therapist" && !canEditRow(therapist_id);
+    if (onOwnRow && canQuickLogOwnRow && blockedCancelQuickLog) {
       return;
     }
     if (onOwnRow && canQuickLogOwnRow) {
@@ -1125,7 +1126,7 @@ export default function Schedule() {
       }
       return;
     }
-    if (canQuickLog && cell?.state === "cancel_therapist") {
+    if (canQuickLog && blockedCancelQuickLog) {
       return;
     }
     if (canQuickLog) {
@@ -1264,6 +1265,28 @@ export default function Schedule() {
       : null
   );
 
+  const restoreCellCancellation = async (cell) => {
+    if (!cell?.id) return;
+    const label = cell.state === "cancel_therapist" ? "therapist cancellation" : "client cancellation";
+    if (!window.confirm(`Restore this session and remove the ${label}?`)) return;
+    try {
+      const payload = buildScheduleCellPayload(cell, weekStartISO, {
+        state: "normal",
+        cover_child_name: null,
+      });
+      await api.put(`/schedule/${cell.id}`, payload);
+      invalidateCache("/schedule");
+      await load(true);
+      await loadPendingCancellations();
+      setCtxMenu(null);
+      if (panelForm?.id === cell.id) {
+        setPanelForm((f) => (f ? { ...f, state: "normal", cover_child_name: null } : f));
+      }
+    } catch (err) {
+      alert(err?.response?.data?.detail || "Could not restore session");
+    }
+  };
+
   const saveCoverFromCtx = async (coverName) => {
     const cell = ctxMenu?.cell;
     if (!cell?.id || cell.state !== "cancel_child") return;
@@ -1307,7 +1330,7 @@ export default function Schedule() {
     setClipboard({
       service_code: cell.service_code, child_name: cell.child_name,
       custom_time: cell.custom_time, note: cell.note,
-      duration: cell.duration || 1, color: cell.color,
+      duration: cell.duration || 1,
       sourceKey: `${therapist_id}_${day}_${time_slot}`,
     });
     setCtxMenu(null);
@@ -1399,7 +1422,11 @@ export default function Schedule() {
       setPanelSaving(false);
     }
   };
-  const remove = async (id) => { await api.delete(`/schedule/${id}`); load(); };
+  const remove = async (id) => {
+    await api.delete(`/schedule/${id}`);
+    invalidateCache("/schedule");
+    await load(true);
+  };
   const sendNotify = async () => {
     const payload = {
       cell_id: notify.id,
@@ -2073,6 +2100,7 @@ export default function Schedule() {
           canManageCover={canManageCover}
           showPrepBadge={cellStatusBadge(panelForm, panelForm.therapist_id, panelForm.day) === "prep"}
           onClearPrep={() => clearPrepFromCell(panelForm.therapist_id, panelForm.day, panelForm, true)}
+          onRestoreCancellation={() => restoreCellCancellation(panelForm)}
           mergedSlotCount={
             selection?.therapist_id === panelForm.therapist_id && selection?.day === panelForm.day
               ? selection.slots?.length || 0
@@ -2107,6 +2135,17 @@ export default function Schedule() {
             <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
               onClick={ctxAction(() => copyCell(ctxMenu))}>
               Copy Cell
+            </button>
+          )}
+          {ctxMenu.cell && isScheduleCancelState(ctxMenu.cell.state) && (
+            <button
+              type="button"
+              data-testid="schedule-restore-cancellation"
+              className="w-full text-left px-3 py-2 hover:bg-[#E5EBE1]"
+              style={{ color: "#3D4F35" }}
+              onClick={ctxAction(() => restoreCellCancellation(ctxMenu.cell))}
+            >
+              Restore session (remove cancel)
             </button>
           )}
           {canManagePrep && ctxMenu.cell && isScheduleClientLogCell(ctxMenu.cell) && (
