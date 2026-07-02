@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { X, FloppyDisk, BellRinging, WhatsappLogo, PencilSimple } from "@phosphor-icons/react";
 import { DAYS_EN, SERVICE_CODES } from "../api";
 import { DURATION_OPTIONS, getTherapistScheduleName } from "../scheduleConstants";
-import { SERVICE_CELL_COLORS, shiftSessionStyle, resolveClientScheduleColor, findClientForScheduleCell, scheduleCellDisplayLabel, buildDefaultCellNote, shouldAutoUpdateCellNote } from "../scheduleUtils";
+import { SERVICE_CELL_COLORS, shiftSessionStyle, resolveClientScheduleColor, findClientForScheduleCell, scheduleCellDisplayLabel, buildDefaultCellNote, shouldAutoUpdateCellNote, isScheduleCancelState } from "../scheduleUtils";
 import { ModalBtnPrimary, ModalBtnSecondary } from "./Modal";
 import { buildTherapistCancellationMessage, buildWhatsAppUrl } from "../scheduleParentMessages";
 
@@ -57,6 +57,7 @@ export default function ScheduleCellPanel({
   canManageCover = false,
   showPrepBadge = false,
   onClearPrep,
+  onRestoreCancellation,
   mergedSlotCount = 0,
 }) {
   const [clientOpen, setClientOpen] = useState(false);
@@ -472,6 +473,17 @@ export default function ScheduleCellPanel({
         </div>
 
         <div className="px-4 py-4 border-t flex gap-2 flex-shrink-0 flex-wrap" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
+          {onRestoreCancellation && form.id && isScheduleCancelState(form.state) && (
+            <button
+              type="button"
+              data-testid="cell-restore-cancellation-btn"
+              className="w-full text-sm font-semibold rounded-xl border-2 px-3 py-2.5 min-h-[44px]"
+              style={{ borderColor: "#5C8A47", color: "#2C4A22", background: "#E5EBE1" }}
+              onClick={onRestoreCancellation}
+            >
+              Restore session — remove cancellation
+            </button>
+          )}
           {canManagePrep && showPrepBadge && onClearPrep && (
             <button
               type="button"
