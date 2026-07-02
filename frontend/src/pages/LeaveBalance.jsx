@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import PageBanner from "../components/PageBanner";
+import { Scales } from "@phosphor-icons/react";
 import { useAuth, showAdminNav, canManageLeaves } from "../auth";
 import api from "../api";
 import LeaveBalanceTable from "../components/LeaveBalanceTable";
 import LeaveBalanceSheetGrid from "../components/LeaveBalanceSheetGrid";
 
-export default function LeaveBalance({ embedded = false, staffScope = false }) {
+export default function LeaveBalance({ embedded = false, staffScope = false, hubEmbedded = false }) {
   const { user } = useAuth();
   const isAdmin = showAdminNav(user);
   const isLeaveManager = canManageLeaves(user);
@@ -49,8 +50,17 @@ export default function LeaveBalance({ embedded = false, staffScope = false }) {
       )}
 
       {embedded && useSheetGrid && (
-        <div className="flex justify-end mb-3">
-          <select className="select text-[11px] max-w-[90px] min-h-0 h-7 py-0" value={year} onChange={e => setYear(parseInt(e.target.value, 10))}>
+        <div className={`flex flex-wrap items-center justify-between gap-2 mb-3${hubEmbedded ? " mgr-hub-balance-toolbar" : ""}`}>
+          {hubEmbedded && (
+            <div className="mgr-hub-panel-head mgr-hub-panel-head--compact min-w-0 flex-1 mb-0">
+              <Scales size={22} weight="duotone" className="shrink-0" />
+              <div>
+                <h2>Leave Balance</h2>
+                <p>Synced from vacations sheet · {year}</p>
+              </div>
+            </div>
+          )}
+          <select className="select text-[11px] max-w-[90px] min-h-0 h-7 py-0 shrink-0" value={year} onChange={e => setYear(parseInt(e.target.value, 10))}>
             {[currentYear - 1, currentYear, currentYear + 1].map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>

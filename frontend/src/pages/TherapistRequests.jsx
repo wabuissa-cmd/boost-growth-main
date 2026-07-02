@@ -771,20 +771,6 @@ export default function TherapistRequests() {
                         </label>
                       </FormField>
                     )}
-                    {(form.selectedType === "Annual" || form.selectedType === "Unpaid") && (
-                      <FormField label="Supporting document" hint="Optional — PDF or image">
-                        <label className="req-file-upload">
-                          <UploadSimple size={15} weight="duotone" />
-                          <span>{form.attachmentFile ? form.attachmentFile.name : "Choose file (optional)"}</span>
-                          <input
-                            type="file"
-                            accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx"
-                            className="sr-only"
-                            onChange={(e) => setForm((f) => ({ ...f, attachmentFile: e.target.files?.[0] || null }))}
-                          />
-                        </label>
-                      </FormField>
-                    )}
                   </FormSection>
                 </div>
               )}

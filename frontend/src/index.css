@@ -4601,7 +4601,8 @@ textarea.modal-input {
     .requests-page-steps,
     .center-test-steps-bar.schedule-page-steps,
     .center-test-steps-bar.requests-page-steps,
-    .center-test-steps-bar.my-learning-steps {
+    .center-test-steps-bar.my-learning-steps,
+    .center-test-steps-bar.mgr-hub-page-steps {
         max-width: 100%;
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
@@ -4679,7 +4680,8 @@ textarea.modal-input {
 /* Clients, Directory, Resources — portal page shell */
 .clients-page,
 .directory-page,
-.resources-page {
+.resources-page,
+.manager-hub-page {
     padding: 0 1.25rem 2rem;
     max-width: 1200px;
     margin: 0 auto;
@@ -4693,7 +4695,8 @@ textarea.modal-input {
 }
 .clients-page-top-bar,
 .directory-page-top-bar,
-.resources-page-top-bar {
+.resources-page-top-bar,
+.mgr-hub-page-top-bar {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -4703,7 +4706,8 @@ textarea.modal-input {
 }
 .clients-page-badge,
 .directory-page-badge,
-.resources-page-badge {
+.resources-page-badge,
+.mgr-hub-page-badge {
     display: inline-block;
     font-size: 0.62rem;
     font-weight: 700;
@@ -4717,7 +4721,8 @@ textarea.modal-input {
 }
 .clients-page-steps,
 .directory-page-steps,
-.resources-page-steps {
+.resources-page-steps,
+.mgr-hub-page-steps {
     max-width: 100%;
     padding-left: 0;
     padding-right: 0;
@@ -4738,21 +4743,24 @@ textarea.modal-input {
 }
 .clients-page-hero,
 .directory-page-hero,
-.resources-page-hero {
+.resources-page-hero,
+.mgr-hub-page-hero {
     padding: 1.15rem 1.25rem;
     margin-bottom: 0.75rem;
     background: linear-gradient(135deg, var(--bg-warm) 0%, #fff 100%);
 }
 .clients-page-hero-row,
 .directory-page-hero-row,
-.resources-page-hero-row {
+.resources-page-hero-row,
+.mgr-hub-page-hero-row {
     display: flex;
     align-items: flex-start;
     gap: 0.85rem;
 }
 .clients-page-hero-icon,
 .directory-page-hero-icon,
-.resources-page-hero-icon {
+.resources-page-hero-icon,
+.mgr-hub-page-hero-icon {
     width: 48px;
     height: 48px;
     border-radius: 12px;
@@ -4765,7 +4773,8 @@ textarea.modal-input {
 }
 .clients-page-title,
 .directory-page-title,
-.resources-page-title {
+.resources-page-title,
+.mgr-hub-page-title {
     font-family: var(--font-display);
     font-size: 1.35rem;
     margin: 0;
@@ -4773,7 +4782,8 @@ textarea.modal-input {
 }
 .clients-page-subtitle,
 .directory-page-subtitle,
-.resources-page-subtitle {
+.resources-page-subtitle,
+.mgr-hub-page-subtitle {
     margin: 0.25rem 0 0;
     font-size: 0.88rem;
     color: var(--text-muted);
@@ -4781,7 +4791,8 @@ textarea.modal-input {
 }
 .clients-page-stats,
 .directory-page-stats,
-.resources-page-stats {
+.resources-page-stats,
+.mgr-hub-page-stats {
     display: flex;
     flex-wrap: wrap;
     gap: 0.65rem;
@@ -4789,7 +4800,8 @@ textarea.modal-input {
 }
 .clients-page-stat,
 .directory-page-stat,
-.resources-page-stat {
+.resources-page-stat,
+.mgr-hub-page-stat {
     display: flex;
     flex-direction: column;
     min-width: 4.5rem;
@@ -4800,14 +4812,16 @@ textarea.modal-input {
 }
 .clients-page-stat-val,
 .directory-page-stat-val,
-.resources-page-stat-val {
+.resources-page-stat-val,
+.mgr-hub-page-stat-val {
     font-size: 0.95rem;
     font-weight: 700;
     line-height: 1.2;
 }
 .clients-page-stat-lbl,
 .directory-page-stat-lbl,
-.resources-page-stat-lbl {
+.resources-page-stat-lbl,
+.mgr-hub-page-stat-lbl {
     font-size: 0.62rem;
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -4817,7 +4831,8 @@ textarea.modal-input {
 }
 .clients-page-toolbar,
 .directory-page-toolbar,
-.resources-page-toolbar {
+.resources-page-toolbar,
+.mgr-hub-page-toolbar {
     margin-top: 1rem;
     padding-top: 0.85rem;
     border-top: 1px solid var(--border-light);
@@ -4930,7 +4945,162 @@ textarea.modal-input {
     }
     .clients-page-panel,
     .directory-page-panel,
-    .resources-page-panel {
+    .resources-page-panel,
+    .mgr-hub-panel {
         padding: 0.85rem 0.65rem;
+    }
+}
+
+/* Manager Hub — portal shell & content panels */
+.mgr-hub-page-steps .center-test-step.active .center-test-step-num {
+    background: #5D735D;
+    border-color: #5D735D;
+    color: #fff;
+}
+.mgr-hub-page-steps .center-test-step.active .center-test-step-label {
+    color: #2C3625;
+    font-weight: 700;
+}
+.mgr-hub-content {
+    margin-top: 0.25rem;
+}
+.mgr-hub-panel {
+    padding: 1.15rem 1.25rem;
+    background: #FFFCF7;
+    border: 1px solid #E2DDD4;
+}
+.mgr-hub-panel--flush {
+    padding: 1rem;
+}
+.mgr-hub-panel-head {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+    color: #2C3625;
+}
+.mgr-hub-panel-head--compact {
+    margin-bottom: 0.75rem;
+}
+.mgr-hub-panel-head h2 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-family: var(--font-display);
+}
+.mgr-hub-panel-head p {
+    margin: 0.15rem 0 0;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+.mgr-hub-panel-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.85rem;
+    border-bottom: 1px solid #E2DDD4;
+}
+.mgr-hub-section-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #5D735D;
+    margin-bottom: 0.5rem;
+}
+.mgr-hub-stat-overview {
+    margin-bottom: 1rem;
+    padding: 0.85rem;
+    border-radius: 0.85rem;
+    background: #F5F5F0;
+    border: 1px solid #E2DDD4;
+}
+.mgr-hub-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
+}
+.mgr-hub-stat-box {
+    background: #FAFAF7;
+    border: 1px solid #EDE9E3;
+    border-radius: 0.65rem;
+    padding: 0.65rem 0.5rem;
+    text-align: center;
+}
+.mgr-hub-stat-val {
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #2C3625;
+    line-height: 1.1;
+}
+.mgr-hub-stat-lbl {
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #5D735D;
+    margin-top: 0.15rem;
+}
+.mgr-hub-req-panel {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+}
+.mgr-hub-req-filters {
+    padding-top: 0;
+}
+.mgr-hub-filter-active {
+    background: #5D735D !important;
+    color: #fff !important;
+    border-color: #5D735D !important;
+}
+.mgr-hub-filter-idle {
+    background: #F5F5F0;
+    color: #5C6853;
+    border: 1px solid #E2DDD4;
+}
+.mgr-hub-balance-toolbar {
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid #E2DDD4;
+    margin-bottom: 1rem !important;
+}
+.mgr-profile-page--embedded,
+.mgr-cal-page--embedded {
+    padding: 0;
+    max-width: none;
+    margin: 0;
+}
+.mgr-profile-page--embedded .mgr-profile-layout {
+    margin-top: 0;
+}
+.mgr-cal-page--embedded .mgr-cal-layout,
+.mgr-cal-page--embedded .mgr-cal-list {
+    margin-top: 0;
+}
+
+@media (max-width: 768px) {
+    .manager-hub-page {
+        padding: 0 0.75rem 1.5rem;
+    }
+    .mgr-hub-stat-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .mgr-hub-page-steps {
+        margin-bottom: 0.5rem;
+    }
+    .mgr-hub-panel--flush {
+        padding: 0.65rem;
+    }
+    .mgr-hub-panel-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .mgr-hub-panel-toolbar .mgr-cal-toolbar {
+        width: 100%;
+        justify-content: space-between;
     }
 }
