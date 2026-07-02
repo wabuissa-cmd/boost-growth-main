@@ -4568,19 +4568,53 @@ async def _notify_request_submitted(title: str, message: str, *, email_subject: 
     await _email_hr_ops_urgent(subj, body)
 
 
-async def _notify_leave_submitted(title: str, message: str):
-    """Jenan gets in-app + urgent email on new leave (HR notified only after manager forwards)."""
+def _display_leave_type(leave_type: Optional[str]) -> str:
+    """Human-friendly leave type label for emails."""
+    t = (leave_type or "").strip().lower()
+    if t in ("annual", "annual leave"):
+        return "Annual"
+    if t in ("unpaid", "absence"):
+        return "Unpaid"
+    if t in ("sick", "sick leave"):
+        return "Sick"
+    if t in ("permission",):
+        return "Permission"
+    return (leave_type or "Leave").strip() or "Leave"
+
+
+async def _notify_leave_submitted(
+    *,
+    therapist_name: str,
+    leave_type: Optional[str],
+    start_date: str,
+    end_date: str,
+    days: float,
+    notes: Optional[str] = None,
+):
+    """Jenan gets in-app + email on new leave (HR notified only after manager forwards)."""
+    leave_label = _display_leave_type(leave_type)
+    title = f"New leave request from {therapist_name or 'Therapist'}"
+    summary = f"{leave_label} — {start_date} → {end_date} ({days:g} day(s))"
     jenan_id = await _jenan_therapist_id()
     if jenan_id:
-        await _notify(jenan_id, "leave_request", title, message)
+        await _notify(jenan_id, "leave_request", title, summary)
     else:
-        await _notify_admins("leave_request", title, message)
-    body = f"{message}\n"
+        await _notify_admins("leave_request", title, summary)
+
+    body = (
+        "A therapist has submitted a new leave request and it is pending your review.\n\n"
+        f"Therapist: {therapist_name or '—'}\n"
+        f"Leave type: {leave_label}\n"
+        f"Date range: {start_date} → {end_date}\n"
+        f"Total days: {days:g}\n"
+    )
+    if (notes or "").strip():
+        body += f"\nNotes:\n{notes.strip()}\n"
     portal = _portal_base_url()
     if portal:
         body += f"\nReview in portal: {portal}/manager\n"
     body += "\n— Boost Growth Portal"
-    await _send_urgent_email(await _jenan_recipient_email(), title, body)
+    await _send_email_stub(await _jenan_recipient_email(), title, body)
 
 
 async def _walaa_notify_user_ids() -> List[str]:
@@ -11978,8 +12012,14 @@ async def create_leave(payload: LeaveIn, user=Depends(get_current_user)):
             time_part = f" {payload.start_time}"
             if payload.end_time:
                 time_part += f"–{payload.end_time}"
-        msg = f"{user.get('name')}: {payload.leave_type} {payload.days}d ({payload.start_date}{time_part} → {payload.end_date})"
-        await _notify_leave_submitted("New leave request", msg)
+        await _notify_leave_submitted(
+            therapist_name=(user.get("name") or "Therapist").strip(),
+            leave_type=payload.leave_type,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
+            days=float(payload.days or 0),
+            notes=payload.notes,
+        )
     return doc
 
 @api.put("/leaves/{lid}")

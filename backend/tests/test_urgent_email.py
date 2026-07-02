@@ -120,8 +120,8 @@ class TestUrgentRequestEmail:
         assert "[عاجل]" in hr_items[0]["subject"]
 
 
-class TestUrgentLeaveEmail:
-    def test_new_leave_queues_urgent_email_to_jenan(self, admin_headers, therapist_headers):
+class TestLeaveEmail:
+    def test_new_leave_queues_email_to_jenan(self, admin_headers, therapist_headers):
         today = __import__("datetime").date.today().isoformat()
         r = requests.post(
             f"{API}/leaves",
@@ -144,10 +144,17 @@ class TestUrgentLeaveEmail:
                 i
                 for i in rq.json()
                 if (i.get("to") or "").lower() == JENAN_EMAIL
-                and "New leave request" in (i.get("subject") or "")
+                and "New leave request from" in (i.get("subject") or "")
             ),
             None,
         )
-        assert match is not None, "No Jenan urgent email in queue for new leave"
-        assert "[عاجل]" in match["subject"] and "[Urgent]" in match["subject"]
+        assert match is not None, "No Jenan email in queue for new leave"
+        assert "[Urgent]" not in (match.get("subject") or "")
+        assert "[عاجل]" not in (match.get("subject") or "")
+        body = match.get("body") or ""
+        assert "pending your review" in body.lower()
+        assert "leave type:" in body.lower()
+        assert "date range:" in body.lower()
+        assert "total days:" in body.lower()
+        assert "Automated leave urgent-email test" in body
         requests.delete(f"{API}/leaves/{lid}", headers=admin_headers)
