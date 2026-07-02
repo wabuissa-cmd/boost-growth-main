@@ -132,17 +132,45 @@ export function getPortalDisplayName(user, therapistRow = null) {
     || "";
 }
 
+function therapistHasScheduleKey(t) {
+  const k = (t.key || "").toLowerCase();
+  return Boolean(k && !/^ms\d+$/.test(k));
+}
+
+function therapistFirstNameToken(t) {
+  const label = getTherapistScheduleName(t).toLowerCase().trim();
+  return label.split(/\s+/)[0] || "";
+}
+
 export function sortTherapistsForSchedule(list) {
   const orderMap = new Map(THERAPIST_SCHEDULE_ORDER.map((k, i) => [k, i]));
+  const ranked = [...list].sort((a, b) => {
+    const ak = therapistHasScheduleKey(a) ? 1 : 0;
+    const bk = therapistHasScheduleKey(b) ? 1 : 0;
+    if (ak !== bk) return bk - ak;
+    const ae = (a.email || "").trim();
+    const be = (b.email || "").trim();
+    if (ae && !be) return -1;
+    if (be && !ae) return 1;
+    return 0;
+  });
   const seenIds = new Set();
-  const seenNames = new Set();
+  const seenLabels = new Set();
+  const seenEmails = new Set();
+  const seenFirstNames = new Set();
   const unique = [];
-  for (const t of list) {
+  for (const t of ranked) {
     if (!t?.id || seenIds.has(t.id)) continue;
     const label = getTherapistScheduleName(t).toLowerCase().trim();
-    if (label && seenNames.has(label)) continue;
+    const email = (t.email || "").trim().toLowerCase();
+    const first = therapistFirstNameToken(t);
+    if (label && seenLabels.has(label)) continue;
+    if (email && seenEmails.has(email)) continue;
+    if (first && seenFirstNames.has(first) && !therapistHasScheduleKey(t)) continue;
     seenIds.add(t.id);
-    if (label) seenNames.add(label);
+    if (label) seenLabels.add(label);
+    if (email) seenEmails.add(email);
+    if (first) seenFirstNames.add(first);
     unique.push(t);
   }
   return unique.sort((a, b) => {
