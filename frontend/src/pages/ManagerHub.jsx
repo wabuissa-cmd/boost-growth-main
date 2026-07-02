@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
 import api, { API, openAuthenticatedFile } from "../api";
 import { useAuth, canAccessManagerHub, isJenan } from "../auth";
-import PageBanner from "../components/PageBanner";
 import PortalPageHeader from "../components/PortalPageHeader";
 import Requests from "./Requests";
 import LeaveBalance from "./LeaveBalance";
@@ -10,15 +9,31 @@ import {
   MagnifyingGlass, Warning, UserCircle, FileText, Bell, UploadSimple,
   FloppyDisk, DownloadSimple, CalendarBlank, ArrowLeft, X,
   IdentificationCard, CalendarCheck, ChartBar, CaretLeft, CaretRight, ListBullets,
+  ListChecks, Scales, Briefcase,
 } from "@phosphor-icons/react";
 import { getTherapistScheduleName, sortTherapistsForSchedule } from "../scheduleConstants";
 
 const MAIN_TABS = [
-  { id: "staff", label: "Therapists' Requests", testid: "mgr-tab-staff" },
-  { id: "balance", label: "Leave Balance", testid: "mgr-tab-balance" },
-  { id: "profiles", label: "Therapist Profiles", testid: "mgr-tab-profiles" },
-  { id: "calendar", label: "Evaluation Calendar", testid: "mgr-tab-calendar" },
+  { id: "staff", label: "Therapists' Requests", testid: "mgr-tab-staff", icon: ListChecks },
+  { id: "balance", label: "Leave Balance", testid: "mgr-tab-balance", icon: Scales },
+  { id: "profiles", label: "Therapist Profiles", testid: "mgr-tab-profiles", icon: UserCircle },
+  { id: "calendar", label: "Evaluation Calendar", testid: "mgr-tab-calendar", icon: CalendarBlank },
 ];
+
+const TAB_META = {
+  staff: {
+    subtitle: "Leave, salary certificate, supplies, and general — one unified queue for review",
+  },
+  balance: {
+    subtitle: "Annual leave balances synced from the vacations sheet — all therapists at a glance",
+  },
+  profiles: {
+    subtitle: "Contract dates, evaluations, and manager meetings — select a team member to review",
+  },
+  calendar: {
+    subtitle: "Trial period evaluations every 3 months and annual evaluations from contract start dates",
+  },
+};
 
 async function viewFile(url) {
   try {
@@ -459,7 +474,7 @@ function evalTone(entry, todayIso) {
   return "upcoming";
 }
 
-function EvaluationCalendarTab() {
+function EvaluationCalendarTab({ embeddedInHub = false }) {
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
   const [view, setView] = useState("list");
@@ -503,50 +518,67 @@ function EvaluationCalendarTab() {
     );
   };
 
+  const calendarToolbar = (
+    <div className="mgr-cal-toolbar">
+      <div className="mgr-cal-year-nav">
+        <button type="button" className="btn btn-ghost btn-icon" onClick={() => setYear(y => y - 1)} aria-label="Previous year">
+          <CaretLeft size={18} weight="bold" />
+        </button>
+        <span className="mgr-cal-year-label">{year}</span>
+        <button type="button" className="btn btn-ghost btn-icon" onClick={() => setYear(y => y + 1)} aria-label="Next year">
+          <CaretRight size={18} weight="bold" />
+        </button>
+      </div>
+      <div className="mgr-cal-view-toggle">
+        <button
+          type="button"
+          className={`mgr-cal-view-btn${view === "calendar" ? " active" : ""}`}
+          onClick={() => setView("calendar")}
+        >
+          <CalendarBlank size={15} /> Month
+        </button>
+        <button
+          type="button"
+          className={`mgr-cal-view-btn${view === "list" ? " active" : ""}`}
+          onClick={() => setView("list")}
+        >
+          <ListBullets size={15} /> List
+        </button>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="mgr-cal-page" dir="ltr">
-      <PortalPageHeader
-        prefix="mgr-cal"
-        badge="MANAGER HUB"
-        title="Evaluation Calendar"
-        subtitle="Trial period evaluations every 3 months and annual evaluations from each therapist's contract start"
-        icon={CalendarBlank}
-        stats={[
-          { label: "This year", n: summary.total ?? 0, color: "#2C3625" },
-          { label: "Upcoming", n: summary.upcoming ?? 0, color: "#3D4F35" },
-          { label: "Trial", n: summary.trial ?? 0, color: "#6B5218" },
-          { label: "Annual", n: summary.annual ?? 0, color: "#3D4F5C" },
-        ]}
-        toolbar={(
-          <div className="mgr-cal-toolbar">
-            <div className="mgr-cal-year-nav">
-              <button type="button" className="btn btn-ghost btn-icon" onClick={() => setYear(y => y - 1)} aria-label="Previous year">
-                <CaretLeft size={18} weight="bold" />
-              </button>
-              <span className="mgr-cal-year-label">{year}</span>
-              <button type="button" className="btn btn-ghost btn-icon" onClick={() => setYear(y => y + 1)} aria-label="Next year">
-                <CaretRight size={18} weight="bold" />
-              </button>
-            </div>
-            <div className="mgr-cal-view-toggle">
-              <button
-                type="button"
-                className={`mgr-cal-view-btn${view === "calendar" ? " active" : ""}`}
-                onClick={() => setView("calendar")}
-              >
-                <CalendarBlank size={15} /> Month
-              </button>
-              <button
-                type="button"
-                className={`mgr-cal-view-btn${view === "list" ? " active" : ""}`}
-                onClick={() => setView("list")}
-              >
-                <ListBullets size={15} /> List
-              </button>
+    <div className={`mgr-cal-page${embeddedInHub ? " mgr-cal-page--embedded" : ""}`} dir="ltr">
+      {!embeddedInHub && (
+        <PortalPageHeader
+          prefix="mgr-cal"
+          badge="MANAGER HUB"
+          title="Evaluation Calendar"
+          subtitle="Trial period evaluations every 3 months and annual evaluations from each therapist's contract start"
+          icon={CalendarBlank}
+          stats={[
+            { label: "This year", n: summary.total ?? 0, color: "#2C3625" },
+            { label: "Upcoming", n: summary.upcoming ?? 0, color: "#3D4F35" },
+            { label: "Trial", n: summary.trial ?? 0, color: "#6B5218" },
+            { label: "Annual", n: summary.annual ?? 0, color: "#3D4F5C" },
+          ]}
+          toolbar={calendarToolbar}
+        />
+      )}
+
+      {embeddedInHub && (
+        <div className="mgr-hub-panel-toolbar">
+          <div className="mgr-hub-panel-head">
+            <CalendarBlank size={22} weight="duotone" className="shrink-0" />
+            <div className="min-w-0 flex-1">
+              <h2>Evaluation Calendar</h2>
+              <p>{year} · {summary.total ?? 0} evaluation{(summary.total ?? 0) === 1 ? "" : "s"} scheduled</p>
             </div>
           </div>
-        )}
-      />
+          {calendarToolbar}
+        </div>
+      )}
 
       {loading ? (
         <div className="card mgr-cal-loading"><div className="spinner" /></div>
@@ -593,7 +625,7 @@ function EvaluationCalendarTab() {
   );
 }
 
-function TherapistProfilesTab() {
+function TherapistProfilesTab({ embeddedInHub = false }) {
   const [therapists, setTherapists] = useState([]);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState("");
@@ -635,18 +667,30 @@ function TherapistProfilesTab() {
   const selectedTherapist = therapists.find(t => t.id === selectedId);
 
   return (
-    <div className="mgr-profile-page" dir="ltr">
-      <PortalPageHeader
-        prefix="mgr-profile"
-        badge="MANAGER HUB"
-        title="Therapist Profiles"
-        subtitle="Contract dates, evaluations, and manager meetings — select a team member to review or update"
-        icon={UserCircle}
-        stats={[
-          { label: "Team", n: therapists.length, color: "#2C3625" },
-          { label: "Showing", n: filtered.length, color: "#3D4F35" },
-        ]}
-      />
+    <div className={`mgr-profile-page${embeddedInHub ? " mgr-profile-page--embedded" : ""}`} dir="ltr">
+      {!embeddedInHub && (
+        <PortalPageHeader
+          prefix="mgr-profile"
+          badge="MANAGER HUB"
+          title="Therapist Profiles"
+          subtitle="Contract dates, evaluations, and manager meetings — select a team member to review or update"
+          icon={UserCircle}
+          stats={[
+            { label: "Team", n: therapists.length, color: "#2C3625" },
+            { label: "Showing", n: filtered.length, color: "#3D4F35" },
+          ]}
+        />
+      )}
+
+      {embeddedInHub && (
+        <div className="mgr-hub-panel-head mgr-hub-panel-head--compact">
+          <UserCircle size={22} weight="duotone" className="shrink-0" />
+          <div className="min-w-0">
+            <h2>Therapist Profiles</h2>
+            <p>{filtered.length} of {therapists.length} team member{therapists.length === 1 ? "" : "s"}</p>
+          </div>
+        </div>
+      )}
 
       <div className={`mgr-profile-layout${selectedId ? " has-selection" : ""}`}>
         <aside className={`card mgr-profile-sidebar${mobileOpen ? " is-hidden-mobile" : ""}`}>
@@ -714,6 +758,36 @@ function TherapistProfilesTab() {
 export default function ManagerHub() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [hubStats, setHubStats] = useState({ therapists: 0, pending: 0, evaluations: 0 });
+
+  const setTab = (id) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", id);
+    setSearchParams(next, { replace: true });
+  };
+
+  useEffect(() => {
+    if (!canAccessManagerHub(user)) return;
+    const year = new Date().getFullYear();
+    Promise.all([
+      api.get("/therapists").catch(() => ({ data: [] })),
+      api.get("/requests", { params: { scope: "staff" } }).catch(() => ({ data: [] })),
+      api.get("/leaves", { params: { scope: "staff", year } }).catch(() => ({ data: [] })),
+      api.get("/hr/evaluation-calendar", { params: { year } }).catch(() => ({ data: null })),
+    ]).then(([tRes, rRes, lRes, calRes]) => {
+      const therapists = Array.isArray(tRes.data) ? tRes.data : [];
+      const requests = Array.isArray(rRes.data) ? rRes.data : [];
+      const leaves = Array.isArray(lRes.data) ? lRes.data : [];
+      const openStatuses = new Set(["pending", "pending_manager", "pending_hr", "pending_attachment", "in_progress"]);
+      const pendingReqs = requests.filter(r => openStatuses.has(r.status)).length;
+      const pendingLeaves = leaves.filter(l => openStatuses.has(l.status === "pending" ? "pending_manager" : l.status)).length;
+      setHubStats({
+        therapists: therapists.length,
+        pending: pendingReqs + pendingLeaves,
+        evaluations: calRes.data?.summary?.total ?? 0,
+      });
+    });
+  }, [user]);
 
   if (!canAccessManagerHub(user)) {
     return <Navigate to="/home" replace />;
@@ -728,44 +802,66 @@ export default function ManagerHub() {
       ? tabParam
       : "staff";
 
-  const setTab = (id) => {
-    const next = new URLSearchParams(searchParams);
-    next.set("tab", id);
-    setSearchParams(next, { replace: true });
-  };
+  const activeMeta = TAB_META[activeTab] || TAB_META.staff;
+  const headerStats = activeTab === "staff"
+    ? [
+        { label: "Pending", n: hubStats.pending, color: "#6B5218" },
+        { label: "Team", n: hubStats.therapists, color: "#3D4F35" },
+      ]
+    : activeTab === "balance"
+      ? [{ label: "Therapists", n: hubStats.therapists, color: "#3D4F35" }]
+      : activeTab === "profiles"
+        ? [{ label: "Team", n: hubStats.therapists, color: "#2C3625" }]
+        : [{ label: "This year", n: hubStats.evaluations, color: "#2C3625" }];
 
   return (
-    <div className="page-enter">
-      <PageBanner
+    <div className="page-enter manager-hub-page" dir="ltr">
+      <PortalPageHeader
+        prefix="mgr-hub"
+        badge="MANAGER HUB"
         title={adminPreview ? "Manager Hub (Jenan view)" : "Manager Hub"}
         subtitle={adminPreview
-          ? "Temporary admin preview — same queue Jenan uses for leave & staff requests"
-          : "All therapist requests in one queue · leave balances · profiles"}
-        badge={(
-          <Link to="/my-requests" className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0">
-            <FileText size={13}/> My Requests
+          ? `Admin preview — ${activeMeta.subtitle}`
+          : activeMeta.subtitle}
+        icon={Briefcase}
+        stats={headerStats}
+        tabs={MAIN_TABS.map(t => ({
+          id: t.id,
+          label: t.label,
+          testId: t.testid,
+          icon: t.icon,
+        }))}
+        activeTab={activeTab}
+        onTabChange={setTab}
+        toolbar={(
+          <Link to="/my-requests" className="btn btn-secondary text-sm">
+            <FileText size={16} weight="duotone" /> My Requests
           </Link>
         )}
       />
 
-      <div className="intake-tabs mb-4">
-        {MAIN_TABS.map(t => (
-          <button
-            key={t.id}
-            type="button"
-            data-testid={t.testid}
-            onClick={() => setTab(t.id)}
-            className={`intake-tab${activeTab === t.id ? " active" : ""}`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="mgr-hub-content">
+        {activeTab === "staff" && (
+          <section className="card mgr-hub-panel">
+            <Requests embedded managerView hubEmbedded />
+          </section>
+        )}
+        {activeTab === "balance" && (
+          <section className="card mgr-hub-panel">
+            <LeaveBalance embedded staffScope hubEmbedded />
+          </section>
+        )}
+        {activeTab === "profiles" && (
+          <section className="card mgr-hub-panel mgr-hub-panel--flush">
+            <TherapistProfilesTab embeddedInHub />
+          </section>
+        )}
+        {activeTab === "calendar" && (
+          <section className="card mgr-hub-panel mgr-hub-panel--flush">
+            <EvaluationCalendarTab embeddedInHub />
+          </section>
+        )}
       </div>
-
-      {activeTab === "staff" && <Requests embedded managerView />}
-      {activeTab === "balance" && <LeaveBalance embedded staffScope />}
-      {activeTab === "profiles" && <TherapistProfilesTab />}
-      {activeTab === "calendar" && <EvaluationCalendarTab />}
     </div>
   );
 }

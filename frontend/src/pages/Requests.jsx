@@ -77,6 +77,51 @@ function managerReviewInitialStatus(currentStatus) {
   return "pending_manager";
 }
 
+/** Read-only highlight for manager status tracking (non-reviewable items). */
+function managerTrackingStatusKey(status) {
+  if (status === "rejected") return "rejected";
+  if (status === "approved" || status === "done" || status === "pending_hr") return MANAGER_APPROVE_KEY;
+  return "pending_manager";
+}
+
+function ManagerStatusGrid({ activeKey, readOnly = false, onSelect }) {
+  return (
+    <div
+      className="grid grid-cols-3 gap-2 p-2 rounded-xl mb-3"
+      style={{ background: "#FAFAF7", border: "1px solid #E2DDD4" }}
+      role={readOnly ? "group" : "radiogroup"}
+      aria-label={readOnly ? "Request status" : "Manager decision"}
+    >
+      {managerReviewStatusOptions().map((k) => {
+        const v = MANAGER_REVIEW_STATUS_MAP[k];
+        const active = activeKey === k;
+        const Btn = readOnly ? "div" : "button";
+        return (
+          <Btn
+            key={k}
+            type={readOnly ? undefined : "button"}
+            role={readOnly ? undefined : "radio"}
+            aria-checked={readOnly ? undefined : active}
+            data-testid={readOnly ? `track-status-${k}` : `manager-decision-${k}`}
+            onClick={readOnly ? undefined : () => onSelect?.(k)}
+            className="flex flex-col items-center justify-center gap-1 rounded-lg py-3 px-2 text-sm font-semibold transition"
+            style={{
+              background: active ? "#E5EBE1" : "#F5F5F0",
+              color: active ? "#3D4F35" : "#5C6853",
+              border: active ? "2px solid #3D4F35" : "1px solid #E2DDD4",
+              boxShadow: active ? "0 1px 3px rgba(61,79,53,0.12)" : "none",
+              cursor: readOnly ? "default" : "pointer",
+            }}
+          >
+            <span style={{ color: active ? "#3D4F35" : "#8B9E7A" }}>{v.icon}</span>
+            {v.label}
+          </Btn>
+        );
+      })}
+    </div>
+  );
+}
+
 function resolveManagerSaveStatus(status) {
   if (status === MANAGER_APPROVE_KEY) {
     return "approved";
@@ -222,7 +267,7 @@ function emptyLeaveForm() {
   };
 }
 
-export default function Requests({ personal = false, embedded = false, managerView = false }) {
+export default function Requests({ personal = false, embedded = false, managerView = false, hubEmbedded = false }) {
   const { user } = useAuth();
   const canManageReq = !personal && canEditStaffRequests(user);
   const leaveHr = !personal && canManageLeaves(user);
@@ -482,7 +527,9 @@ export default function Requests({ personal = false, embedded = false, managerVi
       )}
 
       <div className={managerView ? "" : "req-split"}>
-        <section className={managerView ? "card requests-page-panel overflow-hidden" : "req-panel-left card requests-page-panel"}>
+        <section className={managerView
+          ? (hubEmbedded ? "mgr-hub-req-panel overflow-hidden" : "card requests-page-panel overflow-hidden")
+          : "req-panel-left card requests-page-panel"}>
           {!embedded && (
             <div className="requests-page-panel-head px-3 pt-3 sm:px-4">
               <ListChecks size={22} weight="duotone" className="shrink-0" />
@@ -494,34 +541,34 @@ export default function Requests({ personal = false, embedded = false, managerVi
           )}
 
           {embedded && (
-          <div className="req-leave-balance mx-3 mt-3">
-            <div className="requests-page-section-label">Request overview</div>
-            <div className="req-leave-stat-grid">
-              <div className="req-leave-stat-box">
-                <div className="req-leave-stat-val">{queueItems.length}</div>
-                <div className="req-leave-stat-lbl">Total</div>
+          <div className={hubEmbedded ? "mgr-hub-stat-overview" : "req-leave-balance mx-3 mt-3"}>
+            <div className={hubEmbedded ? "mgr-hub-section-label" : "requests-page-section-label"}>Request overview</div>
+            <div className={hubEmbedded ? "mgr-hub-stat-grid" : "req-leave-stat-grid"}>
+              <div className={hubEmbedded ? "mgr-hub-stat-box" : "req-leave-stat-box"}>
+                <div className={hubEmbedded ? "mgr-hub-stat-val" : "req-leave-stat-val"}>{queueItems.length}</div>
+                <div className={hubEmbedded ? "mgr-hub-stat-lbl" : "req-leave-stat-lbl"}>Total</div>
               </div>
-              <div className="req-leave-stat-box">
-                <div className="req-leave-stat-val">{pendingCount}</div>
-                <div className="req-leave-stat-lbl">Pending</div>
+              <div className={hubEmbedded ? "mgr-hub-stat-box" : "req-leave-stat-box"}>
+                <div className={hubEmbedded ? "mgr-hub-stat-val" : "req-leave-stat-val"}>{pendingCount}</div>
+                <div className={hubEmbedded ? "mgr-hub-stat-lbl" : "req-leave-stat-lbl"}>Pending</div>
               </div>
-              <div className="req-leave-stat-box">
-                <div className="req-leave-stat-val">{inProgressCount}</div>
-                <div className="req-leave-stat-lbl">In progress</div>
+              <div className={hubEmbedded ? "mgr-hub-stat-box" : "req-leave-stat-box"}>
+                <div className={hubEmbedded ? "mgr-hub-stat-val" : "req-leave-stat-val"}>{inProgressCount}</div>
+                <div className={hubEmbedded ? "mgr-hub-stat-lbl" : "req-leave-stat-lbl"}>In progress</div>
               </div>
-              <div className="req-leave-stat-box">
-                <div className="req-leave-stat-val">{doneCount}</div>
-                <div className="req-leave-stat-lbl">Done</div>
+              <div className={hubEmbedded ? "mgr-hub-stat-box" : "req-leave-stat-box"}>
+                <div className={hubEmbedded ? "mgr-hub-stat-val" : "req-leave-stat-val"}>{doneCount}</div>
+                <div className={hubEmbedded ? "mgr-hub-stat-lbl" : "req-leave-stat-lbl"}>Done</div>
               </div>
             </div>
           </div>
           )}
 
-          <div className="req-panel-head">
+          <div className={`req-panel-head${hubEmbedded ? " mgr-hub-req-filters" : ""}`}>
             {!embedded && (
               <div className="requests-page-section-label mb-2">Filter by status</div>
             )}
-            {embedded && (
+            {embedded && !hubEmbedded && (
               <>
                 <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>{staffLabel}</h2>
                 <p className="text-xs mt-1 mb-2" style={{ color: "var(--brand-sage)" }}>
@@ -529,13 +576,16 @@ export default function Requests({ personal = false, embedded = false, managerVi
                 </p>
               </>
             )}
+            {hubEmbedded && (
+              <div className="mgr-hub-section-label mb-2">Filter by status</div>
+            )}
             <div className="flex gap-1.5 flex-wrap">
-              <button onClick={() => setFilter("all")} className={`pill text-[10px] ${filter==="all" ? "bg-[var(--brand-sage)] text-white" : "bg-[#F0E9D8]"}`}>All ({queueItems.length})</button>
-              <button onClick={() => setFilter("pending")} className={`pill text-[10px] border ${filter==="pending" ? "bg-[var(--brand-sage)] text-white border-[var(--brand-sage)]" : STATUS_MAP.pending_manager.cls}`}>
+              <button onClick={() => setFilter("all")} className={`pill text-[10px] ${filter==="all" ? (hubEmbedded ? "mgr-hub-filter-active" : "bg-[var(--brand-sage)] text-white") : (hubEmbedded ? "mgr-hub-filter-idle" : "bg-[#F0E9D8]")}`}>All ({queueItems.length})</button>
+              <button onClick={() => setFilter("pending")} className={`pill text-[10px] border ${filter==="pending" ? (hubEmbedded ? "mgr-hub-filter-active" : "bg-[var(--brand-sage)] text-white border-[var(--brand-sage)]") : STATUS_MAP.pending_manager.cls}`}>
                 Pending ({pendingCount})
               </button>
               {["in_progress", "approved", "rejected", "done"].map(k => (
-                <button key={k} onClick={() => setFilter(k)} className={`pill text-[10px] border ${filter===k ? "bg-[var(--brand-sage)] text-white border-[var(--brand-sage)]" : STATUS_MAP[k].cls}`}>
+                <button key={k} onClick={() => setFilter(k)} className={`pill text-[10px] border ${filter===k ? (hubEmbedded ? "mgr-hub-filter-active" : "bg-[var(--brand-sage)] text-white border-[var(--brand-sage)]") : STATUS_MAP[k].cls}`}>
                   {STATUS_MAP[k].label} ({queueItems.filter(r => r.status === k).length})
                 </button>
               ))}
@@ -599,9 +649,9 @@ export default function Requests({ personal = false, embedded = false, managerVi
                             type="button"
                             data-testid={`review-request-${isLeave ? "leave" : "staff"}-${r.id}`}
                             onClick={() => openManagerReview(r)}
-                            className="btn btn-primary text-[11px] py-1.5 px-3"
+                            className={`btn text-[11px] py-1.5 px-3 ${isManagerReviewableItem(r) ? "btn-primary" : "btn-secondary"}`}
                           >
-                            <Eye size={13}/> Review
+                            <Eye size={13}/> {isManagerReviewableItem(r) ? "Review" : "View status"}
                           </button>
                         </td>
                       </tr>
@@ -972,7 +1022,11 @@ export default function Requests({ personal = false, embedded = false, managerVi
       {/* Update status / manager review */}
       {statusEdit && (
         <ModalBase
-          title={managerView ? "Review Request" : (statusEdit.title || "Update Request")}
+          title={
+            managerView
+              ? (statusEdit._managerReviewable ? "Review Request" : "Request Status")
+              : (statusEdit.title || "Update Request")
+          }
           subtitle={
             managerView
               ? statusEdit._queueKind === "leave"
@@ -1004,9 +1058,14 @@ export default function Requests({ personal = false, embedded = false, managerVi
               {!managerView && (
                 <p className="text-sm -mt-2 mb-2" style={{ color: "var(--text-secondary)" }}>The therapist will be auto-notified.</p>
               )}
-              {managerView && (
+              {managerView && statusEdit._managerReviewable && (
                 <p className="text-sm -mt-2 mb-2" style={{ color: "var(--text-secondary)" }}>
                   Choose Approve, Pending, or Reject. Optionally notify HR for follow-up or notify the therapist directly.
+                </p>
+              )}
+              {managerView && !statusEdit._managerReviewable && (
+                <p className="text-sm -mt-2 mb-2" style={{ color: "var(--text-secondary)" }}>
+                  Current decision status for this request. Further changes may be handled by HR.
                 </p>
               )}
               {queueItemAwaitingAttachment(statusEdit) && (
@@ -1139,40 +1198,35 @@ export default function Requests({ personal = false, embedded = false, managerVi
                 )}
               </FormSection>
 
+              {managerView && !statusEdit._managerReviewable && !queueItemAwaitingAttachment(statusEdit) && (
+                <FormSection title="Status">
+                  <ManagerStatusGrid
+                    readOnly
+                    activeKey={managerTrackingStatusKey(statusEdit.status)}
+                  />
+                  <div className="rounded-xl p-3 text-sm" style={{ background: "#F5F2ED", border: "1px solid #E2DDD4" }}>
+                    <div className="flex justify-between gap-2">
+                      <span style={{ color: "#9CA3AF" }}>Portal status</span>
+                      <strong style={{ color: "#2C3625" }}>
+                        {STATUS_MAP[statusEdit.status]?.label || statusEdit.status}
+                      </strong>
+                    </div>
+                    {statusEdit.status === "pending_hr" && (
+                      <div className="text-xs mt-2" style={{ color: "#6B5218" }}>
+                        Forwarded to HR — awaiting HR decision.
+                      </div>
+                    )}
+                  </div>
+                </FormSection>
+              )}
+
               {(!managerView || inManagerReviewMode && statusEdit._managerReviewable) && !queueItemAwaitingAttachment(statusEdit) && (
                 <FormSection title={inManagerReviewMode ? "Your decision" : "Status"}>
                   {inManagerReviewMode ? (
-                    <div
-                      className="grid grid-cols-3 gap-2 p-2 rounded-xl mb-3"
-                      style={{ background: "#FAFAF7", border: "1px solid #E2DDD4" }}
-                      role="radiogroup"
-                      aria-label="Manager decision"
-                    >
-                      {managerReviewStatusOptions().map(k => {
-                        const v = MANAGER_REVIEW_STATUS_MAP[k];
-                        const active = statusEdit.status === k;
-                        return (
-                          <button
-                            key={k}
-                            type="button"
-                            role="radio"
-                            aria-checked={active}
-                            data-testid={`manager-decision-${k}`}
-                            onClick={() => setStatusEdit({ ...statusEdit, status: k })}
-                            className="flex flex-col items-center justify-center gap-1 rounded-lg py-3 px-2 text-sm font-semibold transition"
-                            style={{
-                              background: active ? "#E5EBE1" : "#F5F5F0",
-                              color: active ? "#3D4F35" : "#5C6853",
-                              border: active ? "2px solid #3D4F35" : "1px solid #E2DDD4",
-                              boxShadow: active ? "0 1px 3px rgba(61,79,53,0.12)" : "none",
-                            }}
-                          >
-                            <span style={{ color: active ? "#3D4F35" : "#8B9E7A" }}>{v.icon}</span>
-                            {v.label}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <ManagerStatusGrid
+                      activeKey={statusEdit.status}
+                      onSelect={(k) => setStatusEdit({ ...statusEdit, status: k })}
+                    />
                   ) : (
                     <div className="grid grid-cols-1 gap-2">
                       {allowedStatusOptions(user, statusEdit.status).map(k => {
