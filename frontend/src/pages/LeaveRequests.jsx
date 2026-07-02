@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import api, { API, openAuthenticatedFile } from "../api";
-import { useAuth, showAdminNav, canManageLeaves, canHrReviewLeaves, isJenan } from "../auth";
+import { useAuth, showAdminNav, canManageLeaves, canHrReviewLeaves, isJenan, canDeleteStaffRequests } from "../auth";
 import {
   Plus, X, CheckCircle, XCircle, FilePdf, UploadSimple, Eye, Trash,
   UserMinus, MagnifyingGlass, Export, CaretDown, CaretRight, FileText, PencilSimple
@@ -135,6 +135,7 @@ function DocumentSection({ leave, isAdmin, onRefresh, canUpload }) {
 function LeaveRequestCard({
   leave, user, onRefresh, onEdit, therapists, personal = false,
   leaveManager = false, hrReview = false, portalAdmin = false, isManager = false,
+  canDelete = false,
 }) {
   const st = LEAVE_STATUS[leave.status] || LEAVE_STATUS.pending;
   const statusText = leaveStatusLabel(leave.status, personal);
@@ -176,6 +177,12 @@ function LeaveRequestCard({
     }
   };
 
+  const removeLeave = async () => {
+    if (!window.confirm("Delete this leave request? This cannot be undone.")) return;
+    await api.delete(`/leaves/${leave.id}`);
+    onRefresh();
+  };
+
   return (
     <div className="card p-5" data-testid={`leave-card-${leave.id}`}>
       <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
@@ -192,13 +199,27 @@ function LeaveRequestCard({
             </div>
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <span className="pill text-xs font-bold px-3 py-1" style={{ background: st.bg, color: st.color }}>
-            {st.icon} {statusText.toUpperCase()}
-          </span>
+        <div className="flex items-center gap-2">
+          {canDelete && (
+            <button
+              type="button"
+              data-testid={`delete-leave-${leave.id}`}
+              onClick={removeLeave}
+              className="btn btn-ghost p-1.5"
+              style={{ color: "#9A8A8A" }}
+              title="Delete leave request"
+            >
+              <Trash size={14} weight="regular" />
+            </button>
+          )}
+          <div className="flex flex-col items-end gap-1">
+            <span className="pill text-xs font-bold px-3 py-1" style={{ background: st.bg, color: st.color }}>
+              {st.icon} {statusText.toUpperCase()}
+            </span>
           {unpaidLabel && (
             <span className="pill text-[10px] font-bold px-2 py-0.5 bg-[#F8EBE7] text-[#8A3F27] border border-[#ECA6A6]">{unpaidLabel}</span>
           )}
+          </div>
         </div>
       </div>
 
@@ -422,7 +443,7 @@ function MarkAbsenceModal({ therapists, onClose, onDone }) {
   );
 }
 
-function HistoryTab({ leaves, therapists, isAdmin, onRefresh }) {
+function HistoryTab({ leaves, therapists, isAdmin, onRefresh, canDelete = false }) {
   const [filterTherapist, setFilterTherapist] = useState("");
   const [filterType, setFilterType] = useState("");
   const [filterMonth, setFilterMonth] = useState("");
@@ -448,6 +469,12 @@ function HistoryTab({ leaves, therapists, isAdmin, onRefresh }) {
     }
     return arr.sort((a, b) => String(b.start_date).localeCompare(String(a.start_date)));
   }, [leaves, filterTherapist, filterType, filterMonth, search]);
+
+  const removeLeave = async (id) => {
+    if (!window.confirm("Delete this leave request? This cannot be undone.")) return;
+    await api.delete(`/leaves/${id}`);
+    onRefresh();
+  };
 
   return (
     <div>
@@ -484,11 +511,12 @@ function HistoryTab({ leaves, therapists, isAdmin, onRefresh }) {
               <th className="p-3 text-left font-bold">Status</th>
               <th className="p-3 text-left font-bold">Document</th>
               <th className="p-3 text-left font-bold">Schedule Impact</th>
+              {canDelete && <th className="p-3 text-center font-bold w-12" />}
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 && (
-              <tr><td colSpan={7} className="p-12 text-center" style={{ color: "#8B9E7A" }}>No history records</td></tr>
+              <tr><td colSpan={canDelete ? 8 : 7} className="p-12 text-center" style={{ color: "#8B9E7A" }}>No history records</td></tr>
             )}
             {filtered.map(l => {
               const st = LEAVE_STATUS[l.status] || LEAVE_STATUS.pending;
@@ -523,6 +551,20 @@ function HistoryTab({ leaves, therapists, isAdmin, onRefresh }) {
                       </ul>
                     )}
                   </td>
+                  {canDelete && (
+                    <td className="p-3 text-center">
+                      <button
+                        type="button"
+                        data-testid={`delete-leave-history-${l.id}`}
+                        onClick={() => removeLeave(l.id)}
+                        className="btn btn-ghost p-1.5"
+                        style={{ color: "#9A8A8A" }}
+                        title="Delete leave request"
+                      >
+                        <Trash size={14} weight="regular" />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -630,6 +672,7 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
   const leaveManager = !personal && canManageLeaves(user);
   const hrReview = !personal && canHrReviewLeaves(user);
   const isManager = !personal && isJenan(user) && !portalAdmin;
+  const canDelete = !personal && canDeleteStaffRequests(user);
   const reviewerView = leaveManager || hrReview || isManager || portalAdmin;
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
@@ -848,13 +891,14 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
               hrReview={hrReview}
               portalAdmin={portalAdmin}
               isManager={isManager}
+              canDelete={canDelete}
             />
           ))}
         </div>
       )}
 
       {reviewerView && tab === "history" && !therapistProfileView && (
-        <HistoryTab leaves={leaves} therapists={therapists} isAdmin={leaveManager || portalAdmin} onRefresh={load} />
+        <HistoryTab leaves={leaves} therapists={therapists} isAdmin={leaveManager || portalAdmin} onRefresh={load} canDelete={canDelete} />
       )}
 
       {edit && (

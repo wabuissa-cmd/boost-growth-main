@@ -1,21 +1,31 @@
-// Per-child color map (matches Base44 SC_COLORS — by first name)
-export const CHILD_COLORS = {
-  "Abdularahman":"#D9EAD3","Abdulrahman":"#D9EAD3","Abdulaziz W":"#D5A6BD","Abdulaziz A":"#FCE5CD",
-  "Abdulaziz":"#D5A6BD","Abdulelah":"#D9D2E9","Aljoharah":"#B4A7D6","Aljouhrah":"#B4A7D6",
-  "Alwaleed":"#EA9999","Amani":"#A2C4C9","Ameirah":"#F4CCCC","Ameerah":"#F4CCCC",
-  "Fahad":"#A2C4C9","Ibrahim":"#D0E0E3","Khalid":"#FFF2CC","Lulu":"#D5A6BD",
-  "Mohammed Alaqel":"#E6B8AF","Mohammed":"#F9CB9C","Omar":"#B4A7D6",
-  "Saad":"#D9EAD3","Saleh":"#FFE599","Salman":"#B6D7A8","Sulaiman":"#FFE599",
-  "Sultan D":"#6FA8DC","Sultan":"#6D9EEB",
+// Themed schedule palettes (Boost Growth: beige/olive + calm variations).
+// These are intentionally low-saturation to reduce visual noise.
+export const SHIFT_CHILD_PALETTES = {
+  // Shift 1: beige/olive (morning)
+  1: ["#E9E2D6", "#E3DACB", "#DCD1BE", "#D3C8B2", "#C9BEA6", "#C2B89E"],
+  // Shift 2: sage/stone (midday)
+  2: ["#E6EFE7", "#DDE8DE", "#D2DFD4", "#C7D6CA", "#BDD0C1", "#B1C6B6"],
+  // Shift 3: sand/clay (late)
+  3: ["#F1E7DA", "#EADDCB", "#E3D2BA", "#DBC7A9", "#D2BC9B", "#CBB290"],
 };
 
-export function getChildColor(name) {
-  if (!name) return null;
-  const trimmed = name.trim();
-  if (CHILD_COLORS[trimmed]) return CHILD_COLORS[trimmed];
-  // fallback: first word
-  const first = trimmed.split(/\s+/)[0];
-  return CHILD_COLORS[first] || null;
+function hashString(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h) ^ s.charCodeAt(i);
+  return h >>> 0;
+}
+
+function normalizeNameKey(name) {
+  return (name || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+export function getChildColor(name, shift = 1) {
+  const key = normalizeNameKey(name);
+  if (!key) return null;
+  const sh = shift === 2 ? 2 : shift === 3 ? 3 : 1;
+  const palette = SHIFT_CHILD_PALETTES[sh] || SHIFT_CHILD_PALETTES[1];
+  const idx = hashString(key) % palette.length;
+  return palette[idx];
 }
 
 // Hex -> readable text color

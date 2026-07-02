@@ -83,11 +83,13 @@ function deepenHex(hex, factor = 0.82) {
 
 /** Legend colors — must match .evt-* in index.css */
 export const SERVICE_CELL_COLORS = {
-  SS: { background: "#E5EBE1", borderColor: "#B4C2A9", color: "#3D4F35" },
-  HS: { background: "#EAF0F3", borderColor: "#A4BCCB", color: "#375568" },
-  OS: { background: "#FAF0D1", borderColor: "#E6C983", color: "#6B5218" },
+  // Sessions (SS/HS/OS): unified base to reduce noise.
+  SS: { background: "#EEF2EA", borderColor: "#C9D4BE", color: "#2C3625" },
+  HS: { background: "#EEF2EA", borderColor: "#C9D4BE", color: "#2C3625" },
+  OS: { background: "#EEF2EA", borderColor: "#C9D4BE", color: "#2C3625" },
   MEETING: { background: "#F1ECF7", borderColor: "#C9B8DE", color: "#4E3F70" },
-  SUPERVISION: { background: "#E8F0E8", borderColor: "#A8C0A8", color: "#4A6B4A" },
+  // Supervision: distinct calm blue-gray.
+  SUPERVISION: { background: "#E7EEF6", borderColor: "#AFC3DB", color: "#2D4B6A" },
   OBSERVATION: { background: "#F4EDE3", borderColor: "#D5BFA0", color: "#6B5430" },
   AVC: { background: "#FFEAE0", borderColor: "#F0B89F", color: "#7A4123" },
   LEAVE: { background: "#D9EAD3", borderColor: "#B6D7A8", color: "#3D5C3A" },
@@ -112,13 +114,33 @@ export const SCHEDULE_COLOR_SWATCHES = [
   "#6FA8DC", "#E6B8AF", "#F9CB9C", "#CFE2F3",
 ];
 
-export function resolveClientScheduleColor(childName, clients = []) {
+function parseTimeSlotHour(timeSlot) {
+  const s = (timeSlot || "").trim();
+  const m = s.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
+  if (!m) return null;
+  let h = parseInt(m[1], 10);
+  const ampm = (m[3] || "").toUpperCase();
+  if (ampm === "PM" && h !== 12) h += 12;
+  if (ampm === "AM" && h === 12) h = 0;
+  return Number.isFinite(h) ? h : null;
+}
+
+function shiftForTimeSlot(timeSlot) {
+  const h = parseTimeSlotHour(timeSlot);
+  if (h === null) return 1;
+  // Shift bands are approximate; the goal is stable, pleasant palette variety.
+  if (h < 12) return 1;
+  if (h < 16) return 2;
+  return 3;
+}
+
+export function resolveClientScheduleColor(childName, clients = [], timeSlot = null) {
   if (!childName) return null;
   const trimmed = childName.trim();
   const client = clients.find(c => c.name === trimmed || trimmed.startsWith(c.name + " "));
   if (client?.schedule_color) return client.schedule_color;
   if (client?.color) return client.color;
-  return getChildColor(trimmed);
+  return getChildColor(trimmed, shiftForTimeSlot(timeSlot));
 }
 
 export function getCellStyle(cell, clients = []) {
@@ -141,7 +163,7 @@ export function getCellStyle(cell, clients = []) {
     if (s) return { ...s };
   }
   if (cell.child_name) {
-    const cc = resolveClientScheduleColor(cell.child_name, clients);
+    const cc = resolveClientScheduleColor(cell.child_name, clients, cell.time_slot);
     if (cc) {
       const bg = deepenHex(cc, 0.78);
       return { background: bg, borderColor: deepenHex(cc, 0.65), color: readable(bg) };
@@ -421,18 +443,28 @@ export function dedupeScheduleDisplayName(text) {
 /** Primary label shown inside a schedule grid cell (preserves full Excel text when stored in note). */
 export function scheduleCellDisplayLabel(cell, serviceShort) {
   if (!cell) return "";
+  const formatDualNames = (raw) => {
+    const s = (raw || "").trim();
+    if (!s) return s;
+    // Keep both names visible when the cell contains two children (e.g. "A / B" or "A/B").
+    if (s.includes("/")) {
+      const parts = s.split("/").map(p => dedupeScheduleDisplayName(p.trim())).filter(Boolean);
+      return parts.join(" / ");
+    }
+    return dedupeScheduleDisplayName(s);
+  };
   if (cell.note?.trim()) {
     const note = cell.note.trim();
     if (note.includes("|")) {
       const [head, ...rest] = note.split("|");
-      const namePart = dedupeScheduleDisplayName(rest.join("|").trim());
+      const namePart = formatDualNames(rest.join("|").trim());
       return namePart ? `${head.trim()} | ${namePart}` : head.trim();
     }
-    return dedupeScheduleDisplayName(note);
+    return formatDualNames(note);
   }
   const short = serviceShort || cell.service_code || "";
   if (cell.child_name?.trim()) {
-    return `${short} | ${dedupeScheduleDisplayName(cell.child_name.trim())}`;
+    return `${short} | ${formatDualNames(cell.child_name.trim())}`;
   }
   return short;
 }

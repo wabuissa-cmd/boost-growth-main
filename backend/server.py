@@ -962,6 +962,12 @@ def _is_jenan(user: dict) -> bool:
     return name.startswith("jenan")
 
 
+def _can_delete_staff_submission(user: dict, owner_id: str | None) -> bool:
+    if _is_portal_admin(user) or _is_walaa_ops(user) or _is_jenan(user):
+        return True
+    return bool(owner_id and owner_id == user.get("id"))
+
+
 async def leave_manager(user: dict = Depends(get_current_user)) -> dict:
     if _is_portal_admin(user) or _is_jenan(user):
         return user
@@ -1162,6 +1168,14 @@ class InvoicePaymentIn(BaseModel):
     installment_percent: Optional[float] = None
     next_payment_reminder_at: Optional[str] = None
     payment_notes: Optional[str] = None
+
+
+class InvoiceCalendarManualIn(BaseModel):
+    title: str
+    date: str  # ISO yyyy-mm-dd
+    client_id: Optional[str] = None
+    invoice_id: Optional[str] = None
+    notes: Optional[str] = None
 
 class ScheduleClosureIn(BaseModel):
     date: str   # ISO yyyy-mm-dd
@@ -6007,6 +6021,242 @@ async def billing_send_reminders(_=Depends(ops_or_admin)):
     """Manual trigger for payment reminder emails (also runs once daily via dashboard)."""
     result = await _process_payment_reminders(force=True)
     return result
+
+
+def _month_bounds(month: str) -> tuple[str, str]:
+    """(startISO, endISO) for YYYY-MM inclusive bounds."""
+    import calendar as _cal
+    try:
+        y, m = [int(x) for x in (month or "").split("-")[:2]]
+    except Exception:
+        raise HTTPException(status_code=400, detail="month must be YYYY-MM")
+    if m < 1 or m > 12:
+        raise HTTPException(status_code=400, detail="month must be YYYY-MM")
+    last_day = _cal.monthrange(y, m)[1]
+    start = f"{y:04d}-{m:02d}-01"
+    end = f"{y:04d}-{m:02d}-{last_day:02d}"
+    return start, end
+
+
+def _client_name_match(label: str, client_name: str) -> bool:
+    """Best-effort match schedule cell label to canonical client name."""
+    a = (label or "").strip().lower()
+    b = (client_name or "").strip().lower()
+    if not a or not b:
+        return False
+    if a == b or a.startswith(b + " "):
+        return True
+    af = a.split()[0] if a.split() else ""
+    bf = b.split()[0] if b.split() else ""
+    return len(bf) >= 3 and af == bf
+
+
+async def _weekly_planned_hours_from_schedule(client: dict, today_iso: str) -> float:
+    """Approx weekly planned hours from schedule_cells for current + next week."""
+    from datetime import date, timedelta
+    cname = (client or {}).get("name") or ""
+    if not cname:
+        return 0.0
+    try:
+        d = date.fromisoformat(today_iso[:10])
+    except Exception:
+        return 0.0
+    weeks = [
+        _normalize_week_start(d.isoformat()),
+        _normalize_week_start((d + timedelta(days=7)).isoformat()),
+    ]
+    total = 0.0
+    weeks_with_data = 0
+    for ws in weeks:
+        cells = await db.schedule_cells.find({"week_start": ws}, {"_id": 0}).to_list(5000)
+        if not cells:
+            continue
+        week_hours = 0.0
+        for cell in cells:
+            if cell.get("state") in ("cancel_child", "cancel_therapist", "available"):
+                continue
+            label = _schedule_cell_child_label(cell)
+            if not _client_name_match(label, cname):
+                continue
+            dur = float(cell.get("duration") or 0)
+            if dur > 0:
+                week_hours += dur
+        if week_hours > 0:
+            weeks_with_data += 1
+            total += week_hours
+    if weeks_with_data == 0:
+        return 0.0
+    return total / weeks_with_data
+
+
+async def _weekly_actual_hours_from_sessions(client_id: str, today_iso: str, lookback_days: int = 28) -> float:
+    """Avg completed-hours per week over lookback window."""
+    from datetime import date, timedelta
+    try:
+        today = date.fromisoformat(today_iso[:10])
+    except Exception:
+        return 0.0
+    start = (today - timedelta(days=lookback_days)).isoformat()
+    sess = await db.sessions.find(
+        {"client_id": client_id, "status": "Completed", "session_date": {"$gte": start}},
+        {"_id": 0, "hours": 1},
+    ).to_list(5000)
+    total = sum(float(s.get("hours") or 0) for s in sess)
+    weeks = max(1.0, lookback_days / 7.0)
+    return total / weeks
+
+
+async def _invoice_hours_used(inv: dict) -> float:
+    """Billable hours for HS invoice (Completed + Cancelled)."""
+    if not inv:
+        return 0.0
+    cid = inv.get("client_id")
+    if not cid:
+        return 0.0
+    sess = await db.sessions.find({"client_id": cid}, {"_id": 0}).to_list(20000)
+    used = 0.0
+    for s in sess:
+        if s.get("status") not in ("Completed", "Cancelled"):
+            continue
+        if not _session_linked_to_invoice(s, inv):
+            continue
+        used += float(s.get("hours") or 0)
+    return used
+
+
+@api.get("/billing/invoice-calendar")
+async def billing_invoice_calendar(month: str = Query(..., description="YYYY-MM"), user=Depends(ops_or_admin)):
+    """Forecast invoice end dates + include manual calendar entries."""
+    today = now_iso()[:10]
+    start, end = _month_bounds(month)
+    clients = await db.clients.find(_billing_active_client_filter(), {"_id": 0, "id": 1, "name": 1, "file_no": 1, "package_hours": 1}).to_list(800)
+    client_map = {c["id"]: c for c in clients if c.get("id")}
+    invoices = await db.invoices.find({"is_closed": {"$ne": True}}, {"_id": 0}).to_list(5000)
+
+    manual = await db.invoice_calendar_manual.find(
+        {"date": {"$gte": start, "$lte": end}},
+        {"_id": 0},
+    ).sort("date", 1).to_list(2000)
+
+    events: list = []
+    for m in manual:
+        events.append({**m, "kind": "manual"})
+
+    for inv in invoices:
+        cid = inv.get("client_id")
+        client = client_map.get(cid)
+        if not client:
+            continue
+        st = _normalize_service_type(inv.get("service_type"))
+        if st != "HS":
+            continue
+        predicted = (inv.get("period_to") or "")[:10] or None
+        source = "invoice.period_to" if predicted else "forecast"
+        pkg = float(inv.get("package_size") or client.get("package_hours") or 24)
+        used = await _invoice_hours_used(inv)
+        remaining = max(0.0, pkg - used)
+        weekly = 0.0
+        if not predicted:
+            planned = await _weekly_planned_hours_from_schedule(client, today)
+            actual = await _weekly_actual_hours_from_sessions(cid, today)
+            if planned > 0 and actual > 0:
+                weekly = planned * 0.6 + actual * 0.4
+            else:
+                weekly = planned or actual or 0.0
+            if weekly > 0 and remaining > 0:
+                from datetime import date, timedelta
+                weeks_needed = int((remaining + weekly - 1e-9) // weekly)  # floor
+                if remaining > weeks_needed * weekly:
+                    weeks_needed += 1
+                base = date.fromisoformat(today)
+                predicted = (base + timedelta(days=weeks_needed * 7)).isoformat()
+            elif remaining <= 0:
+                predicted = today
+        if not predicted:
+            continue
+        if predicted < start or predicted > end:
+            continue
+        events.append({
+            "id": f"forecast-{inv.get('id')}",
+            "kind": "forecast",
+            "date": predicted,
+            "due_date": predicted,
+            "source": source,
+            "client_id": cid,
+            "client_name": client.get("name"),
+            "file_no": client.get("file_no"),
+            "invoice_id": inv.get("id"),
+            "invoice_number": inv.get("invoice_number"),
+            "package_size": pkg,
+            "hours_used": round(used, 2),
+            "hours_remaining": round(remaining, 2),
+            "weekly_hours": round(weekly, 2) if weekly else None,
+        })
+
+    events.sort(key=lambda e: ((e.get("date") or ""), (e.get("client_name") or ""), (e.get("title") or "")))
+    return {"month": month, "start": start, "end": end, "events": events}
+
+
+@api.get("/billing/invoice-calendar/manual")
+async def list_invoice_calendar_manual(month: str = Query(..., description="YYYY-MM"), user=Depends(ops_or_admin)):
+    start, end = _month_bounds(month)
+    items = await db.invoice_calendar_manual.find(
+        {"date": {"$gte": start, "$lte": end}},
+        {"_id": 0},
+    ).sort("date", 1).to_list(2000)
+    return items
+
+
+@api.post("/billing/invoice-calendar/manual")
+async def create_invoice_calendar_manual(body: InvoiceCalendarManualIn, user=Depends(ops_or_admin)):
+    date_key = (body.date or "")[:10]
+    if not date_key or len(date_key) != 10:
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+    title = (body.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "title": title,
+        "date": date_key,
+        "client_id": body.client_id,
+        "invoice_id": body.invoice_id,
+        "notes": (body.notes or "").strip() or None,
+        "created_at": now_iso(),
+        "created_by": user.get("id"),
+    }
+    await db.invoice_calendar_manual.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/billing/invoice-calendar/manual/{mid}")
+async def update_invoice_calendar_manual(mid: str, body: InvoiceCalendarManualIn, user=Depends(ops_or_admin)):
+    existing = await db.invoice_calendar_manual.find_one({"id": mid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Manual entry not found")
+    date_key = (body.date or existing.get("date") or "")[:10]
+    title = (body.title or existing.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+    patch = {
+        "title": title,
+        "date": date_key,
+        "client_id": body.client_id,
+        "invoice_id": body.invoice_id,
+        "notes": (body.notes or "").strip() or None,
+        "updated_at": now_iso(),
+        "updated_by": user.get("id"),
+    }
+    await db.invoice_calendar_manual.update_one({"id": mid}, {"$set": patch})
+    updated = await db.invoice_calendar_manual.find_one({"id": mid}, {"_id": 0})
+    return updated
+
+
+@api.delete("/billing/invoice-calendar/manual/{mid}")
+async def delete_invoice_calendar_manual(mid: str, user=Depends(ops_or_admin)):
+    await db.invoice_calendar_manual.delete_one({"id": mid})
+    return {"ok": True}
 
 # ------------------- Package status (last open invoice) -------------------
 def _invoice_num_key(inv: dict) -> int:
@@ -11002,7 +11252,7 @@ async def delete_request(rid: str, user=Depends(get_current_user)):
     req = await db.requests.find_one({"id": rid})
     if not req:
         return {"ok": True}
-    if not _is_portal_admin(user) and req.get("therapist_id") != user["id"]:
+    if not _can_delete_staff_submission(user, req.get("therapist_id")):
         raise HTTPException(status_code=403, detail="Forbidden")
     await db.requests.delete_one({"id": rid})
     return {"ok": True}
@@ -12142,7 +12392,7 @@ async def delete_leave(lid: str, user=Depends(get_current_user)):
     leave = await db.leaves.find_one({"id": lid})
     if not leave:
         return {"ok": True}
-    if user.get("role") != "admin" and leave.get("therapist_id") != user["id"]:
+    if not _can_delete_staff_submission(user, leave.get("therapist_id")):
         raise HTTPException(status_code=403, detail="Forbidden")
     await db.leaves.delete_one({"id": lid})
     return {"ok": True}
@@ -12319,6 +12569,215 @@ async def admin_clear_all_leaves(_=Depends(admin_only)):
     """Delete ALL leave records (test data cleanup)."""
     result = await db.leaves.delete_many({})
     return {"deleted": result.deleted_count, "message": f"Deleted {result.deleted_count} leave records"}
+
+
+ONE_TIME_LEAVE_DELETE_TARGETS = {
+    "hajar": {
+        "meta_key": "one_time_leave_delete_hajar_v1",
+        "email": "halfulaij@boostgrowthsa.com",
+        "key": "msHajer",
+        "therapist_id": "1eee3003-46e2-4051-a18a-ad76827f6d67",
+        "label": "Ms. Hajar",
+    },
+    "razan": {
+        "meta_key": "one_time_leave_delete_razan_v1",
+        "email": "ralshatery@boostgrowthsa.com",
+        "key": "msRazan",
+        "therapist_id": "2832a061-2e3b-4a91-af66-8b5ec6ff00d4",
+        "label": "Ms. Razan",
+    },
+}
+
+
+async def _one_time_leave_delete_target(target: str) -> dict:
+    cfg = ONE_TIME_LEAVE_DELETE_TARGETS.get((target or "").strip().lower())
+    if not cfg:
+        raise HTTPException(status_code=404, detail="Unknown target")
+    return cfg
+
+
+async def _resolve_one_time_leave_therapist(cfg: dict) -> Optional[dict]:
+    therapist = await db.therapists.find_one(
+        {"id": cfg["therapist_id"]},
+        {"_id": 0, "pin_hash": 0, "password_hash": 0},
+    )
+    if not therapist:
+        therapist = await db.therapists.find_one(
+            {"$or": [{"email": cfg["email"]}, {"key": cfg["key"]}]},
+            {"_id": 0, "pin_hash": 0, "password_hash": 0},
+        )
+    return therapist
+
+
+async def _latest_leave_for_therapist(therapist_id: str) -> Optional[dict]:
+    items = await db.leaves.find(
+        {"therapist_id": therapist_id},
+        {"_id": 0, "document_file_data": 0},
+    ).sort([("created_at", -1), ("start_date", -1)]).to_list(1)
+    return items[0] if items else None
+
+
+async def _restore_leave_balance_if_needed(leave: dict) -> Optional[float]:
+    if not leave or not leave.get("therapist_id"):
+        return None
+    status = _normalize_leave_status(leave.get("status"))
+    if status not in ("approved", "done"):
+        return None
+    lt = (leave.get("leave_type") or "").lower()
+    is_paid = leave.get("is_paid", True)
+    if not is_paid or lt in ("unpaid", "absence"):
+        return None
+    t = await db.therapists.find_one({"id": leave["therapist_id"]}, {"_id": 0, "leave_balance": 1})
+    if t is None or t.get("leave_balance") is None:
+        return None
+    days = float(leave.get("days") or 0)
+    if days <= 0:
+        return None
+    new_bal = float(t["leave_balance"]) + days
+    await db.therapists.update_one(
+        {"id": leave["therapist_id"]},
+        {"$set": {"leave_balance": new_bal}},
+    )
+    return new_bal
+
+
+async def _one_time_leave_delete_status_block(target: str) -> dict:
+    cfg = await _one_time_leave_delete_target(target)
+    meta = await db.meta.find_one({"key": cfg["meta_key"]}, {"_id": 0})
+    consumed = bool(meta)
+    therapist = await _resolve_one_time_leave_therapist(cfg)
+    latest = None
+    if therapist:
+        leave = await _latest_leave_for_therapist(therapist["id"])
+        if leave:
+            latest = _enrich_leave_document_url(leave)
+            latest["therapist_name"] = therapist_schedule_display_name(therapist)
+            latest["therapist_email"] = therapist.get("email")
+    return {
+        "target": target,
+        "label": cfg["label"],
+        "consumed": consumed,
+        "available": not consumed,
+        "therapist": {
+            "id": therapist.get("id") if therapist else cfg.get("therapist_id"),
+            "name": therapist_schedule_display_name(therapist) if therapist else cfg["label"],
+            "email": (therapist or {}).get("email") or cfg["email"],
+        } if therapist or cfg.get("therapist_id") else None,
+        "latest_leave": latest,
+        "meta": meta,
+    }
+
+
+class OneTimeLeaveDeleteConfirmIn(BaseModel):
+    confirm: str
+
+
+@api.get("/admin/leaves-audit")
+async def admin_leaves_audit(q: str = Query(...), _=Depends(admin_only)):
+    """List leave rows for therapists matching name/email/key fragment."""
+    regex = {"$regex": (q or "").strip() or ".", "$options": "i"}
+    therapists = await db.therapists.find(
+        {"$or": [{"name": regex}, {"email": regex}, {"key": regex}]},
+        {"_id": 0, "pin_hash": 0, "password_hash": 0},
+    ).sort("name", 1).to_list(50)
+    blocks = []
+    for t in therapists:
+        t = await _ensure_contract_balance(t)
+        start, end = _contract_period_bounds(t)
+        leaves = await db.leaves.find(
+            {"therapist_id": t["id"]}, {"_id": 0, "document_file_data": 0},
+        ).sort("start_date", -1).to_list(500)
+        blocks.append({
+            "therapist": {
+                "id": t["id"],
+                "name": therapist_schedule_display_name(t),
+                "email": t.get("email"),
+                "leave_balance": t.get("leave_balance"),
+                "contract_period_start": start,
+                "contract_period_end": end,
+            },
+            "leaves_total": len(leaves),
+            "leaves_open": sum(
+                1 for l in leaves if _normalize_leave_status(l.get("status")) in OPEN_LEAVE_STATUSES
+            ),
+            "leaves": [
+                {
+                    "id": l.get("id"),
+                    "start_date": l.get("start_date"),
+                    "end_date": l.get("end_date"),
+                    "days": l.get("days"),
+                    "leave_type": l.get("leave_type"),
+                    "status": l.get("status"),
+                    "created_at": l.get("created_at"),
+                    "in_current_contract": start <= (l.get("start_date") or "") <= end,
+                }
+                for l in leaves
+            ],
+        })
+    return {"therapists": blocks, "query": q}
+
+
+@api.get("/admin/one-time-leave-deletes")
+async def admin_one_time_leave_deletes_status(_=Depends(admin_only)):
+    hajar = await _one_time_leave_delete_status_block("hajar")
+    razan = await _one_time_leave_delete_status_block("razan")
+    return {"targets": {"hajar": hajar, "razan": razan}}
+
+
+@api.post("/admin/one-time-leave-deletes/{target}/delete")
+async def admin_one_time_leave_delete(target: str, body: OneTimeLeaveDeleteConfirmIn, user=Depends(admin_only)):
+    if body.confirm != "DELETE":
+        raise HTTPException(status_code=400, detail='Type "DELETE" to confirm')
+    cfg = await _one_time_leave_delete_target(target)
+    existing = await db.meta.find_one({"key": cfg["meta_key"]}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=403, detail=f"One-time delete for {cfg['label']} has already been used")
+    therapist = await _resolve_one_time_leave_therapist(cfg)
+    if not therapist:
+        raise HTTPException(status_code=404, detail=f"Therapist not found for {cfg['label']}")
+    leave = await _latest_leave_for_therapist(therapist["id"])
+    if not leave:
+        raise HTTPException(status_code=404, detail=f"No leave found for {cfg['label']}")
+    restored_balance = await _restore_leave_balance_if_needed(leave)
+    if leave.get("document_file_path"):
+        fp = UPLOAD_DIR / leave["document_file_path"]
+        if fp.exists():
+            fp.unlink()
+    result = await db.leaves.delete_one({"id": leave["id"]})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Leave not found")
+    therapist_name = therapist_schedule_display_name(therapist)
+    await db.meta.update_one(
+        {"key": cfg["meta_key"]},
+        {"$set": {
+            "key": cfg["meta_key"],
+            "target": target,
+            "used_at": now_iso(),
+            "used_by": _actor_display(user),
+            "used_by_id": user.get("id"),
+            "leave_id": leave.get("id"),
+            "therapist_id": therapist.get("id"),
+            "therapist_name": therapist_name,
+            "therapist_email": therapist.get("email"),
+            "leave_type": leave.get("leave_type"),
+            "start_date": leave.get("start_date"),
+            "end_date": leave.get("end_date"),
+            "days": leave.get("days"),
+            "status": leave.get("status"),
+            "created_at": leave.get("created_at"),
+            "balance_restored_to": restored_balance,
+        }},
+        upsert=True,
+    )
+    return {
+        "ok": True,
+        "target": target,
+        "deleted_leave_id": leave.get("id"),
+        "therapist_name": therapist_name,
+        "balance_restored_to": restored_balance,
+        "message": f"Deleted latest leave for {therapist_name}",
+        "status": await _one_time_leave_delete_status_block(target),
+    }
 
 
 PROGRESS_REPORT_DRIVE_URLS = {

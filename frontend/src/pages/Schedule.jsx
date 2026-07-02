@@ -163,6 +163,11 @@ export default function Schedule() {
   const [isScheduleTablet, setIsScheduleTablet] = useState(
     () => typeof window !== "undefined" && window.innerWidth > SCHEDULE_MOBILE_BP && window.innerWidth <= SCHEDULE_TABLET_BP,
   );
+  const [mobileScheduleMode, setMobileScheduleMode] = useState(
+    () => (typeof window !== "undefined" && window.innerWidth <= SCHEDULE_MOBILE_BP ? "list" : "grid"),
+  );
+  const [mobileTherapistId, setMobileTherapistId] = useState("");
+  const [mobileDayIdx, setMobileDayIdx] = useState(0);
   const [weekStart, setWeekStart] = useState(startOfWeek(new Date()));
   const [cells, setCells] = useState([]);
   const [therapists, setTherapists] = useState([]);
@@ -247,6 +252,10 @@ export default function Schedule() {
       setIsScheduleNarrow(mqNarrow.matches);
       setIsScheduleTablet(mqTablet.matches);
       if (mqNarrow.matches) setView((v) => (v === "sheet" ? "blocks" : v));
+      setMobileScheduleMode((m) => {
+        if (!mqNarrow.matches) return "grid";
+        return m === "grid" ? "grid" : "list";
+      });
     };
     sync();
     mqNarrow.addEventListener("change", sync);
@@ -696,6 +705,135 @@ export default function Schedule() {
   const selfTherapist = useMemo(
     () => resolveSelfTherapist(user, therapists),
     [user, therapists]
+  );
+
+  // Mobile list defaults: show "my therapist" when possible, else first visible.
+  useEffect(() => {
+    if (!isScheduleNarrow) return;
+    setMobileTherapistId((prev) => {
+      if (prev && visibleTherapists.some((t) => t.id === prev)) return prev;
+      if (selfTherapist?.id && visibleTherapists.some((t) => t.id === selfTherapist.id)) return selfTherapist.id;
+      return visibleTherapists[0]?.id || "";
+    });
+  }, [isScheduleNarrow, visibleTherapists, selfTherapist?.id]);
+
+  const mobileTherapist = useMemo(
+    () => visibleTherapists.find((t) => t.id === mobileTherapistId) || null,
+    [visibleTherapists, mobileTherapistId],
+  );
+
+  const mobileDayISO = useMemo(
+    () => toISODate(addDays(weekStart, mobileDayIdx)),
+    [weekStart, mobileDayIdx],
+  );
+
+  const mobileDayCells = useMemo(() => {
+    if (!mobileTherapistId) return [];
+    const list = cells
+      .filter((c) => c.therapist_id === mobileTherapistId && Number(c.day) === Number(mobileDayIdx))
+      .sort((a, b) => slotIndex((a.time_slot || "").trim(), TIME_SLOTS) - slotIndex((b.time_slot || "").trim(), TIME_SLOTS));
+    // De-duplicate covered slots (keep the "start" cell only).
+    const starts = new Set(list.map((c) => (c.time_slot || "").trim()));
+    return list.filter((c) => starts.has((c.time_slot || "").trim()));
+  }, [cells, mobileTherapistId, mobileDayIdx]);
+
+  const renderMobileList = () => (
+    <div className="no-print p-3 sm:p-4 space-y-3" data-testid="schedule-mobile-list">
+      <div className="card p-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="inline-flex rounded-xl border border-[#E2DDD4] bg-[#FAFAF7] p-1 gap-1">
+            <button
+              type="button"
+              className={`btn text-[11px] px-2 py-1 min-h-0 ${mobileScheduleMode === "grid" ? "btn-primary" : "btn-outline"}`}
+              onClick={() => setMobileScheduleMode("grid")}
+              data-testid="mobile-mode-grid"
+            >
+              Grid
+            </button>
+            <button
+              type="button"
+              className={`btn text-[11px] px-2 py-1 min-h-0 ${mobileScheduleMode === "list" ? "btn-primary" : "btn-outline"}`}
+              onClick={() => setMobileScheduleMode("list")}
+              data-testid="mobile-mode-list"
+            >
+              List
+            </button>
+          </div>
+
+          <select
+            className="input text-[11px] py-1 px-2 min-h-0 h-8 flex-1 min-w-[160px]"
+            value={mobileTherapistId}
+            onChange={(e) => setMobileTherapistId(e.target.value)}
+            data-testid="mobile-therapist-select"
+          >
+            {visibleTherapists.map((t) => (
+              <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>
+            ))}
+          </select>
+
+          <select
+            className="input text-[11px] py-1 px-2 min-h-0 h-8"
+            value={mobileDayIdx}
+            onChange={(e) => setMobileDayIdx(parseInt(e.target.value, 10) || 0)}
+            data-testid="mobile-day-select"
+          >
+            {DAYS_EN.map((d, i) => (
+              <option key={d} value={i}>{d} · {addDays(weekStart, i).getDate()}/{addDays(weekStart, i).getMonth() + 1}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="mt-2 text-[10px]" style={{ color: "var(--text-muted)" }}>
+          {mobileTherapist ? `${getTherapistScheduleName(mobileTherapist)} · ${DAYS_EN[mobileDayIdx]} (${mobileDayISO})` : "Pick a therapist and day"}
+        </div>
+      </div>
+
+      {mobileDayCells.length === 0 ? (
+        <div className="card p-4 text-sm" style={{ color: "var(--text-muted)" }}>
+          لا توجد جلسات لهذا اليوم.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {mobileDayCells.map((cell) => {
+            const sc = SERVICE_CODES.find((s) => s.id === cell?.service_code);
+            const label = cell.state === "available" || cell.service_code === "AVAILABLE"
+              ? "Available"
+              : scheduleCellDisplayLabel(cell, sc?.short);
+            const st = getCellStyle(cell, clients);
+            const isCancelT = cell.state === "cancel_therapist";
+            const isCancelC = cell.state === "cancel_child";
+            const badge = isCancelT ? "Therapist cancel" : isCancelC ? "Client cancel" : cell.service_code === "SUPERVISION" ? "Supervision" : sc?.short || cell.service_code;
+            return (
+              <button
+                key={cell.id || `${cell.therapist_id}_${cell.day}_${cell.time_slot}`}
+                type="button"
+                className="w-full text-left card p-3 border-2"
+                style={{
+                  borderColor: st.borderColor || "#E2DDD4",
+                  background: st.background || "#FFFFFF",
+                  color: st.color || "#2C3625",
+                }}
+                onClick={(e) => handleCellClick(e, cell.therapist_id, cell.day, cell.time_slot, cell)}
+                data-testid={`mobile-cell-${cell.therapist_id}-${cell.day}-${cell.time_slot}`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[12px] font-extrabold">{formatSlotHeader((cell.time_slot || "").trim())}</div>
+                  <span className="pill text-[10px] px-2 py-0.5 font-bold" style={{ background: "rgba(255,255,255,0.55)", border: "1px solid rgba(0,0,0,0.10)" }}>
+                    {badge}
+                  </span>
+                </div>
+                <div className="mt-1 text-[12px] font-bold leading-snug">
+                  {label}
+                </div>
+                {cell.custom_time && (
+                  <div className="mt-0.5 text-[10px] opacity-80">({cell.custom_time})</div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 
   const canEditRow = useCallback(
@@ -1845,12 +1983,35 @@ export default function Schedule() {
         {view === "sheet" && renderSheet()}
         {view === "blocks" && (
           <div className="space-y-4 p-3 sm:p-4">
+            {isScheduleNarrow && mobileScheduleMode === "list" && renderMobileList()}
+            {(!isScheduleNarrow || mobileScheduleMode === "grid") && isScheduleNarrow && (
+              <div className="no-print -mt-1">
+                <div className="inline-flex rounded-xl border border-[#E2DDD4] bg-[#FAFAF7] p-1 gap-1">
+                  <button
+                    type="button"
+                    className={`btn text-[11px] px-2 py-1 min-h-0 ${mobileScheduleMode === "grid" ? "btn-primary" : "btn-outline"}`}
+                    onClick={() => setMobileScheduleMode("grid")}
+                    data-testid="mobile-mode-grid-top"
+                  >
+                    Grid
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn text-[11px] px-2 py-1 min-h-0 ${mobileScheduleMode === "list" ? "btn-primary" : "btn-outline"}`}
+                    onClick={() => setMobileScheduleMode("list")}
+                    data-testid="mobile-mode-list-top"
+                  >
+                    List
+                  </button>
+                </div>
+              </div>
+            )}
             {blocksTherapists.length === 0 && (
               <div className="schedule-page-empty" style={{ padding: "2rem 1rem" }}>
                 <p className="schedule-page-empty-text m-0">No therapists found for this view.</p>
               </div>
             )}
-            {blocksTherapists.map((t, i) => renderTherapistBlock(t, i))}
+            {(!isScheduleNarrow || mobileScheduleMode === "grid") && blocksTherapists.map((t, i) => renderTherapistBlock(t, i))}
           </div>
         )}
         </div>

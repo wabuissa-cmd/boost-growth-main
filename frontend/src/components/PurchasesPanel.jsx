@@ -41,7 +41,7 @@ function fmtDate(iso) {
   return d.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
 }
 
-export default function PurchasesPanel({ compact = true }) {
+export default function PurchasesPanel({ compact = true, onSubmitted }) {
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
   const [open, setOpen] = useState(false);
@@ -117,6 +117,7 @@ export default function PurchasesPanel({ compact = true }) {
       }
       setOpen(false);
       setForm(emptyForm());
+      onSubmitted?.();
       load();
     } catch (e) {
       alert(formatErr(e.response?.data?.detail) || e.message);
@@ -191,8 +192,10 @@ export default function PurchasesPanel({ compact = true }) {
         <ModalBase
           title="Log Purchase"
           subtitle="Record a work-related purchase for reimbursement"
-          onClose={() => { setOpen(false); setForm(emptyForm()); }}
+          onClose={submitting ? () => {} : () => { setOpen(false); setForm(emptyForm()); }}
           size="md"
+          mobileCompact
+          compact
           footer={(
             <>
               <ModalBtnSecondary type="button" onClick={() => { setOpen(false); setForm(emptyForm()); }}>Cancel</ModalBtnSecondary>

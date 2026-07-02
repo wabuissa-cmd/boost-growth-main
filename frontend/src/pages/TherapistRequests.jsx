@@ -13,6 +13,11 @@ import {
 import RequestsPageHeader from "../components/RequestsPageHeader";
 import PurchasesPanel from "../components/PurchasesPanel";
 import VerticalStepper from "../components/VerticalStepper";
+import {
+  PortalSuccessToast,
+  usePortalSuccessToast,
+  submitSuccessMessage,
+} from "../components/PortalSuccessToast";
 import "../clientInfoLayout.css";
 import "../stepperLayout.css";
 import {
@@ -226,6 +231,7 @@ export default function TherapistRequests() {
   const [pageError, setPageError] = useState(null);
   const [form, setForm] = useState(() => emptyForm(null));
   const [submitting, setSubmitting] = useState(false);
+  const { successMessage, showSuccess, dismissSuccess } = usePortalSuccessToast();
   const [showModal, setShowModal] = useState(false);
   const [modalStep, setModalStep] = useState(1);
   const [statusView, setStatusView] = useState(null);
@@ -424,6 +430,7 @@ export default function TherapistRequests() {
           extra_notes: form.notes || null,
         });
       }
+      showSuccess(submitSuccessMessage(type));
       setForm(emptyForm(user?.id));
       setModalStep(1);
       setShowModal(false);
@@ -512,7 +519,7 @@ export default function TherapistRequests() {
       <div className={`req-split req-split--payment-left${hidePurchases ? " req-split--no-sidebar" : ""}`}>
         {!hidePurchases && (
           <aside className="req-sidebar-stack req-sidebar-stack--payment" aria-label="Payment requests">
-            <PurchasesPanel compact />
+            <PurchasesPanel compact onSubmitted={() => showSuccess(submitSuccessMessage("purchase"))} />
           </aside>
         )}
 
@@ -632,11 +639,13 @@ export default function TherapistRequests() {
 
       {showModal && (
         <ModalBase
+          className="req-wizard-modal"
           title="New Request"
           subtitle={modalStep === 1 ? "Step 1 of 2 · Choose request type" : `Step 2 of 2 · ${selectedMeta?.label || "Details"}`}
-          onClose={closeModal}
+          onClose={submitting ? () => {} : closeModal}
           size="lg"
           compact
+          mobileCompact
           shellClassName="req-wizard-modal-shell"
           bodyClassName="req-new-request-modal-body req-wizard-modal-body"
           footer={(
@@ -1021,6 +1030,8 @@ export default function TherapistRequests() {
           </FormSection>
         </ModalBase>
       )}
+
+      <PortalSuccessToast message={successMessage} onDismiss={dismissSuccess} />
     </div>
   );
 }

@@ -206,6 +206,12 @@ export function canEditStaffRequests(user) {
   return isJenan(user) || isHrOps(user);
 }
 
+/** Delete individual leave / staff requests (Walaa ops, portal admin, Jenan) */
+export function canDeleteStaffRequests(user) {
+  if (!user) return false;
+  return showSystemAdmin(user) || isJenan(user);
+}
+
 export function canEditIntake(user) {
   if (!user) return false;
   if (user.can_edit_intake) return true;

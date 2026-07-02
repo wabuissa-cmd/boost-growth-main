@@ -7,6 +7,7 @@ import { HistoryModal } from "./Attendance";
 import PageBanner from "../components/PageBanner";
 import BillingProgressStrip from "../components/BillingProgressStrip";
 import InvoiceEditModal from "../components/InvoiceEditModal";
+import InvoiceCalendarTab from "../components/InvoiceCalendarTab";
 import "../clientInfoLayout.css";
 import { formatMoney, effectivePaymentStatus, paymentStatusLabel, paymentStatusStyle } from "../billingUtils";
 import { formatServiceTypeDisplay } from "../attendanceUtils";
@@ -94,6 +95,7 @@ export default function Billing() {
   const isAdmin = showAdminNav(user);
   const canEditInvoice = hasOpsAccess(user);
   const [params, setParams] = useSearchParams();
+  const activeTab = params.get("tab") || "overview";
   const deepClientId = params.get("client");
   const deepService = params.get("service");
   const deepNewInvoice = params.get("newInvoice") === "1";
@@ -127,6 +129,13 @@ export default function Billing() {
   }, [loadSupport]);
 
   useEffect(() => { load(); }, [load]);
+
+  const setTab = (tab) => {
+    const next = new URLSearchParams(params);
+    if (tab && tab !== "overview") next.set("tab", tab);
+    else next.delete("tab");
+    setParams(next, { replace: true });
+  };
 
   useEffect(() => {
     if (deepClientId) setSelectedClientId(deepClientId);
@@ -313,6 +322,28 @@ export default function Billing() {
         {attentionPanel}
       </div>
 
+      <div className="mb-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setTab("overview")}
+          className={`btn ${activeTab === "overview" ? "btn-primary" : "btn-secondary"} text-xs`}
+          data-testid="billing-tab-overview"
+        >
+          Payments
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("calendar")}
+          className={`btn ${activeTab === "calendar" ? "btn-primary" : "btn-secondary"} text-xs`}
+          data-testid="billing-tab-calendar"
+        >
+          Invoice Calendar
+        </button>
+      </div>
+
+      {activeTab === "calendar" ? (
+        <InvoiceCalendarTab />
+      ) : (
       <div className="flex flex-col gap-3 min-w-0">
           <div className="card p-4">
             <label className="label block mb-2 text-xs font-bold tracking-wide" style={{ color: "#5C6853" }}>
@@ -459,6 +490,7 @@ export default function Billing() {
             </div>
           )}
       </div>
+      )}
 
       {editRow && (
         <InvoiceEditModal
