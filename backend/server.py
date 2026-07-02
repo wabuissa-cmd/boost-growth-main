@@ -14885,6 +14885,7 @@ THERAPIST_SEED = [
     {"name": "Ms. Abeer", "color": "#8B7BA8", "email": "abeer@boostgrowthsa.com"},
     {"name": "Ms. Najla", "color": "#7BA890", "email": "najla@boostgrowthsa.com"},
     {"name": "Ms. Asma", "color": "#6A7F9B", "email": "asma@boostgrowthsa.com"},
+    {"name": "Ms. Jenan", "color": "#7A8A6A", "email": "jsalmuhaisin@boostgrowthsa.com"},
 ]
 
 CLIENT_SEED = [
@@ -15066,11 +15067,14 @@ CENTER_UPDATES_SEED = [
 
 OPS_THERAPIST_RECORDS = [
     {"key": "msWalaa", "name": "Ms. Walaa", "email": "wabuissa@boostgrowthsa.com", "role": "operations"},
+    {"key": "msJenan", "name": "Ms. Jenan", "email": "jsalmuhaisin@boostgrowthsa.com", "role": "therapist"},
+    {"key": "msMaha", "name": "Ms. Maha", "email": "msalthunayan@boostgrowthsa.com", "role": "therapist"},
+    {"key": "msFahda", "name": "Ms. Fahda", "email": "falghadeeb@boostgrowthsa.com", "role": "therapist"},
 ]
 
 
 async def _ensure_ops_therapist_records() -> int:
-    """Ensure ops staff (e.g. Walaa) exist in therapists for certificates and training."""
+    """Ensure ops staff and client-lead supervisors exist in therapists for login, certificates, and training."""
     updated = 0
     for spec in OPS_THERAPIST_RECORDS:
         key = spec["key"]
@@ -15085,8 +15089,10 @@ async def _ensure_ops_therapist_records() -> int:
                 "email": email,
                 "key": key,
                 "role": spec.get("role", "operations"),
-                "color": "#C4864A",
+                "color": "#C4864A" if key == "msWalaa" else "#7A8A6A",
                 "pin_hash": hash_password("0000"),
+                "password_hash": hash_password(UNIFIED_LAUNCH_PASSWORD),
+                "must_change_password": False,
                 "created_at": now_iso(),
             })
             updated += 1
@@ -15100,6 +15106,9 @@ async def _ensure_ops_therapist_records() -> int:
             patch["key"] = key
         if spec.get("role") and existing.get("role") != spec["role"]:
             patch["role"] = spec["role"]
+        if not existing.get("password_hash"):
+            patch["password_hash"] = hash_password(UNIFIED_LAUNCH_PASSWORD)
+            patch["must_change_password"] = False
         if patch:
             await db.therapists.update_one({"id": existing["id"]}, {"$set": patch})
             updated += 1

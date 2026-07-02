@@ -38,7 +38,7 @@ function ChooseButtons({ onAdmin, onTherapist }) {
       >
         <ShieldCheck size={28} weight="duotone" />
         <div className="flex-1 text-left">
-          <div className="font-bold">Admin</div>
+          <div className="font-bold">Admin &amp; Supervisor</div>
         </div>
         <ArrowRight size={20} />
       </button>
@@ -63,7 +63,7 @@ function AdminForm({ email, setEmail, password, setPassword, err, loading, onBac
   return (
     <form onSubmit={onSubmit} className="stagger">
       <button type="button" onClick={onBack} className="text-sm hover:underline mb-3 min-h-[44px]" style={{ color: "#5C6853" }}>← Back</button>
-      <h2 className="font-display text-xl md:text-2xl mb-5" style={{ color: "#2C3625" }}>Admin Login</h2>
+      <h2 className="font-display text-xl md:text-2xl mb-5" style={{ color: "#2C3625" }}>Admin &amp; Supervisor Login</h2>
       <label className="label">Email</label>
       <input data-testid="admin-email-input" className="input mb-3 min-h-[44px] text-base md:text-sm" type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@..." />
       <label className="label">Password</label>
