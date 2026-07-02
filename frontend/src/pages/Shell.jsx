@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, Suspense, useMemo } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { useAuth, showAdminNav, isClientLead, isWalaaOps, isHrOps, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, showSystemAdmin, canImportData, showMyPortalNav, showMyReportsNav, showAcademicPortfolioNav, isJenan, canViewReports, directManagerLabel, canViewSupervisionCaseload, canAccessManagerHub } from "../auth";
+import { useAuth, showAdminNav, isClientLead, isWalaaOps, isHrOps, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, showSystemAdmin, canImportData, showMyPortalNav, showMyReportsNav, showAcademicPortfolioNav, isJenan, canViewReports, directManagerLabel, canViewSupervisionCaseload, canAccessManagerHub, profileRoleLabel } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch, cachedGet } from "../dataCache";
 import { getPortalDisplayName } from "../scheduleConstants";
@@ -81,7 +81,7 @@ export default function Shell() {
   const showMyLearning = showAcademicPortfolioNav(user);
   const showBilling = hasOpsAccess(user);
   const therapistOnly = Boolean(user && !portalAdmin && !hrOps && !walaaOps);
-  const profileRole = hrOps ? "HR" : walaaOps ? "Coordination" : portalAdmin ? "Admin" : "Therapist";
+  const profileRole = profileRoleLabel(user);
 
   const loadNotifs = async () => {
     try { const { data } = await api.get("/notifications"); setNotifs(data); } catch(_e) { /* ignore */ }

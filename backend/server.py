@@ -17,7 +17,7 @@ from typing import Dict, List, Optional
 
 import bcrypt
 import jwt
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Form, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Form, Query, Body
 from fastapi.responses import FileResponse, Response
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
@@ -953,7 +953,11 @@ def _is_staff_admin(user: dict) -> bool:
 
 def _is_jenan(user: dict) -> bool:
     email = (user.get("email") or "").lower().strip()
-    if email == "jsalmuhaisin@boostgrowthsa.com":
+    if email in (
+        "jsalmuhaisin@boostgrowthsa.com",
+        "jenan@boostgrowthsa.com",
+        "genan@boostgrowthsa.com",
+    ):
         return True
     key = (user.get("key") or "").lower()
     if key == "msjenan":
@@ -4453,6 +4457,12 @@ async def _notify_purchase_submitted(purchaser_name: str, item: str, category: s
     extra = {"link": "/purchases"}
     await _notify_ops_leads("purchase_new", title, message, **extra)
     await _notify_hr_ops("purchase_new", title, message, **extra)
+    body = f"{message}\n"
+    portal = _portal_base_url()
+    if portal:
+        body += f"\nReview in portal: {portal}/purchases\n"
+    body += "\n— Boost Growth Portal"
+    await _send_urgent_email(await _jenan_recipient_email(), title, body)
 
 
 def _urgent_email_subject(subject: str) -> str:
@@ -4474,12 +4484,13 @@ def _portal_base_url() -> str:
 
 
 async def _jenan_recipient_email() -> str:
-    t = await db.therapists.find_one(
-        {"email": {"$regex": rf"^{re.escape(JENAN_EMAIL)}$", "$options": "i"}},
-        {"_id": 0, "email": 1},
-    )
-    if t and t.get("email"):
-        return t["email"].strip()
+    """Canonical inbox for Jenan — map login aliases (jenan@) to jsalmuhaisin@."""
+    tid = await _jenan_therapist_id()
+    if tid:
+        t = await db.therapists.find_one({"id": tid}, {"_id": 0, "email": 1})
+        if t and t.get("email"):
+            raw = t["email"].strip().lower()
+            return THERAPIST_LOGIN_EMAIL_ALIASES.get(raw, raw if raw == JENAN_EMAIL.lower() else JENAN_EMAIL)
     return JENAN_EMAIL
 
 
@@ -4600,7 +4611,48 @@ async def _notify_leave_submitted(
     if portal:
         body += f"\nReview in portal: {portal}/manager\n"
     body += "\n— Boost Growth Portal"
-    await _send_email_stub(await _jenan_recipient_email(), title, body)
+    await _send_urgent_email(await _jenan_recipient_email(), title, body)
+
+
+async def _resend_leave_notification(leave: dict, therapist: Optional[dict], *, also_in_app: bool = True) -> dict:
+    """Re-send Jenan urgent email (and optional in-app) for an existing leave row."""
+    payload = {
+        "therapist_name": therapist_schedule_display_name(therapist) if therapist else "Therapist",
+        "leave_type": leave.get("leave_type"),
+        "start_date": leave.get("start_date") or "",
+        "end_date": leave.get("end_date") or "",
+        "days": float(leave.get("days") or 0),
+        "notes": leave.get("notes"),
+    }
+    leave_label = _display_leave_type(payload["leave_type"])
+    title = f"New leave request from {payload['therapist_name'] or 'Therapist'}"
+    summary = f"{leave_label} — {payload['start_date']} → {payload['end_date']} ({payload['days']:g} day(s))"
+    jenan_id = await _jenan_therapist_id()
+    if also_in_app and jenan_id:
+        await _notify(jenan_id, "leave_request", title, summary)
+    body = (
+        "A therapist has submitted a new leave request and it is pending your review.\n\n"
+        f"Therapist: {payload['therapist_name'] or '—'}\n"
+        f"Leave type: {leave_label}\n"
+        f"Date range: {payload['start_date']} → {payload['end_date']}\n"
+        f"Total days: {payload['days']:g}\n"
+    )
+    if (payload.get("notes") or "").strip():
+        body += f"\nNotes:\n{payload['notes'].strip()}\n"
+    portal = _portal_base_url()
+    if portal:
+        body += f"\nReview in portal: {portal}/manager\n"
+    body += "\n— Boost Growth Portal"
+    email_result = await _send_urgent_email(await _jenan_recipient_email(), title, body)
+    return {
+        "leave_id": leave.get("id"),
+        "therapist_id": leave.get("therapist_id"),
+        "therapist_name": payload["therapist_name"],
+        "status": leave.get("status"),
+        "email_to": await _jenan_recipient_email(),
+        "email_status": email_result.get("status"),
+        "email_error": email_result.get("error"),
+    }
 
 
 async def _walaa_notify_user_ids() -> List[str]:
@@ -11972,6 +12024,37 @@ async def save_email_settings(payload: EmailSettingsIn, _=Depends(admin_only)):
 async def list_email_queue(_=Depends(admin_only)):
     return await db.email_queue.find({}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
 
+
+@api.post("/admin/email-queue/retry")
+async def admin_retry_email_queue(limit: int = Query(50, ge=1, le=200), _=Depends(admin_only)):
+    """Re-send queued or failed emails from email_queue (newest failures first)."""
+    pending = await db.email_queue.find(
+        {"status": {"$in": ["queued", "queued_no_key", "failed"]}},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(limit).to_list(limit)
+    results = []
+    for doc in pending:
+        r = await _send_email_stub(doc.get("to") or "", doc.get("subject") or "", doc.get("body") or "")
+        patch = {
+            "last_retry_at": now_iso(),
+            "last_retry_status": r.get("status"),
+            "last_retry_error": r.get("error"),
+        }
+        if r.get("status") == "sent":
+            patch["status"] = "sent"
+            patch["provider"] = r.get("provider")
+            patch["provider_id"] = r.get("provider_id")
+        await db.email_queue.update_one({"id": doc["id"]}, {"$set": patch})
+        results.append({
+            "id": doc.get("id"),
+            "to": doc.get("to"),
+            "subject": doc.get("subject"),
+            "previous_status": doc.get("status"),
+            "retry_status": r.get("status"),
+            "error": r.get("error"),
+        })
+    return {"retried": len(results), "results": results}
+
 @api.delete("/resources/{rid}")
 async def delete_resource(rid: str, _=Depends(admin_only)):
     await db.resources.delete_one({"id": rid})
@@ -12668,6 +12751,13 @@ class OneTimeLeaveDeleteConfirmIn(BaseModel):
     confirm: str
 
 
+class ResendLeaveNotificationsIn(BaseModel):
+    therapists: Optional[List[str]] = None
+    include_pending_attachment: bool = True
+    dry_run: bool = False
+    also_notify_in_app: bool = True
+
+
 @api.get("/admin/leaves-audit")
 async def admin_leaves_audit(q: str = Query(...), _=Depends(admin_only)):
     """List leave rows for therapists matching name/email/key fragment."""
@@ -12711,6 +12801,70 @@ async def admin_leaves_audit(q: str = Query(...), _=Depends(admin_only)):
             ],
         })
     return {"therapists": blocks, "query": q}
+
+
+@api.post("/admin/resend-leave-notifications")
+async def admin_resend_leave_notifications(
+    body: ResendLeaveNotificationsIn = Body(default_factory=ResendLeaveNotificationsIn),
+    _=Depends(admin_only),
+):
+    """Re-send Jenan urgent emails for open manager-pending leaves (optionally filter by therapist name)."""
+    statuses = list(PENDING_MANAGER_STATUSES)
+    if body.include_pending_attachment:
+        statuses.append("pending_attachment")
+    therapist_ids: Optional[set] = None
+    if body.therapists:
+        therapist_ids = set()
+        for pat in body.therapists:
+            fragment = (pat or "").strip()
+            if not fragment:
+                continue
+            regex = {"$regex": fragment, "$options": "i"}
+            matches = await db.therapists.find(
+                {"$or": [{"name": regex}, {"email": regex}, {"key": regex}]},
+                {"_id": 0, "id": 1},
+            ).to_list(50)
+            for m in matches:
+                therapist_ids.add(m["id"])
+    query: dict = {"status": {"$in": statuses}}
+    if therapist_ids is not None:
+        if not therapist_ids:
+            return {"dry_run": body.dry_run, "matched": 0, "sent": [], "jenan_email": await _jenan_recipient_email()}
+        query["therapist_id"] = {"$in": list(therapist_ids)}
+    leaves = await db.leaves.find(query, {"_id": 0, "document_file_data": 0}).sort("created_at", -1).to_list(200)
+    therapist_cache: dict = {}
+    preview = []
+    for leave in leaves:
+        tid = leave.get("therapist_id")
+        if tid and tid not in therapist_cache:
+            therapist_cache[tid] = await db.therapists.find_one({"id": tid}, {"_id": 0, "id": 1, "name": 1, "key": 1, "email": 1})
+        therapist = therapist_cache.get(tid)
+        preview.append({
+            "leave_id": leave.get("id"),
+            "therapist_name": therapist_schedule_display_name(therapist) if therapist else "—",
+            "status": leave.get("status"),
+            "start_date": leave.get("start_date"),
+            "end_date": leave.get("end_date"),
+            "leave_type": leave.get("leave_type"),
+        })
+    if body.dry_run:
+        return {
+            "dry_run": True,
+            "matched": len(leaves),
+            "jenan_email": await _jenan_recipient_email(),
+            "leaves": preview,
+        }
+    sent = []
+    for leave in leaves:
+        tid = leave.get("therapist_id")
+        therapist = therapist_cache.get(tid) if tid else None
+        sent.append(await _resend_leave_notification(leave, therapist, also_in_app=body.also_notify_in_app))
+    return {
+        "dry_run": False,
+        "matched": len(leaves),
+        "jenan_email": await _jenan_recipient_email(),
+        "sent": sent,
+    }
 
 
 @api.get("/admin/one-time-leave-deletes")

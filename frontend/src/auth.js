@@ -123,7 +123,11 @@ export function isStaffAdmin(user) {
   return isPortalAdmin(user) || hasOpsAccess(user);
 }
 
-const JENAN_EMAILS = new Set(["jsalmuhaisin@boostgrowthsa.com"]);
+const JENAN_EMAILS = new Set([
+  "jsalmuhaisin@boostgrowthsa.com",
+  "jenan@boostgrowthsa.com",
+  "genan@boostgrowthsa.com",
+]);
 const JENAN_KEYS = new Set(["msjenan"]);
 
 /** Jenan — leave/absence/balance HR in addition to ops-lead tools */
@@ -235,6 +239,16 @@ export function canImportData(user) {
 /** UI label for Jenan as direct manager in leave/request workflows */
 export function directManagerLabel() {
   return "Direct Manager";
+}
+
+/** Sidebar / header role subtitle after login */
+export function profileRoleLabel(user) {
+  if (!user) return "";
+  if (isHrOps(user)) return "HR";
+  if (isWalaaOps(user)) return "Coordination";
+  if (isJenan(user)) return directManagerLabel();
+  if (showAdminNav(user)) return "Admin";
+  return "Therapist";
 }
 
 const WALAA_EMAILS = new Set(["wabuissa@boostgrowthsa.com", "walaa@boostgrowthsa.com"]);
