@@ -72,3 +72,57 @@
   color: #8B9E7A;
   margin-top: 0.15rem;
 }
+
+/* Portal wizard — cream / olive (My Requests modal) */
+.v-stepper--portal {
+  background: #F5F5F0;
+  border: 1px solid #E2DDD4;
+  border-radius: 16px;
+}
+
+.v-stepper--portal .v-step-marker {
+  border-color: #D4CFC4;
+  color: #8B9E7A;
+  background: #fff;
+}
+
+.v-stepper--portal .v-step.active .v-step-marker,
+.v-stepper--portal .v-step.done .v-step-marker {
+  background: #5D735D;
+  border-color: #5D735D;
+  color: #fff;
+}
+
+.v-stepper--portal .v-step:not(:last-child)::after {
+  background: #E2DDD4;
+}
+
+.v-stepper--portal .v-step.done:not(:last-child)::after {
+  background: linear-gradient(180deg, #5D735D 0%, #7A8F6E 100%);
+  animation: vStepLineGrow 0.55s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.v-stepper--portal .v-step.active:not(:last-child)::after {
+  background: linear-gradient(180deg, #5D735D 0%, #E2DDD4 55%, #E2DDD4 100%);
+  background-size: 100% 200%;
+  animation: vStepLinePulse 1.6s ease-in-out infinite;
+}
+
+.v-stepper--portal .v-step-label {
+  color: #8B9E7A;
+}
+
+.v-stepper--portal .v-step.active .v-step-label,
+.v-stepper--portal .v-step.done .v-step-label {
+  color: #2C3625;
+}
+
+@keyframes vStepLineGrow {
+  from { transform: scaleY(0); transform-origin: top; }
+  to { transform: scaleY(1); transform-origin: top; }
+}
+
+@keyframes vStepLinePulse {
+  0%, 100% { background-position: 0 0%; }
+  50% { background-position: 0 100%; }
+}

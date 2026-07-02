@@ -4209,6 +4209,210 @@ textarea.modal-input {
 .req-new-request-modal-body {
     padding-top: 0.75rem !important;
 }
+
+/* New Request wizard — portal polish (cream / olive) */
+.req-wizard-modal-shell {
+    background: #F5F5F0 !important;
+    border: 1px solid #E2DDD4;
+    box-shadow: 0 16px 48px rgba(44, 54, 37, 0.12), 0 2px 8px rgba(44, 54, 37, 0.06) !important;
+}
+.req-wizard-modal-shell > div:first-child {
+    background: linear-gradient(135deg, #F5F5F0 0%, #FAFAF7 100%);
+    border-color: #E2DDD4 !important;
+}
+.req-wizard-modal-body {
+    background: #F5F5F0;
+}
+.req-wizard-modal-shell .modal-footer-sticky {
+    background: #F0EFE8 !important;
+    border-color: #E2DDD4 !important;
+}
+.req-wizard-btn-primary {
+    background: #5D735D !important;
+}
+.req-wizard-btn-primary:hover:not(:disabled) {
+    background: #4D634D !important;
+}
+
+.req-wizard-progress {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin: 0 0 1.1rem;
+    padding: 0 0.15rem;
+}
+.req-wizard-progress-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    flex-shrink: 0;
+    min-width: 3.5rem;
+    opacity: 0.5;
+    transition: opacity 0.3s ease;
+}
+.req-wizard-progress-step.active,
+.req-wizard-progress-step.done {
+    opacity: 1;
+}
+.req-wizard-progress-dot {
+    width: 1.65rem;
+    height: 1.65rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.68rem;
+    font-weight: 700;
+    background: #fff;
+    border: 2px solid #D4CFC4;
+    color: #8B9E7A;
+    transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+.req-wizard-progress-step.active .req-wizard-progress-dot,
+.req-wizard-progress-step.done .req-wizard-progress-dot {
+    background: #5D735D;
+    border-color: #5D735D;
+    color: #fff;
+}
+.req-wizard-progress-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #8B9E7A;
+    white-space: nowrap;
+}
+.req-wizard-progress-step.active .req-wizard-progress-label,
+.req-wizard-progress-step.done .req-wizard-progress-label {
+    color: #2C3625;
+}
+.req-wizard-progress-line {
+    flex: 1;
+    height: 3px;
+    background: #E2DDD4;
+    border-radius: 2px;
+    margin: 0 0.35rem;
+    margin-bottom: 1.1rem;
+    position: relative;
+    overflow: hidden;
+}
+.req-wizard-progress-line-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: 0;
+    background: linear-gradient(90deg, #5D735D, #7A8F6E);
+    border-radius: 2px;
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.req-wizard-progress-line-fill.filled {
+    width: 100%;
+}
+.req-wizard-progress-line-fill.animate::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+    animation: reqWizardLineShimmer 1.8s ease-in-out infinite;
+}
+@keyframes reqWizardLineShimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+.req-type-dropdown-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem 1.15rem;
+    background: #fff;
+    border: 1px solid #E8E3DB;
+    border-radius: 16px;
+}
+.req-type-dropdown-section + .req-type-dropdown-section {
+    margin-top: 0.85rem;
+}
+.req-type-dropdown-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.7rem;
+}
+.req-type-dropdown-icon {
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #FAF0D1;
+    color: #8A6B2E;
+    flex-shrink: 0;
+}
+.req-type-dropdown-title {
+    margin: 0;
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: #2C3625;
+    font-family: var(--font-display);
+}
+.req-type-dropdown-desc {
+    margin: 0.15rem 0 0;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+.req-type-dropdown {
+    width: 100%;
+    padding: 0.7rem 0.9rem;
+    border: 1.5px solid #E2DDD4;
+    border-radius: 12px;
+    background: #FAFAF7;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #2C3625;
+    cursor: pointer;
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+    appearance: auto;
+}
+.req-type-dropdown:hover {
+    border-color: #C5BFB4;
+}
+.req-type-dropdown:focus {
+    outline: none;
+    border-color: #5D735D;
+    box-shadow: 0 0 0 3px rgba(93, 115, 93, 0.18);
+}
+.req-wizard-selected-type {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin-bottom: 0.85rem;
+    padding: 0.75rem 0.9rem;
+    border-radius: 14px;
+    border: 1px solid #E2DDD4;
+    background: #fff;
+}
+.req-wizard-selected-type-icon {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #FAF0D1;
+    color: #8A6B2E;
+    flex-shrink: 0;
+}
+.req-wizard-alert {
+    border-radius: 12px;
+    padding: 0.75rem 0.9rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    background: #F8EBE7;
+    border: 1px solid #ECA6A6;
+    color: #8A3F27;
+}
 .req-sidebar-stack--payment .req-panel-purchases--compact {
     flex: none;
     min-height: auto;

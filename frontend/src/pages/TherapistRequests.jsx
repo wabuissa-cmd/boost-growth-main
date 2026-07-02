@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, Fragment } from "react";
 import api from "../api";
 import { useAuth, isJenan } from "../auth";
 import {
@@ -97,34 +97,65 @@ function fmtContractPeriod(start, end) {
 function WorkflowFooter() {
   return (
     <div className="req-workflow-footer">
-      <Info size={14} weight="duotone" className="shrink-0" />
+      <Info size={14} weight="duotone" className="shrink-0" style={{ color: "#D4A64A" }} />
       <p>{WORKFLOW_FOOTER}</p>
     </div>
   );
 }
 
-function TypeCard({ meta, active, onClick, testId }) {
-  const Icon = meta.icon;
+function WizardProgressBar({ steps, current }) {
   return (
-    <button
-      type="button"
-      data-testid={testId}
-      onClick={onClick}
-      className={`req-type-card${active ? " active" : ""}`}
-      style={{ "--type-color": meta.color }}
-    >
-      <span className="req-type-card-icon">
-        <Icon size={17} weight="duotone" />
-      </span>
-      <span className="req-type-card-copy">
-        <span className="req-type-card-label">{meta.label}</span>
-      </span>
-      {meta.needsFile && (
-        <span className="req-type-card-badge" title="Attachment required">
-          <Paperclip size={10} weight="bold" />
+    <div className="req-wizard-progress" aria-label="Progress">
+      {steps.map((s, i) => {
+        const n = i + 1;
+        const done = n < current;
+        const active = n === current;
+        return (
+          <Fragment key={s.label}>
+            {i > 0 && (
+              <div className="req-wizard-progress-line" aria-hidden="true">
+                <div
+                  className={`req-wizard-progress-line-fill${current > 1 ? " filled" : ""}${current === 2 ? " animate" : ""}`}
+                />
+              </div>
+            )}
+            <div className={`req-wizard-progress-step${done ? " done" : ""}${active ? " active" : ""}`}>
+              <span className="req-wizard-progress-dot">{done ? "✓" : n}</span>
+              <span className="req-wizard-progress-label">{s.label}</span>
+            </div>
+          </Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+function RequestTypeSelect({ label, desc, icon: Icon, value, onChange, options, testId }) {
+  return (
+    <section className="req-type-dropdown-section">
+      <div className="req-type-dropdown-head">
+        <span className="req-type-dropdown-icon">
+          <Icon size={18} weight="duotone" />
         </span>
-      )}
-    </button>
+        <div>
+          <h3 className="req-type-dropdown-title">{label}</h3>
+          <p className="req-type-dropdown-desc">{desc}</p>
+        </div>
+      </div>
+      <select
+        data-testid={testId}
+        className="req-type-dropdown"
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value || null)}
+      >
+        <option value="">— Select —</option>
+        {options.map((o) => (
+          <option key={o.id} value={o.id} data-testid={o.testId}>
+            {o.label}{o.suffix || ""}
+          </option>
+        ))}
+      </select>
+    </section>
   );
 }
 
@@ -186,6 +217,39 @@ export default function TherapistRequests() {
     setModalStep(1);
     setForm(emptyForm(user?.id));
   };
+
+  const selectLeaveType = (typeId) => {
+    if (!typeId) {
+      setForm((f) => ({ ...emptyForm(user?.id), selectedType: isGeneralType(f.selectedType) ? f.selectedType : null }));
+      return;
+    }
+    selectType(typeId);
+  };
+
+  const selectGeneralType = (typeId) => {
+    if (!typeId) {
+      setForm((f) => ({ ...emptyForm(user?.id), selectedType: isLeaveType(f.selectedType) ? f.selectedType : null }));
+      return;
+    }
+    selectType(typeId);
+  };
+
+  const leaveDropdownValue = isLeaveType(form.selectedType) ? form.selectedType : "";
+  const generalDropdownValue = isGeneralType(form.selectedType) ? form.selectedType : "";
+
+  const leaveDropdownOptions = LEAVE_REQUEST_TYPES.map((t) => ({
+    id: t.id,
+    label: t.id === "Sickleave" ? "Sick" : t.id,
+    suffix: t.needsFile ? " (file required)" : "",
+    testId: `leave-type-${t.id}`,
+  }));
+
+  const generalDropdownOptions = GENERAL_REQUEST_TYPES.map((t) => ({
+    id: t.id,
+    label: t.label,
+    suffix: t.needsDescription ? " (description required)" : "",
+    testId: `general-type-${t.id}`,
+  }));
 
   const selectType = (typeId) => {
     const today = new Date().toISOString().slice(0, 10);
@@ -506,13 +570,15 @@ export default function TherapistRequests() {
           onClose={closeModal}
           size="lg"
           compact
-          bodyClassName="req-new-request-modal-body"
+          shellClassName="req-wizard-modal-shell"
+          bodyClassName="req-new-request-modal-body req-wizard-modal-body"
           footer={(
             modalStep === 1 ? (
               <>
                 <ModalBtnSecondary type="button" onClick={closeModal}>Cancel</ModalBtnSecondary>
                 <ModalBtnPrimary
                   type="button"
+                  className="req-wizard-btn-primary"
                   onClick={() => setModalStep(2)}
                   disabled={!form.selectedType}
                 >
@@ -525,6 +591,7 @@ export default function TherapistRequests() {
                 <ModalBtnPrimary
                   data-testid="req-submit-btn"
                   type="button"
+                  className="req-wizard-btn-primary"
                   onClick={submit}
                   disabled={!canSubmit}
                 >
@@ -534,73 +601,37 @@ export default function TherapistRequests() {
             )
           )}
         >
-          <div className="flex gap-1 -mt-1 mb-3">
-            {[1, 2].map((i) => (
-              <div
-                key={i}
-                className="flex-1 h-1.5 rounded-full transition-all"
-                style={{ background: i <= modalStep ? "var(--brand)" : "#EDE9E3" }}
-              />
-            ))}
-          </div>
+          <WizardProgressBar steps={WIZARD_STEPS} current={modalStep} />
 
           <div className="req-modal-split">
-            <VerticalStepper current={modalStep} steps={WIZARD_STEPS} />
+            <VerticalStepper current={modalStep} steps={WIZARD_STEPS} variant="portal" />
             <div className="min-w-0">
               {modalStep === 1 && (
                 <>
-                  <section className="req-unified-section">
-                    <div className="req-unified-section-head">
-                      <span className="req-unified-section-num">1</span>
-                      <div>
-                        <h3 className="req-unified-section-title">Leave</h3>
-                        <p className="req-unified-section-desc">Annual · unpaid · sick · permission</p>
-                      </div>
-                    </div>
-                    <div className="req-type-grid">
-                      {LEAVE_REQUEST_TYPES.map((t) => (
-                        <TypeCard
-                          key={t.id}
-                          meta={t}
-                          active={form.selectedType === t.id}
-                          onClick={() => selectType(t.id)}
-                          testId={`leave-type-${t.id}`}
-                        />
-                      ))}
-                    </div>
-                  </section>
-
-                  <div className="req-unified-divider" />
-
-                  <section className="req-unified-section">
-                    <div className="req-unified-section-head">
-                      <span className="req-unified-section-num">2</span>
-                      <div>
-                        <h3 className="req-unified-section-title">General</h3>
-                        <p className="req-unified-section-desc">Companies · other · materials</p>
-                      </div>
-                    </div>
-                    <div className="req-type-grid req-type-grid--two">
-                      {GENERAL_REQUEST_TYPES.map((t) => (
-                        <TypeCard
-                          key={t.id}
-                          meta={t}
-                          active={form.selectedType === t.id}
-                          onClick={() => selectType(t.id)}
-                          testId={`general-type-${t.id}`}
-                        />
-                      ))}
-                    </div>
-                  </section>
+                  <RequestTypeSelect
+                    label="Leave requests"
+                    desc="Annual · unpaid · sick · permission"
+                    icon={Sun}
+                    value={leaveDropdownValue}
+                    onChange={selectLeaveType}
+                    options={leaveDropdownOptions}
+                    testId="req-leave-type-select"
+                  />
+                  <RequestTypeSelect
+                    label="General requests"
+                    desc="Companies · other · materials"
+                    icon={Briefcase}
+                    value={generalDropdownValue}
+                    onChange={selectGeneralType}
+                    options={generalDropdownOptions}
+                    testId="req-general-type-select"
+                  />
                 </>
               )}
 
               {modalStep === 2 && selectedMeta && (
-                <div
-                  className="flex items-center gap-2.5 mb-3 p-2.5 rounded-xl border"
-                  style={{ background: `${selectedMeta.color}12`, borderColor: `${selectedMeta.color}44` }}
-                >
-                  <span className="req-type-card-icon" style={{ "--type-color": selectedMeta.color }}>
+                <div className="req-wizard-selected-type">
+                  <span className="req-wizard-selected-type-icon">
                     <selectedMeta.icon size={17} weight="duotone" />
                   </span>
                   <span className="text-sm font-bold" style={{ color: "#2C3625" }}>{selectedMeta.label}</span>
@@ -642,7 +673,7 @@ export default function TherapistRequests() {
                     </FormField>
                     {leaveRequiresDocument(form.selectedType) && (
                       <>
-                        <div className="rounded-xl p-3 text-xs font-semibold border" style={{ background: "#F8EBE7", borderColor: "#ECA6A6", color: "#8A3F27" }}>
+                        <div className="req-wizard-alert">
                           {ATTACHMENT_REQUIRED_MSG}
                         </div>
                         <FormField label="Medical report" required hint="PDF or image — required">
@@ -722,7 +753,7 @@ export default function TherapistRequests() {
                         placeholder="Reason for permission…"
                       />
                     </FormField>
-                    <div className="rounded-xl p-3 text-xs font-semibold border" style={{ background: "#F8EBE7", borderColor: "#ECA6A6", color: "#8A3F27" }}>
+                    <div className="req-wizard-alert">
                       {ATTACHMENT_REQUIRED_MSG}
                     </div>
                     <FormField label="Supporting document" required hint="PDF or image — required">

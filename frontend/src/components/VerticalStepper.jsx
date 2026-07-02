@@ -1,8 +1,9 @@
 import "../stepperLayout.css";
 
-export default function VerticalStepper({ steps, current }) {
+export default function VerticalStepper({ steps, current, variant = "default" }) {
+  const portal = variant === "portal";
   return (
-    <nav className="v-stepper" aria-label="Progress">
+    <nav className={`v-stepper${portal ? " v-stepper--portal" : ""}`} aria-label="Progress">
       {steps.map((s, i) => {
         const n = i + 1;
         const done = n < current;
