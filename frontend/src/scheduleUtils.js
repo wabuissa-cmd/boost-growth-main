@@ -97,8 +97,8 @@ export const SERVICE_CELL_COLORS = {
   HS: { ...SHIFT_SESSION_STYLES[1] },
   OS: { ...SHIFT_SESSION_STYLES[1] },
   MEETING: { background: "#F1ECF7", borderColor: "#C9B8DE", color: "#4E3F70" },
-  // Supervision: distinct calm blue-gray.
-  SUPERVISION: { background: "#E7EEF6", borderColor: "#AFC3DB", color: "#2D4B6A" },
+  // Supervision: warm brown-beige — harmonizes with shift olive tints.
+  SUPERVISION: { background: "#D8CFC0", borderColor: "#A89880", color: "#5C4A35" },
   OBSERVATION: { background: "#F4EDE3", borderColor: "#D5BFA0", color: "#6B5430" },
   AVC: { background: "#FFEAE0", borderColor: "#F0B89F", color: "#7A4123" },
   LEAVE: { background: "#D9EAD3", borderColor: "#B6D7A8", color: "#3D5C3A" },

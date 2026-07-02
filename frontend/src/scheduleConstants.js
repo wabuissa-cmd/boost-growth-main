@@ -217,7 +217,7 @@ export const SCHEDULE_LEGEND_ITEMS = [
   { bg: "#DCE5D4", border: "#A8B89A", label: "Shift 2 · Sessions (12–4)" },
   { bg: "#C8D4BC", border: "#95A888", label: "Shift 3 · Sessions (4–8)" },
   { bg: "#F1ECF7", border: "#C9B8DE", label: "Meeting" },
-  { bg: "#E7EEF6", border: "#AFC3DB", label: "Supervision" },
+  { bg: "#D8CFC0", border: "#A89880", label: "Supervision" },
   { bg: "#FFEAE0", border: "#F0B89F", label: "AVC" },
   { bg: "#FFF8D6", border: "#E6C96A", label: "Holiday" },
   { bg: "#5C8A47", border: "#FFFFFF", label: "Prepared ✓", dot: true },

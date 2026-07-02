@@ -294,7 +294,7 @@ main, .page-enter { min-width: 0; }
 .evt-hs      { background: #EEF2EA; border-color: #C9D4BE; color: #2C3625; }
 .evt-os      { background: #EEF2EA; border-color: #C9D4BE; color: #2C3625; }
 .evt-meeting { background: #F1ECF7; border-color: #C9B8DE; color: #4E3F70; }
-.evt-supervision { background: #E7EEF6; border-color: #AFC3DB; color: #2D4B6A; }
+.evt-supervision { background: #D8CFC0; border-color: #A89880; color: #5C4A35; }
 .evt-observation { background: #F4EDE3; border-color: #D5BFA0; color: #6B5430; }
 .evt-avc     { background: #FFEAE0; border-color: #F0B89F; color: #7A4123; }
 .evt-leave   { background: #D9EAD3; border-color: #B6D7A8; color: #3D5C3A; font-style: italic; }
