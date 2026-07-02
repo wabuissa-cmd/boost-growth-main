@@ -87,12 +87,14 @@ export default function ScheduleCellPanel({
   const parentClient = form.child_name ? findClientForScheduleCell(form.child_name, clients) : null;
   const parentPhone = parentClient?.parent_phone || parentClient?.phone || null;
   const parentWaUrl = buildWhatsAppUrl(parentPhone, parentMsg);
-  const clientColor = form.child_name
-    ? (form.color || resolveClientScheduleColor(form.child_name, clients))
+  const accentColor = form.child_name
+    ? resolveClientScheduleColor(form.child_name, clients, form.time_slot)
     : null;
   const previewColor = form.service_code === "AVAILABLE" || form.state === "available"
     ? "#FFFFFF"
-    : clientColor || SERVICE_CELL_COLORS[form.service_code]?.background || "#E5EBE1";
+    : SERVICE_CELL_COLORS[form.service_code]?.background
+      || (form.child_name ? SERVICE_CELL_COLORS.SS.background : null)
+      || "#E5EBE1";
   const serviceShort = SERVICE_CODES.find(s => s.id === form.service_code)?.short;
   const previewLabel = form.state === "available" || form.service_code === "AVAILABLE"
     ? "Available"
@@ -117,12 +119,12 @@ export default function ScheduleCellPanel({
 
   const applyClientName = (name) => {
     const trimmed = (name || "").trim();
-    const color = trimmed ? resolveClientScheduleColor(trimmed, clients) : null;
     setForm((f) => {
       const note = shouldAutoUpdateCellNote(f.note, f.child_name, f.service_code)
         ? buildDefaultCellNote(f.service_code, trimmed)
         : f.note;
-      return { ...f, child_name: trimmed || null, color: color || null, note };
+      const sessionBg = SERVICE_CELL_COLORS[f.service_code]?.background || null;
+      return { ...f, child_name: trimmed || null, color: sessionBg, note };
     });
     setClientOpen(false);
   };
@@ -163,7 +165,7 @@ export default function ScheduleCellPanel({
           <div className="flex items-center gap-2">
             <div className="w-10 h-10 rounded-lg border flex-shrink-0" style={{ background: previewColor, borderColor: "#DDD8D0" }} />
             <div className="text-xs flex items-center gap-1.5 min-w-0" style={{ color: "#5C6853" }}>
-              {form.child_name && clientColor && <ClientColorDot color={clientColor} size={10} />}
+              {form.child_name && accentColor && <ClientColorDot color={accentColor} size={10} />}
               <span className="truncate">{previewLabel || "Session"}</span>
             </div>
           </div>
@@ -192,7 +194,7 @@ export default function ScheduleCellPanel({
                 <label className="log-session-label">Client name</label>
                 <div className="relative flex gap-1.5">
                   <div className="relative flex-1 flex items-center gap-2 min-w-0">
-                    {clientColor ? <ClientColorDot color={clientColor} /> : <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: "#E5E7EB" }} />}
+                    {accentColor ? <ClientColorDot color={accentColor} /> : <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: "#E5E7EB" }} />}
                     <input
                       type="text"
                       data-testid="cell-child-input"

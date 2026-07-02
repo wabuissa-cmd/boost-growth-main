@@ -73,13 +73,8 @@ export function scheduleCoveredSlotKeys(cell) {
   return keys;
 }
 
-function deepenHex(hex, factor = 0.82) {
-  if (!hex || typeof hex !== "string" || !hex.startsWith("#") || hex.length < 7) return hex;
-  const r = Math.round(parseInt(hex.slice(1, 3), 16) * factor);
-  const g = Math.round(parseInt(hex.slice(3, 5), 16) * factor);
-  const b = Math.round(parseInt(hex.slice(5, 7), 16) * factor);
-  return `#${[r, g, b].map(x => Math.min(255, Math.max(0, x)).toString(16).padStart(2, "0")).join("")}`;
-}
+/** Session types that share one calm cell background (not per-child rainbow). */
+export const CLIENT_SESSION_CODES = new Set(["SS", "HS", "OS"]);
 
 /** Legend colors — must match .evt-* in index.css */
 export const SERVICE_CELL_COLORS = {
@@ -134,13 +129,21 @@ function shiftForTimeSlot(timeSlot) {
   return 3;
 }
 
-export function resolveClientScheduleColor(childName, clients = [], timeSlot = null) {
+/** Subtle per-child accent (beige/olive palette only) — not stored client rainbow colors. */
+export function resolveClientScheduleColor(childName, _clients = [], timeSlot = null) {
   if (!childName) return null;
-  const trimmed = childName.trim();
-  const client = clients.find(c => c.name === trimmed || trimmed.startsWith(c.name + " "));
-  if (client?.schedule_color) return client.schedule_color;
-  if (client?.color) return client.color;
-  return getChildColor(trimmed, shiftForTimeSlot(timeSlot));
+  return getChildColor(childName.trim(), shiftForTimeSlot(timeSlot));
+}
+
+function clientSessionBaseStyle(serviceCode) {
+  const code = (serviceCode || "SS").toUpperCase();
+  return { ...(SERVICE_CELL_COLORS[code] || SERVICE_CELL_COLORS.SS) };
+}
+
+function childSessionAccentStyle(childName, timeSlot) {
+  const accent = getChildColor(childName, shiftForTimeSlot(timeSlot));
+  if (!accent) return {};
+  return { borderLeft: `3px solid ${accent}` };
 }
 
 export function getCellStyle(cell, clients = []) {
@@ -154,7 +157,7 @@ export function getCellStyle(cell, clients = []) {
   if (cell.state === "cancel_child") {
     return { background: "#FCE0E8", color: "#8B3A55", borderColor: "#E8A4BD" };
   }
-  const code = cell.service_code;
+  const code = (cell.service_code || "").toUpperCase();
   if (code === "LEAVE" && SERVICE_CELL_COLORS.LEAVE) {
     return { ...SERVICE_CELL_COLORS.LEAVE };
   }
@@ -162,14 +165,18 @@ export function getCellStyle(cell, clients = []) {
     const s = SERVICE_CELL_COLORS[code];
     if (s) return { ...s };
   }
-  if (cell.child_name) {
-    const cc = resolveClientScheduleColor(cell.child_name, clients, cell.time_slot);
-    if (cc) {
-      const bg = deepenHex(cc, 0.78);
-      return { background: bg, borderColor: deepenHex(cc, 0.65), color: readable(bg) };
+
+  const childName = scheduleCellChildName(cell);
+  const isClientSession = childName || CLIENT_SESSION_CODES.has(code);
+  if (isClientSession && !META_SERVICE_CODES.has(code)) {
+    const base = clientSessionBaseStyle(code);
+    if (childName) {
+      return { ...base, ...childSessionAccentStyle(childName, cell.time_slot) };
     }
+    return base;
   }
-  if (cell.color) {
+
+  if (cell.color && !childName) {
     return { background: cell.color, borderColor: cell.color, color: readable(cell.color) };
   }
   if (code && SERVICE_CELL_COLORS[code]) {

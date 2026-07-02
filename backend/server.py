@@ -2909,46 +2909,7 @@ async def list_schedule(week_start: Optional[str] = None, user=Depends(get_curre
 
 
 async def _enrich_schedule_cells_with_client_colors(cells: list) -> list:
-    """Restore child cell colors from clients table (schedule_color / color) on load."""
-    if not cells:
-        return cells
-    client_fields = {"_id": 0, "name": 1, "schedule_color": 1, "color": 1}
-    clients = await db.clients.find(_active_client_filter(), client_fields).to_list(800)
-    if not clients:
-        return cells
-    by_name = {c["name"]: c for c in clients if c.get("name")}
-    meta_codes = {"LEAVE", "AVC", "MEETING", "SUPERVISION", "OBSERVATION", "BREAK", "AVAILABLE", "OS", "SS", "HS"}
-
-    def _match_client(child_name: str) -> Optional[dict]:
-        label = (child_name or "").strip()
-        if not label:
-            return None
-        if label in by_name:
-            return by_name[label]
-        for cn, c in by_name.items():
-            if label == cn or label.startswith(cn + " "):
-                return c
-        first = label.split()[0] if label.split() else label
-        if len(first) >= 3:
-            fl = first.lower()
-            hits = [c for c in clients if (c.get("name") or "").split()[0].lower() == fl]
-            if len(hits) == 1:
-                return hits[0]
-        return None
-
-    for cell in cells:
-        if cell.get("state") in ("cancel_child", "cancel_therapist", "available"):
-            continue
-        code = (cell.get("service_code") or "").upper()
-        child = _schedule_cell_child_label(cell)
-        if not child or (code in meta_codes and not child):
-            continue
-        client = _match_client(child)
-        if not client:
-            continue
-        color = client.get("schedule_color") or client.get("color")
-        if color:
-            cell["color"] = color
+    """Schedule grid uses unified session backgrounds; skip per-client rainbow fills."""
     return cells
 
 
