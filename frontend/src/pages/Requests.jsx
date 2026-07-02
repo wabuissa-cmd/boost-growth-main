@@ -65,14 +65,16 @@ function isManagerReviewableItem(item) {
   return isPendingManagerStatus(item.status) || item.status === "in_progress";
 }
 
-function managerReviewStatusOptions(currentStatus) {
-  if (isPendingManagerStatus(currentStatus)) {
-    return ["pending_manager", MANAGER_APPROVE_KEY, "rejected"];
-  }
-  if (currentStatus === "in_progress") {
-    return ["in_progress", MANAGER_APPROVE_KEY, "rejected"];
-  }
-  return ["pending_manager", MANAGER_APPROVE_KEY, "rejected"];
+const MANAGER_REVIEW_OPTIONS = [MANAGER_APPROVE_KEY, "pending_manager", "rejected"];
+
+function managerReviewStatusOptions() {
+  return MANAGER_REVIEW_OPTIONS;
+}
+
+function managerReviewInitialStatus(currentStatus) {
+  if (currentStatus === "rejected") return "rejected";
+  if (currentStatus === "approved" || currentStatus === "done") return MANAGER_APPROVE_KEY;
+  return "pending_manager";
 }
 
 function resolveManagerSaveStatus(status) {
@@ -92,7 +94,7 @@ function allowedStatusOptions(user, currentStatus) {
     return Object.keys(STATUS_MAP);
   }
   if (manager && (effective === "in_progress" || isPendingManagerStatus(effective))) {
-    return managerReviewStatusOptions(effective);
+    return managerReviewStatusOptions();
   }
   if (hr && effective === PENDING_HR_STATUS) {
     return ["approved", "rejected", "in_progress", "done"];
@@ -228,6 +230,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
   const isPortalAdminUser = !personal && showAdminNav(user);
   const isManager = !personal && isJenan(user) && !isPortalAdminUser;
   const adminManagerPreview = managerView && isPortalAdminUser && showSystemAdmin(user);
+  const inManagerReviewMode = managerView && (isManager || adminManagerPreview);
   const staffLabel = managerView ? "Therapists' Requests" : "Staff Requests";
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState(managerView ? "pending" : "all");
@@ -294,10 +297,9 @@ export default function Requests({ personal = false, embedded = false, managerVi
   };
 
   const openManagerReview = (r) => {
-    const keepStatus = isPendingManagerStatus(r.status) ? "pending_manager" : r.status;
     setStatusEdit({
       ...r,
-      status: keepStatus,
+      status: inManagerReviewMode ? managerReviewInitialStatus(r.status) : r.status,
       _managerReviewable: isManagerReviewableItem(r),
       notify_hr: false,
       notify_therapist: false,
@@ -315,14 +317,14 @@ export default function Requests({ personal = false, embedded = false, managerVi
       return;
     }
     if (statusEdit._queueKind === "leave") {
-      const finalStatus = isManager
+      const finalStatus = inManagerReviewMode
         ? resolveManagerSaveStatus(statusEdit.status)
         : statusEdit.status;
       const payload = {
         status: finalStatus,
         admin_note: statusEdit.admin_note,
       };
-      if (isManager) {
+      if (inManagerReviewMode) {
         payload.notify_hr = !!statusEdit.notify_hr;
         payload.notify_therapist = !!statusEdit.notify_therapist;
       }
@@ -331,14 +333,14 @@ export default function Requests({ personal = false, embedded = false, managerVi
       loadLeaves();
       return;
     }
-    const finalStatus = isManager
+    const finalStatus = inManagerReviewMode
       ? resolveManagerSaveStatus(statusEdit.status)
       : statusEdit.status;
     const payload = {
       status: finalStatus,
       admin_note: statusEdit.admin_note,
     };
-    if (isManager) {
+    if (inManagerReviewMode) {
       payload.notify_hr = !!statusEdit.notify_hr;
       payload.notify_therapist = !!statusEdit.notify_therapist;
     }
@@ -981,7 +983,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
           onClose={closeStatusModal}
           size="md"
           footer={
-            managerView && (isManager || adminManagerPreview) && (adminManagerPreview || statusEdit._managerReviewable) && !queueItemAwaitingAttachment(statusEdit) ? (
+            inManagerReviewMode && (adminManagerPreview || statusEdit._managerReviewable) && !queueItemAwaitingAttachment(statusEdit) ? (
               <>
                 <ModalBtnSecondary type="button" onClick={closeStatusModal}>Cancel</ModalBtnSecondary>
                 <ModalBtnPrimary data-testid="status-save-btn" type="button" onClick={handleManagerStatusSave}>
@@ -1137,33 +1139,60 @@ export default function Requests({ personal = false, embedded = false, managerVi
                 )}
               </FormSection>
 
-              {(!managerView || adminManagerPreview || (isManager && statusEdit._managerReviewable)) && !queueItemAwaitingAttachment(statusEdit) && (
-                <FormSection title="Status">
-                  <div className="grid grid-cols-1 gap-2">
-                    {(managerView && (isManager || adminManagerPreview)
-                      ? (adminManagerPreview
-                        ? allowedStatusOptions(user, statusEdit.status)
-                        : managerReviewStatusOptions(
-                            isPendingManagerStatus(statusEdit.status) ? "pending_manager" : statusEdit.status
-                          ))
-                      : allowedStatusOptions(user, statusEdit.status)
-                    ).map(k => {
-                      const v = MANAGER_REVIEW_STATUS_MAP[k] || STATUS_MAP[k] || STATUS_MAP.pending;
-                      return (
-                        <button
-                          key={k}
-                          type="button"
-                          onClick={() => setStatusEdit({ ...statusEdit, status: k })}
-                          className={`pill border-2 justify-start py-2 ${statusEdit.status === k ? "ring-2 ring-[var(--brand)]" : ""} ${v.cls}`}
-                        >
-                          {v.icon} {v.label}
-                        </button>
-                      );
-                    })}
-                  </div>
+              {(!managerView || inManagerReviewMode && statusEdit._managerReviewable) && !queueItemAwaitingAttachment(statusEdit) && (
+                <FormSection title={inManagerReviewMode ? "Your decision" : "Status"}>
+                  {inManagerReviewMode ? (
+                    <div
+                      className="grid grid-cols-3 gap-2 p-2 rounded-xl mb-3"
+                      style={{ background: "#FAFAF7", border: "1px solid #E2DDD4" }}
+                      role="radiogroup"
+                      aria-label="Manager decision"
+                    >
+                      {managerReviewStatusOptions().map(k => {
+                        const v = MANAGER_REVIEW_STATUS_MAP[k];
+                        const active = statusEdit.status === k;
+                        return (
+                          <button
+                            key={k}
+                            type="button"
+                            role="radio"
+                            aria-checked={active}
+                            data-testid={`manager-decision-${k}`}
+                            onClick={() => setStatusEdit({ ...statusEdit, status: k })}
+                            className="flex flex-col items-center justify-center gap-1 rounded-lg py-3 px-2 text-sm font-semibold transition"
+                            style={{
+                              background: active ? "#E5EBE1" : "#F5F5F0",
+                              color: active ? "#3D4F35" : "#5C6853",
+                              border: active ? "2px solid #3D4F35" : "1px solid #E2DDD4",
+                              boxShadow: active ? "0 1px 3px rgba(61,79,53,0.12)" : "none",
+                            }}
+                          >
+                            <span style={{ color: active ? "#3D4F35" : "#8B9E7A" }}>{v.icon}</span>
+                            {v.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2">
+                      {allowedStatusOptions(user, statusEdit.status).map(k => {
+                        const v = STATUS_MAP[k] || STATUS_MAP.pending;
+                        return (
+                          <button
+                            key={k}
+                            type="button"
+                            onClick={() => setStatusEdit({ ...statusEdit, status: k })}
+                            className={`pill border-2 justify-start py-2 ${statusEdit.status === k ? "ring-2 ring-[var(--brand)]" : ""} ${v.cls}`}
+                          >
+                            {v.icon} {v.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                   <FormField
-                    label={managerView ? "Manager note" : "Response / note"}
-                    hint={managerView && isManager ? "Optional — include context for HR or therapist" : "Optional"}
+                    label={inManagerReviewMode ? "Manager note" : "Response / note"}
+                    hint={inManagerReviewMode ? "Optional — include context for HR or therapist" : "Optional"}
                     required={false}
                   >
                     <textarea
@@ -1171,25 +1200,34 @@ export default function Requests({ personal = false, embedded = false, managerVi
                       rows={3}
                       value={statusEdit.admin_note || ""}
                       onChange={e => setStatusEdit({ ...statusEdit, admin_note: e.target.value })}
-                      placeholder={managerView && isManager ? "Add notes if needed…" : ""}
+                      placeholder={inManagerReviewMode ? "Add notes if needed…" : ""}
+                      style={inManagerReviewMode ? { background: "#FAFAF7", borderColor: "#E2DDD4" } : undefined}
                     />
                   </FormField>
 
-                  {managerView && isManager && statusEdit._managerReviewable && (
-                    <div className="space-y-2 mt-3 pt-3 border-t" style={{ borderColor: "#EDE9E3" }}>
-                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  {inManagerReviewMode && statusEdit._managerReviewable && (
+                    <div
+                      className="space-y-3 mt-3 pt-3 rounded-xl p-3"
+                      style={{ borderTop: "1px solid #E2DDD4", background: "#FAFAF7" }}
+                    >
+                      <label className="flex items-center gap-2.5 text-sm cursor-pointer">
                         <input
                           type="checkbox"
                           checked={!!statusEdit.notify_hr}
                           onChange={e => setStatusEdit({ ...statusEdit, notify_hr: e.target.checked })}
+                          style={{ accentColor: "#3D4F35" }}
                         />
-                        <span style={{ color: "#2C3625" }}>Sent to HR for follow-up</span>
+                        <span style={{ color: "#3D4F35" }}>Sent to HR for follow-up</span>
                       </label>
                       <button
                         type="button"
-                        className="btn btn-secondary text-xs w-full"
-                        onClick={() => setStatusEdit({ ...statusEdit, notify_therapist: true })}
-                        style={statusEdit.notify_therapist ? { outline: "2px solid var(--brand)" } : undefined}
+                        className="text-xs w-full py-2.5 rounded-lg font-semibold transition"
+                        onClick={() => setStatusEdit({ ...statusEdit, notify_therapist: !statusEdit.notify_therapist })}
+                        style={{
+                          background: statusEdit.notify_therapist ? "#E5EBE1" : "#F5F5F0",
+                          color: "#3D4F35",
+                          border: statusEdit.notify_therapist ? "2px solid #3D4F35" : "1px solid #E2DDD4",
+                        }}
                       >
                         Notify therapist directly
                       </button>
@@ -1202,13 +1240,13 @@ export default function Requests({ personal = false, embedded = false, managerVi
                 </FormSection>
               )}
 
-              {managerView && isManager && !statusEdit._managerReviewable && statusEdit._queueKind !== "leave" && (
-                <div className="text-sm rounded-xl p-3" style={{ background: "#FAF0D1", color: "#6B5218" }}>
+              {inManagerReviewMode && !statusEdit._managerReviewable && statusEdit._queueKind !== "leave" && (
+                <div className="text-sm rounded-xl p-3" style={{ background: "#FAF0D1", color: "#6B5218", border: "1px solid #E2DDD4" }}>
                   This request has been forwarded to HR. Further status changes are handled by HR.
                 </div>
               )}
 
-              {managerView && isManager && !statusEdit._managerReviewable && statusEdit._queueKind === "leave" && statusEdit.status === "pending_hr" && (
+              {inManagerReviewMode && !statusEdit._managerReviewable && statusEdit._queueKind === "leave" && statusEdit.status === "pending_hr" && (
                 <div className="text-sm rounded-xl p-3" style={{ background: "#FAF0D1", color: "#6B5218" }}>
                   This leave request has been forwarded to HR. Further status changes are handled by HR.
                 </div>
