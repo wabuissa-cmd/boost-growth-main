@@ -9,6 +9,7 @@ import {
   resolveSelfTherapist, findClientForScheduleCell, isScheduleClientLogCell, scheduleCellChildName,
   canSpecialistLogScheduleCell,
   recentCompletedSessionDates, dayIndicesForDates, weekStartISOForDate,
+  SHIFT_BANDS, SHIFT_SESSION_STYLES, shiftTimeHeaderStyle,
 } from "../scheduleUtils";
 import { MAX_SCHEDULE_MERGE_SLOTS } from "../scheduleConstants";
 import { useAuth, showAdminNav, isClientLead, canParentCancellationOps, hasFullClientAccess, hasOpsAccess } from "../auth";
@@ -41,6 +42,34 @@ const SCHEDULE_ZOOM = 80;
 
 function formatSlotHeader(ts) {
   return ts.replace(" AM", "a").replace(" PM", "p").replace(" - ", "–");
+}
+
+function ShiftBandHeaderRow({ headClass = "sheet-th" }) {
+  return (
+    <tr className="sheet-shift-bands no-print">
+      <th className={`${headClass} sheet-idx`} aria-hidden />
+      <th className={`${headClass} sheet-therapist`} aria-hidden />
+      <th className={`${headClass} sheet-day`} aria-hidden />
+      {SHIFT_BANDS.map((band) => {
+        const s = SHIFT_SESSION_STYLES[band.shift];
+        return (
+          <th
+            key={band.shift}
+            colSpan={band.slotCount}
+            className={`${headClass} sheet-shift-band`}
+            style={{
+              background: s.background,
+              borderColor: s.borderColor,
+              color: "#2C3625",
+              borderLeft: band.shift > 1 ? `2px solid ${s.borderColor}` : undefined,
+            }}
+          >
+            {band.label}
+          </th>
+        );
+      })}
+    </tr>
+  );
 }
 
 function getSheetCellStyle(cell, clients) {
@@ -1421,12 +1450,17 @@ export default function Schedule() {
                 <th className="sheet-th sheet-idx" style={{ minWidth: 32, width: 32 }} aria-hidden />
                 <th className="sheet-th sheet-therapist" style={{ minWidth: 96 }} aria-hidden />
                 <th className="sheet-th sheet-day" style={{ minWidth: 58 }}>Day</th>
-                {TIME_SLOTS.map(ts => (
-                  <th key={ts} className="sheet-th sheet-time" style={{ minWidth: 68 }}>
+                {TIME_SLOTS.map((ts, si) => (
+                  <th
+                    key={ts}
+                    className="sheet-th sheet-time"
+                    style={{ minWidth: 68, ...shiftTimeHeaderStyle(ts, si) }}
+                  >
                     {formatSlotHeader(ts)}
                   </th>
                 ))}
               </tr>
+              <ShiftBandHeaderRow />
             {DAYS_EN.map((d, di) => {
                 const leaveInfo = leaveByTherapistDay[`${t.id}_${di}`];
                 const dayISO = toISODate(addDays(weekStart, di));
@@ -1537,10 +1571,15 @@ export default function Schedule() {
       <div className="schedule-blocks-fit">
         <table className="w-full text-xs border-collapse sched-blocks-table">
           <thead>
+            <ShiftBandHeaderRow headClass="schedule-blocks-head" />
             <tr>
               <th className="schedule-blocks-head schedule-blocks-day-head">Day</th>
-              {TIME_SLOTS.map(ts => (
-                <th key={ts} className="schedule-blocks-head">
+              {TIME_SLOTS.map((ts, si) => (
+                <th
+                  key={ts}
+                  className="schedule-blocks-head"
+                  style={shiftTimeHeaderStyle(ts, si)}
+                >
                   {ts.replace(' AM', 'a').replace(' PM', 'p')}
                 </th>
               ))}

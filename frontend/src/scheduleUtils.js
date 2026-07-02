@@ -76,12 +76,19 @@ export function scheduleCoveredSlotKeys(cell) {
 /** Session types that share one calm cell background (not per-child rainbow). */
 export const CLIENT_SESSION_CODES = new Set(["SS", "HS", "OS"]);
 
-/** Subtle beige/olive tints per shift band — same family, not rainbow. */
+/** Beige/olive tints per shift band — same family, clearly distinguishable. */
 export const SHIFT_SESSION_STYLES = {
-  1: { background: "#EEF2EA", borderColor: "#C9D4BE", color: "#2C3625" },
-  2: { background: "#E8EDE3", borderColor: "#C3CFBA", color: "#2C3625" },
-  3: { background: "#E2E8DC", borderColor: "#BDC9B5", color: "#2C3625" },
+  1: { background: "#EEF2EA", borderColor: "#B8C5AB", color: "#2C3625" },
+  2: { background: "#DCE5D4", borderColor: "#A8B89A", color: "#2C3625" },
+  3: { background: "#C8D4BC", borderColor: "#95A888", color: "#2C3625" },
 };
+
+/** Column band metadata for schedule headers (matches TIME_SLOTS: 4 + 4 + 2). */
+export const SHIFT_BANDS = [
+  { shift: 1, label: "Shift 1 · 8–12", slotCount: 4 },
+  { shift: 2, label: "Shift 2 · 12–4", slotCount: 4 },
+  { shift: 3, label: "Shift 3 · 4–8", slotCount: 2 },
+];
 
 /** Legend colors — must match .evt-* in index.css */
 export const SERVICE_CELL_COLORS = {
@@ -140,6 +147,18 @@ export function shiftSessionStyle(timeSlot) {
   return SHIFT_SESSION_STYLES[shiftForTimeSlot(timeSlot)] || SHIFT_SESSION_STYLES[1];
 }
 
+/** Time-column header tint + optional left divider at band boundaries. */
+export function shiftTimeHeaderStyle(timeSlot, slotIndex = -1) {
+  const s = shiftSessionStyle(timeSlot);
+  const bandStart = slotIndex === 4 || slotIndex === 8;
+  return {
+    background: s.background,
+    borderColor: s.borderColor,
+    color: "#2C3625",
+    ...(bandStart ? { borderLeft: `2px solid ${s.borderColor}` } : {}),
+  };
+}
+
 /** Subtle per-child accent (beige/olive palette only) — not stored client rainbow colors. */
 export function resolveClientScheduleColor(childName, _clients = [], timeSlot = null) {
   if (!childName) return null;
@@ -171,7 +190,12 @@ export function getCellStyle(cell, clients = []) {
   if (code === "LEAVE" && SERVICE_CELL_COLORS.LEAVE) {
     return { ...SERVICE_CELL_COLORS.LEAVE };
   }
-  if (META_SERVICE_CODES.has(code) || (!cell.child_name && code && SERVICE_CELL_COLORS[code])) {
+  if (META_SERVICE_CODES.has(code)) {
+    const s = SERVICE_CELL_COLORS[code];
+    if (s) return { ...s };
+  }
+  // SS/HS/OS always use shift tint below — do not pin to shift 1 via SERVICE_CELL_COLORS.
+  if (!CLIENT_SESSION_CODES.has(code) && !cell.child_name && code && SERVICE_CELL_COLORS[code]) {
     const s = SERVICE_CELL_COLORS[code];
     if (s) return { ...s };
   }

@@ -525,6 +525,25 @@ main, .page-enter { min-width: 0; }
 .sched-sheet-v2 tr.sheet-group-hours .sheet-day {
     z-index: 6;
 }
+.sched-sheet-v2 tr.sheet-shift-bands .sheet-shift-band,
+.sched-blocks-table tr.sheet-shift-bands .sheet-shift-band {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 4px 2px;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+.sched-sheet-v2 tr.sheet-shift-bands .sheet-th,
+.sched-blocks-table tr.sheet-shift-bands th {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+}
+.sched-sheet-v2 tr.sheet-group-hours .sheet-time {
+    font-weight: 700;
+}
 .schedule-admin-edits-menu {
     box-sizing: border-box;
 }
