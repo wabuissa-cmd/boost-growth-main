@@ -124,13 +124,35 @@ async def _dedupe_duplicate_clients() -> dict:
     return {"removed": len(to_delete), "actions": actions}
 
 
+def _therapist_canonical_email(email: Optional[str]) -> str:
+    em = (email or "").strip().lower()
+    return THERAPIST_LOGIN_EMAIL_ALIASES.get(em, em) if em else ""
+
+
+def _is_uuid_therapist_id(tid: Optional[str]) -> bool:
+    try:
+        uuid.UUID(str(tid or ""))
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
+def _is_legacy_ms_numeric_key(key: Optional[str]) -> bool:
+    return bool(re.match(r"^ms\d+$", (key or "").strip(), re.I))
+
+
 def _therapist_record_score(t: dict) -> int:
-    """Higher = canonical therapist row; prefer user-chosen passwords, then keyed records."""
+    """Higher = canonical therapist row; prefer UUID accounts and user-chosen passwords."""
     score = 0
     if t.get("password_hash") and not t.get("must_change_password"):
         score += 1000
-    if t.get("key"):
+    if _is_uuid_therapist_id(t.get("id")):
+        score += 200
+    key = (t.get("key") or "").strip()
+    if key and not _is_legacy_ms_numeric_key(key):
         score += 100
+    elif key:
+        score += 10
     if t.get("password_hash"):
         score += 50
     if t.get("role"):
@@ -138,6 +160,12 @@ def _therapist_record_score(t: dict) -> int:
     if t.get("email"):
         score += 5
     return score
+
+
+def _pick_canonical_therapist(group: List[dict]) -> dict:
+    scored = [(_therapist_record_score(t), t.get("created_at") or "", t) for t in group]
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    return scored[0][2]
 
 
 async def _find_therapist_by_email(email: str) -> Optional[dict]:
@@ -280,7 +308,7 @@ async def _dedupe_duplicate_therapists() -> dict:
     therapists = await db.therapists.find({}, {"_id": 0}).to_list(500)
     by_email: dict = {}
     for t in therapists:
-        em = (t.get("email") or "").strip().lower()
+        em = _therapist_canonical_email(t.get("email"))
         if em:
             by_email.setdefault(em, []).append(t)
 
@@ -350,20 +378,87 @@ _therapist_alias_map_cache: Optional[Dict[str, List[str]]] = None
 
 
 def _therapist_identity_token(t: dict) -> Optional[str]:
-    """Stable grouping key for duplicate therapist rows (key, first name, or email)."""
+    """Stable grouping key for duplicate therapist rows (display name, email, or key)."""
+    disp = therapist_schedule_display_name(t).strip().lower()
+    if disp:
+        return f"display:{disp}"
+    canon = _therapist_canonical_email(t.get("email"))
+    if canon:
+        return f"email:{canon}"
     key = (t.get("key") or "").strip().lower()
-    if key:
+    if key and not _is_legacy_ms_numeric_key(key):
         return f"key:{key}"
     raw = re.sub(r"^Ms\.?\s*", "", (t.get("name") or "").strip(), flags=re.I)
     parts = [p for p in raw.split() if p]
     if parts:
         first = THERAPIST_FIRST_NAME_ALIASES.get(parts[0].lower(), parts[0].lower())
         return f"name:{first}"
-    em = (t.get("email") or "").strip().lower()
-    if em:
-        canon = THERAPIST_LOGIN_EMAIL_ALIASES.get(em, em)
-        return f"email:{canon}"
     return None
+
+
+def _therapist_dedupe_tokens(t: dict) -> List[str]:
+    """All grouping tokens for one therapist row (union-find links duplicates)."""
+    tokens: List[str] = []
+    disp = therapist_schedule_display_name(t).strip().lower()
+    if disp:
+        tokens.append(f"display:{disp}")
+    canon = _therapist_canonical_email(t.get("email"))
+    if canon:
+        tokens.append(f"email:{canon}")
+    key = (t.get("key") or "").strip().lower()
+    if key and not _is_legacy_ms_numeric_key(key):
+        tokens.append(f"key:{key}")
+    raw = re.sub(r"^Ms\.?\s*", "", (t.get("name") or "").strip(), flags=re.I)
+    parts = [p for p in raw.split() if p]
+    if parts:
+        first = THERAPIST_FIRST_NAME_ALIASES.get(parts[0].lower(), parts[0].lower())
+        tokens.append(f"name:{first}")
+    tok = _therapist_identity_token(t)
+    if tok:
+        tokens.append(tok)
+    return list(dict.fromkeys(tokens))
+
+
+def _cluster_therapist_rows(rows: List[dict]) -> List[List[dict]]:
+    """Group therapist rows that refer to the same person."""
+    parent: Dict[str, str] = {}
+    by_id: Dict[str, dict] = {}
+
+    def find(i: str) -> str:
+        parent.setdefault(i, i)
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    token_to_id: Dict[str, str] = {}
+    for t in rows:
+        tid = t.get("id")
+        if not tid:
+            continue
+        by_id[tid] = t
+        for tok in _therapist_dedupe_tokens(t):
+            if tok in token_to_id:
+                union(tid, token_to_id[tok])
+            else:
+                token_to_id[tok] = tid
+
+    clusters: Dict[str, List[dict]] = {}
+    for tid in by_id:
+        root = find(tid)
+        clusters.setdefault(root, []).append(by_id[tid])
+    return list(clusters.values())
+
+
+def _dedupe_therapist_rows_for_display(rows: List[dict]) -> List[dict]:
+    """Return one canonical row per therapist for list endpoints."""
+    deduped = [_pick_canonical_therapist(group) for group in _cluster_therapist_rows(rows)]
+    return sorted(deduped, key=lambda x: therapist_schedule_display_name(x).lower())
 
 
 async def _build_therapist_id_alias_map() -> Dict[str, List[str]]:
@@ -413,23 +508,21 @@ def _therapist_ids_overlap(a: Optional[str], b: Optional[str], alias_map: Dict[s
 
 
 async def _dedupe_therapists_by_identity() -> dict:
-    """Merge duplicate therapist rows that share key or first-name identity (different emails)."""
+    """Merge duplicate therapist rows that share display name, email alias, or first-name identity."""
     therapists = await db.therapists.find({}, {"_id": 0}).to_list(500)
-    groups: Dict[str, list] = {}
+    cell_counts: Dict[str, int] = {}
     for t in therapists:
-        tok = _therapist_identity_token(t)
-        if tok:
-            groups.setdefault(tok, []).append(t)
+        cell_counts[t["id"]] = await db.schedule_cells.count_documents({"therapist_id": t["id"]})
 
     to_delete: List[tuple] = []
     actions: List[dict] = []
-    for tok, group in groups.items():
+    for group in _cluster_therapist_rows(therapists):
         if len(group) < 2:
             continue
-        scored = []
-        for t in group:
-            cell_n = await db.schedule_cells.count_documents({"therapist_id": t["id"]})
-            scored.append((_therapist_record_score(t) + cell_n, t.get("created_at") or "", t))
+        scored = [
+            (_therapist_record_score(t) + cell_counts.get(t["id"], 0), t.get("created_at") or "", t)
+            for t in group
+        ]
         scored.sort(key=lambda x: (-x[0], x[1]))
         winner = scored[0][2]
         for _, _, loser in scored[1:]:
@@ -437,7 +530,7 @@ async def _dedupe_therapists_by_identity() -> dict:
                 continue
             to_delete.append((loser["id"], winner["id"]))
             actions.append({
-                "token": tok,
+                "token": therapist_schedule_display_name(winner).lower() or _therapist_identity_token(winner),
                 "kept_id": winner["id"],
                 "kept_name": winner.get("name"),
                 "removed_id": loser["id"],
@@ -1329,7 +1422,8 @@ async def admin_login(payload: LoginIn, response: Response):
 
 @api.get("/auth/therapists-list")
 async def therapists_list_public():
-    return await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).sort("name", 1).to_list(500)
+    rows = await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).sort("name", 1).to_list(500)
+    return _dedupe_therapist_rows_for_display(rows)
 
 @api.post("/auth/therapist-login")
 async def therapist_login(payload: TherapistPinLogin, response: Response):
@@ -1584,15 +1678,7 @@ async def logout(response: Response):
 @api.get("/therapists")
 async def list_therapists(user=Depends(get_current_user)):
     rows = await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).sort("name", 1).to_list(500)
-    seen_tokens: set = set()
-    deduped = []
-    for t in rows:
-        tok = _therapist_identity_token(t) or t.get("id")
-        if tok in seen_tokens:
-            continue
-        seen_tokens.add(tok)
-        deduped.append(t)
-    return deduped
+    return _dedupe_therapist_rows_for_display(rows)
 
 @api.post("/therapists")
 async def create_therapist(payload: TherapistIn, _=Depends(admin_only)):
@@ -1906,11 +1992,7 @@ SCHEDULE_MASTER_SHEET_URL = os.environ.get(
 async def _get_data_health_snapshot() -> dict:
     """Collection counts and duplicate-therapist groups for Admin health panel."""
     therapists = await db.therapists.find({}, {"_id": 0}).to_list(500)
-    by_token: dict = {}
-    for t in therapists:
-        tok = _therapist_identity_token(t) or t.get("id")
-        by_token.setdefault(tok, []).append(t)
-    dup_groups = sum(1 for g in by_token.values() if len(g) > 1)
+    dup_groups = sum(1 for g in _cluster_therapist_rows(therapists) if len(g) > 1)
 
     schedule_weeks: List[dict] = []
     pipeline = [

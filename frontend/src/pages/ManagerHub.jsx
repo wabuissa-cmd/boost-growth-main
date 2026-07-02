@@ -11,7 +11,7 @@ import {
   FloppyDisk, DownloadSimple, CalendarBlank, ArrowLeft, X,
   IdentificationCard, CalendarCheck, ChartBar, CaretLeft, CaretRight, ListBullets,
 } from "@phosphor-icons/react";
-import { getTherapistScheduleName } from "../scheduleConstants";
+import { getTherapistScheduleName, sortTherapistsForSchedule } from "../scheduleConstants";
 
 const MAIN_TABS = [
   { id: "staff", label: "Therapists' Requests", testid: "mgr-tab-staff" },
@@ -600,7 +600,7 @@ function TherapistProfilesTab() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
-    api.get("/therapists").then(({ data }) => setTherapists(Array.isArray(data) ? data : [])).catch(() => {});
+    api.get("/therapists").then(({ data }) => setTherapists(sortTherapistsForSchedule(Array.isArray(data) ? data : []))).catch(() => {});
   }, []);
 
   useEffect(() => {
