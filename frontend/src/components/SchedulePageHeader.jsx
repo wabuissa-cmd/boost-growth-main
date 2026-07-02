@@ -30,7 +30,7 @@ export function ScheduleLegendStrip({ className = "" }) {
         ))}
       </div>
       <p className="schedule-page-legend-hint">
-        Each child has a unique color · Tap a session cell to log attendance · Long-press for menu
+        Session cells are tinted by shift (morning / afternoon / evening) · Tap a session cell to log attendance · Long-press for menu
       </p>
     </div>
   );

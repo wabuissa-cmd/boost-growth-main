@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { X, FloppyDisk, BellRinging, WhatsappLogo, PencilSimple } from "@phosphor-icons/react";
 import { DAYS_EN, SERVICE_CODES } from "../api";
 import { DURATION_OPTIONS, getTherapistScheduleName } from "../scheduleConstants";
-import { SERVICE_CELL_COLORS, resolveClientScheduleColor, findClientForScheduleCell, scheduleCellDisplayLabel, buildDefaultCellNote, shouldAutoUpdateCellNote } from "../scheduleUtils";
+import { SERVICE_CELL_COLORS, shiftSessionStyle, resolveClientScheduleColor, findClientForScheduleCell, scheduleCellDisplayLabel, buildDefaultCellNote, shouldAutoUpdateCellNote } from "../scheduleUtils";
 import { ModalBtnPrimary, ModalBtnSecondary } from "./Modal";
 import { buildTherapistCancellationMessage, buildWhatsAppUrl } from "../scheduleParentMessages";
 
@@ -93,7 +93,7 @@ export default function ScheduleCellPanel({
   const previewColor = form.service_code === "AVAILABLE" || form.state === "available"
     ? "#FFFFFF"
     : SERVICE_CELL_COLORS[form.service_code]?.background
-      || (form.child_name ? SERVICE_CELL_COLORS.SS.background : null)
+      || (form.child_name ? shiftSessionStyle(form.time_slot).background : null)
       || "#E5EBE1";
   const serviceShort = SERVICE_CODES.find(s => s.id === form.service_code)?.short;
   const previewLabel = form.state === "available" || form.service_code === "AVAILABLE"
@@ -123,7 +123,9 @@ export default function ScheduleCellPanel({
       const note = shouldAutoUpdateCellNote(f.note, f.child_name, f.service_code)
         ? buildDefaultCellNote(f.service_code, trimmed)
         : f.note;
-      const sessionBg = SERVICE_CELL_COLORS[f.service_code]?.background || null;
+      const sessionBg = SERVICE_CELL_COLORS[f.service_code]?.background
+        || shiftSessionStyle(f.time_slot).background
+        || null;
       return { ...f, child_name: trimmed || null, color: sessionBg, note };
     });
     setClientOpen(false);

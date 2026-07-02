@@ -76,12 +76,19 @@ export function scheduleCoveredSlotKeys(cell) {
 /** Session types that share one calm cell background (not per-child rainbow). */
 export const CLIENT_SESSION_CODES = new Set(["SS", "HS", "OS"]);
 
+/** Subtle beige/olive tints per shift band — same family, not rainbow. */
+export const SHIFT_SESSION_STYLES = {
+  1: { background: "#EEF2EA", borderColor: "#C9D4BE", color: "#2C3625" },
+  2: { background: "#E8EDE3", borderColor: "#C3CFBA", color: "#2C3625" },
+  3: { background: "#E2E8DC", borderColor: "#BDC9B5", color: "#2C3625" },
+};
+
 /** Legend colors — must match .evt-* in index.css */
 export const SERVICE_CELL_COLORS = {
-  // Sessions (SS/HS/OS): unified base to reduce noise.
-  SS: { background: "#EEF2EA", borderColor: "#C9D4BE", color: "#2C3625" },
-  HS: { background: "#EEF2EA", borderColor: "#C9D4BE", color: "#2C3625" },
-  OS: { background: "#EEF2EA", borderColor: "#C9D4BE", color: "#2C3625" },
+  // Sessions (SS/HS/OS): shift 1 default; grid uses SHIFT_SESSION_STYLES by time_slot.
+  SS: { ...SHIFT_SESSION_STYLES[1] },
+  HS: { ...SHIFT_SESSION_STYLES[1] },
+  OS: { ...SHIFT_SESSION_STYLES[1] },
   MEETING: { background: "#F1ECF7", borderColor: "#C9B8DE", color: "#4E3F70" },
   // Supervision: distinct calm blue-gray.
   SUPERVISION: { background: "#E7EEF6", borderColor: "#AFC3DB", color: "#2D4B6A" },
@@ -120,13 +127,17 @@ function parseTimeSlotHour(timeSlot) {
   return Number.isFinite(h) ? h : null;
 }
 
-function shiftForTimeSlot(timeSlot) {
+/** Morning / afternoon / evening bands from slot start hour (8–12, 12–16, 16+). */
+export function shiftForTimeSlot(timeSlot) {
   const h = parseTimeSlotHour(timeSlot);
   if (h === null) return 1;
-  // Shift bands are approximate; the goal is stable, pleasant palette variety.
   if (h < 12) return 1;
   if (h < 16) return 2;
   return 3;
+}
+
+export function shiftSessionStyle(timeSlot) {
+  return SHIFT_SESSION_STYLES[shiftForTimeSlot(timeSlot)] || SHIFT_SESSION_STYLES[1];
 }
 
 /** Subtle per-child accent (beige/olive palette only) — not stored client rainbow colors. */
@@ -135,9 +146,8 @@ export function resolveClientScheduleColor(childName, _clients = [], timeSlot = 
   return getChildColor(childName.trim(), shiftForTimeSlot(timeSlot));
 }
 
-function clientSessionBaseStyle(serviceCode) {
-  const code = (serviceCode || "SS").toUpperCase();
-  return { ...(SERVICE_CELL_COLORS[code] || SERVICE_CELL_COLORS.SS) };
+function clientSessionBaseStyle(_serviceCode, timeSlot) {
+  return { ...shiftSessionStyle(timeSlot) };
 }
 
 function childSessionAccentStyle(childName, timeSlot) {
@@ -169,7 +179,7 @@ export function getCellStyle(cell, clients = []) {
   const childName = scheduleCellChildName(cell);
   const isClientSession = childName || CLIENT_SESSION_CODES.has(code);
   if (isClientSession && !META_SERVICE_CODES.has(code)) {
-    const base = clientSessionBaseStyle(code);
+    const base = clientSessionBaseStyle(code, cell.time_slot);
     if (childName) {
       return { ...base, ...childSessionAccentStyle(childName, cell.time_slot) };
     }
