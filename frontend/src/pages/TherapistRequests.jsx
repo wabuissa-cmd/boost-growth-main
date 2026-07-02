@@ -3,7 +3,8 @@ import api from "../api";
 import { useAuth, isJenan } from "../auth";
 import {
   Plus, CalendarBlank, CheckCircle, XCircle, Hourglass, ChatCircleText, Clock,
-  Paperclip, UploadSimple, ListChecks, Info,
+  Paperclip, UploadSimple, ListChecks, Info, Buildings, Briefcase, Heartbeat,
+  Sun, ClockAfternoon, Package,
 } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
@@ -11,7 +12,9 @@ import {
 } from "../components/Modal";
 import RequestsPageHeader from "../components/RequestsPageHeader";
 import PurchasesPanel from "../components/PurchasesPanel";
+import VerticalStepper from "../components/VerticalStepper";
 import "../clientInfoLayout.css";
+import "../stepperLayout.css";
 import {
   LEAVE_STATUS, LEAVE_TYPES, diffDays, leaveStatusLabel, permissionPayLabel,
   permissionDaysFromTimes, addHoursToTime24, fmtLeaveSchedule,
@@ -22,16 +25,21 @@ const WORKFLOW_FOOTER =
   "Your request goes first to your direct manager Ms. Jenan, then to HR. Your status will update on this page.";
 
 const LEAVE_REQUEST_TYPES = [
-  { id: "Annual", label: "Annual leave", color: "#7A8A6A", needsFile: false },
-  { id: "Unpaid", label: "Unpaid leave", color: "#C28E6A", needsFile: false },
-  { id: "Sickleave", label: "Sick leave", color: "#9B7BAB", needsFile: true },
-  { id: "Permission", label: "Permission", color: "#6BAA9B", needsFile: true },
+  { id: "Annual", label: "Annual leave", icon: Sun, color: "#7A8A6A", needsFile: false },
+  { id: "Unpaid", label: "Unpaid leave", icon: ClockAfternoon, color: "#C28E6A", needsFile: false },
+  { id: "Sickleave", label: "Sick leave", icon: Heartbeat, color: "#9B7BAB", needsFile: true },
+  { id: "Permission", label: "Permission", icon: CalendarBlank, color: "#6BAA9B", needsFile: true },
 ];
 
 const GENERAL_REQUEST_TYPES = [
-  { id: "companies", label: "Companies", color: "#6B8F71", needsDescription: false },
-  { id: "other", label: "Other", color: "#8B7BA8", needsDescription: true },
-  { id: "supplies", label: "Materials", color: "#D4A64A", needsDescription: false },
+  { id: "companies", label: "Companies", icon: Buildings, color: "#6B8F71", needsDescription: false },
+  { id: "other", label: "Other", icon: Briefcase, color: "#8B7BA8", needsDescription: true },
+  { id: "supplies", label: "Materials", icon: Package, color: "#D4A64A", needsDescription: false },
+];
+
+const WIZARD_STEPS = [
+  { label: "Type", hint: "Choose request" },
+  { label: "Details", hint: "Fill & submit" },
 ];
 
 const GENERAL_REQUEST_TITLES = {
@@ -95,6 +103,31 @@ function WorkflowFooter() {
   );
 }
 
+function TypeCard({ meta, active, onClick, testId }) {
+  const Icon = meta.icon;
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      onClick={onClick}
+      className={`req-type-card${active ? " active" : ""}`}
+      style={{ "--type-color": meta.color }}
+    >
+      <span className="req-type-card-icon">
+        <Icon size={17} weight="duotone" />
+      </span>
+      <span className="req-type-card-copy">
+        <span className="req-type-card-label">{meta.label}</span>
+      </span>
+      {meta.needsFile && (
+        <span className="req-type-card-badge" title="Attachment required">
+          <Paperclip size={10} weight="bold" />
+        </span>
+      )}
+    </button>
+  );
+}
+
 export default function TherapistRequests() {
   const { user } = useAuth();
   const hidePurchases = isJenan(user);
@@ -106,6 +139,7 @@ export default function TherapistRequests() {
   const [form, setForm] = useState(() => emptyForm(null));
   const [submitting, setSubmitting] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [modalStep, setModalStep] = useState(1);
 
   const load = async () => {
     setPageError(null);
@@ -143,11 +177,13 @@ export default function TherapistRequests() {
 
   const openModal = () => {
     setForm(emptyForm(user?.id));
+    setModalStep(1);
     setShowModal(true);
   };
 
   const closeModal = () => {
     setShowModal(false);
+    setModalStep(1);
     setForm(emptyForm(user?.id));
   };
 
@@ -267,6 +303,7 @@ export default function TherapistRequests() {
         });
       }
       setForm(emptyForm(user?.id));
+      setModalStep(1);
       setShowModal(false);
       await load();
     } catch (e) {
@@ -465,94 +502,230 @@ export default function TherapistRequests() {
       {showModal && (
         <ModalBase
           title="New Request"
-          subtitle="Choose a type and fill in the details"
+          subtitle={modalStep === 1 ? "Step 1 of 2 · Choose request type" : `Step 2 of 2 · ${selectedMeta?.label || "Details"}`}
           onClose={closeModal}
           size="lg"
           compact
           bodyClassName="req-new-request-modal-body"
           footer={(
-            <>
-              <ModalBtnSecondary type="button" onClick={closeModal}>Cancel</ModalBtnSecondary>
-              <ModalBtnPrimary
-                data-testid="req-submit-btn"
-                type="button"
-                onClick={submit}
-                disabled={!canSubmit}
-              >
-                {submitting ? "Submitting…" : submitLabel}
-              </ModalBtnPrimary>
-            </>
+            modalStep === 1 ? (
+              <>
+                <ModalBtnSecondary type="button" onClick={closeModal}>Cancel</ModalBtnSecondary>
+                <ModalBtnPrimary
+                  type="button"
+                  onClick={() => setModalStep(2)}
+                  disabled={!form.selectedType}
+                >
+                  Next →
+                </ModalBtnPrimary>
+              </>
+            ) : (
+              <>
+                <ModalBtnSecondary type="button" onClick={() => setModalStep(1)}>← Back</ModalBtnSecondary>
+                <ModalBtnPrimary
+                  data-testid="req-submit-btn"
+                  type="button"
+                  onClick={submit}
+                  disabled={!canSubmit}
+                >
+                  {submitting ? "Submitting…" : submitLabel}
+                </ModalBtnPrimary>
+              </>
+            )
           )}
         >
-          <FormSection title="Request type">
-            <FormField label="Type" required>
-              <select
-                data-testid="req-type-select"
-                className="modal-input"
-                value={form.selectedType || ""}
-                onChange={(e) => {
-                  const typeId = e.target.value;
-                  if (typeId) selectType(typeId);
-                }}
-              >
-                <option value="">— Select request type —</option>
-                <optgroup label="Leave">
-                  {LEAVE_REQUEST_TYPES.map((t) => (
-                    <option key={t.id} value={t.id} data-testid={`leave-type-${t.id}`}>
-                      {t.label}{t.needsFile ? " (file required)" : ""}
-                    </option>
-                  ))}
-                </optgroup>
-                <optgroup label="General">
-                  {GENERAL_REQUEST_TYPES.map((t) => (
-                    <option key={t.id} value={t.id} data-testid={`general-type-${t.id}`}>
-                      {t.label}{t.needsDescription ? " (description required)" : ""}
-                    </option>
-                  ))}
-                </optgroup>
-              </select>
-            </FormField>
-          </FormSection>
+          <div className="flex gap-1 -mt-1 mb-3">
+            {[1, 2].map((i) => (
+              <div
+                key={i}
+                className="flex-1 h-1.5 rounded-full transition-all"
+                style={{ background: i <= modalStep ? "var(--brand)" : "#EDE9E3" }}
+              />
+            ))}
+          </div>
 
-          {isLeaveType(form.selectedType) && form.selectedType !== "Permission" && (
-            <div className="req-unified-form">
-              <FormSection title={`${selectedMeta?.label} details`}>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <FormField label="From">
-                    <input
-                      type="date"
-                      className="modal-input"
-                      value={form.start_date}
-                      onChange={(e) => updateLeaveDates(e.target.value, form.end_date)}
-                    />
-                  </FormField>
-                  <FormField label="To">
-                    <input
-                      type="date"
-                      className="modal-input"
-                      value={form.end_date}
-                      onChange={(e) => updateLeaveDates(form.start_date, e.target.value)}
-                    />
-                  </FormField>
+          <div className="req-modal-split">
+            <VerticalStepper current={modalStep} steps={WIZARD_STEPS} />
+            <div className="min-w-0">
+              {modalStep === 1 && (
+                <>
+                  <section className="req-unified-section">
+                    <div className="req-unified-section-head">
+                      <span className="req-unified-section-num">1</span>
+                      <div>
+                        <h3 className="req-unified-section-title">Leave</h3>
+                        <p className="req-unified-section-desc">Annual · unpaid · sick · permission</p>
+                      </div>
+                    </div>
+                    <div className="req-type-grid">
+                      {LEAVE_REQUEST_TYPES.map((t) => (
+                        <TypeCard
+                          key={t.id}
+                          meta={t}
+                          active={form.selectedType === t.id}
+                          onClick={() => selectType(t.id)}
+                          testId={`leave-type-${t.id}`}
+                        />
+                      ))}
+                    </div>
+                  </section>
+
+                  <div className="req-unified-divider" />
+
+                  <section className="req-unified-section">
+                    <div className="req-unified-section-head">
+                      <span className="req-unified-section-num">2</span>
+                      <div>
+                        <h3 className="req-unified-section-title">General</h3>
+                        <p className="req-unified-section-desc">Companies · other · materials</p>
+                      </div>
+                    </div>
+                    <div className="req-type-grid req-type-grid--two">
+                      {GENERAL_REQUEST_TYPES.map((t) => (
+                        <TypeCard
+                          key={t.id}
+                          meta={t}
+                          active={form.selectedType === t.id}
+                          onClick={() => selectType(t.id)}
+                          testId={`general-type-${t.id}`}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                </>
+              )}
+
+              {modalStep === 2 && selectedMeta && (
+                <div
+                  className="flex items-center gap-2.5 mb-3 p-2.5 rounded-xl border"
+                  style={{ background: `${selectedMeta.color}12`, borderColor: `${selectedMeta.color}44` }}
+                >
+                  <span className="req-type-card-icon" style={{ "--type-color": selectedMeta.color }}>
+                    <selectedMeta.icon size={17} weight="duotone" />
+                  </span>
+                  <span className="text-sm font-bold" style={{ color: "#2C3625" }}>{selectedMeta.label}</span>
                 </div>
-                <FormField label="Days">
-                  <input className="modal-input bg-[#F5F5F5]" readOnly value={form.days} />
-                </FormField>
-                <FormField label="Notes">
-                  <textarea
-                    className="modal-input"
-                    rows={2}
-                    value={form.notes}
-                    onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                    placeholder="Optional notes…"
-                  />
-                </FormField>
-                {leaveRequiresDocument(form.selectedType) && (
-                  <>
+              )}
+
+              {modalStep === 2 && isLeaveType(form.selectedType) && form.selectedType !== "Permission" && (
+                <div className="req-unified-form">
+                  <FormSection title={`${selectedMeta?.label} details`}>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <FormField label="From">
+                        <input
+                          type="date"
+                          className="modal-input"
+                          value={form.start_date}
+                          onChange={(e) => updateLeaveDates(e.target.value, form.end_date)}
+                        />
+                      </FormField>
+                      <FormField label="To">
+                        <input
+                          type="date"
+                          className="modal-input"
+                          value={form.end_date}
+                          onChange={(e) => updateLeaveDates(form.start_date, e.target.value)}
+                        />
+                      </FormField>
+                    </div>
+                    <FormField label="Days">
+                      <input className="modal-input bg-[#F5F5F5]" readOnly value={form.days} />
+                    </FormField>
+                    <FormField label="Notes">
+                      <textarea
+                        className="modal-input"
+                        rows={2}
+                        value={form.notes}
+                        onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                        placeholder="Optional notes…"
+                      />
+                    </FormField>
+                    {leaveRequiresDocument(form.selectedType) && (
+                      <>
+                        <div className="rounded-xl p-3 text-xs font-semibold border" style={{ background: "#F8EBE7", borderColor: "#ECA6A6", color: "#8A3F27" }}>
+                          {ATTACHMENT_REQUIRED_MSG}
+                        </div>
+                        <FormField label="Medical report" required hint="PDF or image — required">
+                          <label className="req-file-upload">
+                            <UploadSimple size={15} weight="duotone" />
+                            <span>{form.attachmentFile ? form.attachmentFile.name : "Choose file"}</span>
+                            <input
+                              type="file"
+                              accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx"
+                              className="sr-only"
+                              onChange={(e) => setForm((f) => ({ ...f, attachmentFile: e.target.files?.[0] || null }))}
+                            />
+                          </label>
+                        </FormField>
+                      </>
+                    )}
+                  </FormSection>
+                </div>
+              )}
+
+              {modalStep === 2 && form.selectedType === "Permission" && (
+                <div className="req-unified-form">
+                  <FormSection title="Permission details">
+                    <FormField label="Date">
+                      <input
+                        type="date"
+                        className="modal-input"
+                        value={form.start_date}
+                        onChange={(e) => updatePermissionDate(e.target.value)}
+                      />
+                    </FormField>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <FormField label="Start time" required>
+                        <input
+                          type="time"
+                          className="modal-input"
+                          value={form.start_time || ""}
+                          onChange={(e) => updatePermissionTimes(e.target.value, form.end_time)}
+                        />
+                      </FormField>
+                      <FormField label="End time" required>
+                        <input
+                          type="time"
+                          className="modal-input"
+                          value={form.end_time || ""}
+                          onChange={(e) => updatePermissionTimes(form.start_time, e.target.value)}
+                        />
+                      </FormField>
+                    </div>
+                    <FormField label="Quick duration">
+                      <div className="flex gap-2 flex-wrap">
+                        {[1, 2].map((h) => (
+                          <button
+                            key={h}
+                            type="button"
+                            onClick={() => setPermissionDurationHours(h)}
+                            className="pill border text-xs px-3 py-1.5 border-[#DDD8D0] hover:border-[var(--brand)]"
+                          >
+                            {h} hour{h !== 1 ? "s" : ""}
+                          </button>
+                        ))}
+                      </div>
+                    </FormField>
+                    <FormField label="Duration">
+                      <input
+                        className="modal-input bg-[#F5F5F5]"
+                        readOnly
+                        value={form.days < 1 ? `${Math.round(form.days * 8 * 10) / 10} hours` : `${form.days} day(s)`}
+                      />
+                    </FormField>
+                    <FormField label="Note">
+                      <textarea
+                        className="modal-input"
+                        rows={2}
+                        value={form.notes}
+                        onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                        placeholder="Reason for permission…"
+                      />
+                    </FormField>
                     <div className="rounded-xl p-3 text-xs font-semibold border" style={{ background: "#F8EBE7", borderColor: "#ECA6A6", color: "#8A3F27" }}>
                       {ATTACHMENT_REQUIRED_MSG}
                     </div>
-                    <FormField label="Medical report" required hint="PDF or image — required">
+                    <FormField label="Supporting document" required hint="PDF or image — required">
                       <label className="req-file-upload">
                         <UploadSimple size={15} weight="duotone" />
                         <span>{form.attachmentFile ? form.attachmentFile.name : "Choose file"}</span>
@@ -564,140 +737,62 @@ export default function TherapistRequests() {
                         />
                       </label>
                     </FormField>
-                  </>
-                )}
-              </FormSection>
-            </div>
-          )}
-
-          {form.selectedType === "Permission" && (
-            <div className="req-unified-form">
-              <FormSection title="Permission details">
-                <FormField label="Date">
-                  <input
-                    type="date"
-                    className="modal-input"
-                    value={form.start_date}
-                    onChange={(e) => updatePermissionDate(e.target.value)}
-                  />
-                </FormField>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <FormField label="Start time" required>
-                    <input
-                      type="time"
-                      className="modal-input"
-                      value={form.start_time || ""}
-                      onChange={(e) => updatePermissionTimes(e.target.value, form.end_time)}
-                    />
-                  </FormField>
-                  <FormField label="End time" required>
-                    <input
-                      type="time"
-                      className="modal-input"
-                      value={form.end_time || ""}
-                      onChange={(e) => updatePermissionTimes(form.start_time, e.target.value)}
-                    />
-                  </FormField>
+                  </FormSection>
                 </div>
-                <FormField label="Quick duration">
-                  <div className="flex gap-2 flex-wrap">
-                    {[1, 2].map((h) => (
-                      <button
-                        key={h}
-                        type="button"
-                        onClick={() => setPermissionDurationHours(h)}
-                        className="pill border text-xs px-3 py-1.5 border-[#DDD8D0] hover:border-[var(--brand)]"
-                      >
-                        {h} hour{h !== 1 ? "s" : ""}
-                      </button>
-                    ))}
-                  </div>
-                </FormField>
-                <FormField label="Duration">
-                  <input
-                    className="modal-input bg-[#F5F5F5]"
-                    readOnly
-                    value={form.days < 1 ? `${Math.round(form.days * 8 * 10) / 10} hours` : `${form.days} day(s)`}
-                  />
-                </FormField>
-                <FormField label="Note">
-                  <textarea
-                    className="modal-input"
-                    rows={2}
-                    value={form.notes}
-                    onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                    placeholder="Reason for permission…"
-                  />
-                </FormField>
-                <div className="rounded-xl p-3 text-xs font-semibold border" style={{ background: "#F8EBE7", borderColor: "#ECA6A6", color: "#8A3F27" }}>
-                  {ATTACHMENT_REQUIRED_MSG}
+              )}
+
+              {modalStep === 2 && isGeneralType(form.selectedType) && (
+                <div className="req-unified-form">
+                  <FormSection title={`${selectedMeta?.label} request`}>
+                    {form.selectedType === "other" && (
+                      <FormField label="Description" required hint="Describe your request in detail">
+                        <textarea
+                          data-testid="req-description"
+                          className="modal-input"
+                          rows={4}
+                          value={form.description}
+                          onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                          placeholder="Enter request details here…"
+                        />
+                      </FormField>
+                    )}
+                    {form.selectedType === "companies" && (
+                      <FormField label="Details" hint="Optional notes for companies request">
+                        <textarea
+                          className="modal-input"
+                          rows={3}
+                          value={form.description}
+                          onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                          placeholder="Company name, purpose, or other details…"
+                        />
+                      </FormField>
+                    )}
+                    {form.selectedType === "supplies" && (
+                      <FormField label="Details" hint="What materials do you need?">
+                        <textarea
+                          className="modal-input"
+                          rows={3}
+                          value={form.description}
+                          onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                          placeholder="Materials, toys, or classroom items…"
+                        />
+                      </FormField>
+                    )}
+                    <FormField label="Additional notes" hint="Optional">
+                      <textarea
+                        className="modal-input"
+                        rows={2}
+                        value={form.notes}
+                        onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                      />
+                    </FormField>
+                  </FormSection>
                 </div>
-                <FormField label="Supporting document" required hint="PDF or image — required">
-                  <label className="req-file-upload">
-                    <UploadSimple size={15} weight="duotone" />
-                    <span>{form.attachmentFile ? form.attachmentFile.name : "Choose file"}</span>
-                    <input
-                      type="file"
-                      accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx"
-                      className="sr-only"
-                      onChange={(e) => setForm((f) => ({ ...f, attachmentFile: e.target.files?.[0] || null }))}
-                    />
-                  </label>
-                </FormField>
-              </FormSection>
-            </div>
-          )}
+              )}
 
-          {isGeneralType(form.selectedType) && (
-            <div className="req-unified-form">
-              <FormSection title={`${selectedMeta?.label} request`}>
-                {form.selectedType === "other" && (
-                  <FormField label="Description" required hint="Describe your request in detail">
-                    <textarea
-                      data-testid="req-description"
-                      className="modal-input"
-                      rows={4}
-                      value={form.description}
-                      onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                      placeholder="Enter request details here…"
-                    />
-                  </FormField>
-                )}
-                {form.selectedType === "companies" && (
-                  <FormField label="Details" hint="Optional notes for companies request">
-                    <textarea
-                      className="modal-input"
-                      rows={3}
-                      value={form.description}
-                      onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                      placeholder="Company name, purpose, or other details…"
-                    />
-                  </FormField>
-                )}
-                {form.selectedType === "supplies" && (
-                  <FormField label="Details" hint="What materials do you need?">
-                    <textarea
-                      className="modal-input"
-                      rows={3}
-                      value={form.description}
-                      onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                      placeholder="Materials, toys, or classroom items…"
-                    />
-                  </FormField>
-                )}
-                <FormField label="Additional notes" hint="Optional">
-                  <textarea
-                    className="modal-input"
-                    rows={2}
-                    value={form.notes}
-                    onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                  />
-                </FormField>
-              </FormSection>
+              {modalStep === 2 && <WorkflowFooter />}
             </div>
-          )}
-
-          <WorkflowFooter />
+          </div>
         </ModalBase>
       )}
     </div>
