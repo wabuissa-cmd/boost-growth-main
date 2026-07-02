@@ -2,11 +2,14 @@ import { useEffect, useState, useMemo } from "react";
 import api from "../api";
 import { useAuth, isJenan } from "../auth";
 import {
-  CalendarBlank, CheckCircle, XCircle, Hourglass, ChatCircleText, Clock,
+  Plus, CalendarBlank, CheckCircle, XCircle, Hourglass, ChatCircleText, Clock,
   Paperclip, UploadSimple, Buildings, Briefcase, Heartbeat, Sun, ClockAfternoon,
   ListChecks, Info,
 } from "@phosphor-icons/react";
-import { FormSection, FormField } from "../components/Modal";
+import {
+  ModalBase, FormSection, FormField,
+  ModalBtnPrimary, ModalBtnSecondary,
+} from "../components/Modal";
 import RequestsPageHeader from "../components/RequestsPageHeader";
 import PurchasesPanel from "../components/PurchasesPanel";
 import "../clientInfoLayout.css";
@@ -121,6 +124,7 @@ export default function TherapistRequests() {
   const [pageError, setPageError] = useState(null);
   const [form, setForm] = useState(() => emptyForm(null));
   const [submitting, setSubmitting] = useState(false);
+  const [showModal, setShowModal] = useState(false);
 
   const load = async () => {
     setPageError(null);
@@ -155,6 +159,16 @@ export default function TherapistRequests() {
       || null
     );
   }, [form.selectedType]);
+
+  const openModal = () => {
+    setForm(emptyForm(user?.id));
+    setShowModal(true);
+  };
+
+  const closeModal = () => {
+    setShowModal(false);
+    setForm(emptyForm(user?.id));
+  };
 
   const selectType = (typeId) => {
     const today = new Date().toISOString().slice(0, 10);
@@ -212,6 +226,13 @@ export default function TherapistRequests() {
     return true;
   }, [form, submitting]);
 
+  const submitLabel = useMemo(() => {
+    if (!form.selectedType) return "Submit";
+    if (form.selectedType === "Permission") return "Submit permission request";
+    if (isLeaveType(form.selectedType)) return "Submit leave request";
+    return "Submit general request";
+  }, [form.selectedType]);
+
   const submit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
@@ -256,7 +277,6 @@ export default function TherapistRequests() {
           });
         }
       } else if (isGeneralType(type)) {
-        const label = GENERAL_TYPE_LABELS[type];
         await api.post("/requests", {
           title: type === "companies" ? "Companies request" : "General request",
           description: form.description || form.notes || "",
@@ -266,6 +286,7 @@ export default function TherapistRequests() {
         });
       }
       setForm(emptyForm(user?.id));
+      setShowModal(false);
       await load();
     } catch (e) {
       alert(e.response?.data?.detail || e.message);
@@ -334,7 +355,7 @@ export default function TherapistRequests() {
       <RequestsPageHeader
         badge="MY REQUESTS"
         title="My Requests"
-        subtitle="Leave · general requests — one window for all your requests"
+        subtitle="Leave · general requests — track and submit in one place"
         stats={[
           { label: "Leave", n: leaves.length, color: "#2C3625" },
           { label: "General", n: requests.length, color: "#375568" },
@@ -346,382 +367,363 @@ export default function TherapistRequests() {
         <div className="card requests-page-error" role="alert">{pageError}</div>
       )}
 
-      <div className="req-my-requests-stack">
+      <div className={`req-split req-split--payment-left${hidePurchases ? " req-split--no-sidebar" : ""}`}>
         {!hidePurchases && (
-          <section className="req-my-requests-section req-my-requests-section--payment" aria-label="Payment requests">
+          <aside className="req-sidebar-stack req-sidebar-stack--payment" aria-label="Payment requests">
             <PurchasesPanel compact />
-          </section>
+          </aside>
         )}
 
-        <section className="req-my-requests-section req-my-requests-section--submit" aria-label="Submit request">
-        <main className="req-unified-window card">
-          <div className="req-unified-head">
+        <section className="req-my-requests-right card requests-page-panel" aria-label="Requests">
+          <div className="requests-page-panel-head px-3 pt-3 sm:px-4">
             <ListChecks size={20} weight="duotone" className="shrink-0" />
-            <div className="min-w-0">
-              <h2 className="req-unified-title">Submit Request</h2>
-              <p className="req-unified-sub">Choose a request type and fill in the details below</p>
+            <div className="min-w-0 flex-1">
+              <h2>Requests</h2>
+              <p>Leave · general · track status here</p>
             </div>
+            <button
+              type="button"
+              data-testid="new-request-btn"
+              onClick={openModal}
+              className="btn btn-primary text-[11px] px-2.5 py-1 min-h-0 shrink-0"
+            >
+              <Plus size={13} /> New Request
+            </button>
           </div>
 
-          <div className="req-unified-body">
-            {/* Section 1: Leave */}
-            <section className="req-unified-section">
-              <div className="req-unified-section-head">
-                <span className="req-unified-section-num">1</span>
-                <div>
-                  <h3 className="req-unified-section-title">Leave</h3>
-                  <p className="req-unified-section-desc">Annual · unpaid · sick · permission</p>
+          {balance && (
+            <div className="req-leave-balance req-leave-balance--inline mx-3 sm:mx-4">
+              {balance.contract_period_start && (
+                <div className="text-[10px] opacity-85 mb-2">
+                  Contract · {fmtContractPeriod(balance.contract_period_start, balance.contract_period_end)}
+                </div>
+              )}
+              <div className="req-leave-stat-grid req-leave-stat-grid--six">
+                <div className="req-leave-stat-box">
+                  <div className="req-leave-stat-val">{balance.remaining}</div>
+                  <div className="req-leave-stat-lbl">Balance</div>
+                </div>
+                <div className="req-leave-stat-box">
+                  <div className="req-leave-stat-val">{balance.used_annual || 0}</div>
+                  <div className="req-leave-stat-lbl">Annual</div>
+                </div>
+                <div className="req-leave-stat-box">
+                  <div className="req-leave-stat-val">{balance.permission_count ?? 0}</div>
+                  <div className="req-leave-stat-lbl">Permission</div>
+                </div>
+                <div className="req-leave-stat-box">
+                  <div className="req-leave-stat-val">{balance.used_unpaid || 0}</div>
+                  <div className="req-leave-stat-lbl">Unpaid</div>
+                </div>
+                <div className="req-leave-stat-box">
+                  <div className="req-leave-stat-val">{balance.used_sick || 0}</div>
+                  <div className="req-leave-stat-lbl">Sick</div>
+                </div>
+                <div className="req-leave-stat-box">
+                  <div className="req-leave-stat-val">{balance.other_requests_count ?? 0}</div>
+                  <div className="req-leave-stat-lbl">Other</div>
                 </div>
               </div>
+            </div>
+          )}
 
-              {balance && (
-                <div className="req-leave-balance req-leave-balance--inline">
-                  {balance.contract_period_start && (
-                    <div className="text-[10px] opacity-85 mb-2">
-                      Contract · {fmtContractPeriod(balance.contract_period_start, balance.contract_period_end)}
-                    </div>
+          <div className="requests-page-section-label px-3 sm:px-4 mt-3 mb-1">Request history</div>
+          <div className="req-panel-list req-panel-list--history">
+            {historyItems.length === 0 && (
+              <div className="requests-page-empty">
+                <div className="requests-page-empty-icon"><CalendarBlank size={22} weight="duotone" /></div>
+                <h3 className="requests-page-empty-title">No requests yet</h3>
+                <p className="requests-page-empty-text">Tap New Request to submit your first application.</p>
+              </div>
+            )}
+            {historyItems.map((item) => (
+              <div key={item.key} className="req-item">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  {item.kind === "leave" ? (
+                    <span className="pill text-[10px] font-bold" style={item.statusStyle}>
+                      {item.statusLabel}
+                    </span>
+                  ) : (
+                    <span className={`pill border text-[10px] ${item.statusCls}`}>
+                      {item.statusIcon} {item.statusLabel}
+                    </span>
                   )}
-                  <div className="req-leave-stat-grid req-leave-stat-grid--six">
-                    <div className="req-leave-stat-box">
-                      <div className="req-leave-stat-val">{balance.remaining}</div>
-                      <div className="req-leave-stat-lbl">Balance</div>
-                    </div>
-                    <div className="req-leave-stat-box">
-                      <div className="req-leave-stat-val">{balance.used_annual || 0}</div>
-                      <div className="req-leave-stat-lbl">Annual</div>
-                    </div>
-                    <div className="req-leave-stat-box">
-                      <div className="req-leave-stat-val">{balance.permission_count ?? 0}</div>
-                      <div className="req-leave-stat-lbl">Permission</div>
-                    </div>
-                    <div className="req-leave-stat-box">
-                      <div className="req-leave-stat-val">{balance.used_unpaid || 0}</div>
-                      <div className="req-leave-stat-lbl">Unpaid</div>
-                    </div>
-                    <div className="req-leave-stat-box">
-                      <div className="req-leave-stat-val">{balance.used_sick || 0}</div>
-                      <div className="req-leave-stat-lbl">Sick</div>
-                    </div>
-                    <div className="req-leave-stat-box">
-                      <div className="req-leave-stat-val">{balance.other_requests_count ?? 0}</div>
-                      <div className="req-leave-stat-lbl">Other</div>
-                    </div>
-                  </div>
+                  <span className="pill text-[10px]" style={{ background: `${item.typeColor}22`, color: item.typeColor }}>
+                    {item.title}
+                  </span>
+                  {item.unpaid && (
+                    <span className="pill text-[10px] font-bold bg-[#F8EBE7] text-[#8A3F27] border border-[#ECA6A6]">
+                      {item.unpaid}
+                    </span>
+                  )}
                 </div>
-              )}
-
-              <div className="req-type-grid">
-                {LEAVE_REQUEST_TYPES.map((t) => (
-                  <TypeCard
-                    key={t.id}
-                    meta={t}
-                    active={form.selectedType === t.id}
-                    onClick={() => selectType(t.id)}
-                    testId={`leave-type-${t.id}`}
-                  />
-                ))}
+                <div className="text-sm font-semibold" style={{ color: "#2C3625" }}>
+                  {item.kind === "leave" ? item.subtitle : item.title}
+                </div>
+                {(item.notes || (item.kind === "request" && item.subtitle)) && (
+                  <div className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+                    {item.notes || item.subtitle}
+                  </div>
+                )}
+                {item.admin_note && (
+                  <div className="mt-2 text-xs p-2 rounded-lg bg-[#E5EBE1]" style={{ color: "var(--brand-dark)" }}>
+                    <ChatCircleText size={12} className="inline mr-1" /> {item.admin_note}
+                  </div>
+                )}
+                {item.created_at && (
+                  <div className="text-[10px] mt-1" style={{ color: "var(--brand-sage)" }}>
+                    {new Date(item.created_at).toLocaleString("en-US")}
+                  </div>
+                )}
               </div>
+            ))}
+          </div>
+        </section>
+      </div>
 
-              {isLeaveType(form.selectedType) && form.selectedType !== "Permission" && (
-                <div className="req-unified-form">
-                  <FormSection title={`${selectedMeta?.label} details`}>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <FormField label="From">
-                        <input
-                          type="date"
-                          className="modal-input"
-                          value={form.start_date}
-                          onChange={(e) => updateLeaveDates(e.target.value, form.end_date)}
-                        />
-                      </FormField>
-                      <FormField label="To">
-                        <input
-                          type="date"
-                          className="modal-input"
-                          value={form.end_date}
-                          onChange={(e) => updateLeaveDates(form.start_date, e.target.value)}
-                        />
-                      </FormField>
-                    </div>
-                    <FormField label="Days">
-                      <input className="modal-input bg-[#F5F5F5]" readOnly value={form.days} />
-                    </FormField>
-                    <FormField label="Notes">
-                      <textarea
-                        className="modal-input"
-                        rows={2}
-                        value={form.notes}
-                        onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                        placeholder="Optional notes…"
-                      />
-                    </FormField>
-                    {leaveRequiresDocument(form.selectedType) && (
-                      <>
-                        <div className="rounded-xl p-3 text-xs font-semibold border" style={{ background: "#F8EBE7", borderColor: "#ECA6A6", color: "#8A3F27" }}>
-                          {ATTACHMENT_REQUIRED_MSG}
-                        </div>
-                        <FormField label="Medical report" required hint="PDF or image — required">
-                          <label className="req-file-upload">
-                            <UploadSimple size={15} weight="duotone" />
-                            <span>{form.attachmentFile ? form.attachmentFile.name : "Choose file"}</span>
-                            <input
-                              type="file"
-                              accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx"
-                              className="sr-only"
-                              onChange={(e) => setForm((f) => ({ ...f, attachmentFile: e.target.files?.[0] || null }))}
-                            />
-                          </label>
-                        </FormField>
-                      </>
-                    )}
-                  </FormSection>
-                  <WorkflowFooter />
-                  <div className="req-unified-actions">
-                    <button
-                      type="button"
-                      data-testid="req-submit-btn"
-                      className="btn btn-primary"
-                      disabled={!canSubmit}
-                      onClick={submit}
-                    >
-                      {submitting ? "Submitting…" : "Submit leave request"}
-                    </button>
-                  </div>
-                </div>
-              )}
+      {showModal && (
+        <ModalBase
+          title="New Request"
+          subtitle="Choose a type and fill in the details"
+          onClose={closeModal}
+          size="lg"
+          compact
+          bodyClassName="req-new-request-modal-body"
+          footer={(
+            <>
+              <ModalBtnSecondary type="button" onClick={closeModal}>Cancel</ModalBtnSecondary>
+              <ModalBtnPrimary
+                data-testid="req-submit-btn"
+                type="button"
+                onClick={submit}
+                disabled={!canSubmit}
+              >
+                {submitting ? "Submitting…" : submitLabel}
+              </ModalBtnPrimary>
+            </>
+          )}
+        >
+          <section className="req-unified-section">
+            <div className="req-unified-section-head">
+              <span className="req-unified-section-num">1</span>
+              <div>
+                <h3 className="req-unified-section-title">Leave</h3>
+                <p className="req-unified-section-desc">Annual · unpaid · sick · permission</p>
+              </div>
+            </div>
 
-              {form.selectedType === "Permission" && (
-                <div className="req-unified-form">
-                  <FormSection title="Permission details">
-                    <FormField label="Date">
+            <div className="req-type-grid">
+              {LEAVE_REQUEST_TYPES.map((t) => (
+                <TypeCard
+                  key={t.id}
+                  meta={t}
+                  active={form.selectedType === t.id}
+                  onClick={() => selectType(t.id)}
+                  testId={`leave-type-${t.id}`}
+                />
+              ))}
+            </div>
+
+            {isLeaveType(form.selectedType) && form.selectedType !== "Permission" && (
+              <div className="req-unified-form">
+                <FormSection title={`${selectedMeta?.label} details`}>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <FormField label="From">
                       <input
                         type="date"
                         className="modal-input"
                         value={form.start_date}
-                        onChange={(e) => updatePermissionDate(e.target.value)}
+                        onChange={(e) => updateLeaveDates(e.target.value, form.end_date)}
                       />
                     </FormField>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <FormField label="Start time" required>
-                        <input
-                          type="time"
-                          className="modal-input"
-                          value={form.start_time || ""}
-                          onChange={(e) => updatePermissionTimes(e.target.value, form.end_time)}
-                        />
-                      </FormField>
-                      <FormField label="End time" required>
-                        <input
-                          type="time"
-                          className="modal-input"
-                          value={form.end_time || ""}
-                          onChange={(e) => updatePermissionTimes(form.start_time, e.target.value)}
-                        />
-                      </FormField>
-                    </div>
-                    <FormField label="Quick duration">
-                      <div className="flex gap-2 flex-wrap">
-                        {[1, 2].map((h) => (
-                          <button
-                            key={h}
-                            type="button"
-                            onClick={() => setPermissionDurationHours(h)}
-                            className="pill border text-xs px-3 py-1.5 border-[#DDD8D0] hover:border-[var(--brand)]"
-                          >
-                            {h} hour{h !== 1 ? "s" : ""}
-                          </button>
-                        ))}
-                      </div>
-                    </FormField>
-                    <FormField label="Duration">
+                    <FormField label="To">
                       <input
-                        className="modal-input bg-[#F5F5F5]"
-                        readOnly
-                        value={form.days < 1 ? `${Math.round(form.days * 8 * 10) / 10} hours` : `${form.days} day(s)`}
+                        type="date"
+                        className="modal-input"
+                        value={form.end_date}
+                        onChange={(e) => updateLeaveDates(form.start_date, e.target.value)}
                       />
                     </FormField>
-                    <FormField label="Note">
+                  </div>
+                  <FormField label="Days">
+                    <input className="modal-input bg-[#F5F5F5]" readOnly value={form.days} />
+                  </FormField>
+                  <FormField label="Notes">
+                    <textarea
+                      className="modal-input"
+                      rows={2}
+                      value={form.notes}
+                      onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                      placeholder="Optional notes…"
+                    />
+                  </FormField>
+                  {leaveRequiresDocument(form.selectedType) && (
+                    <>
+                      <div className="rounded-xl p-3 text-xs font-semibold border" style={{ background: "#F8EBE7", borderColor: "#ECA6A6", color: "#8A3F27" }}>
+                        {ATTACHMENT_REQUIRED_MSG}
+                      </div>
+                      <FormField label="Medical report" required hint="PDF or image — required">
+                        <label className="req-file-upload">
+                          <UploadSimple size={15} weight="duotone" />
+                          <span>{form.attachmentFile ? form.attachmentFile.name : "Choose file"}</span>
+                          <input
+                            type="file"
+                            accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx"
+                            className="sr-only"
+                            onChange={(e) => setForm((f) => ({ ...f, attachmentFile: e.target.files?.[0] || null }))}
+                          />
+                        </label>
+                      </FormField>
+                    </>
+                  )}
+                </FormSection>
+              </div>
+            )}
+
+            {form.selectedType === "Permission" && (
+              <div className="req-unified-form">
+                <FormSection title="Permission details">
+                  <FormField label="Date">
+                    <input
+                      type="date"
+                      className="modal-input"
+                      value={form.start_date}
+                      onChange={(e) => updatePermissionDate(e.target.value)}
+                    />
+                  </FormField>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <FormField label="Start time" required>
+                      <input
+                        type="time"
+                        className="modal-input"
+                        value={form.start_time || ""}
+                        onChange={(e) => updatePermissionTimes(e.target.value, form.end_time)}
+                      />
+                    </FormField>
+                    <FormField label="End time" required>
+                      <input
+                        type="time"
+                        className="modal-input"
+                        value={form.end_time || ""}
+                        onChange={(e) => updatePermissionTimes(form.start_time, e.target.value)}
+                      />
+                    </FormField>
+                  </div>
+                  <FormField label="Quick duration">
+                    <div className="flex gap-2 flex-wrap">
+                      {[1, 2].map((h) => (
+                        <button
+                          key={h}
+                          type="button"
+                          onClick={() => setPermissionDurationHours(h)}
+                          className="pill border text-xs px-3 py-1.5 border-[#DDD8D0] hover:border-[var(--brand)]"
+                        >
+                          {h} hour{h !== 1 ? "s" : ""}
+                        </button>
+                      ))}
+                    </div>
+                  </FormField>
+                  <FormField label="Duration">
+                    <input
+                      className="modal-input bg-[#F5F5F5]"
+                      readOnly
+                      value={form.days < 1 ? `${Math.round(form.days * 8 * 10) / 10} hours` : `${form.days} day(s)`}
+                    />
+                  </FormField>
+                  <FormField label="Note">
+                    <textarea
+                      className="modal-input"
+                      rows={2}
+                      value={form.notes}
+                      onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                      placeholder="Reason for permission…"
+                    />
+                  </FormField>
+                  <div className="rounded-xl p-3 text-xs font-semibold border" style={{ background: "#F8EBE7", borderColor: "#ECA6A6", color: "#8A3F27" }}>
+                    {ATTACHMENT_REQUIRED_MSG}
+                  </div>
+                  <FormField label="Supporting document" required hint="PDF or image — required">
+                    <label className="req-file-upload">
+                      <UploadSimple size={15} weight="duotone" />
+                      <span>{form.attachmentFile ? form.attachmentFile.name : "Choose file"}</span>
+                      <input
+                        type="file"
+                        accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx"
+                        className="sr-only"
+                        onChange={(e) => setForm((f) => ({ ...f, attachmentFile: e.target.files?.[0] || null }))}
+                      />
+                    </label>
+                  </FormField>
+                </FormSection>
+              </div>
+            )}
+          </section>
+
+          <div className="req-unified-divider" />
+
+          <section className="req-unified-section">
+            <div className="req-unified-section-head">
+              <span className="req-unified-section-num">2</span>
+              <div>
+                <h3 className="req-unified-section-title">General</h3>
+                <p className="req-unified-section-desc">Companies · other requests</p>
+              </div>
+            </div>
+
+            <div className="req-type-grid req-type-grid--two">
+              {GENERAL_REQUEST_TYPES.map((t) => (
+                <TypeCard
+                  key={t.id}
+                  meta={t}
+                  active={form.selectedType === t.id}
+                  onClick={() => selectType(t.id)}
+                  testId={`general-type-${t.id}`}
+                />
+              ))}
+            </div>
+
+            {isGeneralType(form.selectedType) && (
+              <div className="req-unified-form">
+                <FormSection title={`${selectedMeta?.label} request`}>
+                  {form.selectedType === "other" && (
+                    <FormField label="Description" required hint="Describe your request in detail">
+                      <textarea
+                        data-testid="req-description"
+                        className="modal-input"
+                        rows={4}
+                        value={form.description}
+                        onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                        placeholder="Enter request details here…"
+                      />
+                    </FormField>
+                  )}
+                  {form.selectedType === "companies" && (
+                    <FormField label="Details" hint="Optional notes for companies request">
                       <textarea
                         className="modal-input"
-                        rows={2}
-                        value={form.notes}
-                        onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                        placeholder="Reason for permission…"
+                        rows={3}
+                        value={form.description}
+                        onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                        placeholder="Company name, purpose, or other details…"
                       />
                     </FormField>
-                    <div className="rounded-xl p-3 text-xs font-semibold border" style={{ background: "#F8EBE7", borderColor: "#ECA6A6", color: "#8A3F27" }}>
-                      {ATTACHMENT_REQUIRED_MSG}
-                    </div>
-                    <FormField label="Supporting document" required hint="PDF or image — required">
-                      <label className="req-file-upload">
-                        <UploadSimple size={15} weight="duotone" />
-                        <span>{form.attachmentFile ? form.attachmentFile.name : "Choose file"}</span>
-                        <input
-                          type="file"
-                          accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx"
-                          className="sr-only"
-                          onChange={(e) => setForm((f) => ({ ...f, attachmentFile: e.target.files?.[0] || null }))}
-                        />
-                      </label>
-                    </FormField>
-                  </FormSection>
-                  <WorkflowFooter />
-                  <div className="req-unified-actions">
-                    <button
-                      type="button"
-                      data-testid="req-submit-btn"
-                      className="btn btn-primary"
-                      disabled={!canSubmit}
-                      onClick={submit}
-                    >
-                      {submitting ? "Submitting…" : "Submit permission request"}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </section>
-
-            <div className="req-unified-divider" />
-
-            {/* Section 2: General */}
-            <section className="req-unified-section">
-              <div className="req-unified-section-head">
-                <span className="req-unified-section-num">2</span>
-                <div>
-                  <h3 className="req-unified-section-title">General</h3>
-                  <p className="req-unified-section-desc">Companies · other requests</p>
-                </div>
+                  )}
+                  <FormField label="Additional notes" hint="Optional">
+                    <textarea
+                      className="modal-input"
+                      rows={2}
+                      value={form.notes}
+                      onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                    />
+                  </FormField>
+                </FormSection>
               </div>
+            )}
+          </section>
 
-              <div className="req-type-grid req-type-grid--two">
-                {GENERAL_REQUEST_TYPES.map((t) => (
-                  <TypeCard
-                    key={t.id}
-                    meta={t}
-                    active={form.selectedType === t.id}
-                    onClick={() => selectType(t.id)}
-                    testId={`general-type-${t.id}`}
-                  />
-                ))}
-              </div>
-
-              {isGeneralType(form.selectedType) && (
-                <div className="req-unified-form">
-                  <FormSection title={`${selectedMeta?.label} request`}>
-                    {form.selectedType === "other" && (
-                      <FormField label="Description" required hint="Describe your request in detail">
-                        <textarea
-                          data-testid="req-description"
-                          className="modal-input"
-                          rows={4}
-                          value={form.description}
-                          onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                          placeholder="Enter request details here…"
-                        />
-                      </FormField>
-                    )}
-                    {form.selectedType === "companies" && (
-                      <FormField label="Details" hint="Optional notes for companies request">
-                        <textarea
-                          className="modal-input"
-                          rows={3}
-                          value={form.description}
-                          onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                          placeholder="Company name, purpose, or other details…"
-                        />
-                      </FormField>
-                    )}
-                    <FormField label="Additional notes" hint="Optional">
-                      <textarea
-                        className="modal-input"
-                        rows={2}
-                        value={form.notes}
-                        onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                      />
-                    </FormField>
-                  </FormSection>
-                  <WorkflowFooter />
-                  <div className="req-unified-actions">
-                    <button
-                      type="button"
-                      data-testid="req-submit-btn"
-                      className="btn btn-primary"
-                      disabled={!canSubmit}
-                      onClick={submit}
-                    >
-                      {submitting ? "Submitting…" : "Submit general request"}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </section>
-
-            {/* History */}
-            <div className="req-unified-divider" />
-            <section className="req-unified-section">
-              <div className="req-unified-section-head">
-                <span className="req-unified-section-num">☰</span>
-                <div>
-                  <h3 className="req-unified-section-title">My submitted requests</h3>
-                  <p className="req-unified-section-desc">Track status updates here</p>
-                </div>
-              </div>
-
-              <div className="req-panel-list req-panel-list--inline">
-                {historyItems.length === 0 && (
-                  <div className="requests-page-empty">
-                    <div className="requests-page-empty-icon"><CalendarBlank size={22} weight="duotone" /></div>
-                    <h3 className="requests-page-empty-title">No requests yet</h3>
-                    <p className="requests-page-empty-text">Choose a type above to submit your first request.</p>
-                  </div>
-                )}
-                {historyItems.map((item) => (
-                  <div key={item.key} className="req-item">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      {item.kind === "leave" ? (
-                        <span className="pill text-[10px] font-bold" style={item.statusStyle}>
-                          {item.statusLabel}
-                        </span>
-                      ) : (
-                        <span className={`pill border text-[10px] ${item.statusCls}`}>
-                          {item.statusIcon} {item.statusLabel}
-                        </span>
-                      )}
-                      <span className="pill text-[10px]" style={{ background: `${item.typeColor}22`, color: item.typeColor }}>
-                        {item.title}
-                      </span>
-                      {item.unpaid && (
-                        <span className="pill text-[10px] font-bold bg-[#F8EBE7] text-[#8A3F27] border border-[#ECA6A6]">
-                          {item.unpaid}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-sm font-semibold" style={{ color: "#2C3625" }}>
-                      {item.kind === "leave" ? item.subtitle : item.title}
-                    </div>
-                    {(item.notes || (item.kind === "request" && item.subtitle)) && (
-                      <div className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
-                        {item.notes || item.subtitle}
-                      </div>
-                    )}
-                    {item.admin_note && (
-                      <div className="mt-2 text-xs p-2 rounded-lg bg-[#E5EBE1]" style={{ color: "var(--brand-dark)" }}>
-                        <ChatCircleText size={12} className="inline mr-1" /> {item.admin_note}
-                      </div>
-                    )}
-                    {item.created_at && (
-                      <div className="text-[10px] mt-1" style={{ color: "var(--brand-sage)" }}>
-                        {new Date(item.created_at).toLocaleString("en-US")}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </section>
-          </div>
-        </main>
-        </section>
-      </div>
+          <WorkflowFooter />
+        </ModalBase>
+      )}
     </div>
   );
 }

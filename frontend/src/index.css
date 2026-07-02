@@ -4189,26 +4189,33 @@ textarea.modal-input {
     color: var(--text-muted);
 }
 
-/* My Requests — vertical stack (payment top, submit form below) */
-.req-my-requests-stack {
+/* My Requests — payment left, requests right */
+.req-my-requests-right {
+    min-width: 0;
+    min-height: 420px;
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
 }
-.req-my-requests-section {
-    width: 100%;
-    min-width: 0;
+.req-my-requests-right .requests-page-panel-head {
+    align-items: center;
 }
-.req-my-requests-section--payment .req-panel-purchases--compact {
+.req-panel-list--history {
+    flex: 1;
+    min-height: 0;
+    max-height: min(560px, 62vh);
+    overflow-y: auto;
+    padding: 0 0.75rem 0.5rem;
+}
+.req-new-request-modal-body {
+    padding-top: 0.75rem !important;
+}
+.req-sidebar-stack--payment .req-panel-purchases--compact {
     flex: none;
     min-height: auto;
     max-height: none;
 }
-.req-my-requests-section--payment .req-panel-list--compact {
+.req-sidebar-stack--payment .req-panel-list--compact {
     max-height: min(360px, 45vh);
-}
-.req-my-requests-section--submit .req-unified-window {
-    min-height: auto;
 }
 .requests-page .requests-page-hero-icon {
     width: 42px;

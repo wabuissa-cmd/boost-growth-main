@@ -1321,6 +1321,7 @@
     order: 2;
     position: static;
   }
+  .req-split--payment-left .req-my-requests-right,
   .req-split--payment-left .req-unified-window {
     order: 1;
   }
