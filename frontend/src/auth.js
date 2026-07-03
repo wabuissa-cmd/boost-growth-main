@@ -191,6 +191,13 @@ export function canViewCenterTests(user) {
   return showSystemAdmin(user) || isHrOps(user) || isJenan(user) || isWalaaOps(user) || isClientLead(user);
 }
 
+/** Training Tests sidebar link — admin/ops leads; hidden for Jenan (Reports page is enough) */
+export function showTrainingTestsNav(user) {
+  if (!user || isJenan(user)) return false;
+  if (user.can_view_reports) return true;
+  return showSystemAdmin(user) || isHrOps(user) || isWalaaOps(user) || isOpsLead(user);
+}
+
 /** My Learning — therapists, Walaa, and client-lead team */
 export function showAcademicPortfolioNav(user) {
   if (!user || isHrOps(user)) return false;

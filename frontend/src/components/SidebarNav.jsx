@@ -66,9 +66,23 @@ function SidebarSection({ title, items, loc, defaultOpen = true, onItemHover, co
   );
 }
 
+function StandaloneLinks({ items, renderLink }) {
+  if (!items.length) return null;
+  return (
+    <>
+      {items.map(it => (
+        <div key={it.to} className="sidebar-section-items px-2 mb-0.5">
+          {renderLink(it)}
+        </div>
+      ))}
+    </>
+  );
+}
+
 export default function SidebarNav({
   homeLink,
-  operationsItems,
+  standaloneItems = [],
+  clientWorkItems,
   peopleItems = [],
   personalItems,
   waitingItems,
@@ -104,12 +118,14 @@ export default function SidebarNav({
         </div>
       )}
 
+      <StandaloneLinks items={standaloneItems} renderLink={renderLink} />
+
       {flatOps ? (
         <>
           <div className="sidebar-section">
-            {!collapsed && <div className="sidebar-section-label">Operations</div>}
+            {!collapsed && <div className="sidebar-section-label">Clients</div>}
             <div className="sidebar-section-items">
-              {operationsItems.map(it => renderLink(it))}
+              {clientWorkItems.map(it => renderLink(it))}
             </div>
           </div>
           {peopleItems.length > 0 && (
@@ -123,8 +139,8 @@ export default function SidebarNav({
         </>
       ) : (
         <SidebarSection
-          title="Operations"
-          items={operationsItems}
+          title="Clients"
+          items={clientWorkItems}
           loc={loc}
           defaultOpen
           onItemHover={onItemHover}

@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, Suspense, useMemo } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { useAuth, showAdminNav, isClientLead, isWalaaOps, isHrOps, canViewBilling, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, showSystemAdmin, canImportData, showMyPortalNav, showMyReportsNav, showAcademicPortfolioNav, isJenan, canViewReports, canViewSupervisionCaseload, canAccessManagerHub, profileRoleLabel } from "../auth";
+import { useAuth, showAdminNav, isClientLead, isWalaaOps, isHrOps, canViewBilling, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, showSystemAdmin, canImportData, showMyPortalNav, showMyReportsNav, showAcademicPortfolioNav, isJenan, canViewReports, canViewSupervisionCaseload, canAccessManagerHub, showTrainingTestsNav, profileRoleLabel } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch, cachedGet } from "../dataCache";
 import { getPortalDisplayName } from "../scheduleConstants";
@@ -108,33 +108,42 @@ export default function Shell() {
   const unread = notifs.filter(n => !n.read).length;
 
   // ── Grouped navigation
-  const operationsItems = [
+  const clientWorkItems = [
+    { to: "/clients", label: "Client Info", testid: "nav-clients", icon: <UsersThree size={18} weight="duotone"/> },
     { to: "/schedule", label: "Schedule", testid: "nav-schedule", icon: <CalendarBlank size={18} weight="duotone"/> },
     { to: "/attendance", label: "Session Preparation", testid: "nav-attendance", icon: <ClipboardText size={18} weight="duotone"/> },
+    ...(intakeAccess
+      ? [{ to: "/waiting/intake", label: "Intake", testid: "nav-intake-waiting", icon: <Hourglass size={17} weight="duotone"/> }]
+      : []),
   ];
 
   const peopleItems = [
-    { to: "/clients", label: "Client Info", testid: "nav-clients", icon: <UsersThree size={18} weight="duotone"/> },
     ...(canViewSupervisionCaseload(user)
       ? [{ to: "/supervision", label: "Supervision", testid: "nav-supervision", icon: <Eye size={18} weight="duotone"/> }]
-      : []),
-    ...(jenanManager
-      ? [{ to: "/manager", label: "Manager Hub", testid: "nav-manager-hub", icon: <ListChecks size={17} weight="duotone"/> }]
       : []),
     ...(!jenanManager && (staffRequestsAccess || leaveManager || hrLeaveReview)
       ? [{ to: "/staff-leave", label: "Staff & Leave", testid: "nav-staff-leave", icon: <ListChecks size={17} weight="duotone"/> }]
       : []),
+  ];
+
+  const standaloneItems = [
+    ...(jenanManager
+      ? [{ to: "/manager", label: "Manager Hub", testid: "nav-manager-hub", icon: <ListChecks size={17} weight="duotone"/> }]
+      : []),
     ...(canAccessManagerHub(user) && showSystemAdmin(user) && !jenanManager
       ? [{ to: "/manager", label: "Manager Hub (Jenan view)", testid: "nav-manager-hub-preview", icon: <ListChecks size={17} weight="duotone"/> }]
+      : []),
+    ...(showTrainingTestsNav(user)
+      ? [{ to: "/admin/center-tests", label: "Training Tests", testid: "nav-center-tests", icon: <FileText size={17} weight="duotone"/> }]
+      : []),
+    ...(canAccessPurchases(user)
+      ? [{ to: "/purchases", label: jenanManager ? "Staff Payments" : "Purchases", testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> }]
       : []),
   ];
 
   const financeItems = [
     ...(showBilling
       ? [{ to: "/billing", label: "Client Invoices", testid: "nav-billing", icon: <Receipt size={18} weight="duotone"/> }]
-      : []),
-    ...(canAccessPurchases(user)
-      ? [{ to: "/purchases", label: jenanManager ? "Staff Payments" : "Purchases", testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> }]
       : []),
   ];
 
@@ -144,7 +153,6 @@ export default function Shell() {
 
   const waitingItems = intakeAccess
     ? [
-        { to: "/waiting/intake", label: "Intake Waiting", testid: "nav-intake-waiting", icon: <Hourglass size={17} weight="duotone"/> },
         { to: "/waiting/school", label: "School Waiting", testid: "nav-school-waiting", icon: <Buildings size={17} weight="duotone"/> },
       ]
     : [];
@@ -157,11 +165,6 @@ export default function Shell() {
     ...(showMyLearning ? [{ to: "/my-learning", label: "My Learning", testid: "nav-my-learning" }] : []),
   ] : [];
 
-  // Admin tools — Reports always last; Import/Admin before Reports for admins
-  const showTrainingTests = Boolean(
-    user && (canViewReports(user) || isWalaaOps(user) || isClientLead(user) || isJenan(user) || isHrOps(user))
-  );
-
   const adminTools = [
     ...(canImportData(user)
       ? [{ to: "/import", label: "Import", testid: "nav-import", icon: <UploadSimple size={17} weight="duotone"/> }]
@@ -169,11 +172,6 @@ export default function Shell() {
     ...(showSystemAdmin(user)
       ? [
           { to: "/admin", label: "Admin", testid: "nav-admin", icon: <Gear size={17} weight="duotone"/> },
-        ]
-      : []),
-    ...(showTrainingTests
-      ? [
-          { to: "/admin/center-tests", label: "Training Tests", testid: "nav-center-tests", icon: <FileText size={17} weight="duotone"/> },
         ]
       : []),
     ...(canViewReports(user)
@@ -271,7 +269,8 @@ export default function Shell() {
           <div className="flex-1 overflow-y-auto px-1">
             <SidebarNav
               homeLink={{ ...homeLink, icon: <House size={17} weight="duotone"/> }}
-              operationsItems={operationsItems}
+              standaloneItems={standaloneItems}
+              clientWorkItems={clientWorkItems}
               peopleItems={peopleItems}
               personalItems={personalNavItems}
               waitingItems={waitingNavItems}
@@ -343,8 +342,15 @@ export default function Shell() {
                   {l.icon}<span>{l.label}</span>
                 </NavLink>
               ))}
+              {standaloneItems.map(l => (
+                <NavLink key={l.to} to={l.to} data-testid={l.testid}
+                         onMouseEnter={() => warmRoute(l.to)}
+                         className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
+                  {l.icon}<span>{l.label}</span>
+                </NavLink>
+              ))}
               {therapistOnly ? (
-                operationsItems.map(l => (
+                clientWorkItems.map(l => (
                   <NavLink key={l.to} to={l.to} data-testid={l.testid}
                            onMouseEnter={() => warmRoute(l.to)}
                            className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
@@ -352,8 +358,8 @@ export default function Shell() {
                   </NavLink>
                 ))
               ) : (
-                <NavDropdown testid="nav-operations" label="Operations" icon={<CalendarBlank size={18} weight="duotone"/>}
-                             items={operationsItems} loc={loc} onItemHover={warmRoute}/>
+                <NavDropdown testid="nav-clients" label="Clients" icon={<UsersThree size={18} weight="duotone"/>}
+                             items={clientWorkItems} loc={loc} onItemHover={warmRoute}/>
               )}
               {peopleItems.length > 0 && (
                 <NavDropdown testid="nav-people" label="People" icon={<UsersThree size={18} weight="duotone"/>}
@@ -492,7 +498,8 @@ export default function Shell() {
             <div className="p-2">
               <SidebarNav
                 homeLink={{ ...homeLink, icon: <House size={17} weight="duotone"/> }}
-                operationsItems={operationsItems}
+                standaloneItems={standaloneItems}
+                clientWorkItems={clientWorkItems}
                 peopleItems={peopleItems}
                 personalItems={personalNavItems}
                 waitingItems={waitingNavItems}
