@@ -297,7 +297,7 @@ main, .page-enter { min-width: 0; }
 .evt-supervision { background: #D8CFC0; border-color: #A89880; color: #5C4A35; }
 .evt-observation { background: #F4EDE3; border-color: #D5BFA0; color: #6B5430; }
 .evt-avc     { background: #FFEAE0; border-color: #F0B89F; color: #7A4123; }
-.evt-leave   { background: #D9EAD3; border-color: #B6D7A8; color: #3D5C3A; font-style: italic; }
+.evt-leave   { background: #E8D6DE; border-color: #C4A8B8; color: #5C3D4A; font-style: italic; }
 .evt-break   { background: #F5F5DC; border-color: #C9C09A; color: #6B6038; font-style: italic; }
 .evt-available { background: #FFFFFF; border-color: #DDD8D0; color: #5C6853; }
 .cell-cancel-therapist {

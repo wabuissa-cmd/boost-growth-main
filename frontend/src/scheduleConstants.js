@@ -212,7 +212,7 @@ export const SCHEDULE_LEGEND_ITEMS = [
   { bg: "#FFFFFF", border: "#DDD8D0", label: "Available" },
   { bg: "#FFF4C4", border: "#E8C572", label: "Therapist Cancel" },
   { bg: "#FCE0E8", border: "#E8A4BD", label: "Client Cancel" },
-  { bg: "#D9EAD3", border: "#B6D7A8", label: "Leave" },
+  { bg: "#E8D6DE", border: "#C4A8B8", label: "Leave" },
   { bg: "#EEF2EA", border: "#B8C5AB", label: "Shift 1 · Sessions (8–12)" },
   { bg: "#DCE5D4", border: "#A8B89A", label: "Shift 2 · Sessions (12–4)" },
   { bg: "#C8D4BC", border: "#95A888", label: "Shift 3 · Sessions (4–8)" },
