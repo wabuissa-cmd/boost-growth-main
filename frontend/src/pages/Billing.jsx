@@ -329,7 +329,7 @@ export default function Billing() {
           className={`btn ${activeTab === "overview" ? "btn-primary" : "btn-secondary"} text-xs`}
           data-testid="billing-tab-overview"
         >
-          Payments
+          Client Invoices
         </button>
         <button
           type="button"

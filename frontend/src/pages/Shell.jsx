@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, Suspense, useMemo } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { useAuth, showAdminNav, isClientLead, isWalaaOps, isHrOps, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, showSystemAdmin, canImportData, showMyPortalNav, showMyReportsNav, showAcademicPortfolioNav, isJenan, canViewReports, directManagerLabel, canViewSupervisionCaseload, canAccessManagerHub, profileRoleLabel } from "../auth";
+import { useAuth, showAdminNav, isClientLead, isWalaaOps, isHrOps, canViewBilling, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, showSystemAdmin, canImportData, showMyPortalNav, showMyReportsNav, showAcademicPortfolioNav, isJenan, canViewReports, canViewSupervisionCaseload, canAccessManagerHub, profileRoleLabel } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch, cachedGet } from "../dataCache";
 import { getPortalDisplayName } from "../scheduleConstants";
@@ -79,7 +79,7 @@ export default function Shell() {
   const showMyPortal = showMyPortalNav(user);
   const showMyReports = showMyReportsNav(user);
   const showMyLearning = showAcademicPortfolioNav(user);
-  const showBilling = hasOpsAccess(user);
+  const showBilling = canViewBilling(user);
   const therapistOnly = Boolean(user && !portalAdmin && !hrOps && !walaaOps);
   const profileRole = profileRoleLabel(user);
 
@@ -111,10 +111,30 @@ export default function Shell() {
   const operationsItems = [
     { to: "/schedule", label: "Schedule", testid: "nav-schedule", icon: <CalendarBlank size={18} weight="duotone"/> },
     { to: "/attendance", label: "Session Preparation", testid: "nav-attendance", icon: <ClipboardText size={18} weight="duotone"/> },
-    ...(showBilling ? [{ to: "/billing", label: "Billing & Payments", testid: "nav-billing", icon: <Receipt size={18} weight="duotone"/> }] : []),
+  ];
+
+  const peopleItems = [
     { to: "/clients", label: "Client Info", testid: "nav-clients", icon: <UsersThree size={18} weight="duotone"/> },
     ...(canViewSupervisionCaseload(user)
       ? [{ to: "/supervision", label: "Supervision", testid: "nav-supervision", icon: <Eye size={18} weight="duotone"/> }]
+      : []),
+    ...(jenanManager
+      ? [{ to: "/manager", label: "Manager Hub", testid: "nav-manager-hub", icon: <ListChecks size={17} weight="duotone"/> }]
+      : []),
+    ...(!jenanManager && (staffRequestsAccess || leaveManager || hrLeaveReview)
+      ? [{ to: "/staff-leave", label: "Staff & Leave", testid: "nav-staff-leave", icon: <ListChecks size={17} weight="duotone"/> }]
+      : []),
+    ...(canAccessManagerHub(user) && showSystemAdmin(user) && !jenanManager
+      ? [{ to: "/manager", label: "Manager Hub (Jenan view)", testid: "nav-manager-hub-preview", icon: <ListChecks size={17} weight="duotone"/> }]
+      : []),
+  ];
+
+  const financeItems = [
+    ...(showBilling
+      ? [{ to: "/billing", label: "Client Invoices", testid: "nav-billing", icon: <Receipt size={18} weight="duotone"/> }]
+      : []),
+    ...(canAccessPurchases(user)
+      ? [{ to: "/purchases", label: jenanManager ? "Staff Payments" : "Purchases", testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> }]
       : []),
   ];
 
@@ -137,32 +157,12 @@ export default function Shell() {
     ...(showMyLearning ? [{ to: "/my-learning", label: "My Learning", testid: "nav-my-learning" }] : []),
   ] : [];
 
-  // Direct manager — Jenan: Manager Hub + Payments; others: Staff & Leave under HR
-  const managerNavItems = [];
-  const requestsItems = [];
-  if (jenanManager) {
-    managerNavItems.push(
-      { to: "/manager", label: "Manager Hub", testid: "nav-manager-hub", icon: <ListChecks size={17} weight="duotone"/> },
-      { to: "/purchases", label: "Payments", testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> },
-    );
-  } else if (staffRequestsAccess || leaveManager || hrLeaveReview) {
-    requestsItems.push({ to: "/staff-leave", label: "Staff & Leave", testid: "nav-staff-leave" });
-  }
-
-  const financeItems = [];
-  if (canAccessPurchases(user) && !jenanManager) {
-    financeItems.push({ to: "/purchases", label: "Purchases", testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> });
-  }
-
+  // Admin tools — Reports always last; Import/Admin before Reports for admins
   const showTrainingTests = Boolean(
     user && (canViewReports(user) || isWalaaOps(user) || isClientLead(user) || isJenan(user) || isHrOps(user))
   );
 
-  // Admin tools — Reports always last (Jenan + portal admin); Import/Admin before Reports for admins
   const adminTools = [
-    ...(canAccessManagerHub(user) && showSystemAdmin(user) && !jenanManager
-      ? [{ to: "/manager", label: "Manager Hub (Jenan view)", testid: "nav-manager-hub-preview", icon: <ListChecks size={17} weight="duotone"/> }]
-      : []),
     ...(canImportData(user)
       ? [{ to: "/import", label: "Import", testid: "nav-import", icon: <UploadSimple size={17} weight="duotone"/> }]
       : []),
@@ -183,19 +183,7 @@ export default function Shell() {
       : []),
   ];
 
-  const hrDropdownItems = jenanManager ? managerNavItems : [...requestsItems];
-
-  const financeDropdownItems = financeItems.map(it => ({
-    to: it.to,
-    label: it.label,
-    testid: it.testid,
-  }));
-
   const homeLink = baseLinks[0];
-  const hrNavItems = (walaaOps || jenanManager ? [] : requestsItems).map(it => ({
-    ...it,
-    icon: <ListChecks size={17} weight="duotone"/>,
-  }));
 
   const personalNavItems = myPortalItems.map(it => ({
     ...it,
@@ -284,11 +272,9 @@ export default function Shell() {
             <SidebarNav
               homeLink={{ ...homeLink, icon: <House size={17} weight="duotone"/> }}
               operationsItems={operationsItems}
+              peopleItems={peopleItems}
               personalItems={personalNavItems}
               waitingItems={waitingNavItems}
-              hrItems={hrNavItems}
-              managerItems={jenanManager ? managerNavItems : []}
-              managerSectionTitle={directManagerLabel()}
               financeItems={financeItems}
               adminItems={adminTools}
               therapistOnly={therapistOnly}
@@ -369,13 +355,13 @@ export default function Shell() {
                 <NavDropdown testid="nav-operations" label="Operations" icon={<CalendarBlank size={18} weight="duotone"/>}
                              items={operationsItems} loc={loc} onItemHover={warmRoute}/>
               )}
-              {hrDropdownItems.length > 0 && (
-                <NavDropdown testid={jenanManager ? "nav-direct-manager" : "nav-hr"} label={jenanManager ? directManagerLabel() : "HR"} icon={<UsersThree size={18} weight="duotone"/>}
-                             items={hrDropdownItems} loc={loc} onItemHover={warmRoute}/>
+              {peopleItems.length > 0 && (
+                <NavDropdown testid="nav-people" label="People" icon={<UsersThree size={18} weight="duotone"/>}
+                             items={peopleItems} loc={loc} onItemHover={warmRoute}/>
               )}
-              {financeDropdownItems.length > 0 && (
+              {financeItems.length > 0 && (
                 <NavDropdown testid="nav-finance" label="Finance" icon={<Receipt size={18} weight="duotone"/>}
-                             items={financeDropdownItems} loc={loc} onItemHover={warmRoute}/>
+                             items={financeItems} loc={loc} onItemHover={warmRoute}/>
               )}
               {myPortalItems.length > 0 && (
                 <NavDropdown testid="nav-my-portal" label="Personal" icon={<UserCircle size={18} weight="duotone"/>}
@@ -507,11 +493,9 @@ export default function Shell() {
               <SidebarNav
                 homeLink={{ ...homeLink, icon: <House size={17} weight="duotone"/> }}
                 operationsItems={operationsItems}
+                peopleItems={peopleItems}
                 personalItems={personalNavItems}
                 waitingItems={waitingNavItems}
-                hrItems={hrNavItems}
-                managerItems={jenanManager ? managerNavItems : []}
-                managerSectionTitle={directManagerLabel()}
                 financeItems={financeItems}
                 adminItems={adminTools}
                 therapistOnly={therapistOnly}

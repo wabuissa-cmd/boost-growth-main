@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Re-send Jenan urgent emails for open manager-pending leaves.
+"""Re-send Jenan urgent emails for open manager-pending leaves and pending purchases.
 
 Usage — production API (portal admin):
   python scripts/resend_leave_notifications.py --api --email ADMIN@... --password '...' \\
     --therapists hajar razan manal
+
+Resend pending staff purchases too:
+  python scripts/resend_leave_notifications.py --api --email ADMIN@... --password '...' \\
+    --purchases --therapists manal
 
 Dry run (list only):
   python scripts/resend_leave_notifications.py --api --dry-run --therapists hajar razan manal
@@ -17,7 +21,6 @@ import argparse
 import json
 import subprocess
 import sys
-from pathlib import Path
 
 DEFAULT_API = "https://staff.boostgrowth.org/api"
 
@@ -48,21 +51,15 @@ def _post(api_base: str, token: str, path: str, body: dict | None = None, query:
     return json.loads(out)
 
 
-def _get(api_base: str, token: str, path: str, query: str = "") -> dict:
-    url = f"{api_base.rstrip('/')}{path}"
-    if query:
-        url = f"{url}?{query}"
-    out = subprocess.check_output(["curl", "-s", url, "-H", f"Authorization: Bearer {token}"])
-    return json.loads(out)
-
-
 def main() -> int:
-    p = argparse.ArgumentParser(description="Resend leave notification emails to Jenan")
+    p = argparse.ArgumentParser(description="Resend leave/purchase notification emails to Jenan")
     p.add_argument("--api", action="store_true", help="Use production/staging API")
     p.add_argument("--api-base", default=DEFAULT_API)
     p.add_argument("--email", default="")
     p.add_argument("--password", default="")
     p.add_argument("--therapists", nargs="*", default=["hajar", "razan", "manal"])
+    p.add_argument("--purchases", action="store_true", help="Also resend pending purchase emails")
+    p.add_argument("--purchases-only", action="store_true", help="Only resend purchase emails")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--flush-queue", action="store_true", help="Retry failed/queued email_queue rows")
     p.add_argument("--limit", type=int, default=50)
@@ -81,16 +78,31 @@ def main() -> int:
         print(json.dumps(data, indent=2))
         return 0
 
-    body = {
-        "therapists": args.therapists,
-        "dry_run": args.dry_run,
-        "also_notify_in_app": not args.dry_run,
-    }
-    data = _post(args.api_base, token, "/admin/resend-leave-notifications", body)
-    print(json.dumps(data, indent=2))
-    if data.get("detail"):
-        return 1
-    return 0
+    exit_code = 0
+    if not args.purchases_only:
+        body = {
+            "therapists": args.therapists,
+            "dry_run": args.dry_run,
+            "also_notify_in_app": not args.dry_run,
+        }
+        data = _post(args.api_base, token, "/admin/resend-leave-notifications", body)
+        print("=== Leave notifications ===")
+        print(json.dumps(data, indent=2))
+        if data.get("detail"):
+            exit_code = 1
+
+    if args.purchases or args.purchases_only:
+        body = {
+            "therapists": args.therapists,
+            "dry_run": args.dry_run,
+        }
+        data = _post(args.api_base, token, "/admin/resend-purchase-notifications", body)
+        print("=== Purchase notifications ===")
+        print(json.dumps(data, indent=2))
+        if data.get("detail"):
+            exit_code = 1
+
+    return exit_code
 
 
 if __name__ == "__main__":

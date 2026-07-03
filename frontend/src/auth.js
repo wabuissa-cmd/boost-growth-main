@@ -88,9 +88,14 @@ export function isHrOps(user) {
   return HR_OPS_EMAILS.has((user.email || "").toLowerCase().trim());
 }
 
-/** Portal admin + HR + Walaa — billing, schedule edit, attendance ops UI */
+/** Portal admin + HR + Walaa — billing edit, schedule edit, attendance ops UI */
 export function hasOpsAccess(user) {
   return isPortalAdmin(user) || isHrOps(user) || isWalaaOps(user);
+}
+
+/** Client billing dashboard — ops team + Jenan (read-only invoice view) */
+export function canViewBilling(user) {
+  return hasOpsAccess(user) || isJenan(user);
 }
 
 /** All active clients in Client Info (portal admin + HR + client-lead team) */

@@ -69,11 +69,9 @@ function SidebarSection({ title, items, loc, defaultOpen = true, onItemHover, co
 export default function SidebarNav({
   homeLink,
   operationsItems,
+  peopleItems = [],
   personalItems,
   waitingItems,
-  hrItems,
-  managerItems,
-  managerSectionTitle,
   financeItems = [],
   adminItems,
   therapistOnly,
@@ -107,12 +105,22 @@ export default function SidebarNav({
       )}
 
       {flatOps ? (
-        <div className="sidebar-section">
-          {!collapsed && <div className="sidebar-section-label">Operations</div>}
-          <div className="sidebar-section-items">
-            {operationsItems.map(it => renderLink(it))}
+        <>
+          <div className="sidebar-section">
+            {!collapsed && <div className="sidebar-section-label">Operations</div>}
+            <div className="sidebar-section-items">
+              {operationsItems.map(it => renderLink(it))}
+            </div>
           </div>
-        </div>
+          {peopleItems.length > 0 && (
+            <div className="sidebar-section">
+              {!collapsed && <div className="sidebar-section-label">People</div>}
+              <div className="sidebar-section-items">
+                {peopleItems.map(it => renderLink(it))}
+              </div>
+            </div>
+          )}
+        </>
       ) : (
         <SidebarSection
           title="Operations"
@@ -122,6 +130,10 @@ export default function SidebarNav({
           onItemHover={onItemHover}
           collapsed={collapsed}
         />
+      )}
+
+      {peopleItems.length > 0 && !flatOps && (
+        <SidebarSection title="People" items={peopleItems} loc={loc} defaultOpen onItemHover={onItemHover} collapsed={collapsed} />
       )}
 
       {personalItems.length > 0 && (
@@ -136,17 +148,6 @@ export default function SidebarNav({
       )}
 
       <SidebarSection title="Waiting" items={waitingItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
-      {managerItems?.length > 0 && (
-        <SidebarSection
-          title={managerSectionTitle || "Direct Manager"}
-          items={managerItems}
-          loc={loc}
-          defaultOpen
-          onItemHover={onItemHover}
-          collapsed={collapsed}
-        />
-      )}
-      <SidebarSection title="HR" items={hrItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
       <SidebarSection title="Finance" items={financeItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
       <SidebarSection title="Administration" items={adminItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
     </nav>

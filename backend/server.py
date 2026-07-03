@@ -1015,6 +1015,13 @@ async def ops_or_admin(user: dict = Depends(get_current_user)) -> dict:
         return user
     raise HTTPException(status_code=403, detail="Admin access required")
 
+
+async def billing_view_or_ops(user: dict = Depends(get_current_user)) -> dict:
+    """View client invoices — ops team + Jenan (read-only)."""
+    if _is_portal_admin(user) or _is_hr_ops(user) or _is_walaa_ops(user) or _is_jenan(user):
+        return user
+    raise HTTPException(status_code=403, detail="Admin access required")
+
 def _actor_display(user: dict) -> str:
     name = (user.get("name") or "").strip()
     if name:
@@ -1685,6 +1692,7 @@ async def me(user: dict = Depends(get_current_user)):
     user["schedule_lead"] = _is_client_lead(user) and not _is_portal_admin(user)
     user["walaa_ops"] = _is_walaa_ops(user)
     user["can_parent_cancellation_ops"] = _can_parent_cancellation_ops(user)
+    user["can_view_billing"] = _is_portal_admin(user) or _is_hr_ops(user) or _is_walaa_ops(user) or _is_jenan(user)
     return user
 
 @api.post("/auth/logout")
@@ -2223,6 +2231,7 @@ MASTER_CLIENTS = [
     ("068", "Abdulrahman Alshawi",   "msRazan",    ["msFahda"],                24, "msFahda", "HS",    "AR Rayan"),
     ("070", "Abdulelah Almuhana",    "msAbeer",    ["msMaha"],                 32, "msMaha",  "HS",    "Al-Manziliyah"),
     ("072", "Khalid Bin Shuael",     "msShatha",   ["msFahda"],                24, "msFahda", "HS",    "AlMursalat"),
+    ("076", "Sultan Abalkhail",      "msShatha",   [],                         24, "msFahda", "HS/SS", "Al-Mursalat"),
     ("079", "Fahad Suliman",         "msFahda",    ["msFahda"],                40, "msFahda", "HS",    "Al-Sahafa"),
     ("053", "Ahmad Alshalfan",       "msHajer",    ["msFahda"],                24, "msFahda", "HS/SS", "Almalqa"),
     ("080", "Faisal Alzughaibi",     "msFatimah",  [],                         24, "msFahda", "HS",    "Alyasmeen"),
@@ -4484,13 +4493,13 @@ def _portal_base_url() -> str:
 
 
 async def _jenan_recipient_email() -> str:
-    """Canonical inbox for Jenan — map login aliases (jenan@) to jsalmuhaisin@."""
+    """Canonical inbox for Jenan — always jsalmuhaisin@ (map login aliases)."""
     tid = await _jenan_therapist_id()
     if tid:
         t = await db.therapists.find_one({"id": tid}, {"_id": 0, "email": 1})
         if t and t.get("email"):
             raw = t["email"].strip().lower()
-            return THERAPIST_LOGIN_EMAIL_ALIASES.get(raw, raw if raw == JENAN_EMAIL.lower() else JENAN_EMAIL)
+            return THERAPIST_LOGIN_EMAIL_ALIASES.get(raw, JENAN_EMAIL)
     return JENAN_EMAIL
 
 
@@ -5780,6 +5789,7 @@ BILLING_REMINDER_EMAILS = frozenset({
     "wabuissa@boostgrowthsa.com",
     "walaa@boostgrowthsa.com",
     "admin@boostgrowthsa.com",
+    "jsalmuhaisin@boostgrowthsa.com",
 })
 
 
@@ -5953,7 +5963,7 @@ async def _process_payment_reminders(force: bool = False) -> dict:
 
 
 @api.get("/billing/dashboard")
-async def billing_dashboard(user=Depends(ops_or_admin)):
+async def billing_dashboard(user=Depends(billing_view_or_ops)):
     """Open invoices needing payment attention — unpaid, partial, reminders."""
     await _process_payment_reminders()
     today = now_iso()[:10]
@@ -6173,7 +6183,7 @@ async def _invoice_hours_used(inv: dict) -> float:
 
 
 @api.get("/billing/invoice-calendar")
-async def billing_invoice_calendar(month: str = Query(..., description="YYYY-MM"), user=Depends(ops_or_admin)):
+async def billing_invoice_calendar(month: str = Query(..., description="YYYY-MM"), user=Depends(billing_view_or_ops)):
     """Forecast invoice end dates + include manual calendar entries."""
     today = now_iso()[:10]
     start, end = _month_bounds(month)
@@ -12066,6 +12076,13 @@ DEFAULT_ANNUAL_BALANCE = 30  # baseline annual leave per contract year
 LEAVE_DOC_TYPES = {"medical", "appointment", "other"}
 
 
+def _annual_leave_entitlement(therapist: dict) -> float:
+    """Annual days allocated per contract year (not the HR-synced remaining balance)."""
+    if therapist.get("annual_balance") is not None:
+        return float(therapist["annual_balance"])
+    return float(DEFAULT_ANNUAL_BALANCE)
+
+
 def _contract_period_bounds(therapist: dict, ref=None):
     """Contract year from join_date anniversary (e.g. Apr → Apr), not calendar year."""
     from datetime import date as date_cls
@@ -12099,11 +12116,7 @@ async def _ensure_contract_balance(therapist: dict) -> dict:
     start, end = _contract_period_bounds(therapist)
     if therapist.get("contract_period_start") == start:
         return therapist
-    allocated = float(
-        therapist.get("annual_balance")
-        if therapist.get("annual_balance") is not None
-        else (therapist.get("leave_balance") if therapist.get("leave_balance") is not None else DEFAULT_ANNUAL_BALANCE)
-    )
+    allocated = _annual_leave_entitlement(therapist)
     await db.therapists.update_one(
         {"id": therapist["id"]},
         {"$set": {
@@ -12256,8 +12269,26 @@ async def list_leaves(
     if not can_view_all:
         q["therapist_id"] = user["id"]
     items = await db.leaves.find(q, {"_id": 0, "document_file_data": 0}).sort("start_date", -1).to_list(2000)
-    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1, "color": 1, "key": 1}).to_list(100)
+    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1, "color": 1, "key": 1, "join_date": 1, "contract_period_start": 1, "contract_period_end": 1, "annual_balance": 1, "leave_balance": 1}).to_list(100)
     t_by_id = {t["id"]: t for t in therapists}
+    if scope_norm == "staff" and (_is_jenan(user) or _is_walaa_ops(user)):
+        contract_bounds: dict = {}
+        for t in therapists:
+            t = await _ensure_contract_balance(t)
+            contract_bounds[t["id"]] = _contract_period_bounds(t)
+        filtered = []
+        for it in items:
+            tid = it.get("therapist_id")
+            start, end = contract_bounds.get(tid, ("", "9999-12-31"))
+            sd = (it.get("start_date") or "")[:10]
+            in_contract = bool(start and sd and start <= sd <= end)
+            is_open = _normalize_leave_status(it.get("status")) in (
+                "pending_manager", "pending_hr", "pending_attachment", "in_progress"
+            )
+            if in_contract or is_open:
+                it["in_current_contract"] = in_contract
+                filtered.append(it)
+        items = filtered
     for it in items:
         t = t_by_id.get(it.get("therapist_id"))
         if t:
@@ -12298,7 +12329,7 @@ async def leaves_balance(year: Optional[int] = None, scope: Optional[str] = None
             for l in own
             if _normalize_leave_status(l.get("status")) in ("pending_manager", "pending_hr")
         )
-        allocated = float(t.get("leave_balance") if t.get("leave_balance") is not None else (t.get("annual_balance") or DEFAULT_ANNUAL_BALANCE))
+        allocated = _annual_leave_entitlement(t)
         remaining = max(0.0, allocated - used_annual - used_permission)
         out.append({
             "therapist_id": t["id"], "name": therapist_schedule_display_name(t), "color": t.get("color"), "email": t.get("email"),
@@ -12758,6 +12789,12 @@ class ResendLeaveNotificationsIn(BaseModel):
     also_notify_in_app: bool = True
 
 
+class ResendPurchaseNotificationsIn(BaseModel):
+    therapists: Optional[List[str]] = None
+    statuses: Optional[List[str]] = None
+    dry_run: bool = False
+
+
 @api.get("/admin/leaves-audit")
 async def admin_leaves_audit(q: str = Query(...), _=Depends(admin_only)):
     """List leave rows for therapists matching name/email/key fragment."""
@@ -12862,6 +12899,79 @@ async def admin_resend_leave_notifications(
     return {
         "dry_run": False,
         "matched": len(leaves),
+        "jenan_email": await _jenan_recipient_email(),
+        "sent": sent,
+    }
+
+
+@api.post("/admin/resend-purchase-notifications")
+async def admin_resend_purchase_notifications(
+    body: ResendPurchaseNotificationsIn = Body(default_factory=ResendPurchaseNotificationsIn),
+    _=Depends(admin_only),
+):
+    """Re-send Jenan urgent emails for open staff purchases (default: pending review)."""
+    statuses = body.statuses or ["pending"]
+    therapist_ids: Optional[set] = None
+    if body.therapists:
+        therapist_ids = set()
+        for pat in body.therapists:
+            fragment = (pat or "").strip()
+            if not fragment:
+                continue
+            regex = {"$regex": fragment, "$options": "i"}
+            matches = await db.therapists.find(
+                {"$or": [{"name": regex}, {"email": regex}, {"key": regex}]},
+                {"_id": 0, "id": 1},
+            ).to_list(50)
+            for m in matches:
+                therapist_ids.add(m["id"])
+    query: dict = {"status": {"$in": statuses}}
+    if therapist_ids is not None:
+        if not therapist_ids:
+            return {"dry_run": body.dry_run, "matched": 0, "sent": [], "jenan_email": await _jenan_recipient_email()}
+        query["therapist_id"] = {"$in": list(therapist_ids)}
+    purchases = await db.staff_purchases.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    preview = [
+        {
+            "purchase_id": p.get("id"),
+            "purchaser_name": p.get("purchaser_name") or p.get("therapist_name"),
+            "item": p.get("item"),
+            "category": p.get("category"),
+            "status": p.get("status"),
+            "purchase_date": p.get("purchase_date"),
+        }
+        for p in purchases
+    ]
+    if body.dry_run:
+        return {
+            "dry_run": True,
+            "matched": len(purchases),
+            "jenan_email": await _jenan_recipient_email(),
+            "purchases": preview,
+        }
+    sent = []
+    for p in purchases:
+        name = p.get("purchaser_name") or p.get("therapist_name") or "Staff"
+        item = p.get("item") or "—"
+        category = p.get("category") or "—"
+        title = "New staff purchase logged"
+        message = f"{name}: {item} ({category}) — pending review"
+        body_text = f"{message}\n"
+        portal = _portal_base_url()
+        if portal:
+            body_text += f"\nReview in portal: {portal}/purchases\n"
+        body_text += "\n— Boost Growth Portal"
+        email_result = await _send_urgent_email(await _jenan_recipient_email(), title, body_text)
+        sent.append({
+            "purchase_id": p.get("id"),
+            "purchaser_name": name,
+            "email_to": await _jenan_recipient_email(),
+            "email_status": email_result.get("status"),
+            "email_error": email_result.get("error"),
+        })
+    return {
+        "dry_run": False,
+        "matched": len(purchases),
         "jenan_email": await _jenan_recipient_email(),
         "sent": sent,
     }
@@ -15630,6 +15740,7 @@ CLIENT_SEED = [
     {"file_no":"068","name":"Abdulrahman Alshawi","main":"Ms. Razan","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#C9DAF8","locs":[{"service":"HS","address":"AR Rayan - Home no 32"}]},
     {"file_no":"070","name":"Abdulelah Almuhana","main":"Ms. Abeer","co":["Ms. Maha"],"pkg":32,"sup":"Ms. Maha","color":"#CFE2F3","locs":[{"service":"HS","address":"Al-Manziliyah"}]},
     {"file_no":"072","name":"Khalid Bin Shuael","main":"Ms. Shatha","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#EAD1DC","locs":[{"service":"HS","address":"AlMursalat"}]},
+    {"file_no":"076","name":"Sultan Abalkhail","main":"Ms. Shatha","co":[],"pkg":24,"sup":"Ms. Fahda","color":"#D0E0E3","locs":[{"service":"HS","address":"Al-Mursalat"},{"service":"SS","address":"Al-Mursalat"}]},
 ]
 
 CLIENT_ATTENDANCE_SHEETS = {

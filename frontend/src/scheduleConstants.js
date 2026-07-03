@@ -114,7 +114,7 @@ const PORTAL_GREETING_OVERRIDES = {
   mswalaa: "Walaa Abu Eissa",
   msmaha: "Maha Althunayan",
   msfahda: "Fahda Alghadeeb",
-  msjenan: "Jenan Almuhaisin",
+  msjenan: "Jenan Al-Muhaisin",
   msasma: "Asma Ahmed",
 };
 

@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import api, { startOfWeek, toISODate, addDays } from "../api";
 import { cachedGet } from "../dataCache";
-import { useAuth, showAdminNav, hasOpsAccess, isHrOps, isJenan, canParentCancellationOps, isWalaaOps, showMyReportsNav } from "../auth";
+import { useAuth, showAdminNav, hasOpsAccess, canViewBilling, isHrOps, isJenan, canParentCancellationOps, isWalaaOps, showMyReportsNav } from "../auth";
 import {
   CalendarBlank, ClipboardText, UsersThree, ListChecks, Plant, ArrowRight,
   CheckCircle, Clock, XCircle, CalendarCheck, Heart,
@@ -128,7 +128,7 @@ export default function Home() {
           api.get("/schedule/closures", { params: { from_date: weekISO, to_date: weekEndISO } }).catch(() => ({ data: [] })),
           api.get("/center-updates").catch(() => ({ data: [] })),
           isPortalAdminUser || hrOps || jenan ? api.get("/notifications").catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
-          (isPortalAdminUser || hrOps) && opsAccess ? api.get("/billing/dashboard").catch(() => ({ data: null })) : Promise.resolve({ data: null }),
+          (isPortalAdminUser || hrOps || jenan) && canViewBilling(user) ? api.get("/billing/dashboard").catch(() => ({ data: null })) : Promise.resolve({ data: null }),
           (isPortalAdminUser || hrOps)
             ? api.get("/leaves").catch(() => ({ data: [] }))
             : jenan

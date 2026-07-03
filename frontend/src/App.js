@@ -1,6 +1,6 @@
 import { Component, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth, isJenan, isClientLead, isWalaaOps, isHrOps, hasOpsAccess, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, hasFullClientAccess, showSystemAdmin, canImportData, canViewReports, showMyReportsNav, showAcademicPortfolioNav, canViewSupervisionCaseload, canAccessManagerHub } from "./auth";
+import { AuthProvider, useAuth, isJenan, isClientLead, isWalaaOps, isHrOps, hasOpsAccess, canViewBilling, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, hasFullClientAccess, showSystemAdmin, canImportData, canViewReports, showMyReportsNav, showAcademicPortfolioNav, canViewSupervisionCaseload, canAccessManagerHub } from "./auth";
 import Login from "./pages/Login";
 import Shell from "./pages/Shell";
 import AuthenticatedFileViewer from "./components/AuthenticatedFileViewer";
@@ -57,6 +57,14 @@ function AdminOnly({ children }) {
   return <SystemAdminOnly>{children}</SystemAdminOnly>;
 }
 
+
+function BillingAccess({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <Loading/>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!canViewBilling(user)) return <Navigate to="/home" replace />;
+  return children;
+}
 
 function OpsOnly({ children }) {
   const { user } = useAuth();
@@ -188,7 +196,7 @@ function AppRoutes() {
         <Route path="/home" element={<Home/>}/>
         <Route path="/schedule" element={<Schedule/>}/>
         <Route path="/attendance" element={<Attendance/>}/>
-        <Route path="/billing" element={<OpsOnly><Billing/></OpsOnly>}/>
+        <Route path="/billing" element={<BillingAccess><Billing/></BillingAccess>}/>
         <Route path="/clients" element={<Clients/>}/>
         <Route path="/supervision" element={<SupervisionAccess><SupervisionCaseload/></SupervisionAccess>}/>
         <Route path="/intake" element={<IntakeAccess><Intake/></IntakeAccess>}/>
