@@ -10447,7 +10447,14 @@ def _sheet_cell_date(val) -> Optional[str]:
 
 
 def _norm_person_name(name: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", (name or "").lower().replace("ms.", "").replace("ms ", ""))
+    n = re.sub(r"[^a-z0-9]", "", (name or "").lower().replace("ms.", "").replace("ms ", ""))
+    # Google Sheet spelling variants → portal display names
+    aliases = {
+        "manaldossery": "manaldosery",
+        "manaldosari": "manaldosery",
+        "shathaalhammami": "shathaalhammami",
+    }
+    return aliases.get(n, n)
 
 
 def _parse_leave_balance_sheet(wb, year: int) -> List[dict]:
@@ -10649,7 +10656,16 @@ async def _sync_leave_balances_from_sheet(year: Optional[int] = None) -> dict:
             skipped += 1
             continue
         patch = {"leave_balance": remaining, "leave_balance_synced_at": now_iso(), "leave_balance_sync_year": yr}
-        if row.get("join_date"):
+        annual_used = row.get("annual_days")
+        if annual_used is not None:
+            try:
+                patch["annual_balance"] = round(float(remaining) + float(annual_used), 1)
+            except (TypeError, ValueError):
+                pass
+        master_jd = _master_join_date_for_therapist(await db.therapists.find_one({"id": tid}, {"_id": 0, "key": 1}) or {})
+        if master_jd:
+            patch["join_date"] = master_jd
+        elif row.get("join_date"):
             patch["join_date"] = row["join_date"]
         await db.therapists.update_one({"id": tid}, {"$set": patch})
         updated += 1
@@ -10678,7 +10694,11 @@ async def hr_therapist_profile(tid: str, _=Depends(hr_manager_access)):
     )
     if not therapist:
         raise HTTPException(status_code=404, detail="Therapist not found")
-    therapist = await _ensure_contract_balance(therapist)
+    balance_row = await _balance_row_for_therapist(therapist)
+    therapist = await db.therapists.find_one(
+        {"id": tid},
+        {"_id": 0, "pin_hash": 0, "password_hash": 0},
+    )
     all_reqs = await db.requests.find({"therapist_id": tid}, {"_id": 0}).to_list(500)
     open_statuses = {"pending", "pending_manager", "pending_hr", "in_progress"}
     answered_statuses = {"approved", "done", "rejected"}
@@ -10740,7 +10760,7 @@ async def hr_therapist_profile(tid: str, _=Depends(hr_manager_access)):
                 })
         except Exception:
             trial_days_left = None
-    bal = therapist.get("leave_balance")
+    bal = balance_row.get("remaining")
     if bal is not None and float(bal) < 5:
         alerts.append({
             "type": "low_leave",
@@ -10770,15 +10790,15 @@ async def hr_therapist_profile(tid: str, _=Depends(hr_manager_access)):
     return {
         "therapist": therapist,
         "requests": {"total": len(all_reqs), "open": req_open, "answered": req_answered},
-        "leave_balance": therapist.get("leave_balance"),
-        "annual_balance": therapist.get("annual_balance"),
-        "contract_period_start": therapist.get("contract_period_start"),
-        "contract_period_end": therapist.get("contract_period_end"),
+        "leave_balance": balance_row.get("remaining"),
+        "annual_balance": balance_row.get("allocated"),
+        "contract_period_start": balance_row.get("contract_period_start"),
+        "contract_period_end": balance_row.get("contract_period_end"),
         "contract_start": contract_start,
         "annual_contract_end": annual_end,
         "probation_end": probation_end,
         "trial_days_left": trial_days_left,
-        "join_date": therapist.get("join_date"),
+        "join_date": balance_row.get("join_date"),
         "trainings": trainings,
         "alerts": alerts,
         "hours_this_month": round(hours_month, 1),
@@ -12076,6 +12096,24 @@ DEFAULT_ANNUAL_BALANCE = 30  # baseline annual leave per contract year
 LEAVE_DOC_TYPES = {"medical", "appointment", "other"}
 
 
+def _master_join_date_by_key() -> dict:
+    return {key: jd for key, _, _, _, _, jd in MASTER_THERAPISTS if jd}
+
+
+def _master_join_date_for_therapist(therapist: dict) -> Optional[str]:
+    key = (therapist or {}).get("key")
+    if key:
+        jd = _master_join_date_by_key().get(key)
+        if jd:
+            return jd
+    return None
+
+
+def _effective_join_date(therapist: dict) -> Optional[str]:
+    """Master seed join_date wins over HR sheet (prevents bad sheet dates like Shatha Jun vs Apr)."""
+    return _master_join_date_for_therapist(therapist) or (therapist or {}).get("join_date")
+
+
 def _annual_leave_entitlement(therapist: dict) -> float:
     """Annual days allocated per contract year (not the HR-synced remaining balance)."""
     if therapist.get("annual_balance") is not None:
@@ -12087,7 +12125,7 @@ def _contract_period_bounds(therapist: dict, ref=None):
     """Contract year from join_date anniversary (e.g. Apr → Apr), not calendar year."""
     from datetime import date as date_cls
     ref = ref or datetime.now(timezone.utc).date()
-    join_raw = (therapist or {}).get("join_date") or f"{ref.year}-04-01"
+    join_raw = _effective_join_date(therapist) or f"{ref.year}-04-01"
     try:
         jd = date_cls.fromisoformat(str(join_raw)[:10])
     except ValueError:
@@ -12110,25 +12148,121 @@ def _contract_period_bounds(therapist: dict, ref=None):
 
 
 async def _ensure_contract_balance(therapist: dict) -> dict:
-    """Reset leave_balance to annual entitlement when a new contract year starts."""
+    """Stamp contract-period bounds; preserve HR-synced leave_balance on join_date corrections."""
     if not therapist:
         return therapist
+    effective_jd = _effective_join_date(therapist)
+    if effective_jd and effective_jd != therapist.get("join_date"):
+        await db.therapists.update_one(
+            {"id": therapist["id"]},
+            {"$set": {"join_date": effective_jd}},
+        )
+        therapist["join_date"] = effective_jd
     start, end = _contract_period_bounds(therapist)
     if therapist.get("contract_period_start") == start:
         return therapist
-    allocated = _annual_leave_entitlement(therapist)
-    await db.therapists.update_one(
-        {"id": therapist["id"]},
-        {"$set": {
-            "leave_balance": allocated,
-            "contract_period_start": start,
-            "contract_period_end": end,
-        }},
-    )
-    therapist["leave_balance"] = allocated
-    therapist["contract_period_start"] = start
-    therapist["contract_period_end"] = end
+    patch = {"contract_period_start": start, "contract_period_end": end}
+    prev_end = (therapist.get("contract_period_end") or "")[:10]
+    ref = datetime.now(timezone.utc).date()
+    rolled_new_year = False
+    if prev_end:
+        try:
+            rolled_new_year = ref > datetime.fromisoformat(prev_end).date()
+        except ValueError:
+            rolled_new_year = False
+    if rolled_new_year and therapist.get("leave_balance") is not None:
+        patch["leave_balance"] = _annual_leave_entitlement(therapist)
+    elif therapist.get("contract_period_start") is None and therapist.get("leave_balance") is None:
+        patch["leave_balance"] = _annual_leave_entitlement(therapist)
+    await db.therapists.update_one({"id": therapist["id"]}, {"$set": patch})
+    therapist.update(patch)
     return therapist
+
+
+async def _leave_usage_in_contract(therapist_id: str, start: str, end: str) -> dict:
+    own = await db.leaves.find({
+        "therapist_id": therapist_id,
+        "start_date": {"$gte": start, "$lte": end},
+    }, {"_id": 0}).to_list(500)
+    used_annual = sum(
+        float(l.get("days") or 0)
+        for l in own
+        if l.get("leave_type") == "Annual" and l.get("status") in ("approved", "done")
+    )
+    used_permission = sum(
+        float(l.get("days") or 0)
+        for l in own
+        if l.get("leave_type") == "Permission"
+        and l.get("status") in ("approved", "done")
+        and l.get("is_paid", True)
+    )
+    pending = sum(
+        float(l.get("days") or 0)
+        for l in own
+        if _normalize_leave_status(l.get("status")) in ("pending_manager", "pending_hr")
+    )
+    return {
+        "leaves": own,
+        "used_annual": used_annual,
+        "used_permission": used_permission,
+        "pending": pending,
+    }
+
+
+async def _balance_row_for_therapist(t: dict, year: Optional[int] = None) -> dict:
+    """Unified leave balance — HR-synced remaining wins over raw entitlement math."""
+    t = await _ensure_contract_balance(t)
+    start, end = _contract_period_bounds(t)
+    usage = await _leave_usage_in_contract(t["id"], start, end)
+    own = usage["leaves"]
+    used_annual = usage["used_annual"]
+    used_permission = usage["used_permission"]
+    pending = usage["pending"]
+    used_unpaid = sum(
+        float(l.get("days") or 0)
+        for l in own
+        if l.get("leave_type") == "Unpaid" and l.get("status") in ("approved", "done")
+    )
+    used_sick = sum(
+        float(l.get("days") or 0)
+        for l in own
+        if l.get("leave_type") == "Sickleave" and l.get("status") in ("approved", "done")
+    )
+    permission_count = sum(1 for l in own if l.get("leave_type") == "Permission")
+    other_requests_count = await db.requests.count_documents({
+        "therapist_id": t["id"],
+        "request_type": {"$nin": ["leave", "permission"]},
+        "status": {"$in": ["pending_manager", "pending_hr", "in_progress"]},
+    })
+    allocated = _annual_leave_entitlement(t)
+    computed_remaining = max(0.0, allocated - used_annual - used_permission)
+    stored_remaining = t.get("leave_balance")
+    if stored_remaining is not None:
+        remaining = max(0.0, float(stored_remaining))
+        allocated = max(allocated, round(used_annual + used_permission + pending + remaining, 1))
+    else:
+        remaining = computed_remaining
+    return {
+        "therapist_id": t["id"],
+        "name": therapist_schedule_display_name(t),
+        "color": t.get("color"),
+        "email": t.get("email"),
+        "join_date": _effective_join_date(t),
+        "contract_period_start": start,
+        "contract_period_end": end,
+        "year": year or datetime.now(timezone.utc).year,
+        "allocated": allocated,
+        "used_annual": round(used_annual, 1),
+        "used_permission": round(used_permission, 1),
+        "permission_count": permission_count,
+        "other_requests_count": other_requests_count,
+        "used_unpaid": round(used_unpaid, 1),
+        "used_sick": round(used_sick, 1),
+        "pending": round(pending, 1),
+        "remaining": round(remaining, 1),
+        "computed_remaining": round(computed_remaining, 1),
+        "leaves_count": len(own),
+    }
 
 
 def _leave_default_fields() -> dict:
@@ -12302,52 +12436,13 @@ async def list_leaves(
 async def leaves_balance(year: Optional[int] = None, scope: Optional[str] = None, user=Depends(get_current_user)):
     """Per-therapist balance for current contract year (anniversary from join_date)."""
     scope_norm = (scope or "").strip().lower()
-    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "color": 1, "email": 1, "annual_balance": 1, "leave_balance": 1, "join_date": 1, "contract_period_start": 1, "contract_period_end": 1, "key": 1}).to_list(100)
+    therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "color": 1, "email": 1, "annual_balance": 1, "leave_balance": 1, "join_date": 1, "contract_period_start": 1, "contract_period_end": 1, "key": 1, "leave_balance_sync_year": 1}).to_list(100)
     can_view_all = _is_portal_admin(user) or _is_hr_ops(user) or (scope_norm == "staff" and _is_jenan(user))
     if not can_view_all:
         therapists = [t for t in therapists if t["id"] == user["id"]]
     out = []
     for t in therapists:
-        t = await _ensure_contract_balance(t)
-        start, end = _contract_period_bounds(t)
-        own = await db.leaves.find({
-            "therapist_id": t["id"],
-            "start_date": {"$gte": start, "$lte": end},
-        }, {"_id": 0}).to_list(500)
-        used_annual = sum(float(l.get("days") or 0) for l in own if l.get("leave_type") == "Annual" and l.get("status") in ("approved", "done"))
-        used_unpaid = sum(float(l.get("days") or 0) for l in own if l.get("leave_type") == "Unpaid" and l.get("status") in ("approved", "done"))
-        used_sick = sum(float(l.get("days") or 0) for l in own if l.get("leave_type") == "Sickleave" and l.get("status") in ("approved", "done"))
-        used_permission = sum(float(l.get("days") or 0) for l in own if l.get("leave_type") == "Permission" and l.get("status") in ("approved", "done") and l.get("is_paid", True))
-        permission_count = sum(1 for l in own if l.get("leave_type") == "Permission")
-        other_requests_count = await db.requests.count_documents({
-            "therapist_id": t["id"],
-            "request_type": {"$nin": ["leave", "permission"]},
-            "status": {"$in": ["pending_manager", "pending_hr", "in_progress"]},
-        })
-        pending = sum(
-            float(l.get("days") or 0)
-            for l in own
-            if _normalize_leave_status(l.get("status")) in ("pending_manager", "pending_hr")
-        )
-        allocated = _annual_leave_entitlement(t)
-        remaining = max(0.0, allocated - used_annual - used_permission)
-        out.append({
-            "therapist_id": t["id"], "name": therapist_schedule_display_name(t), "color": t.get("color"), "email": t.get("email"),
-            "join_date": t.get("join_date"),
-            "contract_period_start": start,
-            "contract_period_end": end,
-            "year": year or datetime.now(timezone.utc).year,
-            "allocated": allocated,
-            "used_annual": round(used_annual, 1),
-            "used_permission": round(used_permission, 1),
-            "permission_count": permission_count,
-            "other_requests_count": other_requests_count,
-            "used_unpaid": round(used_unpaid, 1),
-            "used_sick": round(used_sick, 1),
-            "pending": round(pending, 1),
-            "remaining": round(remaining, 1),
-            "leaves_count": len(own),
-        })
+        out.append(await _balance_row_for_therapist(t, year))
     return out
 
 @api.post("/leaves")
@@ -12838,6 +12933,50 @@ async def admin_leaves_audit(q: str = Query(...), _=Depends(admin_only)):
             ],
         })
     return {"therapists": blocks, "query": q}
+
+
+class RecalculateLeaveBalancesIn(BaseModel):
+    therapists: Optional[List[str]] = None
+    sync_sheet: bool = True
+
+
+@api.post("/admin/recalculate-leave-balances")
+async def admin_recalculate_leave_balances(
+    body: RecalculateLeaveBalancesIn = Body(default_factory=RecalculateLeaveBalancesIn),
+    _=Depends(admin_only),
+):
+    """Re-sync HR sheet balances and refresh contract bounds (fixes join_date / remaining drift)."""
+    sheet_result = None
+    if body.sync_sheet:
+        sheet_result = await _sync_leave_balances_from_sheet()
+    if body.therapists:
+        regex_clauses = []
+        for pat in body.therapists:
+            fragment = (pat or "").strip()
+            if fragment:
+                regex_clauses.append({"name": {"$regex": fragment, "$options": "i"}})
+                regex_clauses.append({"email": {"$regex": fragment, "$options": "i"}})
+                regex_clauses.append({"key": {"$regex": fragment, "$options": "i"}})
+        q = {"$or": regex_clauses} if regex_clauses else {}
+        therapists = await db.therapists.find(q, {"_id": 0, "pin_hash": 0, "password_hash": 0}).to_list(50)
+    else:
+        therapists = await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).to_list(200)
+    rows = []
+    for t in therapists:
+        row = await _balance_row_for_therapist(t)
+        rows.append({
+            "therapist_id": row["therapist_id"],
+            "name": row["name"],
+            "join_date": row["join_date"],
+            "contract_period_start": row["contract_period_start"],
+            "contract_period_end": row["contract_period_end"],
+            "remaining": row["remaining"],
+            "computed_remaining": row.get("computed_remaining"),
+            "used_annual": row["used_annual"],
+            "pending": row["pending"],
+            "allocated": row["allocated"],
+        })
+    return {"sheet_sync": sheet_result, "therapists": rows}
 
 
 @api.post("/admin/resend-leave-notifications")
