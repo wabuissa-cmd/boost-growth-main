@@ -101,7 +101,7 @@ export const SERVICE_CELL_COLORS = {
   SUPERVISION: { background: "#D8CFC0", borderColor: "#A89880", color: "#5C4A35" },
   OBSERVATION: { background: "#F4EDE3", borderColor: "#D5BFA0", color: "#6B5430" },
   AVC: { background: "#FFEAE0", borderColor: "#F0B89F", color: "#7A4123" },
-  LEAVE: { background: "#E8D6DE", borderColor: "#C4A8B8", color: "#5C3D4A" },
+  LEAVE: { background: "#D6E8F0", borderColor: "#8BB8CC", color: "#2D5068" },
   BREAK: { background: "#F5F5DC", borderColor: "#C9C09A", color: "#6B6038" },
 };
 
@@ -118,7 +118,7 @@ export const MERGE_QUICK = [
 ];
 
 export const SCHEDULE_COLOR_SWATCHES = [
-  "#E8D6DE", "#D5A6BD", "#FCE5CD", "#D9D2E9", "#B4A7D6", "#EA9999",
+  "#D6E8F0", "#D5A6BD", "#FCE5CD", "#D9D2E9", "#B4A7D6", "#EA9999",
   "#A2C4C9", "#F4CCCC", "#D0E0E3", "#FFF2CC", "#FFE599", "#B6D7A8",
   "#6FA8DC", "#E6B8AF", "#F9CB9C", "#CFE2F3",
 ];
