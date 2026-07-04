@@ -210,6 +210,16 @@ export function canAccessPurchases(user) {
   return hasOpsAccess(user) || isClientLead(user);
 }
 
+/** Finance nav — Staff Payments (Jenan) vs Purchases (ops/admin) */
+export function purchasesNavLabel(user) {
+  return isJenan(user) ? "Staff Payments" : "Purchases";
+}
+
+/** Clinical sidebar section — intake queues and/or supervision caseload */
+export function canViewClinicalNav(user) {
+  return canEditIntake(user) || canViewSupervisionCaseload(user);
+}
+
 export function canHrReviewLeaves(user) {
   if (!user) return false;
   if (user.can_hr_review_leaves) return true;

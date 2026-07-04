@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, Suspense, useMemo } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { useAuth, showAdminNav, isClientLead, isWalaaOps, isHrOps, canViewBilling, canAccessPurchases, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, showSystemAdmin, canImportData, showMyPortalNav, showMyReportsNav, showAcademicPortfolioNav, isJenan, canViewReports, canViewSupervisionCaseload, canAccessManagerHub, showTrainingTestsNav, profileRoleLabel } from "../auth";
+import { useAuth, showAdminNav, isClientLead, isWalaaOps, isHrOps, canViewBilling, canAccessPurchases, purchasesNavLabel, canEditStaffRequests, canEditIntake, canManageLeaves, canHrReviewLeaves, showSystemAdmin, canImportData, showMyPortalNav, showMyReportsNav, showAcademicPortfolioNav, isJenan, canViewReports, canViewSupervisionCaseload, canAccessManagerHub, showTrainingTestsNav, profileRoleLabel } from "../auth";
 import api, { startOfWeek, toISODate } from "../api";
 import { prefetch, cachedGet } from "../dataCache";
 import { getPortalDisplayName } from "../scheduleConstants";
@@ -112,15 +112,21 @@ export default function Shell() {
     { to: "/clients", label: "Client Info", testid: "nav-clients", icon: <UsersThree size={18} weight="duotone"/> },
     { to: "/schedule", label: "Schedule", testid: "nav-schedule", icon: <CalendarBlank size={18} weight="duotone"/> },
     { to: "/attendance", label: "Session Preparation", testid: "nav-attendance", icon: <ClipboardText size={18} weight="duotone"/> },
+  ];
+
+  const clinicalItems = [
     ...(intakeAccess
-      ? [{ to: "/waiting/intake", label: "Intake", testid: "nav-intake-waiting", icon: <Hourglass size={17} weight="duotone"/> }]
+      ? [
+          { to: "/waiting/intake", label: "Intake", testid: "nav-intake-waiting", icon: <Hourglass size={17} weight="duotone"/> },
+          { to: "/waiting/school", label: "School Waiting", testid: "nav-school-waiting", icon: <Buildings size={17} weight="duotone"/> },
+        ]
+      : []),
+    ...(canViewSupervisionCaseload(user)
+      ? [{ to: "/supervision", label: "Supervision", testid: "nav-supervision", icon: <Eye size={18} weight="duotone"/> }]
       : []),
   ];
 
   const peopleItems = [
-    ...(canViewSupervisionCaseload(user)
-      ? [{ to: "/supervision", label: "Supervision", testid: "nav-supervision", icon: <Eye size={18} weight="duotone"/> }]
-      : []),
     ...(!jenanManager && (staffRequestsAccess || leaveManager || hrLeaveReview)
       ? [{ to: "/staff-leave", label: "Staff & Leave", testid: "nav-staff-leave", icon: <ListChecks size={17} weight="duotone"/> }]
       : []),
@@ -136,26 +142,20 @@ export default function Shell() {
     ...(showTrainingTestsNav(user)
       ? [{ to: "/admin/center-tests", label: "Training Tests", testid: "nav-center-tests", icon: <FileText size={17} weight="duotone"/> }]
       : []),
-    ...(canAccessPurchases(user)
-      ? [{ to: "/purchases", label: jenanManager ? "Staff Payments" : "Purchases", testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> }]
-      : []),
   ];
 
   const financeItems = [
     ...(showBilling
       ? [{ to: "/billing", label: "Client Invoices", testid: "nav-billing", icon: <Receipt size={18} weight="duotone"/> }]
       : []),
+    ...(canAccessPurchases(user)
+      ? [{ to: "/purchases", label: purchasesNavLabel(user), testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> }]
+      : []),
   ];
 
   const baseLinks = [
     { to: "/home", icon: <House size={18} weight="duotone"/>, label: "Home", testid: "nav-home" },
   ];
-
-  const waitingItems = intakeAccess
-    ? [
-        { to: "/waiting/school", label: "School Waiting", testid: "nav-school-waiting", icon: <Buildings size={17} weight="duotone"/> },
-      ]
-    : [];
 
   // Personal portal dropdown (therapists + ops team; hidden for admin login)
   const myPortalItems = showMyPortal ? [
@@ -191,7 +191,6 @@ export default function Shell() {
         ? <GraduationCap size={17} weight="duotone"/>
         : <ListChecks size={17} weight="duotone"/>,
   }));
-  const waitingNavItems = waitingItems;
 
   const toggleNavLayout = () => {
     const next = navLayout === "sidebar" ? "top" : "sidebar";
@@ -271,9 +270,9 @@ export default function Shell() {
               homeLink={{ ...homeLink, icon: <House size={17} weight="duotone"/> }}
               standaloneItems={standaloneItems}
               clientWorkItems={clientWorkItems}
+              clinicalItems={clinicalItems}
               peopleItems={peopleItems}
               personalItems={personalNavItems}
-              waitingItems={waitingNavItems}
               financeItems={financeItems}
               adminItems={adminTools}
               therapistOnly={therapistOnly}
@@ -350,16 +349,31 @@ export default function Shell() {
                 </NavLink>
               ))}
               {therapistOnly ? (
-                clientWorkItems.map(l => (
-                  <NavLink key={l.to} to={l.to} data-testid={l.testid}
-                           onMouseEnter={() => warmRoute(l.to)}
-                           className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
-                    {l.icon}<span>{l.label}</span>
-                  </NavLink>
-                ))
+                <>
+                  {clientWorkItems.map(l => (
+                    <NavLink key={l.to} to={l.to} data-testid={l.testid}
+                             onMouseEnter={() => warmRoute(l.to)}
+                             className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
+                      {l.icon}<span>{l.label}</span>
+                    </NavLink>
+                  ))}
+                  {clinicalItems.map(l => (
+                    <NavLink key={l.to} to={l.to} data-testid={l.testid}
+                             onMouseEnter={() => warmRoute(l.to)}
+                             className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
+                      {l.icon}<span>{l.label}</span>
+                    </NavLink>
+                  ))}
+                </>
               ) : (
-                <NavDropdown testid="nav-clients" label="Clients" icon={<UsersThree size={18} weight="duotone"/>}
-                             items={clientWorkItems} loc={loc} onItemHover={warmRoute}/>
+                <>
+                  <NavDropdown testid="nav-clients" label="Clients" icon={<UsersThree size={18} weight="duotone"/>}
+                               items={clientWorkItems} loc={loc} onItemHover={warmRoute}/>
+                  {clinicalItems.length > 0 && (
+                    <NavDropdown testid="nav-clinical" label="Clinical" icon={<Hourglass size={18} weight="duotone"/>}
+                                 items={clinicalItems} loc={loc} onItemHover={warmRoute}/>
+                  )}
+                </>
               )}
               {peopleItems.length > 0 && (
                 <NavDropdown testid="nav-people" label="People" icon={<UsersThree size={18} weight="duotone"/>}
@@ -372,10 +386,6 @@ export default function Shell() {
               {myPortalItems.length > 0 && (
                 <NavDropdown testid="nav-my-portal" label="Personal" icon={<UserCircle size={18} weight="duotone"/>}
                              items={myPortalItems} loc={loc} onItemHover={warmRoute}/>
-              )}
-              {waitingItems.length > 0 && (
-                <NavDropdown testid="nav-waiting" label="Waiting" icon={<Hourglass size={18} weight="duotone"/>}
-                             items={waitingItems} loc={loc} onItemHover={warmRoute}/>
               )}
               {adminTools.length > 0 && (
                 <NavDropdown testid="nav-admin-tools" label="Administration" icon={<Gear size={18} weight="duotone"/>}
@@ -500,9 +510,9 @@ export default function Shell() {
                 homeLink={{ ...homeLink, icon: <House size={17} weight="duotone"/> }}
                 standaloneItems={standaloneItems}
                 clientWorkItems={clientWorkItems}
+                clinicalItems={clinicalItems}
                 peopleItems={peopleItems}
                 personalItems={personalNavItems}
-                waitingItems={waitingNavItems}
                 financeItems={financeItems}
                 adminItems={adminTools}
                 therapistOnly={therapistOnly}

@@ -83,9 +83,9 @@ export default function SidebarNav({
   homeLink,
   standaloneItems = [],
   clientWorkItems,
+  clinicalItems = [],
   peopleItems = [],
   personalItems,
-  waitingItems,
   financeItems = [],
   adminItems,
   therapistOnly,
@@ -128,6 +128,14 @@ export default function SidebarNav({
               {clientWorkItems.map(it => renderLink(it))}
             </div>
           </div>
+          {clinicalItems.length > 0 && (
+            <div className="sidebar-section">
+              {!collapsed && <div className="sidebar-section-label">Clinical</div>}
+              <div className="sidebar-section-items">
+                {clinicalItems.map(it => renderLink(it))}
+              </div>
+            </div>
+          )}
           {peopleItems.length > 0 && (
             <div className="sidebar-section">
               {!collapsed && <div className="sidebar-section-label">People</div>}
@@ -138,14 +146,24 @@ export default function SidebarNav({
           )}
         </>
       ) : (
-        <SidebarSection
-          title="Clients"
-          items={clientWorkItems}
-          loc={loc}
-          defaultOpen
-          onItemHover={onItemHover}
-          collapsed={collapsed}
-        />
+        <>
+          <SidebarSection
+            title="Clients"
+            items={clientWorkItems}
+            loc={loc}
+            defaultOpen
+            onItemHover={onItemHover}
+            collapsed={collapsed}
+          />
+          <SidebarSection
+            title="Clinical"
+            items={clinicalItems}
+            loc={loc}
+            defaultOpen
+            onItemHover={onItemHover}
+            collapsed={collapsed}
+          />
+        </>
       )}
 
       {peopleItems.length > 0 && !flatOps && (
@@ -163,7 +181,6 @@ export default function SidebarNav({
         />
       )}
 
-      <SidebarSection title="Waiting" items={waitingItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
       <SidebarSection title="Finance" items={financeItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
       <SidebarSection title="Administration" items={adminItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
     </nav>
