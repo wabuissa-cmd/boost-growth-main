@@ -557,6 +557,18 @@ main, .page-enter { min-width: 0; }
     align-items: center; justify-content: center;
     box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
+.schedule-ctx-menu--mobile {
+    border-radius: 16px 16px 0 0 !important;
+    padding-bottom: env(safe-area-inset-bottom, 12px);
+    background: #FAFAF7 !important;
+    box-shadow: 0 -8px 32px rgba(44, 54, 37, 0.16) !important;
+}
+.schedule-action-sheet__item:active {
+    background: #E5EBE1 !important;
+}
+.schedule-action-sheet__item.is-danger:active {
+    background: #FCE0E8 !important;
+}
 .login-mobile-bg {
     background: linear-gradient(135deg, #6B8F71 0%, #5A7D60 55%, #2F4A35 100%);
 }
@@ -628,7 +640,7 @@ main, .page-enter { min-width: 0; }
     .sched-sheet .sheet-slot { min-width: 72px !important; }
     .sched-sheet .sheet-therapist .w-7 { width: 22px; height: 22px; font-size: 9px; }
     .sched-sheet .sheet-therapist span { font-size: 10px !important; line-height: 1.1; }
-    .schedule-cell-menu-btn { display: flex; }
+    /* Admin/ops: cell tap opens action sheet — dots hidden in Schedule.jsx */
 
     /* Cards & general spacing */
     .card { padding: 12px !important; }
@@ -839,10 +851,14 @@ main, .page-enter { min-width: 0; }
         border-radius: 16px 16px 0 0 !important;
         padding-bottom: env(safe-area-inset-bottom, 12px) !important;
     }
-    .schedule-ctx-menu button {
+    .schedule-ctx-menu button,
+    .schedule-action-sheet__item {
         min-height: 44px;
         padding-top: 12px !important;
         padding-bottom: 12px !important;
+    }
+    .schedule-action-sheet-backdrop {
+        -webkit-tap-highlight-color: transparent;
     }
 
     /* Admin dropdown menus as bottom sheet on mobile */

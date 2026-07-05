@@ -17,6 +17,7 @@ import { useAuth, showAdminNav, isClientLead, canParentCancellationOps, hasFullC
 import {
   CaretLeft, CaretRight, CaretDown, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
   CopySimple, Table, CalendarBlank, CheckCircle, PencilSimple, GridFour, Printer, WhatsappLogo, UserPlus,
+  ClipboardText, CalendarCheck, Prohibit, ArrowCounterClockwise,
 } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
@@ -112,6 +113,25 @@ function positionContextMenu(x, y, menuWidth, menuHeight) {
   if (top < pad) top = pad;
   if (left < pad) left = pad;
   return { left, top };
+}
+
+function ScheduleActionSheetItem({ icon: Icon, label, onClick, variant = "default", testId, className = "" }) {
+  const tone = variant === "danger" ? "#8A3F27" : variant === "subtle" ? "#3D4F35" : "#2C3625";
+  const bgHover = variant === "danger" ? "#FCE0E8" : "#F5F5F0";
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      className={`schedule-action-sheet__item w-full text-left flex items-center gap-3 px-4 py-3 min-h-[48px] transition-colors ${className}`}
+      style={{ color: tone }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = bgHover; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}
+      onClick={onClick}
+    >
+      {Icon && <Icon size={20} weight="duotone" style={{ color: "var(--brand-sage)", flexShrink: 0 }} />}
+      <span className="text-sm font-medium">{label}</span>
+    </button>
+  );
 }
 
 function CellContent({ cell, sc }) {
@@ -302,8 +322,12 @@ export default function Schedule() {
     setCtxMenu({ x, y, cell, therapist_id, day, time_slot });
   };
 
+  const openCellActionSheet = (cell, therapist_id, day, time_slot) => {
+    openCtxAt(0, 0, cell, therapist_id, day, time_slot);
+  };
+
   const onCellTouchStart = (e, cell, therapist_id, day, time_slot) => {
-    if (!canNotifySchedule) return;
+    if (!canNotifySchedule || isScheduleNarrow) return;
     const t = e.touches[0];
     touchStartPos.current = { x: t.clientX, y: t.clientY };
     longPressTimer.current = setTimeout(() => {
@@ -333,12 +357,16 @@ export default function Schedule() {
       setCtxMenuPos({ left: 0, top: 0, ready: false });
       return;
     }
+    if (isScheduleNarrow) {
+      setCtxMenuPos({ left: 0, top: 0, ready: true });
+      return;
+    }
     const el = ctxMenuRef.current;
     if (!el) return;
     const { width, height } = el.getBoundingClientRect();
     const pos = positionContextMenu(ctxMenu.x, ctxMenu.y, width, height);
     setCtxMenuPos({ ...pos, ready: true });
-  }, [ctxMenu]);
+  }, [ctxMenu, isScheduleNarrow]);
 
   const weekStartISO = toISODate(weekStart);
   const weekEndISO = useMemo(() => toISODate(addDays(weekStart, 4)), [weekStart]);
@@ -873,6 +901,7 @@ export default function Schedule() {
   const canNotifySchedule = scheduleAdmin || scheduleLead || hasOpsAccess(user);
 
   const renderCellMenuBtn = (cell, therapist_id, day, time_slot) => {
+    if (isScheduleNarrow && canNotifySchedule) return null;
     if (!canEditRow(therapist_id)) return null;
     return (
       <button
@@ -1150,7 +1179,31 @@ export default function Schedule() {
       }
       return;
     }
-    if (!canEditRow(therapist_id)) return;
+    if (!canEditRow(therapist_id)) {
+      if (isScheduleNarrow && canNotifySchedule && cell) {
+        openCellActionSheet(cell, therapist_id, day, time_slot);
+      }
+      return;
+    }
+    if (isScheduleNarrow && canNotifySchedule) {
+      if (e?.shiftKey && panelOpen && selectAnchor
+          && selectAnchor.therapist_id === therapist_id && selectAnchor.day === day) {
+        const range = buildSlotRange(selectAnchor.time_slot, time_slot, TIME_SLOTS);
+        const valid = range
+          .filter(ts => isSlotSelectable(therapist_id, day, ts, cellMap, coveredSet))
+          .slice(0, MAX_SCHEDULE_MERGE_SLOTS);
+        if (valid.length) {
+          const duration = clampMergeSlotCount(valid.length);
+          setSelection({ therapist_id, day, slots: valid });
+          if (panelOpen && panelForm) {
+            setPanelForm(f => ({ ...f, duration }));
+          }
+        }
+        return;
+      }
+      openCellActionSheet(cell, therapist_id, day, time_slot);
+      return;
+    }
     if (clipboard && !existing) {
       pasteAt(therapist_id, day, time_slot);
       return;
@@ -1548,6 +1601,10 @@ export default function Schedule() {
     e.preventDefault();
     e.stopPropagation();
     const cell = findCellAt(therapist_id, 0, TIME_SLOTS[0], cellMap, cells);
+    if (isScheduleNarrow && canNotifySchedule) {
+      openCellActionSheet(cell, therapist_id, 0, TIME_SLOTS[0]);
+      return;
+    }
     openCtxAt(e.clientX, e.clientY, cell, therapist_id, 0, TIME_SLOTS[0]);
   };
 
@@ -1558,6 +1615,59 @@ export default function Schedule() {
       alert(err?.response?.data?.detail || "Action failed");
     });
   };
+
+  const renderCtxSectionLabel = (label) => {
+    if (isScheduleNarrow) {
+      return (
+        <div className="schedule-action-sheet__section-label px-4 pt-3 pb-1 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--brand-sage)" }}>
+          {label}
+        </div>
+      );
+    }
+    return (
+      <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--brand-sage)" }}>
+        {label}
+      </div>
+    );
+  };
+
+  const renderCtxDivider = () => (
+    <div className="my-1 border-t" style={{ borderColor: "#EDE9E3" }} />
+  );
+
+  const renderCtxMenuItem = (label, handler, { icon, variant, testId, desktopClassName, desktopColor } = {}) => {
+    const onClick = ctxAction(handler);
+    if (isScheduleNarrow) {
+      return (
+        <ScheduleActionSheetItem
+          icon={icon}
+          label={label}
+          onClick={onClick}
+          variant={variant}
+          testId={testId}
+        />
+      );
+    }
+    return (
+      <button
+        type="button"
+        data-testid={testId}
+        className={desktopClassName || "w-full text-left px-3 py-2 hover:bg-[#F5F5F0]"}
+        style={{ color: desktopColor || (variant === "danger" ? "#8A3F27" : variant === "subtle" ? "#3D4F35" : "#2C3625") }}
+        onClick={onClick}
+      >
+        {label}
+      </button>
+    );
+  };
+
+  const ctxMenuTherapist = ctxMenu ? therapists.find((t) => t.id === ctxMenu.therapist_id) : null;
+  const ctxMenuSc = ctxMenu?.cell ? SERVICE_CODES.find((s) => s.id === ctxMenu.cell.service_code) : null;
+  const ctxMenuCellLabel = ctxMenu?.cell
+    ? (ctxMenu.cell.state === "available" || ctxMenu.cell.service_code === "AVAILABLE"
+      ? "Available"
+      : scheduleCellDisplayLabel(ctxMenu.cell, ctxMenuSc?.short))
+    : "Empty slot";
 
   // === SHEET VIEW === (matches Google Sheet: # | Therapist | Day | 10 time slots)
   const renderSheet = () => (
@@ -2205,178 +2315,248 @@ export default function Schedule() {
       )}
 
       {ctxMenu && canNotifySchedule && (
-        <div
-          ref={ctxMenuRef}
-          className="fixed z-[70] schedule-ctx-menu bg-white rounded-xl shadow-2xl border py-1 min-w-[220px] text-sm"
-          style={{
-            left: ctxMenuPos.ready ? ctxMenuPos.left : ctxMenu.x,
-            top: ctxMenuPos.ready ? ctxMenuPos.top : ctxMenu.y,
-            visibility: ctxMenuPos.ready ? "visible" : "hidden",
-            maxHeight: "calc(100dvh - 16px)",
-            overflowY: "auto",
-            borderColor: "#E2DDD4",
-          }}
-          onClick={e => e.stopPropagation()}
-          data-testid="schedule-context-menu"
-        >
-          {canEditRow(ctxMenu.therapist_id) ? (
-            <>
-          <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--brand-sage)" }}>Session Options</div>
-          <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
-            onClick={ctxAction(() => { openPanel(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.time_slot, ctxMenu.cell); setCtxMenu(null); })}>
-            {ctxMenu.cell ? "Edit Session" : "Add Session here"}
-          </button>
-          {ctxMenu.cell && (
-            <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
-              onClick={ctxAction(() => copyCell(ctxMenu))}>
-              Copy Cell
-            </button>
-          )}
-          {canManagePrep && ctxMenu.cell && isScheduleClientLogCell(ctxMenu.cell) && (
-            <button
-              type="button"
-              data-testid="schedule-remove-prep-badge"
-              className="w-full text-left px-3 py-2 hover:bg-[#FCE0E8]"
-              style={{ color: "#8A3F27" }}
-              onClick={ctxAction(async () => {
-                await clearPrepFromCell(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.cell, true);
-                setCtxMenu(null);
-              })}
-            >
-              Remove prep checkmark ✓
-            </button>
-          )}
-          {canManagePrep && ctxMenu.cell && isScheduleClientLogCell(ctxMenu.cell)
-            && cellStatusBadge(ctxMenu.cell, ctxMenu.therapist_id, ctxMenu.day) === "no_show" && (
-            <button
-              type="button"
-              data-testid="schedule-dismiss-no-show-badge"
-              className="w-full text-left px-3 py-2 hover:bg-[#FCE0E8]"
-              style={{ color: "#8A3F27" }}
-              onClick={ctxAction(async () => {
-                await suppressNoShowBadgeFromCell(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.cell);
-                setCtxMenu(null);
-              })}
-            >
-              Dismiss red no-show badge
-            </button>
-          )}
-          {canManageCover && ctxMenu.cell?.state === "cancel_child" && isScheduleClientLogCell(ctxMenu.cell) && (
+        <>
+          {isScheduleNarrow && (
             <div
-              className="px-3 py-2 border-t"
-              style={{ borderColor: "#EDE9E3" }}
-              data-testid="schedule-cover-section"
-              onMouseDown={(e) => e.stopPropagation()}
-            >
-              <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "var(--brand-sage)" }}>
-                Cover / تغطية
-              </div>
-              {(ctxMenu.cell.cover_child_name || "").trim() ? (
-                <p className="text-[11px] mb-1.5 m-0" style={{ color: "var(--text-secondary)" }}>
-                  Current: <strong>{ctxMenu.cell.cover_child_name.trim()}</strong>
-                </p>
-              ) : (
-                <p className="text-[11px] mb-1.5 m-0" style={{ color: "#9CA3AF" }}>
-                  No cover recorded
-                </p>
-              )}
-              <input
-                type="text"
-                className="modal-input text-xs w-full mb-2"
-                list="schedule-ctx-cover-clients"
-                placeholder="Cover at client name…"
-                value={ctxCoverDraft}
-                onChange={(e) => setCtxCoverDraft(e.target.value)}
-                data-testid="schedule-cover-input"
-              />
-              <datalist id="schedule-ctx-cover-clients">
-                {clients.map((c) => (
-                  <option key={c.id} value={c.name} />
-                ))}
-              </datalist>
-              <div className="flex gap-1.5">
-                <button
-                  type="button"
-                  className="flex-1 text-xs font-semibold rounded-lg px-2 py-2 min-h-[40px]"
-                  style={{ background: "#E5EBE1", color: "#2C3625" }}
-                  data-testid="schedule-cover-save"
-                  onClick={ctxAction(() => saveCoverFromCtx(ctxCoverDraft))}
-                >
-                  Save cover
-                </button>
-                {(ctxCoverDraft || (ctxMenu.cell.cover_child_name || "").trim()) && (
+              className="schedule-action-sheet-backdrop fixed inset-0 z-[65] bg-black/30"
+              onClick={() => setCtxMenu(null)}
+              aria-hidden
+              data-testid="schedule-action-sheet-backdrop"
+            />
+          )}
+          <div
+            ref={ctxMenuRef}
+            className={`fixed z-[70] schedule-ctx-menu bg-white shadow-2xl border text-sm ${
+              isScheduleNarrow ? "schedule-ctx-menu--mobile" : "rounded-xl py-1 min-w-[220px]"
+            }`}
+            style={{
+              left: isScheduleNarrow ? 0 : (ctxMenuPos.ready ? ctxMenuPos.left : ctxMenu.x),
+              top: isScheduleNarrow ? "auto" : (ctxMenuPos.ready ? ctxMenuPos.top : ctxMenu.y),
+              bottom: isScheduleNarrow ? 0 : undefined,
+              right: isScheduleNarrow ? 0 : undefined,
+              width: isScheduleNarrow ? "100%" : undefined,
+              visibility: ctxMenuPos.ready ? "visible" : "hidden",
+              maxHeight: isScheduleNarrow ? "min(88dvh, calc(100dvh - 12px))" : "calc(100dvh - 16px)",
+              overflowY: "auto",
+              borderColor: "#E2DDD4",
+            }}
+            onClick={(e) => e.stopPropagation()}
+            data-testid="schedule-context-menu"
+          >
+            {isScheduleNarrow && (
+              <div
+                className="schedule-action-sheet__header sticky top-0 z-[1] px-4 pt-4 pb-3 border-b"
+                style={{ background: "#FAFAF7", borderColor: "#EDE9E3" }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--brand-sage)" }}>
+                      {ctxMenuTherapist ? getTherapistScheduleName(ctxMenuTherapist) : "Schedule"}
+                    </div>
+                    <div className="text-base font-bold leading-tight mt-0.5" style={{ color: "#2C3625" }}>
+                      {DAYS_EN[ctxMenu.day]} · {ctxMenu.time_slot}
+                    </div>
+                    <div className="text-xs mt-1 truncate" style={{ color: "#5C6853" }}>
+                      {ctxMenuCellLabel}
+                    </div>
+                  </div>
                   <button
                     type="button"
-                    className="text-xs font-semibold rounded-lg px-2 py-2 min-h-[40px]"
-                    style={{ background: "#FCE0E8", color: "#8A3F27" }}
-                    data-testid="schedule-cover-clear"
-                    onClick={ctxAction(() => saveCoverFromCtx(""))}
+                    className="rounded-lg p-2 shrink-0"
+                    style={{ color: "#9CA3AF", background: "#FFFFFF", border: "1px solid #E2DDD4" }}
+                    onClick={() => setCtxMenu(null)}
+                    aria-label="Close"
                   >
-                    Clear
+                    <X size={18} weight="bold" />
                   </button>
-                )}
+                </div>
               </div>
-            </div>
-          )}
-          {!ctxMenu.cell && clipboard && canEditRow(ctxMenu.therapist_id) && (
-            <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
-              onClick={ctxAction(() => { pasteAt(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.time_slot); setCtxMenu(null); })}>
-              Paste Here
-            </button>
-          )}
-          <div className="my-1 border-t" style={{ borderColor: "#EDE9E3" }} />
-          <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--brand-sage)" }}>Quick Mark</div>
-          <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
-            onClick={ctxAction(() => bulkFillAt("available", ctxMenu))}>
-            Mark as Available
-          </button>
-          <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
-            onClick={ctxAction(() => bulkFillAt("leave_day", ctxMenu))}>
-            Full Day Leave
-          </button>
-          <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
-            onClick={ctxAction(() => bulkFillAt("leave_week", ctxMenu))}>
-            Full Week Leave
-          </button>
-            </>
-          ) : null}
-          {ctxMenu.cell && (
-            <>
-              <div className="my-1 border-t" style={{ borderColor: "#EDE9E3" }} />
-              <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--brand-sage)" }}>Notifications</div>
-              <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#F5F5F0]" style={{ color: "#2C3625" }}
-                onClick={ctxAction(() => { openNotify(ctxMenu.cell); setCtxMenu(null); })}>
-                Notify Therapist
-              </button>
-            </>
-          )}
-          {canEditRow(ctxMenu.therapist_id) && (
-          <>
-          <div className="my-1 border-t" style={{ borderColor: "#EDE9E3" }} />
-          <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--brand-sage)" }}>Remove</div>
-          {ctxMenu.cell && isScheduleCancelState(ctxMenu.cell.state) ? (
-            <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#E5EBE1]" style={{ color: "#3D4F35" }}
-              data-testid="schedule-restore-cancellation"
-              onClick={ctxAction(() => restoreCellCancellation(ctxMenu.cell))}>
-              Clear cancellation
-            </button>
-          ) : (
-            <button type="button" className="w-full text-left px-3 py-2 hover:bg-[#FCE0E8]" style={{ color: "#8A3F27" }}
-              onClick={ctxAction(async () => {
-                if (ctxMenu.cell?.id) {
-                  if (!window.confirm("Clear this cell?")) return;
-                  await remove(ctxMenu.cell.id);
-                } else {
-                  await bulkFillAt("clear", ctxMenu);
-                }
-                setCtxMenu(null);
-              })}>
-              Clear Cell
-            </button>
-          )}
-          </>
-          )}
-        </div>
+            )}
+
+            {canEditRow(ctxMenu.therapist_id) ? (
+              <>
+                {renderCtxSectionLabel(isScheduleNarrow ? "Cell details" : "Session Options")}
+                {renderCtxMenuItem(
+                  isScheduleNarrow
+                    ? (ctxMenu.cell ? "Edit cell details" : "Add session here")
+                    : (ctxMenu.cell ? "Edit Session" : "Add Session here"),
+                  () => { openPanel(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.time_slot, ctxMenu.cell); setCtxMenu(null); },
+                  { icon: PencilSimple, testId: "schedule-action-edit" },
+                )}
+                {ctxMenu.cell && renderCtxMenuItem(
+                  isScheduleNarrow ? "Copy cell" : "Copy Cell",
+                  () => copyCell(ctxMenu),
+                  { icon: CopySimple, testId: "schedule-action-copy" },
+                )}
+                {!ctxMenu.cell && clipboard && canEditRow(ctxMenu.therapist_id) && renderCtxMenuItem(
+                  "Paste here",
+                  () => { pasteAt(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.time_slot); setCtxMenu(null); },
+                  { icon: ClipboardText, testId: "schedule-action-paste" },
+                )}
+                {!isScheduleNarrow && canManagePrep && ctxMenu.cell && isScheduleClientLogCell(ctxMenu.cell) && renderCtxMenuItem(
+                  "Remove prep checkmark ✓",
+                  async () => { await clearPrepFromCell(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.cell, true); setCtxMenu(null); },
+                  { variant: "danger", testId: "schedule-remove-prep-badge", desktopClassName: "w-full text-left px-3 py-2 hover:bg-[#FCE0E8]" },
+                )}
+                {!isScheduleNarrow && canManagePrep && ctxMenu.cell && isScheduleClientLogCell(ctxMenu.cell)
+                  && cellStatusBadge(ctxMenu.cell, ctxMenu.therapist_id, ctxMenu.day) === "no_show" && renderCtxMenuItem(
+                  "Dismiss red no-show badge",
+                  async () => { await suppressNoShowBadgeFromCell(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.cell); setCtxMenu(null); },
+                  { variant: "danger", testId: "schedule-dismiss-no-show-badge", desktopClassName: "w-full text-left px-3 py-2 hover:bg-[#FCE0E8]" },
+                )}
+                {canManageCover && ctxMenu.cell?.state === "cancel_child" && isScheduleClientLogCell(ctxMenu.cell) && (
+                  <div
+                    className="px-3 py-2 border-t"
+                    style={{ borderColor: "#EDE9E3" }}
+                    data-testid="schedule-cover-section"
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
+                    <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "var(--brand-sage)" }}>
+                      Cover / تغطية
+                    </div>
+                    {(ctxMenu.cell.cover_child_name || "").trim() ? (
+                      <p className="text-[11px] mb-1.5 m-0" style={{ color: "var(--text-secondary)" }}>
+                        Current: <strong>{ctxMenu.cell.cover_child_name.trim()}</strong>
+                      </p>
+                    ) : (
+                      <p className="text-[11px] mb-1.5 m-0" style={{ color: "#9CA3AF" }}>
+                        No cover recorded
+                      </p>
+                    )}
+                    <input
+                      type="text"
+                      className="modal-input text-xs w-full mb-2"
+                      list="schedule-ctx-cover-clients"
+                      placeholder="Cover at client name…"
+                      value={ctxCoverDraft}
+                      onChange={(e) => setCtxCoverDraft(e.target.value)}
+                      data-testid="schedule-cover-input"
+                    />
+                    <datalist id="schedule-ctx-cover-clients">
+                      {clients.map((c) => (
+                        <option key={c.id} value={c.name} />
+                      ))}
+                    </datalist>
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        className="flex-1 text-xs font-semibold rounded-lg px-2 py-2 min-h-[40px]"
+                        style={{ background: "#E5EBE1", color: "#2C3625" }}
+                        data-testid="schedule-cover-save"
+                        onClick={ctxAction(() => saveCoverFromCtx(ctxCoverDraft))}
+                      >
+                        Save cover
+                      </button>
+                      {(ctxCoverDraft || (ctxMenu.cell.cover_child_name || "").trim()) && (
+                        <button
+                          type="button"
+                          className="text-xs font-semibold rounded-lg px-2 py-2 min-h-[40px]"
+                          style={{ background: "#FCE0E8", color: "#8A3F27" }}
+                          data-testid="schedule-cover-clear"
+                          onClick={ctxAction(() => saveCoverFromCtx(""))}
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {renderCtxDivider()}
+                {renderCtxSectionLabel(isScheduleNarrow ? "Quick mark" : "Quick Mark")}
+                {renderCtxMenuItem(
+                  isScheduleNarrow ? "Mark as available" : "Mark as Available",
+                  () => bulkFillAt("available", ctxMenu),
+                  { icon: CheckCircle, testId: "schedule-action-available" },
+                )}
+                {renderCtxMenuItem(
+                  isScheduleNarrow ? "Full day leave" : "Full Day Leave",
+                  () => bulkFillAt("leave_day", ctxMenu),
+                  { icon: CalendarBlank, testId: "schedule-action-leave-day" },
+                )}
+                {renderCtxMenuItem(
+                  isScheduleNarrow ? "Full week leave" : "Full Week Leave",
+                  () => bulkFillAt("leave_week", ctxMenu),
+                  { icon: CalendarBlank, testId: "schedule-action-leave-week" },
+                )}
+              </>
+            ) : null}
+
+            {ctxMenu.cell && (
+              <>
+                {renderCtxDivider()}
+                {renderCtxSectionLabel(isScheduleNarrow ? "Session & prep" : "Notifications")}
+                {isScheduleNarrow && isScheduleClientLogCell(ctxMenu.cell) && canSpecialistLogScheduleCell(ctxMenu.cell) && renderCtxMenuItem(
+                  "Log session",
+                  () => { openQuickLogFromCell(ctxMenu.cell, ctxMenu.therapist_id, ctxMenu.day, ctxMenu.time_slot); setCtxMenu(null); },
+                  { icon: CalendarCheck, testId: "schedule-action-log-session" },
+                )}
+                {isScheduleNarrow && canManagePrep && isScheduleClientLogCell(ctxMenu.cell) && renderCtxMenuItem(
+                  "Remove prep checkmark",
+                  async () => { await clearPrepFromCell(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.cell, true); setCtxMenu(null); },
+                  { icon: Prohibit, variant: "danger", testId: "schedule-remove-prep-badge" },
+                )}
+                {isScheduleNarrow && canManagePrep && isScheduleClientLogCell(ctxMenu.cell)
+                  && cellStatusBadge(ctxMenu.cell, ctxMenu.therapist_id, ctxMenu.day) === "no_show" && renderCtxMenuItem(
+                  "Dismiss no-show badge",
+                  async () => { await suppressNoShowBadgeFromCell(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.cell); setCtxMenu(null); },
+                  { icon: Prohibit, variant: "danger", testId: "schedule-dismiss-no-show-badge" },
+                )}
+                {renderCtxMenuItem(
+                  isScheduleNarrow ? "Notify therapist" : "Notify Therapist",
+                  () => { openNotify(ctxMenu.cell); setCtxMenu(null); },
+                  { icon: BellRinging, testId: "schedule-action-notify" },
+                )}
+              </>
+            )}
+
+            {canEditRow(ctxMenu.therapist_id) && (
+              <>
+                {renderCtxDivider()}
+                {renderCtxSectionLabel("Remove")}
+                {ctxMenu.cell && isScheduleCancelState(ctxMenu.cell.state) ? (
+                  renderCtxMenuItem(
+                    "Clear cancellation",
+                    () => restoreCellCancellation(ctxMenu.cell),
+                    { icon: ArrowCounterClockwise, variant: "subtle", testId: "schedule-restore-cancellation" },
+                  )
+                ) : (
+                  renderCtxMenuItem(
+                    isScheduleNarrow ? "Clear cell" : "Clear Cell",
+                    async () => {
+                      if (ctxMenu.cell?.id) {
+                        if (!window.confirm("Clear this cell?")) return;
+                        await remove(ctxMenu.cell.id);
+                      } else {
+                        await bulkFillAt("clear", ctxMenu);
+                      }
+                      setCtxMenu(null);
+                    },
+                    {
+                      icon: Trash,
+                      variant: "danger",
+                      testId: "schedule-action-clear",
+                      desktopClassName: "w-full text-left px-3 py-2 hover:bg-[#FCE0E8]",
+                    },
+                  )
+                )}
+              </>
+            )}
+
+            {isScheduleNarrow && (
+              <div className="px-4 py-3 border-t" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
+                <button
+                  type="button"
+                  className="w-full text-sm font-semibold rounded-xl px-4 py-3 min-h-[48px] border"
+                  style={{ borderColor: "#E2DDD4", color: "#5C6853", background: "#FFFFFF" }}
+                  onClick={() => setCtxMenu(null)}
+                  data-testid="schedule-action-cancel"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       {notify && (
