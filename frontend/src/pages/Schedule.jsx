@@ -30,7 +30,7 @@ import ParentCancellationModal from "../components/ParentCancellationModal";
 import LogSessionModal from "../components/LogSessionModal";
 import { scheduleCellSessionTimes } from "../scheduleTimeUtils";
 import SchedulePrepBadge from "../components/SchedulePrepBadge";
-import { buildPrepLookup, buildSessionPrepLookup, buildSuppressionLookup, getCellStatusBadge, mergePrepLookups, buildAllTherapistIdAliases, optimisticPrepKeysFromScheduleLog } from "../schedulePrepUtils";
+import { buildPrepLookup, buildSessionPrepLookup, buildSuppressionLookup, getCellStatusBadge, mergePrepLookups, buildAllTherapistIdAliases, optimisticPrepKeysFromScheduleLog, findPrepRecordForCell } from "../schedulePrepUtils";
 import { buildParentMessages } from "../scheduleParentMessages";
 import { sortTherapistsForSchedule, sortTherapistsForScheduleWeek, getTherapistScheduleName, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
 import { cachedGet, invalidateCache } from "../dataCache";
@@ -255,6 +255,7 @@ export default function Schedule() {
   const [scheduleError, setScheduleError] = useState(null);
   const [prepLookup, setPrepLookup] = useState(() => new Set());
   const [preparations, setPreparations] = useState([]);
+  const [prepNoteSaving, setPrepNoteSaving] = useState(false);
   const [weekSessions, setWeekSessions] = useState([]);
   const [allSessions, setAllSessions] = useState([]);
   const [suppressionLookup, setSuppressionLookup] = useState(() => new Set());
@@ -1314,6 +1315,41 @@ export default function Schedule() {
       : null
   );
 
+  const prepRecordForPanel = panelForm
+    ? findPrepRecordForCell(
+      panelForm, panelForm.therapist_id, panelForm.day, weekStartISO,
+      clients, preparations, therapistIdAliases,
+    )
+    : null;
+
+  const savePrepInternalNote = async (noteText) => {
+    if (!panelForm?.child_name) return;
+    const client = findClientForScheduleCell(panelForm.child_name, clients);
+    if (!client?.id) {
+      alert("Could not match this client. Ask admin to verify the name on this cell.");
+      return;
+    }
+    const sessionDate = toISODate(addDays(weekStart, panelForm.day));
+    setPrepNoteSaving(true);
+    try {
+      await api.patch("/schedule/preparations/note", {
+        therapist_id: panelForm.therapist_id,
+        client_id: client.id,
+        session_date: sessionDate,
+        schedule_cell_id: panelForm.id || null,
+        time_slot: panelForm.time_slot || "",
+        internal_note: noteText || "",
+      });
+      invalidateCache("/schedule/preparations");
+      await loadPreparations();
+      window.dispatchEvent(new CustomEvent("boost:prep-changed"));
+    } catch (err) {
+      alert(err?.response?.data?.detail || "Could not save prep note.");
+    } finally {
+      setPrepNoteSaving(false);
+    }
+  };
+
   const restoreCellCancellation = async (cell, { closePanelAfter = false } = {}) => {
     if (!cell?.id) return;
     const label = cell.state === "cancel_therapist" ? "therapist cancellation" : "client cancellation";
@@ -2157,6 +2193,9 @@ export default function Schedule() {
           canManageCover={canManageCover}
           showPrepBadge={cellStatusBadge(panelForm, panelForm.therapist_id, panelForm.day) === "prep"}
           onClearPrep={() => clearPrepFromCell(panelForm.therapist_id, panelForm.day, panelForm, true)}
+          prepInternalNote={prepRecordForPanel?.internal_note || ""}
+          onSavePrepNote={canQuickLogOwnRow || canManagePrep ? savePrepInternalNote : undefined}
+          prepNoteSaving={prepNoteSaving}
           onRestoreCancellation={() => restoreCellCancellation(panelForm, { closePanelAfter: true })}
           mergedSlotCount={
             selection?.therapist_id === panelForm.therapist_id && selection?.day === panelForm.day

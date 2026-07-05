@@ -1,6 +1,6 @@
 import { addDays, toISODate } from "./api";
 import { findClientForScheduleCell, isScheduleClientLogCell, normScheduleName, scheduleCellChildName } from "./scheduleUtils";
-import { scheduleCellSessionTimes } from "./scheduleTimeUtils";
+import { scheduleCellSessionTimes, slotToTime24 } from "./scheduleTimeUtils";
 
 /** Only completed sessions count as prepared (green checkmark). */
 const LOGGED_PREP_STATUSES = new Set(["Completed"]);
@@ -110,10 +110,32 @@ export function therapistPrepIdAliases(selfTherapist, user) {
   return buildAllTherapistIdAliases(selfTherapist ? [selfTherapist] : [], user);
 }
 
-function addPrepMarkKeys(set, tid, cid, date, idAliases) {
-  if (!cid || !date) return;
+function normalizeHm(hm) {
+  if (hm == null || hm === "") return null;
+  const fromSlot = slotToTime24(hm);
+  if (fromSlot) return fromSlot;
+  const m = String(hm).match(/^(\d{1,2}):(\d{2})$/);
+  if (m) return `${String(parseInt(m[1], 10)).padStart(2, "0")}:${m[2]}`;
+  return null;
+}
+
+function timesMatchLoosely(a, b) {
+  const na = normalizeHm(a);
+  const nb = normalizeHm(b);
+  return !!(na && nb && na === nb);
+}
+
+function sessionStartMatchesCell(session, cell) {
+  if (!session?.start_time || !cell) return true;
+  const { start_time: cellStart } = scheduleCellSessionTimes(cell, cell?.time_slot);
+  if (!cellStart) return true;
+  return timesMatchLoosely(session.start_time, cellStart);
+}
+
+function addPrepSlotKeys(set, tid, cid, date, slot, idAliases) {
+  if (!cid || !date || !slot) return;
   for (const id of therapistIdsForPrep(tid, idAliases)) {
-    set.add(`mark:${id}|${cid}|${date}`);
+    set.add(`slot:${id}|${cid}|${date}|${slot}`);
   }
 }
 
@@ -135,32 +157,28 @@ export function buildSessionPrepLookup(
   clients = [],
 ) {
   const set = new Set();
-  const completedClientDates = new Set();
   for (const s of sessions || []) {
     const date = (s.session_date || "").slice(0, 10);
     if (!date || date < weekStartISO || date > weekEndISO) continue;
     if (!LOGGED_PREP_STATUSES.has(s.status)) continue;
     const cid = s.client_id;
     if (!cid) continue;
-    completedClientDates.add(`${cid}|${date}`);
-    for (const tid of s.therapist_ids || []) {
-      if (suppressionLookup?.has(`suppress:${tid}|${cid}|${date}`)) continue;
-      addPrepMarkKeys(set, tid, cid, date, idAliases);
-    }
-  }
-  if (cells.length && clients.length && completedClientDates.size) {
+    if (!cells.length || !clients.length) continue;
     for (const cell of cells) {
       if (!isScheduleClientLogCell(cell)) continue;
       const sessionDate = scheduleCellSessionDate(cell, weekStartISO);
-      if (!sessionDate || sessionDate < weekStartISO || sessionDate > weekEndISO) continue;
+      if (sessionDate !== date) continue;
       const childName = scheduleCellChildName(cell);
       const client = childName ? findClientForScheduleCell(childName, clients) : null;
-      if (!client?.id || !completedClientDates.has(`${client.id}|${sessionDate}`)) continue;
+      if (client?.id !== cid) continue;
+      if (!sessionStartMatchesCell(s, cell)) continue;
       const tid = cell.therapist_id;
       if (!tid) continue;
-      if (suppressionLookup?.has(`suppress:${tid}|${client.id}|${sessionDate}`)) continue;
+      if (!sessionIncludesTherapist(s.therapist_ids, tid, idAliases)) continue;
+      if (suppressionLookup?.has(`suppress:${tid}|${cid}|${date}`)) continue;
       if (cell.id) set.add(`cell:${cell.id}`);
-      addPrepMarkKeys(set, tid, client.id, sessionDate, idAliases);
+      const slot = (cell.time_slot || "").trim();
+      if (slot) addPrepSlotKeys(set, tid, cid, date, slot, idAliases);
     }
   }
   return set;
@@ -276,7 +294,18 @@ function prepRecordMatchesCell(rec, cell, therapistId, sessionDate, childName, c
   if (rec.schedule_cell_id && cell?.id) {
     return rec.schedule_cell_id === cell.id;
   }
-  if (client && rec.client_id === client.id) return true;
+  const recSlot = (rec.time_slot || "").trim();
+  const cellSlot = (cell?.time_slot || "").trim();
+  if (recSlot && cell) {
+    const { start_time: cellStart } = scheduleCellSessionTimes(cell, cellSlot);
+    if (cellStart && !timesMatchLoosely(recSlot, cellStart) && !timesMatchLoosely(recSlot, cellSlot)) {
+      return false;
+    }
+  }
+  if (client && rec.client_id === client.id) {
+    if (recSlot && cell && !sessionStartMatchesCell({ start_time: recSlot }, cell)) return false;
+    return true;
+  }
   if (rec.client_name && childName) {
     const a = normScheduleName(rec.client_name);
     const b = normScheduleName(childName);
@@ -295,6 +324,7 @@ function sessionMatchesCell(sessions, cell, therapistId, sessionDate, client, cl
     if (!LOGGED_PREP_STATUSES.has(s.status)) continue;
     if ((s.session_date || "").slice(0, 10) !== sessionDate) continue;
     if (!sessionIncludesTherapist(s.therapist_ids, therapistId, idAliases)) continue;
+    if (!sessionStartMatchesCell(s, cell)) continue;
     if (client?.id && s.client_id === client.id) return true;
   }
   if (!client) {
@@ -306,10 +336,24 @@ function sessionMatchesCell(sessions, cell, therapistId, sessionDate, client, cl
       if (!LOGGED_PREP_STATUSES.has(s.status)) continue;
       if ((s.session_date || "").slice(0, 10) !== sessionDate) continue;
       if (!sessionIncludesTherapist(s.therapist_ids, therapistId, idAliases)) continue;
+      if (!sessionStartMatchesCell(s, cell)) continue;
       const sc = clients.find((c) => c.id === s.client_id);
       if (!sc) continue;
       const cf = normScheduleName(sc.name || "").split(/\s+/)[0];
       if (cf && cf === bf) return true;
+    }
+  }
+  return false;
+}
+
+function prepLookupMatchesCell(prepLookup, cell, therapistId, day, weekStart, clientId, idAliases = null) {
+  if (!prepLookup?.size || !cell) return false;
+  if (cell.id && prepLookup.has(`cell:${cell.id}`)) return true;
+  const sessionDate = toISODate(addDays(new Date(weekStart + "T12:00:00"), day));
+  const slot = (cell.time_slot || "").trim();
+  if (clientId && slot) {
+    for (const tid of therapistIdsForPrep(therapistId, idAliases)) {
+      if (prepLookup.has(`slot:${tid}|${clientId}|${sessionDate}|${slot}`)) return true;
     }
   }
   return false;
@@ -500,6 +544,23 @@ function isCellPreparedMark(
   return false;
 }
 
+/** True once the scheduled slot start time has passed (same calendar day). */
+export function isScheduleSlotStarted(cell, sessionDate) {
+  const today = toISODate(new Date());
+  if (sessionDate > today) return false;
+  if (sessionDate < today) return true;
+  try {
+    const { start_time: startTime } = scheduleCellSessionTimes(cell, cell?.time_slot);
+    if (!startTime) return true;
+    const [h, m] = startTime.split(":").map(Number);
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0);
+    return now >= start;
+  } catch {
+    return true;
+  }
+}
+
 /** True once the scheduled slot end time has passed (date + time, not just calendar day). */
 export function isScheduleSlotEnded(cell, sessionDate) {
   const today = toISODate(new Date());
@@ -547,6 +608,7 @@ export function getCellStatusBadge(
   }
 
   const slotEnded = isScheduleSlotEnded(cell, sessionDate);
+  const slotStarted = isScheduleSlotStarted(cell, sessionDate);
 
   for (const rec of preparations || []) {
     if (!prepRecordIsNoShow(rec)) continue;
@@ -568,7 +630,7 @@ export function getCellStatusBadge(
     if (!completed) return "no_show";
   }
 
-  if (isCellPrepComplete(
+  if (slotStarted && isCellPrepComplete(
     prepLookup, cell, therapistId, day, weekStart, clients,
     preparations, weekSessions, suppressionLookup, idAliases,
   )) {
@@ -608,10 +670,9 @@ export function isCellPrepComplete(
 
   if (cell.state === "cancel_child") return false;
 
-  if (cell.id && prepLookup.has(`cell:${cell.id}`)) return true;
-
-  const nameKeys = prepKeysForCell(cell, therapistId, day, weekStart, client?.id, client?.name || childName, idAliases);
-  if (nameKeys.some((k) => prepLookup.has(k))) return true;
+  if (prepLookupMatchesCell(prepLookup, cell, therapistId, day, weekStart, client?.id, idAliases)) {
+    return true;
+  }
 
   if (client) {
     if (sessionMatchesCell(weekSessions, cell, therapistId, sessionDate, client, clients, suppressionLookup, idAliases)) return true;
@@ -625,6 +686,29 @@ export function isCellPrepComplete(
     )) return true;
   }
   return false;
+}
+
+/** Find the prep record matching a schedule cell (for internal notes, etc.). */
+export function findPrepRecordForCell(
+  cell,
+  therapistId,
+  day,
+  weekStart,
+  clients,
+  preparations = [],
+  idAliases = null,
+) {
+  if (!cell || !preparations?.length) return null;
+  const sessionDate = toISODate(addDays(new Date(weekStart + "T12:00:00"), day));
+  const childName = scheduleCellChildName(cell);
+  const client = childName ? findClientForScheduleCell(childName, clients) : null;
+  for (const rec of preparations) {
+    if (prepRecordIsNoShow(rec)) continue;
+    if (prepRecordMatchesCell(rec, cell, therapistId, sessionDate, childName, client, idAliases)) {
+      return rec;
+    }
+  }
+  return null;
 }
 
 export function scheduleSlotFromCell(cell, therapistId, day, weekStart, clientId) {

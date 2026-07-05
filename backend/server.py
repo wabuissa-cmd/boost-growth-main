@@ -1096,7 +1096,16 @@ class SchedulePreparationIn(BaseModel):
     week_start: Optional[str] = None
     day: Optional[int] = None
     notes: Optional[str] = None
+    internal_note: Optional[str] = None
     cell_child_name: Optional[str] = None
+
+class SchedulePreparationNoteIn(BaseModel):
+    therapist_id: str
+    client_id: str
+    session_date: str
+    schedule_cell_id: Optional[str] = None
+    time_slot: Optional[str] = None
+    internal_note: Optional[str] = None
 
 class SchedulePreparationClearIn(BaseModel):
     therapist_id: str
@@ -2974,6 +2983,7 @@ async def _upsert_prep_history(
     time_slot: Optional[str] = None,
     client_name: Optional[str] = None,
     notes: Optional[str] = None,
+    internal_note: Optional[str] = None,
     invoice_id: Optional[str] = None,
     session_id: Optional[str] = None,
     schedule_cell_id: Optional[str] = None,
@@ -2997,6 +3007,10 @@ async def _upsert_prep_history(
         "notes": notes or "",
         "source": source,
     }
+    if internal_note is not None:
+        doc["internal_note"] = (internal_note or "").strip()
+    elif existing and existing.get("internal_note"):
+        doc["internal_note"] = existing["internal_note"]
     if schedule_cell_id:
         doc["schedule_cell_id"] = schedule_cell_id
     if session_id:
@@ -3084,6 +3098,7 @@ async def _upsert_schedule_preparation(
     week_start: Optional[str] = None,
     day: Optional[int] = None,
     notes: Optional[str] = None,
+    internal_note: Optional[str] = None,
     invoice_id: Optional[str] = None,
     client_name: Optional[str] = None,
     marker_type: str = "prep",
@@ -3104,6 +3119,10 @@ async def _upsert_schedule_preparation(
         "marker_type": marker_type,
         "source": "no_show" if marker_type == "no_show" else "prep",
     }
+    if internal_note is not None:
+        doc["internal_note"] = (internal_note or "").strip()
+    elif existing and existing.get("internal_note"):
+        doc["internal_note"] = existing["internal_note"]
     if existing:
         await db.schedule_preparations.update_one({"id": existing["id"]}, {"$set": doc})
         doc["id"] = existing["id"]
@@ -3122,6 +3141,7 @@ async def _upsert_schedule_preparation(
         time_slot=slot,
         client_name=client_name,
         notes=notes,
+        internal_note=internal_note,
         invoice_id=invoice_id,
         schedule_cell_id=schedule_cell_id,
         source="schedule",
@@ -4361,6 +4381,7 @@ async def mark_schedule_preparation(payload: SchedulePreparationIn, user=Depends
         week_start=payload.week_start,
         day=payload.day,
         notes=payload.notes,
+        internal_note=payload.internal_note,
     )
     try:
         client = await db.clients.find_one(
@@ -4376,6 +4397,49 @@ async def mark_schedule_preparation(payload: SchedulePreparationIn, user=Depends
     except Exception:
         logger.exception("Propagate schedule prep from mark_schedule_preparation")
     return doc
+
+
+@api.patch("/schedule/preparations/note")
+async def update_schedule_preparation_note(payload: SchedulePreparationNoteIn, user=Depends(get_current_user)):
+    """Save internal prep notes for a schedule slot (not shown on the public grid)."""
+    if user.get("role") == "therapist" and not _has_full_client_access(user):
+        uid = await _resolve_user_therapist_id(user) or user.get("id")
+        if payload.therapist_id != uid:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        if not await _therapist_assigned_to_client(uid, payload.client_id):
+            raise HTTPException(status_code=403, detail="Forbidden")
+    session_date = (payload.session_date or "")[:10]
+    slot = (payload.time_slot or "").strip()
+    internal_note = (payload.internal_note or "").strip()
+    q = _prep_history_key(payload.therapist_id, payload.client_id, session_date, slot)
+    existing = await db.schedule_preparations.find_one(q, {"_id": 0})
+    if existing:
+        await db.schedule_preparations.update_one(
+            {"id": existing["id"]},
+            {"$set": {"internal_note": internal_note, "updated_at": now_iso()}},
+        )
+    else:
+        client = await db.clients.find_one(
+            _active_client_filter({"id": payload.client_id}), {"_id": 0, "name": 1},
+        )
+        await _upsert_schedule_preparation(
+            therapist_id=payload.therapist_id,
+            client_id=payload.client_id,
+            session_date=session_date,
+            prepared_by=user["id"],
+            time_slot=slot,
+            schedule_cell_id=payload.schedule_cell_id,
+            client_name=(client or {}).get("name"),
+            internal_note=internal_note,
+        )
+    hist_q = _prep_history_key(payload.therapist_id, payload.client_id, session_date, slot)
+    hist = await db.prep_history.find_one(hist_q, {"_id": 0, "id": 1})
+    if hist:
+        await db.prep_history.update_one(
+            {"id": hist["id"]},
+            {"$set": {"internal_note": internal_note, "updated_at": now_iso()}},
+        )
+    return {"ok": True, "internal_note": internal_note}
 
 
 @api.get("/clients/{cid}/prep-history")

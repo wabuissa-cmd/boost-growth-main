@@ -57,12 +57,20 @@ export default function ScheduleCellPanel({
   canManageCover = false,
   showPrepBadge = false,
   onClearPrep,
+  prepInternalNote = "",
+  onSavePrepNote,
+  prepNoteSaving = false,
   onRestoreCancellation,
   mergedSlotCount = 0,
 }) {
   const [clientOpen, setClientOpen] = useState(false);
   const [cancelNotify, setCancelNotify] = useState(null);
   const [parentMsg, setParentMsg] = useState("");
+  const [internalNoteDraft, setInternalNoteDraft] = useState(prepInternalNote || "");
+
+  useEffect(() => {
+    setInternalNoteDraft(prepInternalNote || "");
+  }, [prepInternalNote, form?.id, form?.day, form?.time_slot]);
 
   useEffect(() => {
     if (!form || !CANCEL_STATES.has(form.state)) {
@@ -344,6 +352,35 @@ export default function ScheduleCellPanel({
                 </div>
               )}
             </div>
+
+            {form.child_name && !META_CODES.has(form.service_code) && form.state !== "available" && onSavePrepNote && (
+              <div className="log-session-field" data-testid="cell-prep-internal-note">
+                <label className="log-session-label">Prep notes (internal)</label>
+                <textarea
+                  className="modal-input log-session-input text-xs leading-relaxed"
+                  rows={3}
+                  placeholder="Private notes for your preparation — not shown on the schedule grid"
+                  value={internalNoteDraft}
+                  onChange={(e) => setInternalNoteDraft(e.target.value)}
+                  data-testid="cell-prep-internal-note-input"
+                />
+                <div className="flex items-center justify-between gap-2 mt-1.5">
+                  <p className="text-[10px] m-0 leading-relaxed" style={{ color: "#8B9E7A" }}>
+                    Only you and ops can see this — not on the public schedule.
+                  </p>
+                  <button
+                    type="button"
+                    className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border shrink-0"
+                    style={{ borderColor: "#C8D4BE", color: "#3D4F35", background: "#F6FAF3" }}
+                    disabled={prepNoteSaving || internalNoteDraft === (prepInternalNote || "")}
+                    onClick={() => onSavePrepNote(internalNoteDraft)}
+                    data-testid="cell-prep-internal-note-save"
+                  >
+                    {prepNoteSaving ? "Saving…" : "Save note"}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {form.id && form.state !== "available" && form.service_code !== "AVAILABLE" && (
               <div className="log-session-card">
