@@ -12609,7 +12609,10 @@ async def create_leave(payload: LeaveIn, user=Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="This leave type is no longer accepted. Choose Annual, Sick, Unpaid, or Permission.")
     lid = str(uuid.uuid4())
     doc = {"id": lid, **payload.model_dump(), **_leave_default_fields(), "created_by": user["id"], "created_at": now_iso()}
-    if user.get("role") != "admin":
+    submitted_pending = (payload.status or "pending").strip().lower() in (
+        "", "pending", "pending_manager", "pending_attachment",
+    )
+    if user.get("role") != "admin" or submitted_pending:
         if _leave_requires_document(payload.leave_type) and not _leave_has_document(doc):
             doc["status"] = "pending_attachment"
         else:
@@ -12617,14 +12620,14 @@ async def create_leave(payload: LeaveIn, user=Depends(get_current_user)):
         doc["timeline"] = [{"event": "submitted", "at": now_iso(), "by": _actor_display(user)}]
     await db.leaves.insert_one(doc)
     doc.pop("_id", None)
-    if user.get("role") != "admin":
-        time_part = ""
-        if payload.leave_type == "Permission" and payload.start_time:
-            time_part = f" {payload.start_time}"
-            if payload.end_time:
-                time_part += f"–{payload.end_time}"
+    if doc.get("status") in ("pending_manager", "pending_attachment", "pending"):
+        th = await db.therapists.find_one(
+            {"id": payload.therapist_id},
+            {"_id": 0, "name": 1, "key": 1, "email": 1},
+        )
+        therapist_name = therapist_schedule_display_name(th) if th else (user.get("name") or "Therapist").strip()
         await _notify_leave_submitted(
-            therapist_name=(user.get("name") or "Therapist").strip(),
+            therapist_name=therapist_name,
             leave_type=payload.leave_type,
             start_date=payload.start_date,
             end_date=payload.end_date,
