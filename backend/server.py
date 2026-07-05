@@ -646,6 +646,7 @@ async def _ensure_walaa_ops_login_once() -> bool:
         await db.therapists.update_one({"id": t["id"]}, {"$set": {
             "email": "wabuissa@boostgrowthsa.com",
             "key": "msWalaa",
+            "name": "Walaa Abu Eissa",
             "password_hash": pw_hash,
             "must_change_password": False,
             "temp_password_set_at": None,
@@ -659,7 +660,7 @@ async def _ensure_walaa_ops_login_once() -> bool:
             "email": "wabuissa@boostgrowthsa.com",
             "password_hash": pw_hash,
             "must_change_password": False,
-            "name": user.get("name") or "Walaa",
+            "name": "Walaa Abu Eissa",
             "role": "admin",
         }})
         await db.users.delete_many({
@@ -672,7 +673,7 @@ async def _ensure_walaa_ops_login_once() -> bool:
             "id": uid,
             "email": "wabuissa@boostgrowthsa.com",
             "password_hash": pw_hash,
-            "name": "Walaa",
+            "name": "Walaa Abu Eissa",
             "role": "admin",
             "must_change_password": False,
             "created_at": now_iso(),
@@ -8299,7 +8300,7 @@ THERAPIST_FAMILY_NAMES = {
     "msShrooq": "Alamri",
     "msAbeer": "Alshareef",
     "msJenan": "Almuhaisin",
-    "msWalaa": "Althunayan",
+    "msWalaa": "Abu Eissa",
 }
 
 THERAPIST_FIRST_NAME_OVERRIDES = {
@@ -11990,6 +11991,16 @@ def _smtp_error_hint(err: str) -> str:
 def _email_from_address() -> str:
     return os.environ.get("EMAIL_FROM") or "Boost Growth <hr@boostgrowthsa.com>"
 
+
+def _is_railway_deployment() -> bool:
+    """Railway blocks outbound SMTP (port 587) — use Mailgun/Brevo/Resend (HTTPS) instead."""
+    return bool(
+        os.environ.get("RAILWAY_ENVIRONMENT")
+        or os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+        or os.environ.get("RAILWAY_SERVICE_NAME")
+    )
+
+
 def _smtp_configured() -> bool:
     return bool(os.environ.get("SMTP_USER") and os.environ.get("SMTP_PASSWORD"))
 
@@ -12116,8 +12127,7 @@ async def email_test_send(payload: dict, _=Depends(admin_only)):
             result["hint"] = hint
     return result
 
-@api.get("/admin/email-settings")
-async def get_email_settings(_=Depends(admin_only)):
+async def _email_settings_snapshot() -> dict:
     doc = await db.settings.find_one({"key": "email"}, {"_id": 0}) or {}
     has_resend = bool(doc.get("resend_api_key") or os.environ.get("RESEND_API_KEY"))
     has_brevo = bool(doc.get("brevo_api_key") or os.environ.get("BREVO_API_KEY"))
@@ -12147,6 +12157,17 @@ async def get_email_settings(_=Depends(admin_only)):
         active = "resend"
     elif has_smtp:
         active = "smtp"
+    on_railway = _is_railway_deployment()
+    smtp_blocked = on_railway and active == "smtp"
+    https_ok = has_mailgun or has_brevo or has_resend
+    delivery_warning = None
+    if smtp_blocked:
+        delivery_warning = (
+            "Gmail SMTP is configured but Railway blocks port 587 — emails fail with "
+            "'Network is unreachable'. Switch to Mailgun in this panel (HTTPS works on Railway)."
+        )
+    elif not https_ok and on_railway and not has_smtp:
+        delivery_warning = "No HTTPS email provider configured. Add Mailgun API key + domain below."
     return {
         "configured": has_mailgun or has_smtp or has_resend or has_brevo,
         "provider": provider,
@@ -12163,7 +12184,16 @@ async def get_email_settings(_=Depends(admin_only)):
         "key_preview": (doc.get("resend_api_key") or "")[:8] + "..." if doc.get("resend_api_key") else None,
         "brevo_key_preview": (doc.get("brevo_api_key") or "")[:12] + "..." if doc.get("brevo_api_key") else None,
         "mailgun_key_preview": (doc.get("mailgun_api_key") or "")[:12] + "..." if doc.get("mailgun_api_key") else None,
+        "railway_deployment": on_railway,
+        "smtp_blocked_on_railway": smtp_blocked,
+        "delivery_warning": delivery_warning,
+        "jenan_email": JENAN_EMAIL,
     }
+
+@api.get("/admin/email-settings")
+async def get_email_settings(_=Depends(admin_only)):
+    await _reload_email_settings_from_db()
+    return await _email_settings_snapshot()
 
 @api.post("/admin/email-settings")
 async def save_email_settings(payload: EmailSettingsIn, _=Depends(admin_only)):
@@ -12200,7 +12230,16 @@ async def save_email_settings(payload: EmailSettingsIn, _=Depends(admin_only)):
     if payload.smtp_password and payload.smtp_password.strip():
         update["smtp_password"] = payload.smtp_password.strip().replace(" ", "")
     if payload.email_provider and payload.email_provider.strip() in ("auto", "mailgun", "brevo", "smtp", "resend"):
-        update["email_provider"] = payload.email_provider.strip()
+        prov = payload.email_provider.strip()
+        if prov == "smtp" and _is_railway_deployment():
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Gmail SMTP does not work on Railway (port 587 is blocked). "
+                    "Choose Mailgun, enter your API key + domain, and Save."
+                ),
+            )
+        update["email_provider"] = prov
     if not update:
         raise HTTPException(status_code=400, detail="No fields")
     update["updated_at"] = now_iso()
@@ -12252,6 +12291,59 @@ async def admin_retry_email_queue(limit: int = Query(50, ge=1, le=200), _=Depend
             "error": r.get("error"),
         })
     return {"retried": len(results), "results": results}
+
+
+@api.get("/admin/jenan-email-status")
+async def admin_jenan_email_status(_=Depends(admin_only)):
+    """Last delivery attempt to Jenan + counts of failed/queued urgent notifications."""
+    await _reload_email_settings_from_db()
+    jenan = await _jenan_recipient_email()
+    jenan_re = {"$regex": f"^{re.escape(jenan)}$", "$options": "i"}
+    last_rows = await db.email_queue.find({"to": jenan_re}, {"_id": 0}).sort("created_at", -1).limit(1).to_list(1)
+    pending_statuses = ["failed", "queued", "queued_no_key"]
+    pending_count = await db.email_queue.count_documents({"to": jenan_re, "status": {"$in": pending_statuses}})
+    failed_count = await db.email_queue.count_documents({"to": jenan_re, "status": "failed"})
+    sent_count = await db.email_queue.count_documents({"to": jenan_re, "status": "sent"})
+    settings = await _email_settings_snapshot()
+    return {
+        "jenan_email": jenan,
+        "last_email": last_rows[0] if last_rows else None,
+        "pending_count": pending_count,
+        "failed_count": failed_count,
+        "sent_count": sent_count,
+        "provider_configured": settings.get("configured"),
+        "active_provider": settings.get("active_provider"),
+        "smtp_blocked_on_railway": settings.get("smtp_blocked_on_railway"),
+        "delivery_warning": settings.get("delivery_warning"),
+    }
+
+
+@api.post("/admin/email-test-jenan")
+async def admin_email_test_jenan(_=Depends(admin_only)):
+    """Send a test urgent email to Jenan's inbox — verifies provider end-to-end."""
+    await _reload_email_settings_from_db()
+    to = await _jenan_recipient_email()
+    if not _mailgun_configured() and not _brevo_configured() and not _resend_configured() and not (
+        _smtp_configured() and not _is_railway_deployment()
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="No working email provider. Configure Mailgun (recommended on Railway) and Save.",
+        )
+    result = await _send_email_stub(
+        to,
+        "Boost Growth — Test Email to Jenan",
+        "This is a test email from Boost Growth Portal.\n\n"
+        "If Jenan received this, leave and purchase notifications are working.\n\n"
+        "— Boost Growth Portal",
+    )
+    if result.get("status") == "failed" and result.get("error"):
+        hint = _smtp_error_hint(result["error"])
+        if hint:
+            result["hint"] = hint
+    result["to"] = to
+    return result
+
 
 @api.delete("/resources/{rid}")
 async def delete_resource(rid: str, _=Depends(admin_only)):
@@ -13406,6 +13498,57 @@ async def admin_resend_purchase_notifications(
     }
 
 
+@api.post("/admin/resend-jenan-notifications")
+async def admin_resend_jenan_notifications(
+    body: ResendLeaveNotificationsIn = Body(default_factory=ResendLeaveNotificationsIn),
+    _=Depends(admin_only),
+):
+    """Retry failed Jenan queue rows, then re-send pending leave + purchase notifications."""
+    await _reload_email_settings_from_db()
+    jenan = await _jenan_recipient_email()
+    jenan_re = {"$regex": f"^{re.escape(jenan)}$", "$options": "i"}
+    queue_rows = await db.email_queue.find(
+        {"to": jenan_re, "status": {"$in": ["failed", "queued", "queued_no_key"]}},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(100).to_list(100)
+    queue_results = []
+    for doc in queue_rows:
+        r = await _send_email_stub(doc.get("to") or "", doc.get("subject") or "", doc.get("body") or "")
+        patch = {
+            "last_retry_at": now_iso(),
+            "last_retry_status": r.get("status"),
+            "last_retry_error": r.get("error"),
+        }
+        if r.get("status") == "sent":
+            patch["status"] = "sent"
+            patch["provider"] = r.get("provider")
+            patch["provider_id"] = r.get("provider_id")
+        await db.email_queue.update_one({"id": doc["id"]}, {"$set": patch})
+        queue_results.append({
+            "id": doc.get("id"),
+            "subject": doc.get("subject"),
+            "previous_status": doc.get("status"),
+            "retry_status": r.get("status"),
+            "error": r.get("error"),
+        })
+    leave_body = ResendLeaveNotificationsIn(
+        therapists=body.therapists,
+        dry_run=False,
+        also_notify_in_app=body.also_notify_in_app,
+        include_pending_attachment=body.include_pending_attachment,
+    )
+    leave_result = await admin_resend_leave_notifications(leave_body, _)
+    purchase_body = ResendPurchaseNotificationsIn(therapists=body.therapists, dry_run=False)
+    purchase_result = await admin_resend_purchase_notifications(purchase_body, _)
+    return {
+        "jenan_email": jenan,
+        "queue_retried": len(queue_results),
+        "queue_results": queue_results,
+        "leaves": leave_result,
+        "purchases": purchase_result,
+    }
+
+
 @api.get("/admin/one-time-leave-deletes")
 async def admin_one_time_leave_deletes_status(_=Depends(admin_only)):
     hajar = await _one_time_leave_delete_status_block("hajar")
@@ -13669,6 +13812,8 @@ async def _send_email_stub(to: str, subject: str, body: str) -> dict:
     await _reload_email_settings_from_db()
     provider_pref = os.environ.get("EMAIL_PROVIDER", "auto")
 
+    smtp_usable = _smtp_configured() and not _is_railway_deployment()
+
     def pick_provider():
         if provider_pref == "mailgun":
             return "mailgun" if _mailgun_configured() else None
@@ -13677,7 +13822,7 @@ async def _send_email_stub(to: str, subject: str, body: str) -> dict:
         if provider_pref == "resend":
             return "resend" if _resend_configured() else None
         if provider_pref == "smtp":
-            return "smtp" if _smtp_configured() else None
+            return "smtp" if smtp_usable else None
         # auto — HTTPS first (works on Railway); SMTP last (blocked on Railway)
         if _mailgun_configured():
             return "mailgun"
@@ -13685,7 +13830,7 @@ async def _send_email_stub(to: str, subject: str, body: str) -> dict:
             return "brevo"
         if _resend_configured():
             return "resend"
-        if _smtp_configured():
+        if smtp_usable:
             return "smtp"
         return None
 
@@ -13699,7 +13844,13 @@ async def _send_email_stub(to: str, subject: str, body: str) -> dict:
 
     if not chosen:
         queue_doc["status"] = "queued_no_key"
-        queue_doc["error"] = "No email provider configured. Add Mailgun in Admin."
+        if _smtp_configured() and _is_railway_deployment():
+            queue_doc["error"] = (
+                "Gmail SMTP blocked on Railway (port 587). Switch to Mailgun in Admin → Email Settings."
+            )
+            queue_doc["hint"] = _smtp_error_hint("Network is unreachable")
+        else:
+            queue_doc["error"] = "No email provider configured. Add Mailgun in Admin."
         logger.info(f"Email queued (no provider): to={to} subject={subject}")
         await db.email_queue.insert_one(queue_doc)
         queue_doc.pop("_id", None)
@@ -16373,6 +16524,13 @@ async def _ensure_ops_therapist_records() -> int:
 
 async def _run_startup():
     try:
+        await _reload_email_settings_from_db()
+        if _is_railway_deployment() and _smtp_configured() and not _mailgun_configured() and not _brevo_configured():
+            logger.warning(
+                "Email: SMTP is configured on Railway but port 587 is blocked — "
+                "configure Mailgun in Admin → Email Settings or set MAILGUN_API_KEY + MAILGUN_DOMAIN env vars."
+            )
+
         await db.users.create_index("email", unique=True)
         await db.therapists.create_index("id", unique=True)
         await db.schedule_cells.create_index([("week_start", 1), ("therapist_id", 1)])

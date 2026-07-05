@@ -44,7 +44,7 @@ export const THERAPIST_FAMILY_NAMES = {
   msShrooq: "Alamri",
   msAbeer: "Alshareef",
   msJenan: "Almuhaisin",
-  msWalaa: "Althunayan",
+  msWalaa: "Abu Eissa",
 };
 
 /** Supervisors who only see their own block in My schedule view. */
