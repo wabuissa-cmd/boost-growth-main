@@ -1269,6 +1269,42 @@ export default function Schedule() {
     }
   };
 
+  const suppressNoShowBadgeFromCell = async (therapist_id, day, cell) => {
+    if (!cell || !canManagePrep) return;
+    let childName = scheduleCellChildName(cell);
+    let client = childName ? findClientForScheduleCell(childName, clients) : null;
+    if (!client && childName) {
+      try {
+        const { data } = await api.get("/clients/resolve-schedule-name", { params: { child_name: childName } });
+        client = data;
+      } catch {
+        /* fall through */
+      }
+    }
+    if (!client) {
+      alert(`Could not match "${childName || "this cell"}" to a client.`);
+      return;
+    }
+    const sessionDate = toISODate(addDays(weekStart, day));
+    if (!window.confirm("Dismiss the red no-show badge for this cell? This does not delete any session history.")) return;
+    try {
+      await api.post("/schedule/preparations/clear", {
+        therapist_id,
+        client_id: client.id,
+        session_date: sessionDate,
+        schedule_cell_id: cell.id || null,
+        time_slot: cell.time_slot || "",
+        suppress_badge: true,
+        delete_prep_history: false,
+        delete_sessions: false,
+      });
+      invalidateCache("/schedule/preparations");
+      await loadPreparations();
+    } catch (err) {
+      alert(err?.response?.data?.detail || "Could not dismiss no-show badge.");
+    }
+  };
+
   const cellStatusBadge = (cell, therapistId, day) => (
     canSeePrepBadges
       ? getCellStatusBadge(
@@ -2170,6 +2206,21 @@ export default function Schedule() {
               })}
             >
               Remove prep checkmark ✓
+            </button>
+          )}
+          {canManagePrep && ctxMenu.cell && isScheduleClientLogCell(ctxMenu.cell)
+            && cellStatusBadge(ctxMenu.cell, ctxMenu.therapist_id, ctxMenu.day) === "no_show" && (
+            <button
+              type="button"
+              data-testid="schedule-dismiss-no-show-badge"
+              className="w-full text-left px-3 py-2 hover:bg-[#FCE0E8]"
+              style={{ color: "#8A3F27" }}
+              onClick={ctxAction(async () => {
+                await suppressNoShowBadgeFromCell(ctxMenu.therapist_id, ctxMenu.day, ctxMenu.cell);
+                setCtxMenu(null);
+              })}
+            >
+              Dismiss red no-show badge
             </button>
           )}
           {canManageCover && ctxMenu.cell?.state === "cancel_child" && isScheduleClientLogCell(ctxMenu.cell) && (

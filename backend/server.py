@@ -3217,7 +3217,7 @@ async def _cell_matches_session_client(cell: dict, client_id: str) -> bool:
     by_first = await _find_client_by_schedule_child_name(cfirst)
     if by_first:
         return by_first.get("id") == client_id
-    return True
+    return False
 
 
 async def _schedule_cells_for_prep_match(
@@ -4810,6 +4810,7 @@ SCHEDULE_CHILD_NAME_ALIASES = {
 SCHEDULE_SHORT_LABEL_FILES = {
     "abdulaziz a": "024",
     "abdulaziz w": "040",
+    "khalid": "072",
     "khalid ibrahim": "072",
     "mohammed alaqeel": "027",
     "mohammed alaqel": "027",

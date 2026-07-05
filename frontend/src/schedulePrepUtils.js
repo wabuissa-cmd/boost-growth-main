@@ -1,5 +1,6 @@
 import { addDays, toISODate } from "./api";
 import { findClientForScheduleCell, isScheduleClientLogCell, normScheduleName, scheduleCellChildName } from "./scheduleUtils";
+import { scheduleCellSessionTimes } from "./scheduleTimeUtils";
 
 /** Only completed sessions count as prepared (green checkmark). */
 const LOGGED_PREP_STATUSES = new Set(["Completed"]);
@@ -330,7 +331,14 @@ export function scheduleNamesReferToSameClient(cellName, clientName, clients = [
   const clientTokens = clientNorm.split(/\s+/).filter(Boolean);
   if (!cellTokens.length || !clientTokens.length) return false;
   if (cellTokens[0] !== clientTokens[0]) return false;
-  if (cellTokens.length === 1) return true;
+  if (cellTokens.length === 1) {
+    const sameFirst = (clients || []).filter((c) => {
+      const first = normScheduleName(c.name || "").split(/\s+/)[0];
+      return first && first === cellTokens[0];
+    });
+    if (sameFirst.length === 1) return sameFirst[0].name === clientName;
+    return false;
+  }
   if (clientNorm.startsWith(cellNorm) || cellNorm.startsWith(clientNorm)) return true;
   if (cellTokens.slice(1).every((t) => clientTokens.includes(t))) return true;
   const sameFirst = (clients || []).filter((c) => {
@@ -389,6 +397,14 @@ function findNoShowSessionForCell(
   if (client?.id) {
     const byClient = candidates.find((s) => s.client_id === client.id);
     if (byClient) return byClient;
+    if (!childName) return null;
+    const byName = candidates.filter((s) => sessionClientMatchesCellName(s, childName, clients));
+    if (byName.length === 1) return byName[0];
+    if (byName.length > 1) {
+      const onRow = byName.filter((s) => sessionIncludesTherapist(s.therapist_ids, therapistId, idAliases));
+      if (onRow.length === 1) return onRow[0];
+    }
+    return null;
   }
 
   if (!childName) return null;
@@ -484,6 +500,23 @@ function isCellPreparedMark(
   return false;
 }
 
+/** True once the scheduled slot end time has passed (date + time, not just calendar day). */
+export function isScheduleSlotEnded(cell, sessionDate) {
+  const today = toISODate(new Date());
+  if (sessionDate > today) return false;
+  if (sessionDate < today) return true;
+  try {
+    const { end_time: endTime } = scheduleCellSessionTimes(cell, cell?.time_slot);
+    if (!endTime) return false;
+    const [h, m] = endTime.split(":").map(Number);
+    const now = new Date();
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0);
+    return now >= end;
+  } catch {
+    return false;
+  }
+}
+
 /** Corner badge on schedule cells: prep (green), no_show (red), therapist_cancel (yellow). */
 export function getCellStatusBadge(
   cell,
@@ -513,8 +546,11 @@ export function getCellStatusBadge(
     return null;
   }
 
+  const slotEnded = isScheduleSlotEnded(cell, sessionDate);
+
   for (const rec of preparations || []) {
     if (!prepRecordIsNoShow(rec)) continue;
+    if (!slotEnded) continue;
     if (prepRecordMatchesCell(rec, cell, therapistId, sessionDate, childName, client, idAliases)) {
       return "no_show";
     }
@@ -523,9 +559,9 @@ export function getCellStatusBadge(
   const noShowSession = findNoShowSessionForCell(
     weekSessions, cell, therapistId, sessionDate, client, clients, suppressionLookup, idAliases,
   );
-  if (noShowSession) return "no_show";
+  if (noShowSession && slotEnded) return "no_show";
 
-  if (cell.state === "cancel_child") {
+  if (cell.state === "cancel_child" && slotEnded) {
     const completed = findCompletedSessionForCell(
       weekSessions, cell, therapistId, sessionDate, client, clients, suppressionLookup, idAliases,
     );
