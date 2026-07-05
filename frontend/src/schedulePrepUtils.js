@@ -24,11 +24,29 @@ function timesMatchLoosely(a, b) {
   return !!(na && nb && na === nb);
 }
 
+function hmToMinutes(hm) {
+  const n = normalizeHm(hm);
+  if (!n) return null;
+  const [h, m] = n.split(":").map(Number);
+  return h * 60 + m;
+}
+
 function sessionStartMatchesCell(session, cell) {
-  if (!session?.start_time || !cell) return true;
-  const { start_time: cellStart } = scheduleCellSessionTimes(cell, cell?.time_slot);
+  if (!cell) return false;
+  const { start_time: cellStart, end_time: cellEnd } = scheduleCellSessionTimes(cell, cell?.time_slot);
+  if (!session?.start_time) {
+    // No-show/cancelled without a logged time must not bind to every slot that day.
+    if (session?.status && NO_ATTENDANCE_SESSION_STATUSES.has(session.status)) return false;
+    return true;
+  }
   if (!cellStart) return true;
-  return timesMatchLoosely(session.start_time, cellStart);
+  if (timesMatchLoosely(session.start_time, cellStart)) return true;
+  const sessMin = hmToMinutes(session.start_time);
+  const startMin = hmToMinutes(cellStart);
+  const endMin = cellEnd ? hmToMinutes(cellEnd) : null;
+  if (sessMin == null || startMin == null) return false;
+  if (endMin != null && sessMin >= startMin && sessMin < endMin) return true;
+  return false;
 }
 
 function therapistIdsForPrep(tid, idAliases) {
@@ -262,6 +280,10 @@ export function prepKeysForCell(cell, therapistId, day, weekStart, clientId, cli
 
 /** True when a schedule label refers to the same client as a session (multi-token names). */
 export function scheduleNamesReferToSameClient(cellName, clientName, clients = []) {
+  const resolved = findClientForScheduleCell(cellName, clients);
+  if (resolved?.name) {
+    return normScheduleName(resolved.name) === normScheduleName(clientName || "");
+  }
   const cellNorm = normScheduleName(cellName || "");
   const clientNorm = normScheduleName(clientName || "");
   const cellTokens = cellNorm.split(/\s+/).filter(Boolean);
@@ -276,7 +298,12 @@ export function scheduleNamesReferToSameClient(cellName, clientName, clients = [
     if (sameFirst.length === 1) return sameFirst[0].name === clientName;
     return false;
   }
-  if (clientNorm.startsWith(cellNorm) || cellNorm.startsWith(clientNorm)) return true;
+  const suffixTokens = cellTokens.slice(1);
+  if (suffixTokens.length === 1 && suffixTokens[0].length === 1) {
+    const initial = suffixTokens[0];
+    const second = clientTokens[1] || "";
+    return second.startsWith(initial);
+  }
   if (cellTokens.slice(1).every((t) => clientTokens.includes(t))) return true;
   const sameFirst = (clients || []).filter((c) => {
     const first = normScheduleName(c.name || "").split(/\s+/)[0];
@@ -397,18 +424,20 @@ export function getCellStatusBadge(
   const slotEnded = isScheduleSlotEnded(cell, sessionDate);
   const slotStarted = isScheduleSlotStarted(cell, sessionDate);
 
+  const completed = findSessionForCellByStatus(
+    weekSessions, LOGGED_PREP_STATUSES, cell, therapistId, sessionDate,
+    client, clients, suppressionLookup, idAliases,
+  );
+  if (completed && slotStarted) return "prep";
+
   const noShowSession = findSessionForCellByStatus(
     weekSessions, NO_ATTENDANCE_SESSION_STATUSES, cell, therapistId, sessionDate,
     client, clients, suppressionLookup, idAliases,
   );
   if (noShowSession && slotEnded) return "no_show";
 
-  if (cell.state === "cancel_child" && slotEnded) {
-    const completed = findSessionForCellByStatus(
-      weekSessions, LOGGED_PREP_STATUSES, cell, therapistId, sessionDate,
-      client, clients, suppressionLookup, idAliases,
-    );
-    if (!completed) return "no_show";
+  if (cell.state === "cancel_child" && slotEnded && !completed) {
+    return "no_show";
   }
 
   if (slotStarted && isCellPrepComplete(
@@ -445,6 +474,12 @@ export function isCellPrepComplete(
     return false;
   }
 
+  const completed = findSessionForCellByStatus(
+    weekSessions, LOGGED_PREP_STATUSES, cell, therapistId, sessionDate,
+    client, clients, suppressionLookup, idAliases,
+  );
+  if (completed) return true;
+
   const noShow = findSessionForCellByStatus(
     weekSessions, NO_ATTENDANCE_SESSION_STATUSES, cell, therapistId, sessionDate,
     client, clients, suppressionLookup, idAliases,
@@ -452,12 +487,6 @@ export function isCellPrepComplete(
   if (noShow) return false;
 
   if (cell.state === "cancel_child") return false;
-
-  const completed = findSessionForCellByStatus(
-    weekSessions, LOGGED_PREP_STATUSES, cell, therapistId, sessionDate,
-    client, clients, suppressionLookup, idAliases,
-  );
-  if (completed) return true;
 
   return prepLookupMatchesCell(prepLookup, cell, therapistId, day, weekStart, client?.id, idAliases);
 }

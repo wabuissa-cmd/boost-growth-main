@@ -74,9 +74,27 @@ function parseCustomTimeRange(custom, anchorSlot) {
   };
 }
 
+/** Time range embedded in schedule note, e.g. "HS | Abdulaziz A (3:30-5:30)". */
+export function parseTimeRangeFromScheduleNote(note, anchorSlot = "") {
+  const txt = String(note || "").trim();
+  if (!txt) return null;
+  const paren = txt.match(/\(([^()]*\d{1,2}(?::\d{2})?\s*[-–]\s*\d{1,2}(?::\d{2})?[^()]*)\)\s*$/);
+  if (!paren) return null;
+  return parseCustomTimeRange(paren[1], anchorSlot);
+}
+
 /** Derive session start/end from a schedule cell (grid slot + duration or custom_time). */
 export function scheduleCellSessionTimes(cell, clickedTimeSlot) {
   const anchorSlot = (cell?.time_slot || clickedTimeSlot || "").trim();
+  const noteRange = parseTimeRangeFromScheduleNote(cell?.note, anchorSlot);
+  if (noteRange?.start_time && noteRange?.end_time) {
+    return {
+      start_time: noteRange.start_time,
+      end_time: noteRange.end_time,
+      slot_start: noteRange.start_time,
+      slot_end: noteRange.end_time,
+    };
+  }
   const customRange = parseCustomTimeRange(cell?.custom_time, anchorSlot);
   if (customRange?.start_time && customRange?.end_time) {
     return {

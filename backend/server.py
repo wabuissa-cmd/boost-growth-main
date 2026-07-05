@@ -3222,8 +3222,21 @@ def _slot_label_to_time24(slot: Optional[str]) -> Optional[str]:
 
 
 def _cell_session_start_time(cell: dict) -> Optional[str]:
-    """Derive HH:MM start from schedule cell slot / custom_time (mirrors frontend)."""
+    """Derive HH:MM start from schedule cell slot / note / custom_time (mirrors frontend)."""
     anchor = (cell.get("time_slot") or "").strip()
+    note = (cell.get("note") or "").strip()
+    if note:
+        m = re.search(r"\(([^()]*\d{1,2}(?::\d{2})?\s*[-–]\s*\d{1,2}(?::\d{2})?[^()]*)\)\s*$", note)
+        if m:
+            cm = re.match(r"(\d{1,2}(?::\d{2})?)\s*[-–]\s*(\d{1,2}(?::\d{2})?)", m.group(1))
+            if cm:
+                start_raw = cm.group(1)
+                if ":" not in start_raw:
+                    start_raw = f"{start_raw}:00"
+                ref = "PM" if "PM" in anchor.upper() else "AM"
+                parsed = _slot_label_to_time24(f"{start_raw} {ref}")
+                if parsed:
+                    return parsed
     custom = (cell.get("custom_time") or "").strip()
     if custom:
         m = re.match(r"(\d{1,2}(?::\d{2})?)\s*[-–]\s*(\d{1,2}(?::\d{2})?)", custom)
@@ -3238,14 +3251,73 @@ def _cell_session_start_time(cell: dict) -> Optional[str]:
     return _slot_label_to_time24(anchor)
 
 
-def _session_time_matches_cell(start_time: Optional[str], cell: Optional[dict]) -> bool:
-    if not start_time or not cell:
+def _cell_session_end_time(cell: dict) -> Optional[str]:
+    """Derive HH:MM end from schedule cell note / custom_time / slot+duration."""
+    anchor = (cell.get("time_slot") or "").strip()
+    note = (cell.get("note") or "").strip()
+    if note:
+        m = re.search(r"\(([^()]*\d{1,2}(?::\d{2})?\s*[-–]\s*\d{1,2}(?::\d{2})?[^()]*)\)\s*$", note)
+        if m:
+            cm = re.match(r"(\d{1,2}(?::\d{2})?)\s*[-–]\s*(\d{1,2}(?::\d{2})?)", m.group(1))
+            if cm:
+                end_raw = cm.group(2)
+                if ":" not in end_raw:
+                    end_raw = f"{end_raw}:00"
+                parsed = _slot_label_to_time24(f"{end_raw} PM")
+                if parsed:
+                    return parsed
+    custom = (cell.get("custom_time") or "").strip()
+    if custom:
+        m = re.match(r"(\d{1,2}(?::\d{2})?)\s*[-–]\s*(\d{1,2}(?::\d{2})?)", custom)
+        if m:
+            end_raw = m.group(2)
+            if ":" not in end_raw:
+                end_raw = f"{end_raw}:00"
+            parsed = _slot_label_to_time24(f"{end_raw} PM")
+            if parsed:
+                return parsed
+    start = _cell_session_start_time(cell)
+    if start and anchor:
+        try:
+            dur = float(cell.get("duration") or 1)
+        except (TypeError, ValueError):
+            dur = 1.0
+        sh, sm = map(int, start.split(":"))
+        total = sh * 60 + sm + int(dur * 60)
+        return f"{(total // 60) % 24:02d}:{total % 60:02d}"
+    return None
+
+
+def _hm_to_minutes(hm: Optional[str]) -> Optional[int]:
+    if not hm:
+        return None
+    parsed = _slot_label_to_time24(hm) or (hm or "").strip()[:5]
+    if not parsed or ":" not in parsed:
+        return None
+    h, m = map(int, parsed.split(":"))
+    return h * 60 + m
+
+
+def _session_time_matches_cell(start_time: Optional[str], cell: Optional[dict], *, session_status: Optional[str] = None) -> bool:
+    if not cell:
+        return False
+    if not start_time:
+        if session_status in _NO_ATTENDANCE_SESSION_STATUSES:
+            return False
         return True
     cell_start = _cell_session_start_time(cell)
     if not cell_start:
         return True
     st = _slot_label_to_time24(start_time) or (start_time or "").strip()[:5]
-    return st == cell_start
+    if st == cell_start:
+        return True
+    cell_end = _cell_session_end_time(cell)
+    sess_min = _hm_to_minutes(st)
+    start_min = _hm_to_minutes(cell_start)
+    end_min = _hm_to_minutes(cell_end)
+    if sess_min is not None and start_min is not None and end_min is not None:
+        return start_min <= sess_min < end_min
+    return False
 
 
 def _session_includes_cell_therapist(sess: dict, cell_tid: str, alias_map: Dict[str, List[str]]) -> bool:
@@ -3395,7 +3467,7 @@ async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) 
         tid = cell.get("therapist_id")
         if not tid or not _session_includes_cell_therapist(sess, tid, alias_map):
             continue
-        if not _session_time_matches_cell(sess_start, cell):
+        if not _session_time_matches_cell(sess_start, cell, session_status=status):
             continue
         key = (tid, client_id, session_date, cell.get("time_slot") or "", cell.get("id"))
         if key in marked:
@@ -3767,7 +3839,7 @@ async def _computed_schedule_preparation_markers(
                 continue
             if not await _cell_matches_session_client(cell, cid):
                 continue
-            if not _session_time_matches_cell(sess.get("start_time"), cell):
+            if not _session_time_matches_cell(sess.get("start_time"), cell, session_status=sess.get("status")):
                 continue
             cell_id = cell.get("id")
             key = (tid, cell_id or "", cid, sd)
@@ -3830,7 +3902,7 @@ async def _computed_schedule_no_show_markers(
                 continue
             if not await _cell_matches_session_client(cell, cid):
                 continue
-            if not _session_time_matches_cell(sess.get("start_time"), cell):
+            if not _session_time_matches_cell(sess.get("start_time"), cell, session_status=sess.get("status")):
                 continue
             cell_id = cell.get("id")
             key = (tid, cell_id or "", cid, sd)
