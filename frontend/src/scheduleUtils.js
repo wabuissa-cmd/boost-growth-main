@@ -417,12 +417,9 @@ export function findClientForScheduleCell(childName, clients = []) {
   return null;
 }
 
-/** Effective child name on a schedule cell (child_name or parsed from note / label text). */
-export function scheduleCellChildName(cell) {
+/** Parse child label from schedule cell note (mirrors grid display when note is set). */
+export function parseChildNameFromScheduleNote(cell) {
   if (!cell) return null;
-  const direct = (cell.child_name || "").trim();
-  if (direct) return direct;
-
   const note = (cell.note || "").trim();
   if (!note) return null;
   if (META_SERVICE_CODES.has(cell.service_code)) return null;
@@ -444,6 +441,59 @@ export function scheduleCellChildName(cell) {
     return note.replace(/\s*\([^)]*\)\s*$/, "").trim() || null;
   }
   return null;
+}
+
+/** Split dual-child labels ("Lulu / Abdulrahman") into individual names. */
+export function splitScheduleCellChildNames(label) {
+  const s = (label || "").trim();
+  if (!s) return [];
+  if (!s.includes("/")) return [s];
+  return s.split("/").map((p) => p.trim()).filter(Boolean);
+}
+
+/**
+ * Effective child name for prep/logging — must match scheduleCellDisplayLabel priority
+ * (note before child_name) so therapists prepare the child they see on the grid.
+ */
+export function scheduleCellChildName(cell) {
+  if (!cell) return null;
+  return parseChildNameFromScheduleNote(cell) || (cell.child_name || "").trim() || null;
+}
+
+/** Resolve which client a schedule cell refers to; flags dual-child ambiguity. */
+export function resolveScheduleCellClient(cell, clients = []) {
+  const childName = scheduleCellChildName(cell);
+  if (!childName) return { client: null, childName: null, ambiguous: false, options: [] };
+
+  const parts = splitScheduleCellChildNames(childName);
+  if (parts.length === 1) {
+    return {
+      client: findClientForScheduleCell(parts[0], clients),
+      childName: parts[0],
+      ambiguous: false,
+      options: parts,
+    };
+  }
+
+  const matched = parts.map((p) => findClientForScheduleCell(p, clients)).filter(Boolean);
+  const uniqueById = new Map(matched.map((c) => [c.id, c]));
+  if (uniqueById.size === 1) {
+    const client = [...uniqueById.values()][0];
+    const part = parts.find((p) => {
+      const c = findClientForScheduleCell(p, clients);
+      return c?.id === client.id;
+    });
+    return { client, childName: part || parts[0], ambiguous: false, options: parts };
+  }
+  if (uniqueById.size > 1) {
+    return { client: null, childName, ambiguous: true, options: parts };
+  }
+  return {
+    client: findClientForScheduleCell(childName, clients),
+    childName,
+    ambiguous: false,
+    options: parts,
+  };
 }
 
 export function buildDefaultCellNote(serviceCode, childName) {

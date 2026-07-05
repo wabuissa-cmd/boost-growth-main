@@ -1096,6 +1096,7 @@ class SchedulePreparationIn(BaseModel):
     week_start: Optional[str] = None
     day: Optional[int] = None
     notes: Optional[str] = None
+    cell_child_name: Optional[str] = None
 
 class SchedulePreparationClearIn(BaseModel):
     therapist_id: str
@@ -3128,11 +3129,8 @@ async def _upsert_schedule_preparation(
     return doc
 
 
-def _schedule_cell_child_label(cell: dict) -> str:
-    """Effective child label on a schedule cell (child_name or parsed note)."""
-    direct = (cell.get("child_name") or "").strip()
-    if direct:
-        return direct
+def _parse_child_name_from_schedule_note(cell: dict) -> str:
+    """Parse child label from note (matches grid display when note is set)."""
     note = (cell.get("note") or "").strip()
     if not note:
         return ""
@@ -3147,6 +3145,54 @@ def _schedule_cell_child_label(cell: dict) -> str:
             if rest:
                 return re.sub(r"\s*\([^)]*\)\s*$", "", rest).strip()
     return re.sub(r"\s*\([^)]*\)\s*$", "", note).strip()
+
+
+def _split_schedule_child_names(label: str) -> List[str]:
+    """Split dual-child labels like 'Lulu / Abdulrahman'."""
+    raw = (label or "").strip()
+    if not raw:
+        return []
+    if "/" not in raw:
+        return [raw]
+    return [p.strip() for p in re.split(r"\s*/\s*", raw) if p.strip()]
+
+
+def _schedule_cell_child_label(cell: dict) -> str:
+    """Effective child label — note before child_name so prep matches what therapists see."""
+    from_note = _parse_child_name_from_schedule_note(cell)
+    if from_note:
+        return from_note
+    return (cell.get("child_name") or "").strip()
+
+
+async def _validate_prep_client_matches_cell(
+    *,
+    schedule_cell_id: Optional[str],
+    client_id: str,
+    therapist_id: Optional[str] = None,
+    cell_child_name: Optional[str] = None,
+) -> Optional[dict]:
+    """Reject prep when the requested client does not match the schedule cell."""
+    if not schedule_cell_id:
+        return None
+    cell = await db.schedule_cells.find_one({"id": schedule_cell_id}, {"_id": 0})
+    if not cell:
+        return None
+    if therapist_id and cell.get("therapist_id") and cell.get("therapist_id") != therapist_id:
+        raise HTTPException(status_code=400, detail="Schedule cell belongs to a different therapist.")
+    if await _cell_matches_session_client(cell, client_id):
+        return cell
+    label = _schedule_cell_child_label(cell)
+    client = await db.clients.find_one(_active_client_filter({"id": client_id}), {"_id": 0, "name": 1})
+    cname = (client or {}).get("name") or client_id
+    expected = (cell_child_name or "").strip()
+    detail = (
+        f'Preparation client mismatch: cell shows "{label}"'
+        f' but request is for "{cname}".'
+    )
+    if expected and expected.lower() != label.lower():
+        detail += f' Expected cell child: "{expected}".'
+    raise HTTPException(status_code=400, detail=detail)
 
 
 async def _cell_matches_session_client(cell: dict, client_id: str) -> bool:
@@ -4295,8 +4341,13 @@ async def mark_schedule_preparation(payload: SchedulePreparationIn, user=Depends
             raise HTTPException(status_code=403, detail="Forbidden")
         if not await _therapist_assigned_to_client(uid, payload.client_id):
             raise HTTPException(status_code=403, detail="Forbidden")
-    anchor_cell = None
-    if payload.schedule_cell_id:
+    anchor_cell = await _validate_prep_client_matches_cell(
+        schedule_cell_id=payload.schedule_cell_id,
+        client_id=payload.client_id,
+        therapist_id=payload.therapist_id,
+        cell_child_name=payload.cell_child_name,
+    )
+    if not anchor_cell and payload.schedule_cell_id:
         anchor_cell = await db.schedule_cells.find_one(
             {"id": payload.schedule_cell_id}, {"_id": 0},
         )
@@ -4784,12 +4835,25 @@ async def _find_client_by_schedule_child_name(child_name: str) -> Optional[dict]
     name = (child_name or "").strip()
     if not name:
         return None
+    parts = _split_schedule_child_names(name)
+    if len(parts) > 1:
+        matched: List[dict] = []
+        for part in parts:
+            hit = await _find_client_by_schedule_child_name(part)
+            if hit:
+                matched.append(hit)
+        unique = {c["id"]: c for c in matched}
+        if len(unique) == 1:
+            return next(iter(unique.values()))
+        if len(unique) > 1:
+            return None
+    lookup_name = parts[0] if parts else name
     fields = {
         "_id": 0, "id": 1, "name": 1, "file_no": 1,
         "main_therapist_id": 1, "co_therapist_ids": 1,
         "schedule_color": 1, "color": 1,
     }
-    short_key = _normalize_intake_name(name)
+    short_key = _normalize_intake_name(lookup_name)
     if short_key in SCHEDULE_SHORT_LABEL_FILES:
         by_file = await _find_client_by_file_no(SCHEDULE_SHORT_LABEL_FILES[short_key])
         if by_file:
@@ -4826,22 +4890,22 @@ async def _find_client_by_schedule_child_name(child_name: str) -> Optional[dict]
                 return by_first[0]
         return None
 
-    m = re.match(r"^(\d{2,3})\b", name)
+    m = re.match(r"^(\d{2,3})\b", lookup_name)
     if m:
         by_file = await _find_client_by_file_no(m.group(1))
         if by_file:
             return await db.clients.find_one(_active_client_filter({"id": by_file["id"]}), fields)
-    m = re.search(r"\((\d{2,3})\)", name)
+    m = re.search(r"\((\d{2,3})\)", lookup_name)
     if m:
         by_file = await _find_client_by_file_no(m.group(1))
         if by_file:
             return await db.clients.find_one(_active_client_filter({"id": by_file["id"]}), fields)
 
-    client = await _lookup(name)
+    client = await _lookup(lookup_name)
     if client:
         return client
-    aliased = _apply_schedule_child_name_aliases(name)
-    if aliased != name:
+    aliased = _apply_schedule_child_name_aliases(lookup_name)
+    if aliased != lookup_name:
         client = await _lookup(aliased)
         if client:
             return client

@@ -271,15 +271,16 @@ function prepRecordCoversCell(
 function prepRecordMatchesCell(rec, cell, therapistId, sessionDate, childName, client, idAliases = null) {
   if (!rec || !therapistIdsMatch(rec.therapist_id, therapistId, idAliases)) return false;
   if ((rec.session_date || "").slice(0, 10) !== sessionDate) return false;
-  if (rec.schedule_cell_id && cell?.id && rec.schedule_cell_id === cell.id) return true;
+  if (client?.id && rec.client_id && rec.client_id !== client.id) return false;
+  if (rec.schedule_cell_id && cell?.id) {
+    return rec.schedule_cell_id === cell.id;
+  }
   if (client && rec.client_id === client.id) return true;
   if (rec.client_name && childName) {
     const a = normScheduleName(rec.client_name);
     const b = normScheduleName(childName);
     if (a === b || a.startsWith(b) || b.startsWith(a)) return true;
-    const af = a.split(/\s+/)[0];
-    const bf = b.split(/\s+/)[0];
-    if (af && bf && af === bf) return true;
+    if (scheduleNamesReferToSameClient(childName, rec.client_name)) return true;
   }
   return false;
 }

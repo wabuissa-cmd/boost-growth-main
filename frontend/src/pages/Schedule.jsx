@@ -7,6 +7,7 @@ import {
   findCellAt, isHiddenFromSchedule, scheduleDisplaySpan, scheduleCoveredSlotKeys,
   scheduleCellSlotKey,
   resolveSelfTherapist, findClientForScheduleCell, isScheduleClientLogCell, scheduleCellChildName,
+  resolveScheduleCellClient,
   canSpecialistLogScheduleCell, isScheduleCancelState,
   recentCompletedSessionDates, dayIndicesForDates, weekStartISOForDate,
   SHIFT_BANDS, SHIFT_SESSION_STYLES, shiftTimeHeaderStyle,
@@ -1074,9 +1075,20 @@ export default function Schedule() {
       alert("Preparation is only allowed on the session day until 11:59 PM.\nالتحضير مسموح فقط في يوم الجلسة حتى 11:59 مساءً.");
       return;
     }
-    const childName = scheduleCellChildName(cell);
+    let { client, childName, ambiguous, options } = resolveScheduleCellClient(cell, clients);
+    if (ambiguous && options?.length > 1) {
+      const pick = window.prompt(
+        `This cell lists multiple children. Which session are you preparing?\n${options.map((n, i) => `${i + 1}. ${n}`).join("\n")}\n\nType the child name:`,
+        options[0],
+      );
+      const picked = (pick || "").trim();
+      if (!picked) return;
+      childName = options.find((n) => n.toLowerCase() === picked.toLowerCase())
+        || options.find((n) => picked.toLowerCase().startsWith(n.toLowerCase()))
+        || picked;
+      client = findClientForScheduleCell(childName, clients);
+    }
     if (!childName) return;
-    let client = findClientForScheduleCell(childName, clients);
     if (!client) {
       try {
         const { data } = await api.get("/clients/resolve-schedule-name", {
@@ -1084,7 +1096,7 @@ export default function Schedule() {
         });
         client = data;
       } catch {
-        alert(`Could not match "${childName}" to a client record. Please ask admin to verify file 068 / client name.`);
+        alert(`Could not match "${childName}" to a client record. Please ask admin to verify the client name on this cell.`);
         return;
       }
     }
@@ -1100,6 +1112,7 @@ export default function Schedule() {
         week_start: weekStartISO,
         day,
         session_date: sessionDate,
+        cell_child_name: childName,
         slot_start: times.slot_start,
         slot_end: times.slot_end,
       },

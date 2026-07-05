@@ -133,6 +133,7 @@ export default function LogSessionModal({
             week_start: scheduleContext.week_start || null,
             day: scheduleContext.day,
             notes: payload.note || "",
+            cell_child_name: scheduleContext.cell_child_name || null,
           });
         } catch (prepErr) {
           const detail = prepErr?.response?.data?.detail;
