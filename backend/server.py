@@ -4600,6 +4600,18 @@ async def _notify_ops_leads(ntype: str, title: str, message: str, **extra):
             notified.add(t["id"])
 
 
+def _spawn_background(coro) -> None:
+    """Run coroutine after the HTTP response; log failures without blocking the caller."""
+
+    async def _wrapped():
+        try:
+            await coro
+        except Exception as e:
+            logger.warning("Background notification failed: %s", e, exc_info=True)
+
+    asyncio.create_task(_wrapped())
+
+
 async def _notify_purchase_submitted(purchaser_name: str, item: str, category: str):
     title = "New staff purchase logged"
     message = f"{purchaser_name}: {item} ({category}) — pending review"
@@ -10266,7 +10278,7 @@ async def create_purchase(payload: PurchaseIn, user=Depends(get_current_user)):
     }
     await db.staff_purchases.insert_one(doc)
     doc.pop("_id", None)
-    await _notify_purchase_submitted(purchaser_name, item, category)
+    _spawn_background(_notify_purchase_submitted(purchaser_name, item, category))
     return doc
 
 

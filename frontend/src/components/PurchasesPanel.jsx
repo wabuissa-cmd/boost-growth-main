@@ -87,6 +87,7 @@ export default function PurchasesPanel({ compact = true, onSubmitted }) {
       return;
     }
     setSubmitting(true);
+    const invoiceFile = form.invoiceFile;
     try {
       const linePayload = lines.map(li => ({
         item: li.item.trim(),
@@ -108,17 +109,22 @@ export default function PurchasesPanel({ compact = true, onSubmitted }) {
         notes: form.notes,
         line_items: linePayload.length > 1 || !form.item ? linePayload : undefined,
       });
-      if (form.invoiceFile && created?.id) {
-        const fd = new FormData();
-        fd.append("file", form.invoiceFile);
-        await api.post(`/purchases/${created.id}/invoice`, fd, {
-          headers: { "Content-Type": "multipart/form-data" },
-        });
-      }
       setOpen(false);
       setForm(emptyForm());
       onSubmitted?.();
-      load();
+      void load();
+      if (invoiceFile && created?.id) {
+        try {
+          const fd = new FormData();
+          fd.append("file", invoiceFile);
+          await api.post(`/purchases/${created.id}/invoice`, fd, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+          void load();
+        } catch (uploadErr) {
+          alert(`Purchase saved but invoice upload failed: ${formatErr(uploadErr.response?.data?.detail) || uploadErr.message}`);
+        }
+      }
     } catch (e) {
       alert(formatErr(e.response?.data?.detail) || e.message);
     } finally {
