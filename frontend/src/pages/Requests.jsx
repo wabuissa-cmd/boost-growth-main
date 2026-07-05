@@ -194,14 +194,19 @@ function normalizeLeaveStatus(status) {
   return status === "pending" ? "pending_manager" : status;
 }
 
+function leaveTherapistLabel(leave) {
+  return (leave?.therapist_name || leave?.submitter_name || "").trim() || "—";
+}
+
 function normalizeLeaveForQueue(leave) {
   const tp = LEAVE_TYPES[leave.leave_type] || { label: leave.leave_type, color: "var(--brand-sage)" };
   const schedule = fmtLeaveSchedule(leave);
+  const therapistLabel = leaveTherapistLabel(leave);
   return {
     _queueKind: "leave",
     leaveId: leave.id,
     id: leave.id,
-    therapist_name: leave.therapist_name,
+    therapist_name: therapistLabel === "—" ? null : therapistLabel,
     request_type: "leave",
     leave_type: leave.leave_type,
     typeLabel: tp.label,
@@ -637,7 +642,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                     const wf = managerWorkflowLabel(r);
                     return (
                       <tr key={isLeave ? `leave-${r.id}` : r.id}>
-                        <td className="font-semibold" style={{ color: "#2C3625" }}>{r.therapist_name || "—"}</td>
+                        <td className="font-semibold" style={{ color: "#2C3625" }}>{r.therapist_name || (isLeave ? leaveTherapistLabel(r._leave) : null) || "—"}</td>
                         <td>
                           <span className="pill text-[10px]" style={{ background: `${tp.color}20`, color: tp.color }}>{tp.label}</span>
                         </td>

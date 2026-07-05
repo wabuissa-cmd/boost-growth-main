@@ -131,6 +131,10 @@ function leaveDocumentType(leaveType) {
   return "other";
 }
 
+function leaveSubjectId(user) {
+  return user?.therapist_id || user?.id || null;
+}
+
 function emptyForm(userId) {
   const today = new Date().toISOString().slice(0, 10);
   return {
@@ -246,7 +250,7 @@ export default function TherapistRequests() {
       ]);
       setRequests(req.data || []);
       setLeaves(lv.data || []);
-      setBalance((bal.data || []).find((r) => r.therapist_id === user?.id) || null);
+      setBalance((bal.data || []).find((r) => r.therapist_id === leaveSubjectId(user)) || null);
     } catch (err) {
       setPageError(err?.response?.data?.detail || "Could not load your requests. Please try again.");
     } finally {
@@ -255,9 +259,9 @@ export default function TherapistRequests() {
   };
 
   useEffect(() => {
-    if (user?.id) setForm(emptyForm(user.id));
+    if (user?.id) setForm(emptyForm(leaveSubjectId(user)));
     load();
-  }, [user?.id]);
+  }, [user?.id, user?.therapist_id]);
 
   const isLeaveType = (t) => LEAVE_REQUEST_TYPES.some((lt) => lt.id === t);
   const isGeneralType = (t) => GENERAL_REQUEST_TYPES.some((gt) => gt.id === t);
@@ -271,7 +275,7 @@ export default function TherapistRequests() {
   }, [form.selectedType]);
 
   const openModal = () => {
-    setForm(emptyForm(user?.id));
+    setForm(emptyForm(leaveSubjectId(user)));
     setModalStep(1);
     setShowModal(true);
   };
@@ -279,12 +283,12 @@ export default function TherapistRequests() {
   const closeModal = () => {
     setShowModal(false);
     setModalStep(1);
-    setForm(emptyForm(user?.id));
+    setForm(emptyForm(leaveSubjectId(user)));
   };
 
   const selectLeaveType = (typeId) => {
     if (!typeId) {
-      setForm((f) => ({ ...emptyForm(user?.id), selectedType: isGeneralType(f.selectedType) ? f.selectedType : null }));
+      setForm((f) => ({ ...emptyForm(leaveSubjectId(user)), selectedType: isGeneralType(f.selectedType) ? f.selectedType : null }));
       return;
     }
     selectType(typeId);
@@ -292,7 +296,7 @@ export default function TherapistRequests() {
 
   const selectGeneralType = (typeId) => {
     if (!typeId) {
-      setForm((f) => ({ ...emptyForm(user?.id), selectedType: isLeaveType(f.selectedType) ? f.selectedType : null }));
+      setForm((f) => ({ ...emptyForm(leaveSubjectId(user)), selectedType: isLeaveType(f.selectedType) ? f.selectedType : null }));
       return;
     }
     selectType(typeId);
@@ -318,9 +322,9 @@ export default function TherapistRequests() {
   const selectType = (typeId) => {
     const today = new Date().toISOString().slice(0, 10);
     setForm((f) => ({
-      ...emptyForm(user?.id),
+      ...emptyForm(leaveSubjectId(user)),
       selectedType: typeId,
-      therapist_id: user?.id,
+      therapist_id: leaveSubjectId(user),
       start_date: today,
       end_date: today,
       days: typeId === "Permission" ? 0.125 : 1,
@@ -385,7 +389,7 @@ export default function TherapistRequests() {
       const type = form.selectedType;
       if (type === "Permission") {
         const { data: created } = await api.post("/leaves", {
-          therapist_id: user.id,
+          therapist_id: leaveSubjectId(user),
           start_date: form.start_date,
           end_date: form.end_date,
           days: form.days,
@@ -405,7 +409,7 @@ export default function TherapistRequests() {
         }
       } else if (isLeaveType(type)) {
         const { data: created } = await api.post("/leaves", {
-          therapist_id: user.id,
+          therapist_id: leaveSubjectId(user),
           start_date: form.start_date,
           end_date: form.end_date,
           days: form.days,
@@ -431,7 +435,7 @@ export default function TherapistRequests() {
         });
       }
       showSuccess(submitSuccessMessage(type));
-      setForm(emptyForm(user?.id));
+      setForm(emptyForm(leaveSubjectId(user)));
       setModalStep(1);
       setShowModal(false);
       await load();

@@ -12544,6 +12544,105 @@ def _enrich_leave_document_url(leave: dict) -> dict:
     leave.setdefault("schedule_impact", leave.get("schedule_impact") or [])
     return _strip_file_data(leave)
 
+
+def _therapist_email_lookup(therapists: List[dict]) -> Dict[str, dict]:
+    """Map login email variants → therapist row."""
+    out: Dict[str, dict] = {}
+    for t in therapists:
+        em = (t.get("email") or "").lower().strip()
+        if not em:
+            continue
+        for v in _login_email_variants(em):
+            out[v] = t
+    return out
+
+
+def _leave_therapist_display_name(
+    therapist_id: Optional[str],
+    t_by_id: Dict[str, dict],
+    t_by_email: Dict[str, dict],
+    user_by_id: Dict[str, dict],
+    stored_name: Optional[str] = None,
+) -> str:
+    """Resolve display label for a leave row (stored name → therapist → linked user)."""
+    if (stored_name or "").strip():
+        return stored_name.strip()
+    t = t_by_id.get(therapist_id or "")
+    if t:
+        return therapist_schedule_display_name(t)
+    u = user_by_id.get(therapist_id or "")
+    if u:
+        for em in _login_email_variants(u.get("email") or ""):
+            linked = t_by_email.get(em.lower().strip())
+            if linked:
+                return therapist_schedule_display_name(linked)
+        return therapist_schedule_display_name(u)
+    return ""
+
+
+async def _resolve_leave_subject(user: dict, requested_tid: Optional[str] = None) -> tuple:
+    """Return (canonical therapist_id, display_name) when creating a leave."""
+    own_tid = await _resolve_user_therapist_id(user) or user.get("id")
+    req = (requested_tid or "").strip() or None
+    uid = user.get("id")
+    if not req or req == uid or req == own_tid:
+        tid = own_tid
+    else:
+        if not _is_portal_admin(user) and not _is_hr_ops(user) and req != uid:
+            raise HTTPException(status_code=403, detail="Therapist can only create own leaves")
+        tid = req
+        th_check = await db.therapists.find_one({"id": tid}, {"_id": 0, "id": 1})
+        if not th_check:
+            raise HTTPException(status_code=400, detail="Therapist not found")
+    th = await db.therapists.find_one(
+        {"id": tid}, {"_id": 0, "id": 1, "name": 1, "key": 1, "email": 1},
+    )
+    if not th and (user.get("email") or ""):
+        linked = await _find_therapist_by_login_email(user["email"])
+        if linked:
+            tid = linked["id"]
+            th = linked
+    return tid, therapist_schedule_display_name(th or user)
+
+
+async def _backfill_leave_therapist_names() -> int:
+    """Persist therapist_name (and canonical therapist_id) on legacy leave rows."""
+    missing = await db.leaves.find(
+        {"$or": [{"therapist_name": {"$exists": False}}, {"therapist_name": None}, {"therapist_name": ""}]},
+        {"_id": 0},
+    ).to_list(5000)
+    if not missing:
+        return 0
+    therapists = await db.therapists.find(
+        {}, {"_id": 0, "id": 1, "name": 1, "key": 1, "email": 1},
+    ).to_list(200)
+    t_by_id = {t["id"]: t for t in therapists}
+    t_by_email = _therapist_email_lookup(therapists)
+    user_ids = {it.get("therapist_id") for it in missing if it.get("therapist_id") and it.get("therapist_id") not in t_by_id}
+    users = await db.users.find(
+        {"id": {"$in": list(user_ids)}},
+        {"_id": 0, "id": 1, "name": 1, "email": 1, "key": 1},
+    ).to_list(200) if user_ids else []
+    user_by_id = {u["id"]: u for u in users}
+    updated = 0
+    for leave in missing:
+        tid = leave.get("therapist_id")
+        disp = _leave_therapist_display_name(tid, t_by_id, t_by_email, user_by_id)
+        if not disp:
+            continue
+        patch: dict = {"therapist_name": disp}
+        u = user_by_id.get(tid or "")
+        if u:
+            for em in _login_email_variants(u.get("email") or ""):
+                linked = t_by_email.get(em.lower().strip())
+                if linked:
+                    patch["therapist_id"] = linked["id"]
+                    break
+        await db.leaves.update_one({"id": leave["id"]}, {"$set": patch})
+        updated += 1
+    return updated
+
+
 @api.get("/leaves")
 async def list_leaves(
     year: Optional[int] = None,
@@ -12591,13 +12690,36 @@ async def list_leaves(
                 it["in_current_contract"] = in_contract
                 filtered.append(it)
         items = filtered
+    t_by_email = _therapist_email_lookup(therapists)
+    user_ids_needed = {
+        it.get("therapist_id")
+        for it in items
+        if it.get("therapist_id") and it.get("therapist_id") not in t_by_id and not (it.get("therapist_name") or "").strip()
+    }
+    users = await db.users.find(
+        {"id": {"$in": list(user_ids_needed)}},
+        {"_id": 0, "id": 1, "name": 1, "email": 1, "key": 1},
+    ).to_list(200) if user_ids_needed else []
+    user_by_id = {u["id"]: u for u in users}
     for it in items:
-        t = t_by_id.get(it.get("therapist_id"))
+        tid = it.get("therapist_id")
+        t = t_by_id.get(tid)
+        disp = _leave_therapist_display_name(tid, t_by_id, t_by_email, user_by_id, it.get("therapist_name"))
+        if disp:
+            it["therapist_name"] = disp
         if t:
-            it["therapist_name"] = therapist_schedule_display_name(t)
             it["therapist_color"] = t.get("color")
             if can_view_all:
                 it["therapist_email"] = t.get("email")
+        elif not t and tid in user_by_id:
+            u = user_by_id[tid]
+            for em in _login_email_variants(u.get("email") or ""):
+                linked = t_by_email.get(em.lower().strip())
+                if linked:
+                    it["therapist_color"] = linked.get("color")
+                    if can_view_all:
+                        it["therapist_email"] = linked.get("email")
+                    break
     return [_enrich_leave_document_url(it) for it in items]
 
 @api.get("/leaves/balance")
@@ -12615,12 +12737,14 @@ async def leaves_balance(year: Optional[int] = None, scope: Optional[str] = None
 
 @api.post("/leaves")
 async def create_leave(payload: LeaveIn, user=Depends(get_current_user)):
-    if not _is_portal_admin(user) and not _is_hr_ops(user) and payload.therapist_id != user["id"]:
-        raise HTTPException(status_code=403, detail="Therapist can only create own leaves")
     if (payload.leave_type or "") in ("Exam", "Emergency"):
         raise HTTPException(status_code=400, detail="This leave type is no longer accepted. Choose Annual, Sick, Unpaid, or Permission.")
+    tid, therapist_name = await _resolve_leave_subject(user, payload.therapist_id)
     lid = str(uuid.uuid4())
-    doc = {"id": lid, **payload.model_dump(), **_leave_default_fields(), "created_by": user["id"], "created_at": now_iso()}
+    body = payload.model_dump()
+    body["therapist_id"] = tid
+    body["therapist_name"] = therapist_name
+    doc = {"id": lid, **body, **_leave_default_fields(), "created_by": user["id"], "created_at": now_iso()}
     submitted_pending = (payload.status or "pending").strip().lower() in (
         "", "pending", "pending_manager", "pending_attachment",
     )
@@ -12633,11 +12757,6 @@ async def create_leave(payload: LeaveIn, user=Depends(get_current_user)):
     await db.leaves.insert_one(doc)
     doc.pop("_id", None)
     if doc.get("status") in ("pending_manager", "pending_attachment", "pending"):
-        th = await db.therapists.find_one(
-            {"id": payload.therapist_id},
-            {"_id": 0, "name": 1, "key": 1, "email": 1},
-        )
-        therapist_name = therapist_schedule_display_name(th) if th else (user.get("name") or "Therapist").strip()
         await _notify_leave_submitted(
             therapist_name=therapist_name,
             leave_type=payload.leave_type,
@@ -16502,6 +16621,13 @@ async def _run_startup():
                 logger.info("Walaa ops login restored for wabuissa@ (one-time)")
         except Exception as e:
             logger.warning(f"Walaa ops login restore skipped: {e}")
+
+        try:
+            leave_names = await _backfill_leave_therapist_names()
+            if leave_names:
+                logger.info(f"Leave therapist_name backfill: updated {leave_names} row(s)")
+        except Exception as e:
+            logger.warning(f"Leave therapist_name backfill skipped: {e}")
 
         try:
             pw_n = await _migrate_bootstrap_therapist_passwords()
