@@ -30,7 +30,7 @@ import ParentCancellationModal from "../components/ParentCancellationModal";
 import LogSessionModal from "../components/LogSessionModal";
 import { scheduleCellSessionTimes } from "../scheduleTimeUtils";
 import SchedulePrepBadge from "../components/SchedulePrepBadge";
-import { buildPrepLookup, buildSessionPrepLookup, buildSuppressionLookup, getCellStatusBadge, mergePrepLookups, buildAllTherapistIdAliases, optimisticPrepKeysFromScheduleLog, findPrepRecordForCell } from "../schedulePrepUtils";
+import { buildSessionPrepLookup, buildSuppressionLookup, getCellStatusBadge, mergePrepLookups, buildAllTherapistIdAliases, optimisticPrepKeysFromScheduleLog, findPrepRecordForCell } from "../schedulePrepUtils";
 import { buildParentMessages } from "../scheduleParentMessages";
 import { sortTherapistsForSchedule, sortTherapistsForScheduleWeek, getTherapistScheduleName, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
 import { cachedGet, invalidateCache } from "../dataCache";
@@ -389,10 +389,9 @@ export default function Schedule() {
       setPreparations(rows);
       const supLookup = buildSuppressionLookup(sups);
       setSuppressionLookup(supLookup);
-      const sessionKeys = buildSessionPrepLookup(
+      setPrepLookup(buildSessionPrepLookup(
         weekSessions, weekStartISO, weekEndISO, therapistIdAliases, supLookup, cells, clients,
-      );
-      setPrepLookup(mergePrepLookups(buildPrepLookup(rows, therapistIdAliases), sessionKeys));
+      ));
       return rows.length;
     } catch {
       if (fetchGen !== prepFetchGenRef.current) return 0;
@@ -1318,7 +1317,7 @@ export default function Schedule() {
   const prepRecordForPanel = panelForm
     ? findPrepRecordForCell(
       panelForm, panelForm.therapist_id, panelForm.day, weekStartISO,
-      clients, preparations, therapistIdAliases,
+      clients, preparations, therapistIdAliases, weekSessions,
     )
     : null;
 
@@ -1997,7 +1996,7 @@ export default function Schedule() {
       {canManagePrep && buildInfo?.build && !buildMismatch && (
         <div className="no-print mb-2 text-[10px] font-medium" style={{ color: "var(--brand-sage)" }} data-testid="schedule-build-ok">
           Portal build {buildInfo.build} · JS {loadedJsHash || buildInfo.js}
-          {prepSyncMessage ? ` · ${prepSyncMessage}` : prepLookup.size > 0 ? ` · ${prepLookup.size} prep badge(s)` : preparations.length > 0 ? ` · ${preparations.length} prep row(s)` : " · no prep badges yet"}
+          {prepSyncMessage ? ` · ${prepSyncMessage}` : prepLookup.size > 0 ? ` · ${prepLookup.size} session badge(s)` : " · no session badges yet"}
         </div>
       )}
 
@@ -2567,25 +2566,28 @@ export default function Schedule() {
             const sessionDate = ctx?.week_start != null && ctx?.day != null
               ? toISODate(addDays(new Date(`${ctx.week_start}T12:00:00`), ctx.day))
               : (quickLog?.prefill?.session_date || "").slice(0, 10);
+            const savedForm = quickLog?.prefill || {};
             setQuickLog(null);
             if (ctx?.therapist_id && cl?.id && sessionDate) {
-              const optimisticRec = {
-                therapist_id: ctx.therapist_id,
+              const optimisticSession = {
+                id: `optimistic-${Date.now()}`,
                 client_id: cl.id,
                 session_date: sessionDate,
-                time_slot: ctx.time_slot || "",
-                schedule_cell_id: ctx.schedule_cell_id || null,
-                client_name: cl.name,
-                source: "prep",
-                marker_type: "prep",
+                start_time: savedForm.start_time || ctx.slot_start || "",
+                end_time: savedForm.end_time || ctx.slot_end || "",
+                status: "Completed",
+                therapist_ids: [ctx.therapist_id],
+                note: "",
               };
-              setPreparations((prev) => {
-                const key = `${optimisticRec.therapist_id}|${optimisticRec.client_id}|${sessionDate}`;
+              setWeekSessions((prev) => {
                 const filtered = (prev || []).filter(
-                  (r) => `${r.therapist_id}|${r.client_id}|${(r.session_date || "").slice(0, 10)}` !== key
-                    || r.schedule_cell_id !== optimisticRec.schedule_cell_id,
+                  (s) => !(
+                    s.client_id === cl.id
+                    && (s.session_date || "").slice(0, 10) === sessionDate
+                    && (s.therapist_ids || []).includes(ctx.therapist_id)
+                  ),
                 );
-                return [...filtered, optimisticRec];
+                return [...filtered, optimisticSession];
               });
               setPrepLookup((prev) => mergePrepLookups(
                 prev,

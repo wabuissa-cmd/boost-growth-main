@@ -118,29 +118,18 @@ export default function LogSessionModal({
       alert("Please select at least one therapist for this session.");
       return;
     }
+    if (!form.start_time || !form.end_time) {
+      alert("Start and end time are required.\nوقت البداية والنهاية مطلوبان.");
+      return;
+    }
+    if (!(payload.note || "").trim()) {
+      alert("Session notes are required before saving.\nملاحظات الجلسة مطلوبة قبل الحفظ.");
+      return;
+    }
     setSaving(true);
     try {
       if (session?.id) await api.put(`/sessions/${session.id}`, payload);
       else await api.post("/sessions", payload);
-      if (scheduleContext?.therapist_id && client?.id && form.session_date && payload.status === "Completed") {
-        try {
-          await api.post("/schedule/preparations", {
-            therapist_id: scheduleContext.therapist_id,
-            client_id: client.id,
-            session_date: form.session_date,
-            time_slot: form.start_time || scheduleContext.time_slot || "",
-            schedule_cell_id: scheduleContext.schedule_cell_id || null,
-            week_start: scheduleContext.week_start || null,
-            day: scheduleContext.day,
-            notes: payload.note || "",
-            cell_child_name: scheduleContext.cell_child_name || null,
-          });
-        } catch (prepErr) {
-          const detail = prepErr?.response?.data?.detail;
-          alert(formatErr(detail) || "Session saved but the schedule prep badge could not be set. Try Sync prep badges.");
-          console.warn("schedule prep marker", detail || prepErr);
-        }
-      }
       invalidateCache("/sessions");
       invalidateCache("/schedule/preparations");
       invalidateCache("/schedule");
@@ -261,22 +250,24 @@ export default function LogSessionModal({
               />
             </div>
             <div className="log-session-field">
-              <FieldLabel>From</FieldLabel>
+              <FieldLabel required>From</FieldLabel>
               <input
                 data-testid="sess-start-time"
                 type="time"
                 className="modal-input log-session-input"
+                required
                 value={form.start_time || ""}
                 disabled={saving}
                 onChange={e => setForm({ ...form, start_time: e.target.value, hours: computeHours(e.target.value, form.end_time) })}
               />
             </div>
             <div className="log-session-field">
-              <FieldLabel>To</FieldLabel>
+              <FieldLabel required>To</FieldLabel>
               <input
                 data-testid="sess-end-time"
                 type="time"
                 className="modal-input log-session-input"
+                required
                 value={form.end_time || ""}
                 disabled={saving}
                 onChange={e => setForm({ ...form, end_time: e.target.value, hours: computeHours(form.start_time, e.target.value) })}
@@ -339,15 +330,22 @@ export default function LogSessionModal({
           )}
         </div>
 
-        <div className="log-session-field">
-          <FieldLabel>Notes</FieldLabel>
+        <div className="log-session-card">
+          <FieldLabel required>Session notes</FieldLabel>
           <textarea
+            data-testid="sess-notes"
             className="modal-input log-session-input log-session-notes"
-            rows={2}
-            placeholder="Optional…"
+            rows={3}
+            required
+            placeholder="Required — what happened in this session / ما الذي تم في الجلسة"
             value={form.note || ""}
             onChange={e => setForm({ ...form, note: e.target.value })}
           />
+          {scheduleContext && (
+            <p className="text-[11px] m-0 mt-1.5 leading-relaxed" style={{ color: "#8B9E7A" }}>
+              Notes are saved with the session and appear in preparation history.
+            </p>
+          )}
         </div>
       </form>
     </ModalBase>

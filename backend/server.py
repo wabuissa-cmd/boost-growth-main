@@ -1246,6 +1246,22 @@ def _apply_session_time_edits(payload: SessionIn) -> SessionIn:
         payload.hours = computed
     return payload
 
+
+def _require_session_log_fields(user: dict, payload: SessionIn) -> None:
+    """Therapists must record time and notes when logging/preparing a session."""
+    if _has_full_client_access(user) or _is_hr_ops(user):
+        return
+    if not (payload.start_time or "").strip() or not (payload.end_time or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Start and end time are required when logging a session.",
+        )
+    if not (payload.note or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Session notes are required when logging a session.",
+        )
+
 class RequestIn(BaseModel):
     title: str
     description: Optional[str] = ""
@@ -3102,6 +3118,7 @@ async def _upsert_schedule_preparation(
     invoice_id: Optional[str] = None,
     client_name: Optional[str] = None,
     marker_type: str = "prep",
+    session_id: Optional[str] = None,
 ) -> dict:
     """Mark a schedule slot as preparation-complete for therapist + client + date."""
     slot = (time_slot or "").strip()
@@ -3119,6 +3136,8 @@ async def _upsert_schedule_preparation(
         "marker_type": marker_type,
         "source": "no_show" if marker_type == "no_show" else "prep",
     }
+    if session_id:
+        doc["session_id"] = session_id
     if internal_note is not None:
         doc["internal_note"] = (internal_note or "").strip()
     elif existing and existing.get("internal_note"):
@@ -3183,6 +3202,56 @@ def _schedule_cell_child_label(cell: dict) -> str:
     if from_note:
         return from_note
     return (cell.get("child_name") or "").strip()
+
+
+def _slot_label_to_time24(slot: Optional[str]) -> Optional[str]:
+    if not slot:
+        return None
+    m = re.match(r"(\d{1,2}):(\d{2})\s*(AM|PM)?", str(slot).strip(), re.I)
+    if not m:
+        return None
+    h = int(m.group(1))
+    mi = m.group(2)
+    ap = (m.group(3) or "").upper()
+    if ap == "PM" and h < 12:
+        h += 12
+    if ap == "AM" and h == 12:
+        h = 0
+    return f"{h:02d}:{mi}"
+
+
+def _cell_session_start_time(cell: dict) -> Optional[str]:
+    """Derive HH:MM start from schedule cell slot / custom_time (mirrors frontend)."""
+    anchor = (cell.get("time_slot") or "").strip()
+    custom = (cell.get("custom_time") or "").strip()
+    if custom:
+        m = re.match(r"(\d{1,2}(?::\d{2})?)\s*[-–]\s*(\d{1,2}(?::\d{2})?)", custom)
+        if m:
+            start_raw = m.group(1)
+            if ":" not in start_raw:
+                start_raw = f"{start_raw}:00"
+            ref = "PM" if "PM" in anchor.upper() else "AM"
+            parsed = _slot_label_to_time24(f"{start_raw} {ref}")
+            if parsed:
+                return parsed
+    return _slot_label_to_time24(anchor)
+
+
+def _session_time_matches_cell(start_time: Optional[str], cell: Optional[dict]) -> bool:
+    if not start_time or not cell:
+        return True
+    cell_start = _cell_session_start_time(cell)
+    if not cell_start:
+        return True
+    st = _slot_label_to_time24(start_time) or (start_time or "").strip()[:5]
+    return st == cell_start
+
+
+def _session_includes_cell_therapist(sess: dict, cell_tid: str, alias_map: Dict[str, List[str]]) -> bool:
+    for st in sess.get("therapist_ids") or []:
+        if _therapist_ids_overlap(st, cell_tid, alias_map):
+            return True
+    return False
 
 
 async def _validate_prep_client_matches_cell(
@@ -3274,12 +3343,15 @@ async def _upsert_session_prep_markers(
     client_name: Optional[str],
     cell: Optional[dict] = None,
     marker_type: str = "prep",
+    session_id: Optional[str] = None,
 ) -> None:
-    """Write schedule_preparation rows for a therapist+client+date (with or without a grid cell)."""
-    week_start = (cell or {}).get("week_start") or _normalize_week_start(session_date)
-    day = (cell or {}).get("day")
-    cell_id = (cell or {}).get("id")
-    slot = (cell or {}).get("time_slot") or ""
+    """Write schedule_preparation row for one exact grid cell (session-backed badges only)."""
+    if not cell:
+        return
+    week_start = cell.get("week_start") or _normalize_week_start(session_date)
+    day = cell.get("day")
+    cell_id = cell.get("id")
+    slot = (cell.get("time_slot") or "").strip()
     await _upsert_schedule_preparation(
         therapist_id=therapist_id,
         client_id=client_id,
@@ -3291,23 +3363,12 @@ async def _upsert_session_prep_markers(
         day=day,
         client_name=client_name,
         marker_type=marker_type,
-    )
-    await _upsert_schedule_preparation(
-        therapist_id=therapist_id,
-        client_id=client_id,
-        session_date=session_date,
-        prepared_by=prepared_by,
-        time_slot="",
-        schedule_cell_id=cell_id,
-        week_start=week_start,
-        day=day,
-        client_name=client_name,
-        marker_type=marker_type,
+        session_id=session_id,
     )
 
 
 async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) -> None:
-    """When a completed or no-attendance session is logged, mark matching schedule cells."""
+    """When a completed or no-attendance session is logged, mark the exact matching schedule cell."""
     status = (sess.get("status") or "").strip()
     if status not in ("Completed", "No Show", "Cancelled"):
         return
@@ -3320,9 +3381,10 @@ async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) 
     therapist_ids = [t for t in (sess.get("therapist_ids") or []) if t]
     cells = await _schedule_cells_for_prep_match(therapist_ids, session_date)
     marked = set()
-    matched_tids: set = set()
     prepared_by = user_id or sess.get("created_by") or ""
     marker_type = "no_show" if status in _NO_ATTENDANCE_SESSION_STATUSES else "prep"
+    sess_start = sess.get("start_time")
+    alias_map = await _build_therapist_id_alias_map()
     for cell in cells:
         slot_date = _schedule_cell_date_iso(cell)
         if slot_date != session_date:
@@ -3330,13 +3392,14 @@ async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) 
         if not await _cell_matches_session_client(cell, client_id):
             continue
         tid = cell.get("therapist_id")
-        if not tid:
+        if not tid or not _session_includes_cell_therapist(sess, tid, alias_map):
+            continue
+        if not _session_time_matches_cell(sess_start, cell):
             continue
         key = (tid, client_id, session_date, cell.get("time_slot") or "", cell.get("id"))
         if key in marked:
             continue
         marked.add(key)
-        matched_tids.add(tid)
         await _upsert_session_prep_markers(
             therapist_id=tid,
             client_id=client_id,
@@ -3345,18 +3408,7 @@ async def _auto_mark_schedule_preparation_for_session(sess: dict, user_id: str) 
             client_name=client_name,
             cell=cell,
             marker_type=marker_type,
-        )
-    for tid in therapist_ids:
-        if tid in matched_tids:
-            continue
-        await _upsert_session_prep_markers(
-            therapist_id=tid,
-            client_id=client_id,
-            session_date=session_date,
-            prepared_by=prepared_by,
-            client_name=client_name,
-            cell=None,
-            marker_type=marker_type,
+            session_id=sess.get("id"),
         )
 
 
@@ -3388,15 +3440,17 @@ async def _ensure_session_schedule_prep_markers(
             tid, client_id, session_date, client_name=client_name,
         )
         try:
-            await _upsert_session_prep_markers(
-                therapist_id=tid,
-                client_id=client_id,
-                session_date=session_date,
-                prepared_by=prepared_by,
-                client_name=client_name,
-                cell=cell,
-                marker_type=marker_type,
-            )
+            if cell:
+                await _upsert_session_prep_markers(
+                    therapist_id=cell.get("therapist_id") or tid,
+                    client_id=client_id,
+                    session_date=session_date,
+                    prepared_by=prepared_by,
+                    client_name=client_name,
+                    cell=cell,
+                    marker_type=marker_type,
+                    session_id=sess.get("id"),
+                )
         except Exception:
             logger.exception("Schedule prep marker upsert failed for %s/%s", tid, client_id)
         time_slot = sess.get("start_time") or (cell or {}).get("time_slot") or ""
@@ -3416,24 +3470,6 @@ async def _ensure_session_schedule_prep_markers(
             )
         except Exception:
             logger.exception("Prep history upsert failed for %s/%s", tid, client_id)
-    try:
-        anchor = None
-        for tid in [t for t in (sess.get("therapist_ids") or []) if t]:
-            anchor = await _resolve_schedule_cell_for_prep(
-                tid, client_id, session_date, client_name=client_name,
-            )
-            if anchor:
-                break
-        await _mark_client_day_schedule_prep_cells(
-            client_id,
-            session_date,
-            prepared_by,
-            client_name=client_name,
-            anchor_cell=anchor,
-            marker_type=marker_type,
-        )
-    except Exception:
-        logger.exception("Propagate schedule prep cells for session %s", sess.get("id"))
 
 
 async def _schedule_cells_for_client_day(client_id: str, session_date: str) -> List[dict]:
@@ -3693,7 +3729,7 @@ def _require_same_day_session(user: dict, session_date: str) -> None:
 async def _computed_schedule_preparation_markers(
     start: str, end: str, therapist_id: Optional[str] = None
 ) -> list:
-    """Build prep markers from completed sessions on every schedule row for that client+day."""
+    """Build prep markers from completed sessions on the exact matching schedule cell only."""
     filter_ids: Optional[set] = None
     if therapist_id:
         filter_ids = set(await _expand_therapist_ids(therapist_id))
@@ -3706,32 +3742,31 @@ async def _computed_schedule_preparation_markers(
     ).to_list(5000)
     if not sessions:
         return []
+    alias_map = await _build_therapist_id_alias_map()
     markers: list = []
     seen: set = set()
     for sess in sessions:
         cid = sess.get("client_id")
         sd = (sess.get("session_date") or "")[:10]
-        if not cid or not sd:
+        sid = sess.get("id")
+        if not cid or not sd or not sid:
             continue
         client = await db.clients.find_one(
             _active_client_filter({"id": cid}), {"_id": 0, "name": 1},
         )
         client_name = (client or {}).get("name")
         cells = await _schedule_cells_for_client_day(cid, sd)
-        targets: list = cells if cells else []
-        if not targets:
-            for tid in sess.get("therapist_ids") or []:
-                if filter_ids and tid not in filter_ids:
-                    continue
-                cell = await _resolve_schedule_cell_for_prep(
-                    tid, cid, sd, client_name=client_name,
-                )
-                targets.append(cell or {"therapist_id": tid})
-        for cell in targets:
+        for cell in cells:
             tid = cell.get("therapist_id")
             if not tid:
                 continue
             if filter_ids and tid not in filter_ids:
+                continue
+            if not _session_includes_cell_therapist(sess, tid, alias_map):
+                continue
+            if not await _cell_matches_session_client(cell, cid):
+                continue
+            if not _session_time_matches_cell(sess.get("start_time"), cell):
                 continue
             cell_id = cell.get("id")
             key = (tid, cell_id or "", cid, sd)
@@ -3749,6 +3784,7 @@ async def _computed_schedule_preparation_markers(
                 "client_name": client_name,
                 "source": "session",
                 "marker_type": "prep",
+                "session_id": sid,
             })
     return markers
 
@@ -3756,7 +3792,7 @@ async def _computed_schedule_preparation_markers(
 async def _computed_schedule_no_show_markers(
     start: str, end: str, therapist_id: Optional[str] = None
 ) -> list:
-    """Build no-show markers for red schedule badges on every row where the client is scheduled."""
+    """Build no-show markers for red badges on the exact matching schedule cell only."""
     filter_ids: Optional[set] = None
     if therapist_id:
         filter_ids = set(await _expand_therapist_ids(therapist_id))
@@ -3769,34 +3805,31 @@ async def _computed_schedule_no_show_markers(
     ).to_list(5000)
     if not sessions:
         return []
+    alias_map = await _build_therapist_id_alias_map()
     markers: list = []
     seen: set = set()
     for sess in sessions:
         cid = sess.get("client_id")
         sd = (sess.get("session_date") or "")[:10]
-        if not cid or not sd:
+        sid = sess.get("id")
+        if not cid or not sd or not sid:
             continue
         client = await db.clients.find_one(
             _active_client_filter({"id": cid}), {"_id": 0, "name": 1},
         )
         client_name = (client or {}).get("name")
         cells = await _schedule_cells_for_client_day(cid, sd)
-        targets: list = []
-        if cells:
-            targets = cells
-        else:
-            for tid in sess.get("therapist_ids") or []:
-                if filter_ids and tid not in filter_ids:
-                    continue
-                cell = await _resolve_schedule_cell_for_prep(
-                    tid, cid, sd, client_name=client_name,
-                )
-                targets.append(cell or {"therapist_id": tid})
-        for cell in targets:
+        for cell in cells:
             tid = cell.get("therapist_id")
             if not tid:
                 continue
             if filter_ids and tid not in filter_ids:
+                continue
+            if not _session_includes_cell_therapist(sess, tid, alias_map):
+                continue
+            if not await _cell_matches_session_client(cell, cid):
+                continue
+            if not _session_time_matches_cell(sess.get("start_time"), cell):
                 continue
             cell_id = cell.get("id")
             key = (tid, cell_id or "", cid, sd)
@@ -3814,12 +3847,13 @@ async def _computed_schedule_no_show_markers(
                 "client_name": client_name,
                 "source": "no_show",
                 "marker_type": "no_show",
+                "session_id": sid,
             })
     return markers
 
 
 def _merge_schedule_preparation_markers(*groups: list) -> list:
-    """Merge marker rows; prefer entries with schedule_cell_id."""
+    """Merge marker rows; prefer entries with schedule_cell_id. Keyed per cell, not per day."""
     merged: dict = {}
     for group in groups:
         for item in group or []:
@@ -3828,7 +3862,9 @@ def _merge_schedule_preparation_markers(*groups: list) -> list:
             sd = (item.get("session_date") or "")[:10]
             if not tid or not cid or not sd:
                 continue
-            key = (tid, cid, sd)
+            cell_id = (item.get("schedule_cell_id") or "").strip()
+            slot = (item.get("time_slot") or "").strip()
+            key = (tid, cid, sd, cell_id or slot)
             prev = merged.get(key)
             if not prev:
                 merged[key] = dict(item)
@@ -3838,7 +3874,7 @@ def _merge_schedule_preparation_markers(*groups: list) -> list:
                 merged[key] = {**item, **prev, "marker_type": "no_show", "source": "no_show"}
             elif item.get("schedule_cell_id") and not prev.get("schedule_cell_id"):
                 merged[key] = {**prev, **item}
-            elif item.get("marker_type") == "no_show" and prev.get("marker_type") != "no_show":
+            elif item.get("session_id") and not prev.get("session_id"):
                 merged[key] = {**prev, **item}
             elif item.get("client_name") and not prev.get("client_name"):
                 merged[key] = {**prev, "client_name": item["client_name"]}
@@ -4257,7 +4293,9 @@ async def list_schedule_preparations(
     computed = await _computed_schedule_preparation_markers(start, end, tid)
     no_show_markers = await _computed_schedule_no_show_markers(start, end, tid)
     suppressions = await _list_prep_suppressions(start, end, tid)
-    merged = _merge_schedule_preparation_markers(db_items, computed, no_show_markers)
+    # Only session-backed rows from DB (internal notes metadata); badges come from sessions.
+    db_session_backed = [it for it in db_items if it.get("session_id")]
+    merged = _merge_schedule_preparation_markers(computed, no_show_markers, db_session_backed)
     items = _filter_suppressed_markers(merged, suppressions, alias_map)
     if not include_future:
         today = now_iso()[:10]
@@ -4383,19 +4421,6 @@ async def mark_schedule_preparation(payload: SchedulePreparationIn, user=Depends
         notes=payload.notes,
         internal_note=payload.internal_note,
     )
-    try:
-        client = await db.clients.find_one(
-            _active_client_filter({"id": payload.client_id}), {"_id": 0, "name": 1},
-        )
-        await _mark_client_day_schedule_prep_cells(
-            payload.client_id,
-            payload.session_date,
-            user["id"],
-            client_name=(client or {}).get("name"),
-            anchor_cell=anchor_cell,
-        )
-    except Exception:
-        logger.exception("Propagate schedule prep from mark_schedule_preparation")
     return doc
 
 
@@ -9267,6 +9292,7 @@ async def create_session(payload: SessionIn, user=Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="No Service is no longer available")
     payload = _apply_session_time_edits(payload)
     _require_same_day_session(user, payload.session_date)
+    _require_session_log_fields(user, payload)
     sid = str(uuid.uuid4())
     resolved_uid = await _resolve_user_therapist_id(user) if user.get("role") == "therapist" else None
     therapist_ids = _merge_session_therapist_ids(payload.therapist_ids, user, resolved_uid)
@@ -9334,6 +9360,7 @@ async def update_session(sid: str, payload: SessionIn, user=Depends(get_current_
         raise HTTPException(status_code=400, detail="No Service is no longer available")
     payload = _apply_session_time_edits(payload)
     _require_same_day_session(user, payload.session_date)
+    _require_session_log_fields(user, payload)
     resolved_uid = await _resolve_user_therapist_id(user) if user.get("role") == "therapist" else None
     therapist_ids = _merge_session_therapist_ids(payload.therapist_ids, user, resolved_uid)
     patch = payload.model_dump()
