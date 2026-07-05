@@ -14,6 +14,9 @@ Dry run (list only):
 
 Flush failed email_queue rows:
   python scripts/resend_leave_notifications.py --api --flush-queue --limit 50
+
+Re-send everything to Jenan (queue + pending leaves + purchases):
+  python scripts/resend_leave_notifications.py --api --email ADMIN@... --password '...' --resend-jenan
 """
 from __future__ import annotations
 
@@ -62,6 +65,7 @@ def main() -> int:
     p.add_argument("--purchases-only", action="store_true", help="Only resend purchase emails")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--flush-queue", action="store_true", help="Retry failed/queued email_queue rows")
+    p.add_argument("--resend-jenan", action="store_true", help="Retry Jenan queue + resend pending leaves/purchases")
     p.add_argument("--limit", type=int, default=50)
     args = p.parse_args()
 
@@ -75,6 +79,10 @@ def main() -> int:
     token = _login(args.api_base, args.email.strip(), args.password)
     if args.flush_queue:
         data = _post(args.api_base, token, "/admin/email-queue/retry", query=f"limit={args.limit}")
+        print(json.dumps(data, indent=2))
+        return 0
+    if args.resend_jenan:
+        data = _post(args.api_base, token, "/admin/resend-jenan-notifications", {"also_notify_in_app": False})
         print(json.dumps(data, indent=2))
         return 0
 

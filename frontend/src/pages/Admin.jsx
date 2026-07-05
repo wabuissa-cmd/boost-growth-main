@@ -68,8 +68,11 @@ export default function Admin() {
     smtp_host: "smtp.gmail.com", smtp_port: 587, smtp_user: "", smtp_password: "",
   });
   const [emailQueue, setEmailQueue] = useState([]);
-  const [testTo, setTestTo] = useState("");
+  const [jenanEmailStatus, setJenanEmailStatus] = useState(null);
+  const [testTo, setTestTo] = useState("jsalmuhaisin@boostgrowthsa.com");
   const [testResult, setTestResult] = useState(null);
+  const [jenanActionResult, setJenanActionResult] = useState(null);
+  const [jenanActionBusy, setJenanActionBusy] = useState("");
   const [resetInfo, setResetInfo] = useState(null);
   const [seedConfirm, setSeedConfirm] = useState(false);
   const [seedResult, setSeedResult] = useState(null);
@@ -199,14 +202,16 @@ export default function Admin() {
   };
 
   const load = async () => {
-    const [t, e, q] = await Promise.all([
+    const [t, e, q, j] = await Promise.all([
       api.get("/therapists"),
       api.get("/admin/email-settings").catch(() => ({ data: {} })),
       api.get("/admin/email-queue").catch(() => ({ data: [] })),
+      api.get("/admin/jenan-email-status").catch(() => ({ data: null })),
     ]);
     setTherapists(t.data);
     setEmailSettings(e.data);
     setEmailQueue(q.data);
+    setJenanEmailStatus(j.data);
     setEmailForm({
       resend_api_key: "",
       brevo_api_key: "",
@@ -278,6 +283,35 @@ export default function Admin() {
   };
 
   const saveAndTest = async () => { await saveEmail(); if (testTo) sendTest(); };
+
+  const sendTestJenan = async () => {
+    setJenanActionBusy("test");
+    setJenanActionResult(null);
+    try {
+      const r = await api.post("/admin/email-test-jenan");
+      setJenanActionResult(r.data);
+      load();
+    } catch (e) {
+      setJenanActionResult({ status: "failed", error: e.response?.data?.detail || e.message });
+    } finally {
+      setJenanActionBusy("");
+    }
+  };
+
+  const resendJenanAll = async () => {
+    if (!window.confirm("Re-send all failed Jenan emails + pending leave/purchase notifications?")) return;
+    setJenanActionBusy("resend");
+    setJenanActionResult(null);
+    try {
+      const r = await api.post("/admin/resend-jenan-notifications", { also_notify_in_app: false });
+      setJenanActionResult(r.data);
+      load();
+    } catch (e) {
+      setJenanActionResult({ status: "failed", error: e.response?.data?.detail || e.message });
+    } finally {
+      setJenanActionBusy("");
+    }
+  };
 
   const save = async () => {
     if (edit.id) {
@@ -1205,6 +1239,48 @@ export default function Admin() {
         badge={emailBadge}
       >
         <div className="pt-4">
+          {(emailSettings.smtp_blocked_on_railway || emailSettings.delivery_warning) && (
+            <div className="mb-3 text-xs p-3 rounded-lg font-bold" style={{ background: "#FCE0E8", color: "#8B3A55" }}>
+              ⚠️ {emailSettings.delivery_warning || "Email delivery is blocked — switch from Gmail SMTP to Mailgun."}
+            </div>
+          )}
+          {jenanEmailStatus?.last_email && (
+            <div className="mb-3 text-xs p-3 rounded-lg" style={{
+              background: jenanEmailStatus.last_email.status === "sent" ? "#E5EBE1" : "#FAF0D1",
+              color: jenanEmailStatus.last_email.status === "sent" ? "#3D4F35" : "#6B5218",
+            }}>
+              <div className="font-bold mb-1">Last email to Jenan ({jenanEmailStatus.jenan_email})</div>
+              <div>{String(jenanEmailStatus.last_email.created_at || "").slice(0, 19).replace("T", " ")} · <strong>{jenanEmailStatus.last_email.status}</strong></div>
+              <div className="truncate" title={jenanEmailStatus.last_email.subject}>{jenanEmailStatus.last_email.subject}</div>
+              {jenanEmailStatus.last_email.error && (
+                <div className="mt-1" style={{ color: "#8B3A55" }}>{jenanEmailStatus.last_email.error}</div>
+              )}
+              {jenanEmailStatus.pending_count > 0 && (
+                <div className="mt-1">{jenanEmailStatus.pending_count} pending/failed to Jenan</div>
+              )}
+            </div>
+          )}
+          <div className="flex gap-2 flex-wrap mb-3">
+            <button type="button" data-testid="test-jenan-email-btn" onClick={sendTestJenan} disabled={!!jenanActionBusy} className="btn btn-gold text-sm">
+              {jenanActionBusy === "test" ? "Sending…" : "Send test to Jenan"}
+            </button>
+            <button type="button" data-testid="resend-jenan-btn" onClick={resendJenanAll} disabled={!!jenanActionBusy} className="btn btn-secondary text-sm">
+              {jenanActionBusy === "resend" ? "Resending…" : "Resend all to Jenan"}
+            </button>
+          </div>
+          {jenanActionResult && (
+            <div className="mb-3 text-xs p-2 rounded-lg" style={{
+              background: jenanActionResult.status === "sent" || jenanActionResult.queue_retried != null ? "#E5EBE1" : "#FCE0E8",
+              color: "#3D4F35",
+            }}>
+              {jenanActionResult.status === "sent" && <>✅ Test sent to {jenanActionResult.to}</>}
+              {jenanActionResult.queue_retried != null && (
+                <>Retried {jenanActionResult.queue_retried} queue row(s); leaves matched {jenanActionResult.leaves?.matched ?? 0}; purchases matched {jenanActionResult.purchases?.matched ?? 0}</>
+              )}
+              {jenanActionResult.status === "failed" && <>❌ {jenanActionResult.error}</>}
+              {jenanActionResult.hint && <div className="mt-1">{jenanActionResult.hint}</div>}
+            </div>
+          )}
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             {emailSettings.configured
               ? <span className="pill text-xs" style={{ background: "#E5EBE1", color: "#3D4F35" }}><CheckCircle size={12} weight="fill" /> {emailSettings.active_provider} · {emailSettings.from_email}</span>
@@ -1344,6 +1420,11 @@ export default function Admin() {
                       {q.created_at && (
                         <span className="text-[10px] shrink-0" style={{ color: "#8B9E7A" }}>
                           {String(q.created_at).slice(0, 16).replace("T", " ")}
+                        </span>
+                      )}
+                      {q.error && (
+                        <span className="text-[10px] shrink-0 max-w-[120px] truncate" style={{ color: "#8B3A55" }} title={q.error}>
+                          {String(q.error).slice(0, 40)}
                         </span>
                       )}
                     </div>
