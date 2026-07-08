@@ -1,4 +1,4 @@
-"""Urgent staff-request email notifications (Jenan + HR forward)."""
+"""Staff-request email notifications (Jenan + HR forward)."""
 import os
 import uuid
 import pytest
@@ -33,7 +33,7 @@ def therapist_headers():
 
 class TestUrgentRequestEmail:
     def test_new_request_queues_urgent_email_to_jenan(self, admin_headers, therapist_headers):
-        title = f"TEST urgent email {uuid.uuid4().hex[:8]}"
+        title = f"TEST request email {uuid.uuid4().hex[:8]}"
         r = requests.post(
             f"{API}/requests",
             json={
@@ -83,7 +83,7 @@ class TestUrgentRequestEmail:
             ),
             None,
         )
-        assert hr_match is not None, f"No HR urgent email in queue on submit for {title}"
+        assert hr_match is None, f"HR should not be emailed on submit (got {hr_match})"
 
     def test_forward_to_hr_queues_urgent_email(self, admin_headers, therapist_headers):
         title = f"TEST HR forward {uuid.uuid4().hex[:8]}"
@@ -114,7 +114,7 @@ class TestUrgentRequestEmail:
             and (i.get("to") or "").lower() == HR_EMAIL
             and title in (i.get("body") or "")
         ]
-        assert hr_items, "No urgent HR email queued after forward"
+        assert hr_items, "No HR email queued after forward"
         assert "[عاجل]" not in (hr_items[0].get("subject") or "")
         assert "[Urgent]" not in (hr_items[0].get("subject") or "")
 

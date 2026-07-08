@@ -1486,6 +1486,12 @@ class LeaveStatusUpdate(BaseModel):
     is_paid: Optional[bool] = True
     notify_hr: Optional[bool] = None
     notify_therapist: Optional[bool] = None
+    # HR-only adjustments (stored on leave; may impact balance deduction)
+    adjusted_start_date: Optional[str] = None
+    adjusted_end_date: Optional[str] = None
+    adjusted_days: Optional[float] = None
+    adjusted_start_time: Optional[str] = None
+    adjusted_end_time: Optional[str] = None
 
 
 class TherapistHrProfileUpdate(BaseModel):
@@ -4846,18 +4852,32 @@ async def _notify_hr_manager_decision(
         "pending_hr": "Approved by manager",
         "pending_manager": "Pending manager review",
         "rejected": "Rejected by manager",
+        "in_progress": "Marked in progress by manager",
+        "approved": "Approved by manager",
     }
     decision_label = decision_labels.get(decision_status, decision_status)
     hr_title = f"Manager review — {decision_label}"
     hr_msg = f"{therapist_name or 'Staff'}: {summary}"
     await _notify_hr_ops(ntype, hr_title, hr_msg)
-    hr_body = f"{hr_msg}\n\nManager decision: {decision_label}"
+    hr_body = "\n".join(
+        [
+            "Dear HR Team,",
+            "",
+            "A manager has updated the status of a staff request and it requires your attention.",
+            "",
+            "Summary",
+            f"- Staff member: {therapist_name or '—'}",
+            f"- Item: {summary}",
+            f"- Manager decision: {decision_label}",
+        ]
+    )
     if admin_note:
-        hr_body += f"\n\nManager note: {admin_note}"
+        hr_body += f"\n\nManager note:\n{admin_note}"
     portal = _portal_base_url()
     if portal:
-        hr_body += f"\n\nReview in portal: {portal}/requests"
-    hr_body += "\n\n— Boost Growth Portal"
+        link = "/manager" if ntype == "leave_request" else "/requests"
+        hr_body += f"\n\nReview in portal: {portal}{link}"
+    hr_body += "\n\nSincerely,\nBoost Growth Portal"
     await _email_hr_ops_urgent(hr_title, hr_body)
 
 
@@ -4874,7 +4894,7 @@ def _yes_no(val: bool) -> str:
 
 
 def _format_request_email_body(req: dict) -> str:
-    """Human-friendly staff-request email body (Jenan + HR)."""
+    """Professional staff-request email body (to Jenan only on submit)."""
     requester = (req.get("therapist_name") or "—").strip() or "—"
     rtype = _display_request_type(req.get("request_type"))
     title = (req.get("title") or "—").strip() or "—"
@@ -4891,10 +4911,12 @@ def _format_request_email_body(req: dict) -> str:
     created_at = (req.get("created_at") or "").strip()
 
     lines = [
-        "A staff request has been submitted and is pending review.",
+        "Dear Jenan Almuhaisin,",
+        "",
+        "A staff request has been submitted and is pending your review.",
         "",
         "Request details",
-        f"- Type: {rtype}",
+        f"- Request type: {rtype}",
         f"- Requested by: {requester}",
         f"- Title: {title}",
         f"- Priority: {priority}",
@@ -4920,21 +4942,20 @@ def _format_request_email_body(req: dict) -> str:
         lines += ["Extra notes", extra, ""]
 
     lines += [
-        "Next steps",
-        "- Manager reviews the request in the portal.",
-        "- After manager action, HR will proceed as needed.",
+        "Next step",
+        "- Please review and update the status in the portal. HR will be notified automatically after your action.",
     ]
     portal = _portal_base_url()
     if portal:
         lines += ["", f"Review in portal: {portal}/requests"]
         if has_attachment:
             lines += [f"Attachment: {portal}/requests"]
-    lines += ["", "— Boost Growth Portal"]
+    lines += ["", "Sincerely,", "Boost Growth Portal"]
     return "\n".join(lines).strip() + "\n"
 
 
 async def _notify_request_submitted(req: dict):
-    """Jenan and HR both get in-app + email when a therapist submits a request."""
+    """Email Jenan when a therapist submits a request (HR notified after manager action)."""
     requester = (req.get("therapist_name") or "Staff").strip() or "Staff"
     rtype = _display_request_type(req.get("request_type"))
     title = (req.get("title") or "").strip()
@@ -4944,11 +4965,9 @@ async def _notify_request_submitted(req: dict):
     jenan_id = await _jenan_therapist_id()
     if jenan_id:
         await _notify(jenan_id, "request_new", subj, msg)
-    await _notify_hr_ops("request_new", subj, msg)
 
     body = _format_request_email_body(req)
     await _send_urgent_email(await _jenan_recipient_email(), subj, body)
-    await _email_hr_ops_urgent(subj, body)
 
 
 def _display_leave_type(leave_type: Optional[str]) -> str:
@@ -11767,7 +11786,8 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
         "status": new_status, "admin_note": payload.admin_note,
         "updated_at": now_iso(), "timeline": timeline,
     }})
-    if is_jenan_mgr and effective_prev in MANAGER_ACTIVE_REQUEST_STATUSES and notify_hr and new_status in MANAGER_HR_NOTIFY_STATUSES:
+    # Whenever Jenan (manager) changes status, HR should be notified immediately.
+    if is_jenan_mgr and effective_prev in MANAGER_ACTIVE_REQUEST_STATUSES and notify_hr and new_status != effective_prev:
         await _notify_hr_manager_decision(
             ntype="request",
             therapist_name=req.get("therapist_name") or "Staff",
@@ -11783,22 +11803,47 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
     if notify_therapist:
         await _notify(req["therapist_id"], "request", "Request update",
                       f"Your request '{req['title']}' is now: {status_map.get(new_status, new_status)}")
-    if new_status in ("approved", "done") and is_hr and notify_therapist:
+    # HR final response email to therapist (professional, English, includes full details)
+    if is_hr and notify_therapist and new_status in ("approved", "rejected", "in_progress", "done"):
         email = await _therapist_email(req.get("therapist_id"))
         if email:
-            ts = now_iso()[:16].replace("T", " ")
-            body = (
-                f"Hello,\n\nYour request \"{req.get('title')}\" was {status_map.get(new_status, new_status)} "
-                f"on {ts}.\n"
-            )
-            if payload.admin_note:
-                body += f"\nNote from HR: {payload.admin_note}\n"
-            body += "\n— Boost Growth Portal"
-            await _send_email_stub(
-                email,
-                f"Request {status_map.get(new_status, new_status)} — {req.get('title')}",
-                body,
-            )
+            tdoc = await db.therapists.find_one({"id": req.get("therapist_id")}, {"_id": 0, "name": 1})
+            therapist_name = (tdoc or {}).get("name") or "Therapist"
+            submitted = (req.get("created_at") or "").strip()
+            rtype = _display_request_type(req.get("request_type"))
+            title = (req.get("title") or "Request").strip() or "Request"
+            date_from = (req.get("date_from") or "").strip()
+            date_to = (req.get("date_to") or "").strip()
+            window = ""
+            if date_from or date_to:
+                if date_from and date_to and date_from != date_to:
+                    window = f"{date_from} → {date_to}"
+                else:
+                    window = date_from or date_to
+            hr_label = status_map.get(new_status, new_status)
+            lines = [
+                f"Dear {therapist_name},",
+                "",
+                f"Thank you for your request submitted on {submitted or '—'}.",
+                "",
+                "Request summary",
+                f"- Request type: {rtype}",
+                f"- Title: {title}",
+            ]
+            if window:
+                lines.append(f"- Requested window: {window}")
+            lines += [
+                f"- Final status: {hr_label}",
+            ]
+            if (payload.admin_note or "").strip():
+                lines += ["", "HR note", (payload.admin_note or "").strip()]
+            portal = _portal_base_url()
+            if portal:
+                lines += ["", "Next step", f"- Please check your page on the portal: {portal}/requests"]
+            else:
+                lines += ["", "Next step", "- Please check your page on the portal."]
+            lines += ["", "Sincerely,", "HR Department", "Boost Growth"]
+            await _send_email_stub(email, f"Request update — {rtype} — {title}", "\n".join(lines).strip() + "\n")
     return await db.requests.find_one({"id": rid}, {"_id": 0})
 
 @api.delete("/requests/{rid}")
@@ -13307,12 +13352,49 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
             deduct = False
     actor = _actor_display(user)
     timeline = _append_leave_timeline(leave, new_status, actor)
-    await db.leaves.update_one({"id": lid}, {"$set": {
-        "status": new_status, "admin_note": payload.admin_note,
-        "decided_by": actor, "decided_at": now_iso(),
+    # HR may adjust dates/days/hours; preserve original values the first time.
+    set_patch: dict = {
+        "status": new_status,
+        "admin_note": payload.admin_note,
+        "decided_by": actor,
+        "decided_at": now_iso(),
         "is_paid": is_paid,
         "timeline": timeline,
-    }})
+    }
+    if is_hr and not is_pa:
+        adj_any = any(
+            v is not None
+            for v in (
+                payload.adjusted_start_date,
+                payload.adjusted_end_date,
+                payload.adjusted_days,
+                payload.adjusted_start_time,
+                payload.adjusted_end_time,
+            )
+        )
+        if adj_any:
+            if not leave.get("original_start_date"):
+                set_patch["original_start_date"] = leave.get("start_date")
+                set_patch["original_end_date"] = leave.get("end_date")
+                set_patch["original_days"] = leave.get("days")
+                set_patch["original_start_time"] = leave.get("start_time")
+                set_patch["original_end_time"] = leave.get("end_time")
+            if payload.adjusted_start_date is not None:
+                set_patch["start_date"] = payload.adjusted_start_date[:10]
+                leave["start_date"] = set_patch["start_date"]
+            if payload.adjusted_end_date is not None:
+                set_patch["end_date"] = payload.adjusted_end_date[:10]
+                leave["end_date"] = set_patch["end_date"]
+            if payload.adjusted_days is not None:
+                set_patch["days"] = float(payload.adjusted_days)
+                leave["days"] = set_patch["days"]
+            if payload.adjusted_start_time is not None:
+                set_patch["start_time"] = payload.adjusted_start_time
+                leave["start_time"] = set_patch["start_time"]
+            if payload.adjusted_end_time is not None:
+                set_patch["end_time"] = payload.adjusted_end_time
+                leave["end_time"] = set_patch["end_time"]
+    await db.leaves.update_one({"id": lid}, {"$set": set_patch})
     if is_jenan_mgr and effective_prev in MANAGER_FORWARD_HR_LEAVE_SOURCES and notify_hr and new_status in MANAGER_HR_NOTIFY_STATUSES:
         tname = leave.get("leave_type") or "Leave"
         summary = (
@@ -13351,7 +13433,7 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
             f"{leave.get('end_date')} ({leave.get('days')}d) is now {label}."
         )
         await _notify(leave["therapist_id"], "leave", f"Leave {label}", msg)
-        if new_status in ("approved", "rejected"):
+        if is_hr and not is_pa and new_status in ("approved", "rejected"):
             tname = leave.get("leave_type") or "Leave"
             await _push_center_update(
                 f"Leave {label.lower()}: {tname}",
@@ -13359,12 +13441,79 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
             )
             therapist = await db.therapists.find_one({"id": leave["therapist_id"]}, {"_id": 0, "email": 1, "name": 1})
             if therapist and therapist.get("email"):
-                await _send_email_stub(
-                    therapist["email"],
-                    f"[Boost Growth] Leave Request {label}",
-                    f"Dear {therapist.get('name', '')},\n\nYour leave request from {leave.get('start_date')} to "
-                    f"{leave.get('end_date')} has been {label.lower()}.\n\n— Boost Growth Portal",
+                submitted = (leave.get("created_at") or "").strip()
+                leave_type = _display_leave_type(leave.get("leave_type"))
+                orig_start = (leave.get("original_start_date") or leave.get("start_date") or "").strip()
+                orig_end = (leave.get("original_end_date") or leave.get("end_date") or "").strip()
+                orig_days = leave.get("original_days")
+                if orig_days is None:
+                    orig_days = leave.get("days")
+                orig_st = (leave.get("original_start_time") or leave.get("start_time") or "").strip()
+                orig_et = (leave.get("original_end_time") or leave.get("end_time") or "").strip()
+                adj_start = (leave.get("start_date") or "").strip()
+                adj_end = (leave.get("end_date") or "").strip()
+                adj_days = float(leave.get("days") or 0)
+                adj_st = (leave.get("start_time") or "").strip()
+                adj_et = (leave.get("end_time") or "").strip()
+
+                def _fmt_window(sd: str, ed: str, st: str = "", et: str = "") -> str:
+                    if leave_type == "Permission" and st and et:
+                        return f"{sd} {st[:5]} → {ed} {et[:5]}"
+                    return f"{sd} → {ed}"
+
+                orig_window = _fmt_window(orig_start, orig_end, orig_st, orig_et) if (orig_start or orig_end) else "—"
+                adj_window = _fmt_window(adj_start, adj_end, adj_st, adj_et) if (adj_start or adj_end) else "—"
+
+                orig_hours = None
+                adj_hours = None
+                if leave_type == "Permission" and orig_st and orig_et:
+                    orig_hours = _session_hours_from_times(orig_st[:5], orig_et[:5])
+                if leave_type == "Permission" and adj_st and adj_et:
+                    adj_hours = _session_hours_from_times(adj_st[:5], adj_et[:5])
+
+                lines = [
+                    f"Dear {therapist.get('name') or 'Therapist'},",
+                    "",
+                    f"This email is in response to your request submitted on {submitted or '—'}.",
+                    "",
+                    "Request summary",
+                    f"- Request type: {leave_type}",
+                    f"- Original requested window: {orig_window}",
+                    f"- Original duration: {float(orig_days or 0):g} day(s)",
+                ]
+                if orig_hours is not None:
+                    lines.append(f"- Original duration (hours): {orig_hours:g} hour(s)")
+                # Show adjustments only if HR changed something
+                adjusted = (
+                    (leave.get("original_start_date") is not None)
+                    or (payload.adjusted_start_date is not None)
+                    or (payload.adjusted_end_date is not None)
+                    or (payload.adjusted_days is not None)
+                    or (payload.adjusted_start_time is not None)
+                    or (payload.adjusted_end_time is not None)
                 )
+                if adjusted and (adj_window != orig_window or float(adj_days) != float(orig_days or 0) or adj_hours != orig_hours):
+                    lines += [
+                        "",
+                        "Adjustments by HR",
+                        f"- Updated window: {adj_window}",
+                        f"- Updated duration: {adj_days:g} day(s)",
+                    ]
+                    if adj_hours is not None:
+                        lines.append(f"- Updated duration (hours): {adj_hours:g} hour(s)")
+                lines += [
+                    "",
+                    f"Final status: {label}",
+                ]
+                if (payload.admin_note or "").strip():
+                    lines += ["", "HR note", (payload.admin_note or "").strip()]
+                portal = _portal_base_url()
+                if portal:
+                    lines += ["", "Next step", f"- Please check your page on the portal: {portal}/leaves"]
+                else:
+                    lines += ["", "Next step", "- Please check your page on the portal."]
+                lines += ["", "Sincerely,", "HR Department", "Boost Growth"]
+                await _send_email_stub(therapist["email"], f"Leave request update — {leave_type}", "\n".join(lines).strip() + "\n")
     return await db.leaves.find_one({"id": lid}, {"_id": 0})
 
 @api.delete("/leaves/{lid}")
