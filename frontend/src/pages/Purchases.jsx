@@ -295,7 +295,7 @@ export default function Purchases({ embedded = false }) {
                 >
                   <div className="font-semibold text-sm truncate" style={{ color: "#2C3625" }}>{p.item}</div>
                   <div className="text-[10px] mt-0.5" style={{ color: "#8B9E7A" }}>
-                    {p.purchaser_name || p.therapist_name || "—"} · {formatMonthValue(p.purchase_month)}
+                    {resolvePurchaserName(p)} · {formatMonthValue(p.purchase_month)}
                   </div>
                   <div className="text-[10px] font-bold mt-1" style={{ color: "#6B5218" }}>{fmtMoney(p)}</div>
                 </button>
@@ -333,125 +333,185 @@ export default function Purchases({ embedded = false }) {
         </div>
       )}
 
-      <div className="min-w-0">
-      <div className="card overflow-hidden mb-4">
-        <div className="px-3 py-2 border-b text-[10px] font-bold tracking-wider" style={{ borderColor: "#E2DDD4", background: "#FAFAF7", color: "#5C6853" }}>
-          CALENDAR MONTHS · JAN – JUL {purchaseYear}
-        </div>
-        <div className="flex gap-0 overflow-x-auto border-b" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
-          <button
-            key="all-months"
-            type="button"
-            onClick={() => setFilterMonth("")}
-            className={`shrink-0 px-4 py-3 text-xs font-bold border-b-2 transition min-h-[48px] min-w-[5.5rem] ${
-              !filterMonth ? "border-[#7A8A6A] text-[#2C3625] bg-white" : "border-transparent text-[#8B9E7A] hover:text-[#5C6853]"
-            }`}
-          >
-            <span className="block text-[11px] leading-tight">All</span>
-            <span className="block text-[9px] font-semibold opacity-70 mt-0.5">months</span>
-          </button>
-          {monthTabs.map((m) => {
-            const active = filterMonth === m.value;
-            const count = allItems.filter((p) => purchaseMonthKey(p) === m.value).length;
-            return (
+      <div className="req-split">
+        <aside className="req-panel-sidebar">
+          <div className="req-panel-head">
+            <h2 className="font-bold text-sm m-0 flex items-center gap-1.5" style={{ color: "#2C3625" }}>
+              <ShoppingBag size={16} weight="duotone" style={{ color: "#7A8A6A" }}/> Browse
+            </h2>
+            <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>
+              Months, filters, and quick totals
+            </p>
+          </div>
+
+          <div className="p-3">
+            <div className="text-[10px] font-bold tracking-wider mb-2" style={{ color: "#8B9E7A" }}>MONTH</div>
+            <div className="grid grid-cols-2 gap-2">
               <button
-                key={m.value}
                 type="button"
-                onClick={() => setFilterMonth(m.value)}
-                className={`shrink-0 px-4 py-3 text-xs font-bold border-b-2 transition min-h-[48px] min-w-[5.5rem] ${
-                  active ? "border-[#7A8A6A] text-[#2C3625] bg-white" : "border-transparent text-[#8B9E7A] hover:text-[#5C6853]"
-                }`}
+                onClick={() => setFilterMonth("")}
+                className={`p-3 rounded-xl border text-left transition ${!filterMonth ? "border-[#7A8A6A] bg-[#E5EBE1]" : "border-[#E2DDD4] bg-white hover:bg-[#FAFAF7]"}`}
               >
-                <span className="block text-[11px] leading-tight">{m.label}</span>
-                <span className="block text-[9px] font-semibold opacity-70 mt-0.5">{m.short}</span>
-                {count > 0 && <span className="block text-[9px] mt-0.5 opacity-80">({count})</span>}
+                <div className="text-xs font-bold" style={{ color: "#2C3625" }}>All months</div>
+                <div className="text-[10px] mt-0.5" style={{ color: "#8B9E7A" }}>{allItems.length} entries</div>
               </button>
-            );
-          })}
-        </div>
-
-        <div className="p-3 flex flex-wrap gap-2 items-center border-b" style={{ borderColor: "#EDE9E3" }}>
-          <ShoppingBag size={18} style={{ color: "#7A8A6A" }}/>
-          <select className="input text-sm w-auto" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-            <option value="">All statuses</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="reimbursed">Reimbursed</option>
-          </select>
-        </div>
-
-        <div className="intake-table-wrap" style={{ margin: 0, borderRadius: 0, border: "none" }}>
-          <table className="intake-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Item</th>
-                <th>Category</th>
-                <th>Purchaser</th>
-                <th>QTY</th>
-                <th>Unit</th>
-                <th>Total</th>
-                <th>Month</th>
-                <th>Status</th>
-                <th>Reimb. date</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.length === 0 && (
-                <tr><td colSpan={11} className="text-center py-8" style={{ color: "#8B9E7A" }}>No purchases found</td></tr>
-              )}
-              {items.map((p, i) => {
-                const st = STATUS_META[p.status] || STATUS_META.pending;
+              {monthTabs.map((m) => {
+                const active = filterMonth === m.value;
+                const count = allItems.filter((p) => purchaseMonthKey(p) === m.value).length;
                 return (
-                  <tr key={p.id}>
-                    <td>{p.row_no || i + 1}</td>
-                    <td>
-                      <div className="font-semibold">{p.item}</div>
-                      {p.description && p.description !== "-" && (
-                        <div className="text-[10px]" style={{ color: "#8B9E7A" }}>{p.description}</div>
-                      )}
-                    </td>
-                    <td>{p.category}</td>
-                    <td>{p.purchaser_name || p.therapist_name || "—"}</td>
-                    <td>{p.qty || "—"}</td>
-                    <td>{p.unit_price || "—"}</td>
-                    <td>{fmtMoney(p)}</td>
-                    <td className="text-xs whitespace-nowrap" title={p.purchase_month || ""}>
-                      {formatMonthValue(p.purchase_month)}
-                      {filterMonth && p.purchase_month && p.purchase_month !== filterMonth && (
-                        <span className="block text-[9px] font-semibold mt-0.5" style={{ color: "#C97B5C" }}>
-                          ≠ selected tab
-                        </span>
-                      )}
-                    </td>
-                    <td><span className={`pill text-[10px] ${st.cls}`}>{st.icon} {st.label}</span></td>
-                    <td>{fmtDate(p.reimbursement_date)}</td>
-                    <td>
-                      {canSupervisorReview && selected?.id === p.id && ["pending", "supervisor_approved"].includes(p.status) && (
-                        <button type="button" className="text-[10px] underline mr-2" onClick={() => updateStatus(p.id, "supervisor_approved")}>Approve</button>
-                      )}
-                      {canManagerFinalize && ["pending_manager", "manager_approved"].includes(p.status) && (
-                        <button type="button" className="text-[10px] underline" onClick={() => updateStatus(p.id, "reimbursed")}>Reimburse</button>
-                      )}
-                      {canDelete && (
-                        <button type="button" className="text-[10px] text-red-700 underline ml-2" onClick={() => deletePurchase(p.id)} title="Delete">
-                          <Trash size={12} className="inline"/> Delete
-                        </button>
-                      )}
-                    </td>
-                  </tr>
+                  <button
+                    key={m.value}
+                    type="button"
+                    onClick={() => setFilterMonth(m.value)}
+                    className={`p-3 rounded-xl border text-left transition ${active ? "border-[#7A8A6A] bg-[#E5EBE1]" : "border-[#E2DDD4] bg-white hover:bg-[#FAFAF7]"}`}
+                  >
+                    <div className="text-xs font-bold" style={{ color: "#2C3625" }}>{m.label}</div>
+                    <div className="text-[10px] mt-0.5" style={{ color: "#8B9E7A" }}>{m.short} · {count}</div>
+                  </button>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
-
-        {categories.length > 0 && (
-          <div className="text-[10px] p-3 border-t" style={{ color: "#8B9E7A", borderColor: "#EDE9E3" }}>
-            Categories: {categories.join(" · ")}
+            </div>
           </div>
-        )}
+
+          <div className="p-3 border-t" style={{ borderColor: "#E2DDD4" }}>
+            <div className="text-[10px] font-bold tracking-wider mb-2" style={{ color: "#8B9E7A" }}>FILTERS</div>
+            <div className="flex flex-col gap-2">
+              <input
+                className="input text-sm"
+                placeholder="Search item, category, name…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              <select className="input text-sm" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+                <option value="">All statuses</option>
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="reimbursed">Reimbursed</option>
+              </select>
+              <select className="input text-sm" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
+                <option value="">All categories</option>
+                {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              {canManageStatus && (
+                <select className="input text-sm" value={filterTherapist} onChange={e => setFilterTherapist(e.target.value)}>
+                  <option value="">All therapists</option>
+                  {therapistOptions.map((t) => (
+                    <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>
+                  ))}
+                </select>
+              )}
+              <button
+                type="button"
+                className="btn btn-secondary text-xs"
+                onClick={() => { setSearch(""); setFilterStatus(""); setFilterCategory(""); setFilterTherapist(""); }}
+              >
+                Clear filters
+              </button>
+            </div>
+          </div>
+
+          <div className="p-3 border-t" style={{ borderColor: "#E2DDD4" }}>
+            <div className="text-[10px] font-bold tracking-wider mb-2" style={{ color: "#8B9E7A" }}>RESULTS</div>
+            <div className="flex flex-wrap gap-2 text-[10px]">
+              <span className="pill bg-[#FAFAF7]" style={{ color: "#5C6853", border: "1px solid #E2DDD4" }}>
+                Showing {displayedItems.length}
+              </span>
+              {filterMonth && (
+                <span className="pill bg-[#FAFAF7]" style={{ color: "#5C6853", border: "1px solid #E2DDD4" }}>
+                  {formatMonthValue(filterMonth)}
+                </span>
+              )}
+            </div>
+          </div>
+        </aside>
+
+        <section className="req-panel-left">
+          <div className="card overflow-hidden mb-4">
+            <div className="px-3 py-2 border-b text-[10px] font-bold tracking-wider" style={{ borderColor: "#E2DDD4", background: "#FAFAF7", color: "#5C6853" }}>
+              PURCHASES · {purchaseYear}
+            </div>
+
+            <div className="intake-table-wrap" style={{ margin: 0, borderRadius: 0, border: "none" }}>
+              <table className="intake-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Purchase</th>
+                    <th>Purchaser</th>
+                    <th>Date</th>
+                    <th>Qty</th>
+                    <th>Total</th>
+                    <th>Month</th>
+                    <th>Status</th>
+                    <th>Reimb. date</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayedItems.length === 0 && (
+                    <tr><td colSpan={10} className="text-center py-8" style={{ color: "#8B9E7A" }}>No purchases found</td></tr>
+                  )}
+                  {displayedItems.map((p, i) => {
+                    const st = STATUS_META[p.status] || STATUS_META.pending;
+                    const active = selectedId === p.id;
+                    return (
+                      <tr
+                        key={p.id}
+                        className={active ? "bg-[#FAFAF7]" : ""}
+                        onClick={() => setSelectedId(p.id)}
+                        style={{ cursor: "pointer" }}
+                      >
+                        <td>{p.row_no || i + 1}</td>
+                        <td>
+                          <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                            {p.category && (
+                              <span className="pill text-[10px] bg-[#F3EFE8]" style={{ color: "#606E52" }}>{p.category}</span>
+                            )}
+                            {(p.line_items || []).length > 1 && (
+                              <span className="pill text-[10px] bg-[#EAF0F3]" style={{ color: "#375568" }}>
+                                {p.line_items.length} items
+                              </span>
+                            )}
+                          </div>
+                          <div className="font-semibold" style={{ color: "#2C3625" }}>{p.item}</div>
+                          {p.description && p.description !== "-" && (
+                            <div className="text-[10px] line-clamp-2" style={{ color: "#8B9E7A" }}>{p.description}</div>
+                          )}
+                        </td>
+                        <td>{resolvePurchaserName(p)}</td>
+                        <td className="text-xs whitespace-nowrap">{fmtDate(p.purchase_date)}</td>
+                        <td>{p.qty || "—"}</td>
+                        <td className="text-xs font-bold" style={{ color: "#6B5218" }}>{fmtMoney(p)}</td>
+                        <td className="text-xs whitespace-nowrap" title={p.purchase_month || ""}>{formatMonthValue(p.purchase_month)}</td>
+                        <td><span className={`pill text-[10px] ${st.cls}`}>{st.icon} {st.label}</span></td>
+                        <td className="text-xs whitespace-nowrap">{fmtDate(p.reimbursement_date)}</td>
+                        <td onClick={(e) => e.stopPropagation()}>
+                          {canSupervisorReview && ["pending", "supervisor_approved"].includes(p.status) && (
+                            <button type="button" className="text-[10px] underline mr-2" onClick={() => updateStatus(p.id, "supervisor_approved")}>Approve</button>
+                          )}
+                          {canManagerFinalize && ["pending_manager", "manager_approved"].includes(p.status) && (
+                            <button type="button" className="text-[10px] underline" onClick={() => updateStatus(p.id, "reimbursed")}>Reimburse</button>
+                          )}
+                          {canDelete && (
+                            <button type="button" className="text-[10px] text-red-700 underline ml-2" onClick={() => deletePurchase(p.id)} title="Delete">
+                              <Trash size={12} className="inline"/> Delete
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {categories.length > 0 && (
+              <div className="text-[10px] p-3 border-t" style={{ color: "#8B9E7A", borderColor: "#EDE9E3" }}>
+                Categories: {categories.join(" · ")}
+              </div>
+            )}
+          </div>
+        </section>
       </div>
 
       {!embedded && (
@@ -520,7 +580,6 @@ export default function Purchases({ embedded = false }) {
         </div>
       </div>
       )}
-      </div>
 
       {addOpen && (
         <ModalBase
