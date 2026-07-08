@@ -2357,10 +2357,11 @@ MASTER_CLIENTS = [
     ("068", "Abdulrahman Alshawi",   "msRazan",    ["msFahda"],                24, "msFahda", "HS",    "AR Rayan"),
     ("070", "Abdulelah Almuhana",    "msAbeer",    ["msMaha"],                 32, "msMaha",  "HS",    "Al-Manziliyah"),
     ("072", "Khalid Bin Shuael",     "msShatha",   ["msFahda"],                24, "msFahda", "HS",    "AlMursalat"),
-    ("076", "Sultan Abalkhail",      "msShatha",   [],                         24, "msFahda", "HS/SS", "Al-Mursalat"),
+    ("076", "Sultan Aba Alkheil (سلطان ابا الخيل)", "msShatha",   [],           24, "msMaha",  "HS/SS", "Al-Mursalat"),
     ("079", "Fahad Suliman",         "msFahda",    ["msFahda"],                40, "msFahda", "HS",    "Al-Sahafa"),
     ("053", "Ahmad Alshalfan",       "msHajer",    ["msFahda"],                24, "msFahda", "HS/SS", "Almalqa"),
     ("080", "Faisal Alzughaibi",     "msFatimah",  [],                         24, "msFahda", "HS",    "Alyasmeen"),
+    ("081", "Abdulmohsen (عبدالمحسن)", "msFahda",  [],                         24, "msFahda", "SS/HS", "TBD"),
 ]
 
 async def _resolve_therapist_id(key_to_id: dict, key: str) -> Optional[str]:
@@ -16906,7 +16907,8 @@ CLIENT_SEED = [
     {"file_no":"068","name":"Abdulrahman Alshawi","main":"Ms. Razan","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#C9DAF8","locs":[{"service":"HS","address":"AR Rayan - Home no 32"}]},
     {"file_no":"070","name":"Abdulelah Almuhana","main":"Ms. Abeer","co":["Ms. Maha"],"pkg":32,"sup":"Ms. Maha","color":"#CFE2F3","locs":[{"service":"HS","address":"Al-Manziliyah"}]},
     {"file_no":"072","name":"Khalid Bin Shuael","main":"Ms. Shatha","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#EAD1DC","locs":[{"service":"HS","address":"AlMursalat"}]},
-    {"file_no":"076","name":"Sultan Abalkhail","main":"Ms. Shatha","co":[],"pkg":24,"sup":"Ms. Fahda","color":"#D0E0E3","locs":[{"service":"HS","address":"Al-Mursalat"},{"service":"SS","address":"Al-Mursalat"}]},
+    {"file_no":"076","name":"Sultan Aba Alkheil (سلطان ابا الخيل)","main":"Ms. Shatha","co":[],"pkg":24,"sup":"Ms. Maha","color":"#D0E0E3","locs":[{"service":"HS","address":"Al-Mursalat"},{"service":"SS","address":"Al-Mursalat"}]},
+    {"file_no":"081","name":"Abdulmohsen (عبدالمحسن)","main":"Ms. Fahda","co":[],"pkg":24,"sup":"Ms. Fahda","color":"#EAD1DC","locs":[{"service":"SS","address":"TBD"}]},
 ]
 
 CLIENT_ATTENDANCE_SHEETS = {
@@ -17020,7 +17022,7 @@ INTAKE_SEED = [
     {"intake_type": "post", "child_name": "Ahmad Alshalfan", "service": "SS/HS", "phone": "505287407", "district": "Almalqa", "age": "2020", "diagnosis": "ADHD and GDD", "priority": True},
     {"intake_type": "post", "child_name": "Abdulelah Almuhana", "service": "HS", "phone": "966565544999", "district": "Al-Taawun", "age": "2021", "priority": True},
     {"intake_type": "post", "child_name": "Faisal Alzghaibi", "service": "HS", "phone": "966507479800", "district": "Alyasmeen", "age": "1445", "priority": False},
-    {"intake_type": "post", "child_name": "Sultan Abalkhail", "service": "HS/SS", "district": "Al-Mursalat", "age": "2019", "priority": False},
+    {"intake_type": "post", "child_name": "Sultan Aba Alkheil (سلطان ابا الخيل)", "service": "HS/SS", "district": "Al-Mursalat", "age": "2019", "priority": False},
     {"intake_type": "post", "child_name": "Leena Alshahrani", "service": "HS", "phone": "530511175", "district": "Alnarjis", "priority": False},
 ]
 
