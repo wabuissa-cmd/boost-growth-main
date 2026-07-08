@@ -150,13 +150,17 @@ function LeaveRequestCard({
     && leaveRequiresDocument(leave.leave_type);
   const pendingHr = leave.status === "pending_hr";
   const showAdminActions = leaveManager || hrReview || portalAdmin || isManager;
-  const [hrStatus, setHrStatus] = useState("approved");
+  // HR must explicitly choose approve/reject (avoid accidental default approvals).
+  const [hrStatus, setHrStatus] = useState("");
   const [hrNote, setHrNote] = useState("");
   const [adjStart, setAdjStart] = useState("");
   const [adjEnd, setAdjEnd] = useState("");
   const [adjDays, setAdjDays] = useState("");
   const [adjStartTime, setAdjStartTime] = useState("");
   const [adjEndTime, setAdjEndTime] = useState("");
+  const [hrValidation, setHrValidation] = useState("");
+  const [adjDaysTouched, setAdjDaysTouched] = useState(false);
+  const [adjTimesTouched, setAdjTimesTouched] = useState(false);
 
   const setStatus = async (status, opts = {}) => {
     try {
@@ -204,6 +208,11 @@ function LeaveRequestCard({
   };
 
   const submitHrDecision = async (opts = {}) => {
+    setHrValidation("");
+    if (!hrStatus) {
+      setHrValidation("Please choose Approved or Rejected before saving.");
+      return;
+    }
     setSavingDecision(true);
     try {
       const payload = {
@@ -224,6 +233,37 @@ function LeaveRequestCard({
       setSavingDecision(false);
     }
   };
+
+  // Default HR adjustments to the original request.
+  // Days auto-calc from the chosen adjusted date range unless HR manually overrides.
+  // For Permission, also default start/end time; HR can override.
+  useEffect(() => {
+    if (!pendingHr || !hrReview || portalAdmin) return;
+    setHrValidation("");
+    setHrStatus("");
+    setHrNote("");
+    setAdjDaysTouched(false);
+    setAdjTimesTouched(false);
+    setAdjStart((leave.start_date || "").slice(0, 10));
+    setAdjEnd((leave.end_date || "").slice(0, 10));
+    const calc = diffDays((leave.start_date || "").slice(0, 10), (leave.end_date || "").slice(0, 10));
+    setAdjDays(calc ? String(calc) : "");
+    if ((leave.leave_type || "") === "Permission") {
+      setAdjStartTime(leave.start_time || "");
+      setAdjEndTime(leave.end_time || "");
+    } else {
+      setAdjStartTime("");
+      setAdjEndTime("");
+    }
+  }, [leave.id, leave.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!pendingHr || !hrReview || portalAdmin) return;
+    if (!adjStart || !adjEnd) return;
+    if (adjDaysTouched) return;
+    const calc = diffDays(adjStart, adjEnd);
+    setAdjDays(calc ? String(calc) : "");
+  }, [adjStart, adjEnd, adjDaysTouched, pendingHr, hrReview, portalAdmin]);
 
   return (
     <div className="card p-5" data-testid={`leave-card-${leave.id}`}>
@@ -327,6 +367,7 @@ function LeaveRequestCard({
                   <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
                     Status
                     <select className="select text-xs w-full mt-1" value={hrStatus} onChange={e => setHrStatus(e.target.value)}>
+                      <option value="">— Select —</option>
                       <option value="approved">Approved</option>
                       <option value="rejected">Rejected</option>
                     </select>
@@ -341,17 +382,23 @@ function LeaveRequestCard({
                   </label>
                   <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
                     Adjust hours (start)
-                    <input type="time" className="input text-xs w-full mt-1" value={adjStartTime} onChange={e => setAdjStartTime(e.target.value)} />
+                    <input type="time" className="input text-xs w-full mt-1" value={adjStartTime} onChange={e => { setAdjTimesTouched(true); setAdjStartTime(e.target.value); }} />
                   </label>
                   <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
                     Adjust hours (end)
-                    <input type="time" className="input text-xs w-full mt-1" value={adjEndTime} onChange={e => setAdjEndTime(e.target.value)} />
+                    <input type="time" className="input text-xs w-full mt-1" value={adjEndTime} onChange={e => { setAdjTimesTouched(true); setAdjEndTime(e.target.value); }} />
                   </label>
                   <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
                     Adjust days
-                    <input type="number" step="0.125" min="0" className="input text-xs w-full mt-1" value={adjDays} onChange={e => setAdjDays(e.target.value)} />
+                    <input type="number" step="0.125" min="0" className="input text-xs w-full mt-1" value={adjDays} onChange={e => { setAdjDaysTouched(true); setAdjDays(e.target.value); }} />
                   </label>
                 </div>
+                {hrValidation && (
+                  <div className="rounded-xl p-2 text-xs font-semibold border"
+                    style={{ background: "#F8EBE7", borderColor: "#ECA6A6", color: "#8A3F27" }}>
+                    {hrValidation}
+                  </div>
+                )}
                 <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
                   HR note (emailed to therapist)
                   <textarea className="input text-xs w-full mt-1" rows={2} placeholder="Optional note…"
@@ -360,7 +407,7 @@ function LeaveRequestCard({
                 <div className="flex gap-2 flex-wrap">
                   <button
                     type="button"
-                    disabled={savingDecision}
+                    disabled={savingDecision || !hrStatus}
                     onClick={() => submitHrDecision({ is_paid: true, deduct_balance: true, successMessage: "Saved (Paid)." })}
                     className="btn btn-primary text-xs"
                     data-testid={`approve-${leave.id}`}
@@ -369,7 +416,7 @@ function LeaveRequestCard({
                   </button>
                   <button
                     type="button"
-                    disabled={savingDecision}
+                    disabled={savingDecision || !hrStatus}
                     onClick={() => submitHrDecision({ is_paid: false, deduct_balance: false, successMessage: "Saved (Unpaid)." })}
                     className="btn btn-secondary text-xs"
                   >
@@ -386,6 +433,7 @@ function LeaveRequestCard({
                   <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
                     Status
                     <select className="select text-xs w-full mt-1" value={hrStatus} onChange={e => setHrStatus(e.target.value)}>
+                      <option value="">— Select —</option>
                       <option value="approved">Approved</option>
                       <option value="rejected">Rejected</option>
                     </select>
@@ -400,9 +448,15 @@ function LeaveRequestCard({
                   </label>
                   <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
                     Adjust days
-                    <input type="number" step="0.5" min="0" className="input text-xs w-full mt-1" value={adjDays} onChange={e => setAdjDays(e.target.value)} />
+                    <input type="number" step="0.5" min="0" className="input text-xs w-full mt-1" value={adjDays} onChange={e => { setAdjDaysTouched(true); setAdjDays(e.target.value); }} />
                   </label>
                 </div>
+                {hrValidation && (
+                  <div className="rounded-xl p-2 text-xs font-semibold border"
+                    style={{ background: "#F8EBE7", borderColor: "#ECA6A6", color: "#8A3F27" }}>
+                    {hrValidation}
+                  </div>
+                )}
                 <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
                   HR note (emailed to therapist)
                   <textarea className="input text-xs w-full mt-1" rows={2} placeholder="Optional note…"
@@ -411,7 +465,7 @@ function LeaveRequestCard({
                 <div className="flex gap-2 flex-wrap">
                   <button
                     type="button"
-                    disabled={savingDecision}
+                    disabled={savingDecision || !hrStatus}
                     onClick={() => submitHrDecision({ successMessage: "Saved." })}
                     className="btn btn-primary text-xs"
                     data-testid={`approve-${leave.id}`}

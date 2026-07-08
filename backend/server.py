@@ -916,10 +916,10 @@ def _can_view_all_leaves(user: dict, scope_norm: str) -> bool:
 
 def _coerce_manager_approve_to_hr(status: str, notify_hr: Optional[bool] = None) -> str:
     """Manager approve → pending_hr when HR follow-up requested, else final approved."""
-    if status in ("approved", "manager_approve"):
-        if notify_hr is False:
-            return "approved"
-        return "pending_hr"
+    # IMPORTANT: only coerce the UI-only manager action key.
+    # HR (and portal admins) send canonical "approved"/"rejected" and must not be coerced.
+    if status == "manager_approve":
+        return "approved" if notify_hr is False else "pending_hr"
     return status
 
 
