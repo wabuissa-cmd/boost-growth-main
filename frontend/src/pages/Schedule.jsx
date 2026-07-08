@@ -680,7 +680,9 @@ export default function Schedule() {
     const weekDates = [0, 1, 2, 3, 4].map(d => toISODate(addDays(weekStart, d)));
     leaves.forEach(l => {
       if (!["approved", "done", "pending"].includes(l.status)) return;
-      const start = l.start_date, end = l.end_date;
+      // Backend normally stores yyyy-mm-dd, but be resilient to full ISO timestamps.
+      const start = String(l.start_date || "").slice(0, 10);
+      const end = String(l.end_date || "").slice(0, 10);
       if (!start || !end) return;
       weekDates.forEach((iso, dayIdx) => {
         if (iso >= start && iso <= end) {

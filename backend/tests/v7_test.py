@@ -177,6 +177,23 @@ class TestLeaveFlow:
         rd = requests.delete(f"{API}/leaves/{lid}", headers=admin_headers)
         assert rd.status_code == 403
 
+    def test_leave_create_accepts_iso_timestamps_normalizes_dates(self, maha_headers):
+        """Regression: schedule overlay expects yyyy-mm-dd comparisons; store date-only even if UI sends timestamps."""
+        m_headers, maha = maha_headers
+        payload = {
+            "therapist_id": maha["id"],
+            "start_date": "2026-07-07T00:00:00.000Z",
+            "end_date": "2026-07-17T23:59:59.000Z",
+            "days": 11,
+            "leave_type": "Annual",
+            "notes": "TEST_v7 iso timestamps",
+        }
+        r = requests.post(f"{API}/leaves", json=payload, headers=m_headers)
+        assert r.status_code == 200, r.text
+        created = r.json()
+        assert created["start_date"] == "2026-07-07"
+        assert created["end_date"] == "2026-07-17"
+
 
 # ---------- Cancel-Notify (schedule cell + email queue) ----------
 class TestCancelNotify:

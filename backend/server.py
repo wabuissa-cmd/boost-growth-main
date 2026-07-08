@@ -13260,6 +13260,9 @@ async def create_leave(payload: LeaveIn, user=Depends(get_current_user)):
     tid, therapist_name = await _resolve_leave_subject(user, payload.therapist_id)
     lid = str(uuid.uuid4())
     body = payload.model_dump()
+    # Accept "YYYY-MM-DD" or full ISO timestamps; store date-only to avoid timezone/range bugs.
+    body["start_date"] = (payload.start_date or "")[:10]
+    body["end_date"] = (payload.end_date or "")[:10]
     leave_type = _canonical_leave_type(payload.leave_type) or (payload.leave_type or "Annual")
     body["leave_type"] = leave_type
     body["therapist_id"] = tid
@@ -13298,6 +13301,9 @@ async def update_leave(lid: str, payload: LeaveIn, user=Depends(get_current_user
     if not _is_portal_admin(user) and leave.get("therapist_id") != user["id"]:
         raise HTTPException(status_code=403, detail="Forbidden")
     update = payload.model_dump()
+    # Keep date-only normalization consistent with create_leave.
+    update["start_date"] = (payload.start_date or "")[:10]
+    update["end_date"] = (payload.end_date or "")[:10]
     await db.leaves.update_one({"id": lid}, {"$set": update})
     return await db.leaves.find_one({"id": lid}, {"_id": 0})
 
