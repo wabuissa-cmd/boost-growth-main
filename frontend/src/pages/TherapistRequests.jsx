@@ -138,6 +138,7 @@ function leaveSubjectId(user) {
 function emptyForm(userId) {
   const today = new Date().toISOString().slice(0, 10);
   return {
+    category: null, // "leave" | "general"
     selectedType: null,
     start_date: today,
     end_date: today,
@@ -265,6 +266,12 @@ export default function TherapistRequests() {
 
   const isLeaveType = (t) => LEAVE_REQUEST_TYPES.some((lt) => lt.id === t);
   const isGeneralType = (t) => GENERAL_REQUEST_TYPES.some((gt) => gt.id === t);
+  const resolvedCategory = useMemo(() => {
+    if (form.category) return form.category;
+    if (isLeaveType(form.selectedType)) return "leave";
+    if (isGeneralType(form.selectedType)) return "general";
+    return null;
+  }, [form.category, form.selectedType]);
   const selectedMeta = useMemo(() => {
     if (!form.selectedType) return null;
     return (
@@ -288,18 +295,28 @@ export default function TherapistRequests() {
 
   const selectLeaveType = (typeId) => {
     if (!typeId) {
-      setForm((f) => ({ ...emptyForm(leaveSubjectId(user)), selectedType: isGeneralType(f.selectedType) ? f.selectedType : null }));
+      setForm((f) => ({
+        ...emptyForm(leaveSubjectId(user)),
+        category: "leave",
+        selectedType: null,
+      }));
       return;
     }
-    selectType(typeId);
+    selectType(typeId, "leave");
+    setModalStep(2);
   };
 
   const selectGeneralType = (typeId) => {
     if (!typeId) {
-      setForm((f) => ({ ...emptyForm(leaveSubjectId(user)), selectedType: isLeaveType(f.selectedType) ? f.selectedType : null }));
+      setForm((f) => ({
+        ...emptyForm(leaveSubjectId(user)),
+        category: "general",
+        selectedType: null,
+      }));
       return;
     }
-    selectType(typeId);
+    selectType(typeId, "general");
+    setModalStep(2);
   };
 
   const leaveDropdownValue = isLeaveType(form.selectedType) ? form.selectedType : "";
@@ -319,10 +336,12 @@ export default function TherapistRequests() {
     testId: `general-type-${t.id}`,
   }));
 
-  const selectType = (typeId) => {
+  const selectType = (typeId, categoryOverride = null) => {
     const today = new Date().toISOString().slice(0, 10);
     setForm((f) => ({
       ...emptyForm(leaveSubjectId(user)),
+      category: categoryOverride
+        || (isLeaveType(typeId) ? "leave" : (isGeneralType(typeId) ? "general" : null)),
       selectedType: typeId,
       therapist_id: leaveSubjectId(user),
       start_date: today,
@@ -687,24 +706,60 @@ export default function TherapistRequests() {
             <div className="min-w-0">
               {modalStep === 1 && (
                 <>
-                  <RequestTypeSelect
-                    label="Leave requests"
-                    desc="Annual · unpaid · sick · permission"
-                    icon={Sun}
-                    value={leaveDropdownValue}
-                    onChange={selectLeaveType}
-                    options={leaveDropdownOptions}
-                    testId="req-leave-type-select"
-                  />
-                  <RequestTypeSelect
-                    label="General requests"
-                    desc="Companies · other · materials"
-                    icon={Briefcase}
-                    value={generalDropdownValue}
-                    onChange={selectGeneralType}
-                    options={generalDropdownOptions}
-                    testId="req-general-type-select"
-                  />
+                  <FormSection title="Choose category">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setForm((f) => ({ ...emptyForm(leaveSubjectId(user)), category: "leave" }))}
+                        className={`p-4 rounded-xl border-2 text-left flex items-center gap-3 transition-all hover:bg-[#E5EBE1]/30 ${resolvedCategory === "leave" ? "border-[var(--brand)] bg-[#E5EBE1]" : ""}`}
+                        style={{ borderColor: resolvedCategory === "leave" ? "var(--brand)" : "#DDD8D0" }}
+                      >
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "#7A8A6A25", color: "#7A8A6A" }}>
+                          <Sun size={18} weight="duotone" />
+                        </div>
+                        <div>
+                          <div className="font-bold text-sm" style={{ color: "#1C2617" }}>Leave</div>
+                          <div className="text-xs mt-0.5" style={{ color: "var(--brand-sage)" }}>Annual · unpaid · sick · permission</div>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setForm((f) => ({ ...emptyForm(leaveSubjectId(user)), category: "general" }))}
+                        className={`p-4 rounded-xl border-2 text-left flex items-center gap-3 transition-all hover:bg-[#E5EBE1]/30 ${resolvedCategory === "general" ? "border-[var(--brand)] bg-[#E5EBE1]" : ""}`}
+                        style={{ borderColor: resolvedCategory === "general" ? "var(--brand)" : "#DDD8D0" }}
+                      >
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "#8B7BA825", color: "#8B7BA8" }}>
+                          <Briefcase size={18} weight="duotone" />
+                        </div>
+                        <div>
+                          <div className="font-bold text-sm" style={{ color: "#1C2617" }}>General</div>
+                          <div className="text-xs mt-0.5" style={{ color: "var(--brand-sage)" }}>Companies · other · materials</div>
+                        </div>
+                      </button>
+                    </div>
+                  </FormSection>
+                  {resolvedCategory === "leave" && (
+                    <RequestTypeSelect
+                      label="Leave requests"
+                      desc="Annual · unpaid · sick · permission"
+                      icon={Sun}
+                      value={leaveDropdownValue}
+                      onChange={selectLeaveType}
+                      options={leaveDropdownOptions}
+                      testId="req-leave-type-select"
+                    />
+                  )}
+                  {resolvedCategory === "general" && (
+                    <RequestTypeSelect
+                      label="General requests"
+                      desc="Companies · other · materials"
+                      icon={Briefcase}
+                      value={generalDropdownValue}
+                      onChange={selectGeneralType}
+                      options={generalDropdownOptions}
+                      testId="req-general-type-select"
+                    />
+                  )}
                 </>
               )}
 
