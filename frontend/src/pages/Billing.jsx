@@ -14,6 +14,7 @@ import { formatServiceTypeDisplay } from "../attendanceUtils";
 import { formatPkgBadge, formatPkgUsedRemaining } from "../packageStatusUtils";
 import {
   Receipt, CheckCircle, EnvelopeSimple, ClipboardText, Warning,
+  MagnifyingGlass, CaretRight, Leaf,
 } from "@phosphor-icons/react";
 
 function invoiceToRow(inv, client, today) {
@@ -110,6 +111,7 @@ export default function Billing() {
   const [selectedInvoiceId, setSelectedInvoiceId] = useState(null);
   const [editRow, setEditRow] = useState(null);
   const [sending, setSending] = useState(false);
+  const [search, setSearch] = useState("");
   const loadSupport = useCallback(() => {
     cachedGet("/clients", { force: true }).then(c => setClients(Array.isArray(c) ? c : [])).catch(() => {});
     cachedGet("/therapists", { force: true }).then(t => setTherapists(Array.isArray(t) ? t : [])).catch(() => {});
@@ -152,6 +154,16 @@ export default function Billing() {
     [clients]
   );
 
+  const filteredClients = useMemo(() => {
+    const q = (search || "").trim().toLowerCase();
+    if (!q) return sortedClients;
+    return sortedClients.filter((c) => {
+      const name = (c.name || "").toLowerCase();
+      const file = String(c.file_no || "").toLowerCase();
+      return name.includes(q) || file.includes(q);
+    });
+  }, [sortedClients, search]);
+
   const clientMap = useMemo(() => {
     const m = {};
     clients.forEach((c) => { m[c.id] = c; });
@@ -179,6 +191,27 @@ export default function Billing() {
     () => allRows.filter(r => r.client_id === selectedClientId),
     [allRows, selectedClientId]
   );
+
+  const clientTotals = useMemo(() => {
+    const total = clientInvoices.reduce((acc, r) => acc + (parseFloat(r.amount) || 0), 0);
+    const paid = clientInvoices.reduce((acc, r) => acc + (parseFloat(r.amount_paid) || 0), 0);
+    const remaining = Math.max(0, total - paid);
+    const openCount = clientInvoices.filter(r => !r.is_closed).length;
+    const overdueCount = clientInvoices.filter(r => (r.payment_status === "pending" || r.payment_status === "partial") && (r.days_unpaid || 0) > 0).length;
+    return { total, paid, remaining, openCount, overdueCount };
+  }, [clientInvoices]);
+
+  const nextPaymentDate = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const due = clientInvoices
+      .filter(r => r.next_payment_reminder_at)
+      .map(r => (r.next_payment_reminder_at || "").slice(0, 10))
+      .filter(Boolean)
+      .sort();
+    if (!due.length) return null;
+    const upcoming = due.find(d => d >= today);
+    return upcoming || due[0];
+  }, [clientInvoices]);
 
   const clientPkg = useMemo(
     () => pkgRows.filter(r => r.client_id === selectedClientId),
@@ -250,20 +283,62 @@ export default function Billing() {
     return <div className="card p-12 text-center"><div className="spinner mx-auto" /></div>;
   }
 
-  const clientSelect = (
-    <select
-      className="input text-sm w-full"
-      value={selectedClientId}
-      onChange={e => onClientChange(e.target.value)}
-      data-testid="billing-client-select"
-    >
-      <option value="">Select a client…</option>
-      {sortedClients.map(c => (
-        <option key={c.id} value={c.id}>
-          {c.name}{c.file_no ? ` (#${c.file_no})` : ""}
-        </option>
-      ))}
-    </select>
+  const clientListPane = (
+    <div className="ci-pane-left">
+      <div className="ci-pane-brand">
+        <h2><Leaf size={14} className="inline mr-1" style={{ verticalAlign: -2 }} /> Clients</h2>
+        <div className="ci-pane-stats">
+          <span><em>{filteredClients.length}</em> shown</span>
+          <span><em>{sortedClients.length}</em> total</span>
+        </div>
+      </div>
+      <div className="p-3 border-b" style={{ borderColor: "#E2DDD4", background: "#fff" }}>
+        <div className="search-pill-wrap">
+          <MagnifyingGlass size={16} className="search-pill-icon" />
+          <input
+            className="input search-pill py-2 text-sm w-full"
+            placeholder="Search name or file #…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search clients"
+          />
+        </div>
+      </div>
+      <div className="ci-pane-list">
+        {filteredClients.map((c) => {
+          const isSelected = selectedClientId === c.id;
+          const bg = c.color || "#E5EBE1";
+          const initials = c.initials || c.name?.charAt(0) || "C";
+          return (
+            <button
+              key={c.id}
+              type="button"
+              className={`ci-client-card${isSelected ? " selected" : ""}`}
+              onClick={() => onClientChange(c.id)}
+              data-testid={`billing-client-${c.id}`}
+            >
+              <div className="ci-client-card-inner">
+                <div className="ci-client-card-avatar" style={{ background: bg, color: "#2C3625" }}>
+                  {initials}
+                </div>
+                <div className="ci-client-card-body">
+                  <div className="ci-client-card-top">
+                    <div className="ci-client-card-name">{c.name}</div>
+                  </div>
+                  <div className="ci-client-card-meta">File #{c.file_no || "—"}</div>
+                </div>
+                <CaretRight size={14} className="ci-client-card-chevron" weight="bold" />
+              </div>
+            </button>
+          );
+        })}
+        {filteredClients.length === 0 && (
+          <div className="p-6 text-center text-xs" style={{ color: "#8B9E7A" }}>
+            No clients match your search.
+          </div>
+        )}
+      </div>
+    </div>
   );
 
   const attentionPanel = (
@@ -344,152 +419,195 @@ export default function Billing() {
       {activeTab === "calendar" ? (
         <InvoiceCalendarTab />
       ) : (
-      <div className="flex flex-col gap-3 min-w-0">
-          <div className="card p-4">
-            <label className="label block mb-2 text-xs font-bold tracking-wide" style={{ color: "#5C6853" }}>
-              CLIENT
-            </label>
-            {clientSelect}
-          </div>
-
-          {selectedClient ? (
-            <>
-              <div className="card p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h2 className="font-display text-lg font-semibold m-0" style={{ color: "#2C3625" }}>{selectedClient.name}</h2>
-                    <p className="text-xs m-0 mt-1" style={{ color: "#8B9E7A" }}>File #{selectedClient.file_no || "—"}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => openSheetForClient(selectedClient)}
-                    className="btn btn-primary text-xs min-h-[40px]"
-                  >
-                    <ClipboardText size={14} /> Open Invoice Sheet
-                  </button>
-                </div>
-
-                {clientPkg.length > 0 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
-                    {clientPkg.map(row => {
-                      const ur = formatPkgUsedRemaining(row);
-                      const needsInvoice = ["critical", "expired", "low"].includes(row.status);
-                      return (
-                        <div
-                          key={`${row.client_id}-${row.service_type}`}
-                          className="p-3 rounded-xl border"
-                          style={{ borderColor: needsInvoice ? "#E8C4A8" : "#E2DDD4", background: needsInvoice ? "#FDF8F3" : "#FAFAF7" }}
-                        >
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-bold text-sm" style={{ color: "#2C3625" }}>{row.service_type}</span>
-                            {needsInvoice && <Warning size={16} weight="fill" style={{ color: "#C4783A" }} />}
-                          </div>
-                          <p className="text-xs m-0" style={{ color: "#5C6853" }}>{formatPkgBadge(row)}</p>
-                          <p className="text-[11px] m-0 mt-1" style={{ color: "#8B9E7A" }}>
-                            {ur.used} used · {ur.remaining} remaining
-                          </p>
-                          {needsInvoice && (
-                            <p className="text-[11px] font-bold m-0 mt-2" style={{ color: "#8A3F27" }}>
-                              Upload / issue invoice soon
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              <div className="card overflow-hidden flex flex-col max-h-[420px]">
-                <div className="px-3 py-2 border-b text-xs font-bold tracking-wider shrink-0" style={{ borderColor: "#EDE9E3", color: "#5C6853", background: "#FAFAF7" }}>
-                  INVOICE HISTORY · {clientInvoices.length}
-                </div>
-                <div className="overflow-y-auto flex-1 min-h-0">
-                  {clientInvoices.length === 0 ? (
-                    <div className="p-6 text-center text-xs" style={{ color: "#8B9E7A" }}>No invoices on file.</div>
-                  ) : clientInvoices.map(row => {
-                    const st = paymentStatusStyle(row.payment_status);
-                    const active = selectedInvoiceId === row.invoice_id;
-                    return (
+        <div className="ci-naturora">
+          <div className="ci-canvas">
+            {clientListPane}
+            <div className="ci-pane-right">
+              {selectedClient ? (
+                <div className="ci-profile-body">
+                  <div className="ci-profile-card">
+                    <div
+                      className="ci-profile-avatar"
+                      style={{ background: selectedClient.color || "#E5EBE1", color: "#2C3625" }}
+                    >
+                      {selectedClient.initials || selectedClient.name?.charAt(0)}
+                    </div>
+                    <div className="ci-profile-info">
+                      <h1>{selectedClient.name}</h1>
+                      <dl className="ci-profile-grid">
+                        <dt>File</dt><dd>#{selectedClient.file_no || "—"}</dd>
+                        <dt>Invoices</dt><dd>{clientInvoices.length}</dd>
+                        <dt>Next payment</dt><dd>{nextPaymentDate || "—"}</dd>
+                        <dt>Remaining</dt><dd>{formatMoney(clientTotals.remaining)}</dd>
+                      </dl>
+                    </div>
+                    <div className="ci-profile-actions">
                       <button
-                        key={row.invoice_id}
                         type="button"
-                        onClick={() => setSelectedInvoiceId(row.invoice_id)}
-                        className={`w-full text-left px-3 py-2.5 border-b transition text-xs ${active ? "bg-[#E5EBE1]" : "hover:bg-[#FAFAF7]"}`}
-                        style={{ borderColor: "#EDE9E3" }}
+                        onClick={() => openSheetForClient(selectedClient)}
+                        className="ci-btn-purple"
                       >
-                        <div className="font-semibold truncate" style={{ color: "#2C3625" }}>{row.invoice_number || "Invoice"}</div>
-                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                          <span className="pill text-[9px] font-bold px-1.5 py-0.5" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>
+                        <ClipboardText size={14} className="inline mr-1" style={{ verticalAlign: -2 }} />
+                        Invoice Sheet
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="card p-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="p-3 rounded-xl border" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+                        <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>TOTAL</div>
+                        <div className="text-sm font-bold" style={{ color: "#2C3625" }}>{formatMoney(clientTotals.total)}</div>
+                      </div>
+                      <div className="p-3 rounded-xl border" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+                        <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>PAID</div>
+                        <div className="text-sm font-bold" style={{ color: "#2C3625" }}>{formatMoney(clientTotals.paid)}</div>
+                      </div>
+                      <div className="p-3 rounded-xl border" style={{ borderColor: clientTotals.remaining > 0 ? "#E8C4A8" : "#E2DDD4", background: clientTotals.remaining > 0 ? "#FDF8F3" : "#FAFAF7" }}>
+                        <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>REMAINING</div>
+                        <div className="text-sm font-bold" style={{ color: clientTotals.remaining > 0 ? "#8A3F27" : "#2C3625" }}>{formatMoney(clientTotals.remaining)}</div>
+                      </div>
+                      <div className="p-3 rounded-xl border" style={{ borderColor: clientTotals.overdueCount > 0 ? "#E8C4A8" : "#E2DDD4", background: clientTotals.overdueCount > 0 ? "#FDF8F3" : "#FAFAF7" }}>
+                        <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>OVERDUE</div>
+                        <div className="text-sm font-bold" style={{ color: clientTotals.overdueCount > 0 ? "#8A3F27" : "#2C3625" }}>{clientTotals.overdueCount}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {clientPkg.length > 0 && (
+                    <div className="card p-4">
+                      <div className="text-xs font-bold tracking-wider mb-2" style={{ color: "#5C6853" }}>
+                        PACKAGE STATUS
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {clientPkg.map(row => {
+                          const ur = formatPkgUsedRemaining(row);
+                          const needsInvoice = ["critical", "expired", "low"].includes(row.status);
+                          return (
+                            <div
+                              key={`${row.client_id}-${row.service_type}`}
+                              className="p-3 rounded-xl border"
+                              style={{ borderColor: needsInvoice ? "#E8C4A8" : "#E2DDD4", background: needsInvoice ? "#FDF8F3" : "#FAFAF7" }}
+                            >
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-bold text-sm" style={{ color: "#2C3625" }}>{row.service_type}</span>
+                                {needsInvoice && <Warning size={16} weight="fill" style={{ color: "#C4783A" }} />}
+                              </div>
+                              <p className="text-xs m-0" style={{ color: "#5C6853" }}>{formatPkgBadge(row)}</p>
+                              <p className="text-[11px] m-0 mt-1" style={{ color: "#8B9E7A" }}>
+                                {ur.used} used · {ur.remaining} remaining
+                              </p>
+                              {needsInvoice && (
+                                <p className="text-[11px] font-bold m-0 mt-2" style={{ color: "#8A3F27" }}>
+                                  Upload / issue invoice soon
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="card overflow-hidden flex flex-col max-h-[420px]">
+                    <div className="px-3 py-2 border-b text-xs font-bold tracking-wider shrink-0" style={{ borderColor: "#EDE9E3", color: "#5C6853", background: "#FAFAF7" }}>
+                      INVOICE HISTORY · {clientInvoices.length}
+                    </div>
+                    <div className="overflow-y-auto flex-1 min-h-0">
+                      {clientInvoices.length === 0 ? (
+                        <div className="p-6 text-center text-xs" style={{ color: "#8B9E7A" }}>No invoices on file.</div>
+                      ) : clientInvoices.map(row => {
+                        const st = paymentStatusStyle(row.payment_status);
+                        const active = selectedInvoiceId === row.invoice_id;
+                        return (
+                          <button
+                            key={row.invoice_id}
+                            type="button"
+                            onClick={() => setSelectedInvoiceId(row.invoice_id)}
+                            className={`w-full text-left px-3 py-2.5 border-b transition text-xs ${active ? "bg-[#E5EBE1]" : "hover:bg-[#FAFAF7]"}`}
+                            style={{ borderColor: "#EDE9E3" }}
+                          >
+                            <div className="font-semibold truncate" style={{ color: "#2C3625" }}>{row.invoice_number || "Invoice"}</div>
+                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                              <span className="pill text-[9px] font-bold px-1.5 py-0.5" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>
+                                {paymentStatusLabel(row.payment_status)}
+                              </span>
+                              <span className="pill text-[9px] font-bold px-1.5 py-0.5" style={{
+                                background: row.is_closed ? "#F0EDE9" : "#E5EBE1",
+                                color: row.is_closed ? "#5C6853" : "#3D4F35",
+                                border: `1px solid ${row.is_closed ? "#E2DDD4" : "#B4C2A9"}`,
+                              }}>
+                                {row.is_closed ? "Closed" : "Open"}
+                              </span>
+                              <span style={{ color: "#8B9E7A" }}>{row.start_date || "—"}</span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {selectedInvoiceId && (() => {
+                    const row = clientInvoices.find(r => r.invoice_id === selectedInvoiceId);
+                    if (!row) return null;
+                    const st = paymentStatusStyle(row.payment_status);
+                    return (
+                      <div className="card p-3 text-xs">
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          <span className="font-bold">{row.invoice_number}</span>
+                          <span className="pill text-[10px] font-bold px-2 py-0.5" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>
                             {paymentStatusLabel(row.payment_status)}
                           </span>
-                          <span className="pill text-[9px] font-bold px-1.5 py-0.5" style={{
+                          <span className="pill text-[10px] font-bold px-2 py-0.5" style={{
                             background: row.is_closed ? "#F0EDE9" : "#E5EBE1",
                             color: row.is_closed ? "#5C6853" : "#3D4F35",
                             border: `1px solid ${row.is_closed ? "#E2DDD4" : "#B4C2A9"}`,
                           }}>
                             {row.is_closed ? "Closed" : "Open"}
                           </span>
-                          <span style={{ color: "#8B9E7A" }}>{row.start_date || "—"}</span>
                         </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {selectedInvoiceId && (() => {
-                const row = clientInvoices.find(r => r.invoice_id === selectedInvoiceId);
-                if (!row) return null;
-                const st = paymentStatusStyle(row.payment_status);
-                return (
-                  <div className="card p-3 text-xs">
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <span className="font-bold">{row.invoice_number}</span>
-                      <span className="pill text-[10px] font-bold px-2 py-0.5" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>
-                        {paymentStatusLabel(row.payment_status)}
-                      </span>
-                      <span className="pill text-[10px] font-bold px-2 py-0.5" style={{
-                        background: row.is_closed ? "#F0EDE9" : "#E5EBE1",
-                        color: row.is_closed ? "#5C6853" : "#3D4F35",
-                        border: `1px solid ${row.is_closed ? "#E2DDD4" : "#B4C2A9"}`,
-                      }}>
-                        {row.is_closed ? "Closed" : "Open"}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1" style={{ color: "#5C6853" }}>
-                      <span>{formatServiceTypeDisplay(row.service_type) || row.service_type}</span>
-                      {row.amount != null && <span>{formatMoney(row.amount)}</span>}
-                      {row.payment_status === "partial" && row.amount_remaining != null && (
-                        <span>{formatMoney(row.amount_remaining)} remaining</span>
-                      )}
-                      {row.payment_status === "pending" && row.days_unpaid > 0 && (
-                        <span className="font-bold" style={{ color: "#8A3F27" }}>{row.days_unpaid}d unpaid</span>
-                      )}
-                    </div>
-                    {canEditInvoice && (
-                      <div className="flex gap-2 mt-2">
-                        <button
-                          type="button"
-                          className="btn btn-secondary text-[10px] px-2 py-1 min-h-0"
-                          onClick={() => setEditRow(row)}
-                          data-testid="billing-edit-invoice-btn"
-                        >
-                          Edit invoice
-                        </button>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1" style={{ color: "#5C6853" }}>
+                          <span>{formatServiceTypeDisplay(row.service_type) || row.service_type}</span>
+                          {row.amount != null && <span>{formatMoney(row.amount)}</span>}
+                          {row.payment_status === "partial" && row.amount_remaining != null && (
+                            <span>{formatMoney(row.amount_remaining)} remaining</span>
+                          )}
+                          {row.payment_status === "pending" && row.days_unpaid > 0 && (
+                            <span className="font-bold" style={{ color: "#8A3F27" }}>{row.days_unpaid}d unpaid</span>
+                          )}
+                          {row.next_payment_reminder_at && (
+                            <span className="pill text-[10px] font-bold px-2 py-0.5" style={{ background: "#F0E9D8", color: "#5C6853", border: "1px solid #E2DDD4" }}>
+                              Next: {(row.next_payment_reminder_at || "").slice(0, 10)}
+                            </span>
+                          )}
+                        </div>
+                        {canEditInvoice && (
+                          <div className="flex gap-2 mt-2">
+                            <button
+                              type="button"
+                              className="btn btn-secondary text-[10px] px-2 py-1 min-h-0"
+                              onClick={() => setEditRow(row)}
+                              data-testid="billing-edit-invoice-btn"
+                            >
+                              Edit invoice
+                            </button>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                );
-              })()}
-            </>
-          ) : (
-            <div className="card p-8 text-center">
-              <Receipt size={40} weight="duotone" className="mx-auto mb-3" style={{ color: "#7A8A6A" }} />
-              <p className="text-sm m-0" style={{ color: "#5C6853" }}>Choose a client above to view invoices, package balance & payment details.</p>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <div className="p-12 text-center">
+                  <Receipt size={44} weight="duotone" className="mx-auto mb-3" style={{ color: "#7A8A6A" }} />
+                  <p className="text-sm m-0" style={{ color: "#5C6853" }}>
+                    اختر عميل من القائمة اليسار لعرض الفواتير، موعد الدفعة القادمة، والملخص المالي.
+                  </p>
+                </div>
+              )}
             </div>
-          )}
-      </div>
+          </div>
+        </div>
       )}
 
       {editRow && (
