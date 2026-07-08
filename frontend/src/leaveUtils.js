@@ -42,7 +42,8 @@ export const DOC_TYPES = [
   { id: "other", label: "Other Document" },
 ];
 
-const DOC_REQUIRED_TYPES = new Set(["Sickleave", "Absence", "Permission"]);
+// Permission (استئذان) attachments are optional (therapists may not have a file).
+const DOC_REQUIRED_TYPES = new Set(["Sickleave", "Absence"]);
 
 export const ATTACHMENT_REQUIRED_MSG = "Request will NOT be reviewed until file is uploaded.";
 

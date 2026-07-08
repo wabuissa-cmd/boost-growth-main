@@ -33,7 +33,7 @@ const LEAVE_REQUEST_TYPES = [
   { id: "Annual", label: "Annual leave", icon: Sun, color: "#7A8A6A", needsFile: false, optionalFile: true },
   { id: "Unpaid", label: "Unpaid leave", icon: ClockAfternoon, color: "#C28E6A", needsFile: false, optionalFile: true },
   { id: "Sickleave", label: "Sick leave", icon: Heartbeat, color: "#9B7BAB", needsFile: true },
-  { id: "Permission", label: "Permission", icon: CalendarBlank, color: "#6BAA9B", needsFile: true },
+  { id: "Permission", label: "Permission", icon: CalendarBlank, color: "#6BAA9B", needsFile: false, optionalFile: true },
 ];
 
 const GENERAL_REQUEST_TYPES = [
@@ -362,7 +362,6 @@ export default function TherapistRequests() {
     if (!form.selectedType || submitting) return false;
     if (form.selectedType === "Permission") {
       if (!form.start_time || !form.end_time) return false;
-      if (!form.attachmentFile) return false;
       return true;
     }
     if (isLeaveType(form.selectedType)) {
@@ -847,13 +846,10 @@ export default function TherapistRequests() {
                         placeholder="Reason for permission…"
                       />
                     </FormField>
-                    <div className="req-wizard-alert">
-                      {ATTACHMENT_REQUIRED_MSG}
-                    </div>
-                    <FormField label="Supporting document" required hint="PDF or image — required">
+                    <FormField label="Supporting document" hint="Optional — PDF or image (if available)">
                       <label className="req-file-upload">
                         <UploadSimple size={15} weight="duotone" />
-                        <span>{form.attachmentFile ? form.attachmentFile.name : "Choose file"}</span>
+                        <span>{form.attachmentFile ? form.attachmentFile.name : "Choose file (optional)"}</span>
                         <input
                           type="file"
                           accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx"

@@ -834,7 +834,8 @@ HR_OPS_EMAIL = "hr@boostgrowthsa.com"
 HR_OPS_PASSWORD = UNIFIED_LAUNCH_PASSWORD  # Boost@2026 — set on first seed only; never overwritten on deploy
 JENAN_EMAIL = "jsalmuhaisin@boostgrowthsa.com"
 PENDING_MANAGER_STATUSES = frozenset({"pending", "pending_manager"})
-LEAVE_DOC_REQUIRED_TYPES = frozenset({"Sickleave", "Absence", "Permission"})
+# Permission (استئذان) must be submit-able without attachments.
+LEAVE_DOC_REQUIRED_TYPES = frozenset({"Sickleave", "Absence"})
 PENDING_MANAGER_REQUEST_STATUSES = frozenset({"pending", "pending_manager"})
 MANAGER_ACTIVE_REQUEST_STATUSES = frozenset({"pending", "pending_manager", "in_progress"})
 MANAGER_FORWARD_HR_LEAVE_SOURCES = PENDING_MANAGER_STATUSES | frozenset({"pending_attachment"})
