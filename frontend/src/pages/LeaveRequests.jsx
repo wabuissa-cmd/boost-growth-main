@@ -142,6 +142,7 @@ function LeaveRequestCard({
   const canUpload = leaveManager || portalAdmin || leave.therapist_id === user?.id;
   const canEditOwn = personal && leave.therapist_id === user?.id && isPendingLeaveStatus(leave.status);
   const [marking, setMarking] = useState(false);
+  const [savingDecision, setSavingDecision] = useState(false);
   const [impactOpen, setImpactOpen] = useState(false);
   const attachRef = useRef(null);
   const pendingManager = isManagerReviewableLeave(leave);
@@ -149,15 +150,33 @@ function LeaveRequestCard({
     && leaveRequiresDocument(leave.leave_type);
   const pendingHr = leave.status === "pending_hr";
   const showAdminActions = leaveManager || hrReview || portalAdmin || isManager;
+  const [hrStatus, setHrStatus] = useState("approved");
+  const [hrNote, setHrNote] = useState("");
+  const [adjStart, setAdjStart] = useState("");
+  const [adjEnd, setAdjEnd] = useState("");
+  const [adjDays, setAdjDays] = useState("");
+  const [adjStartTime, setAdjStartTime] = useState("");
+  const [adjEndTime, setAdjEndTime] = useState("");
 
   const setStatus = async (status, opts = {}) => {
-    await api.put(`/leaves/${leave.id}/status`, {
-      status,
-      is_paid: opts.is_paid,
-      deduct_balance: opts.deduct_balance,
-      admin_note: opts.admin_note,
-    });
-    onRefresh();
+    try {
+      await api.put(`/leaves/${leave.id}/status`, {
+        status,
+        is_paid: opts.is_paid,
+        deduct_balance: opts.deduct_balance,
+        admin_note: opts.admin_note,
+        adjusted_start_date: opts.adjusted_start_date,
+        adjusted_end_date: opts.adjusted_end_date,
+        adjusted_days: opts.adjusted_days,
+        adjusted_start_time: opts.adjusted_start_time,
+        adjusted_end_time: opts.adjusted_end_time,
+      });
+      await onRefresh();
+      if (opts.successMessage) alert(opts.successMessage);
+    } catch (e) {
+      alert("Action failed: " + (e.response?.data?.detail || e.message));
+      throw e;
+    }
   };
 
   const unpaidLabel = permissionPayLabel(leave);
@@ -181,6 +200,28 @@ function LeaveRequestCard({
       alert("Failed: " + (e.response?.data?.detail || e.message));
     } finally {
       setMarking(false);
+    }
+  };
+
+  const submitHrDecision = async (opts = {}) => {
+    setSavingDecision(true);
+    try {
+      const payload = {
+        admin_note: (hrNote || "").trim() || undefined,
+        adjusted_start_date: adjStart || undefined,
+        adjusted_end_date: adjEnd || undefined,
+        adjusted_days: adjDays === "" ? undefined : parseFloat(adjDays),
+        adjusted_start_time: adjStartTime || undefined,
+        adjusted_end_time: adjEndTime || undefined,
+        successMessage: opts.successMessage || "Saved.",
+      };
+      await setStatus(hrStatus, {
+        ...payload,
+        is_paid: opts.is_paid,
+        deduct_balance: opts.deduct_balance,
+      });
+    } finally {
+      setSavingDecision(false);
     }
   };
 
@@ -281,25 +322,104 @@ function LeaveRequestCard({
           )}
           {hrReview && pendingHr && !portalAdmin && leave.leave_type === "Permission" && (
             <>
-              <button onClick={() => setStatus("approved", { is_paid: true, deduct_balance: true })} className="btn btn-primary text-xs" data-testid={`approve-${leave.id}`}>
-                <CheckCircle size={14} /> Approve (Paid)
-              </button>
-              <button onClick={() => setStatus("approved", { is_paid: false, deduct_balance: false })} className="btn btn-secondary text-xs">
-                <CheckCircle size={14} /> Approve (Unpaid)
-              </button>
-              <button onClick={() => setStatus("rejected")} className="btn btn-outline text-xs" data-testid={`reject-${leave.id}`}>
-                <XCircle size={14} /> Reject
-              </button>
+              <div className="w-full grid gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+                  <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
+                    Status
+                    <select className="select text-xs w-full mt-1" value={hrStatus} onChange={e => setHrStatus(e.target.value)}>
+                      <option value="approved">Approved</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                  </label>
+                  <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
+                    Adjust (from)
+                    <input type="date" className="input text-xs w-full mt-1" value={adjStart} onChange={e => setAdjStart(e.target.value)} />
+                  </label>
+                  <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
+                    Adjust (to)
+                    <input type="date" className="input text-xs w-full mt-1" value={adjEnd} onChange={e => setAdjEnd(e.target.value)} />
+                  </label>
+                  <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
+                    Adjust hours (start)
+                    <input type="time" className="input text-xs w-full mt-1" value={adjStartTime} onChange={e => setAdjStartTime(e.target.value)} />
+                  </label>
+                  <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
+                    Adjust hours (end)
+                    <input type="time" className="input text-xs w-full mt-1" value={adjEndTime} onChange={e => setAdjEndTime(e.target.value)} />
+                  </label>
+                  <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
+                    Adjust days
+                    <input type="number" step="0.125" min="0" className="input text-xs w-full mt-1" value={adjDays} onChange={e => setAdjDays(e.target.value)} />
+                  </label>
+                </div>
+                <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
+                  HR note (emailed to therapist)
+                  <textarea className="input text-xs w-full mt-1" rows={2} placeholder="Optional note…"
+                    value={hrNote} onChange={e => setHrNote(e.target.value)} />
+                </label>
+                <div className="flex gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    disabled={savingDecision}
+                    onClick={() => submitHrDecision({ is_paid: true, deduct_balance: true, successMessage: "Saved (Paid)." })}
+                    className="btn btn-primary text-xs"
+                    data-testid={`approve-${leave.id}`}
+                  >
+                    <CheckCircle size={14} /> {savingDecision ? "Saving…" : "Save (Paid)"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={savingDecision}
+                    onClick={() => submitHrDecision({ is_paid: false, deduct_balance: false, successMessage: "Saved (Unpaid)." })}
+                    className="btn btn-secondary text-xs"
+                  >
+                    <CheckCircle size={14} /> {savingDecision ? "Saving…" : "Save (Unpaid)"}
+                  </button>
+                </div>
+              </div>
             </>
           )}
           {hrReview && pendingHr && !portalAdmin && leave.leave_type !== "Permission" && (
             <>
-              <button onClick={() => setStatus("approved")} className="btn btn-primary text-xs" data-testid={`approve-${leave.id}`}>
-                <CheckCircle size={14} /> Approve
-              </button>
-              <button onClick={() => setStatus("rejected")} className="btn btn-outline text-xs" data-testid={`reject-${leave.id}`}>
-                <XCircle size={14} /> Reject
-              </button>
+              <div className="w-full grid gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end">
+                  <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
+                    Status
+                    <select className="select text-xs w-full mt-1" value={hrStatus} onChange={e => setHrStatus(e.target.value)}>
+                      <option value="approved">Approved</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                  </label>
+                  <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
+                    Adjust (from)
+                    <input type="date" className="input text-xs w-full mt-1" value={adjStart} onChange={e => setAdjStart(e.target.value)} />
+                  </label>
+                  <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
+                    Adjust (to)
+                    <input type="date" className="input text-xs w-full mt-1" value={adjEnd} onChange={e => setAdjEnd(e.target.value)} />
+                  </label>
+                  <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
+                    Adjust days
+                    <input type="number" step="0.5" min="0" className="input text-xs w-full mt-1" value={adjDays} onChange={e => setAdjDays(e.target.value)} />
+                  </label>
+                </div>
+                <label className="text-[11px] font-bold" style={{ color: "#5C6853" }}>
+                  HR note (emailed to therapist)
+                  <textarea className="input text-xs w-full mt-1" rows={2} placeholder="Optional note…"
+                    value={hrNote} onChange={e => setHrNote(e.target.value)} />
+                </label>
+                <div className="flex gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    disabled={savingDecision}
+                    onClick={() => submitHrDecision({ successMessage: "Saved." })}
+                    className="btn btn-primary text-xs"
+                    data-testid={`approve-${leave.id}`}
+                  >
+                    <CheckCircle size={14} /> {savingDecision ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </div>
             </>
           )}
           {portalAdmin && pendingHr && (
@@ -643,6 +763,7 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
   const hrReview = !personal && canHrReviewLeaves(user);
   const isManager = !personal && isJenan(user) && !portalAdmin;
   const reviewerView = leaveManager || hrReview || isManager || portalAdmin;
+  const [statusFilter, setStatusFilter] = useState("");
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
   const [tab, setTab] = useState("active");
@@ -733,8 +854,11 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
     if (grievanceTypes?.length) {
       list = list.filter(l => grievanceTypes.includes(l.leave_type));
     }
+    if (statusFilter) {
+      list = list.filter(l => l.status === statusFilter);
+    }
     return list.sort((a, b) => String(b.start_date).localeCompare(String(a.start_date)));
-  }, [reviewerView, activeLeaves, leaves, therapistFilter, isManager, hrReview, portalAdmin, leaveManager, grievanceTypes]);
+  }, [reviewerView, activeLeaves, leaves, therapistFilter, isManager, hrReview, portalAdmin, leaveManager, grievanceTypes, statusFilter]);
 
   const filteredTherapist = therapistFilter ? therapists.find(t => t.id === therapistFilter) : null;
   const therapistProfileView = Boolean(therapistFilter && reviewerView);
@@ -829,7 +953,7 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
       )}
 
       {reviewerView && !therapistProfileView && (
-        <div className="flex gap-2 mb-5">
+        <div className="flex gap-2 mb-5 items-center flex-wrap">
           {[
             { id: "active", label: "Active Requests" },
             { id: "history", label: "History" },
@@ -839,6 +963,15 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
               {t.label}
             </button>
           ))}
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-xs font-bold" style={{ color: "#5C6853" }}>Status</span>
+            <select className="select text-xs" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+              <option value="">All</option>
+              {Object.entries(LEAVE_STATUS).map(([k, v]) => (
+                <option key={k} value={k}>{v.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
       )}
 
