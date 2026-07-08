@@ -4718,10 +4718,9 @@ async def _notify_purchase_submitted(purchaser_name: str, item: str, category: s
 
 
 def _urgent_email_subject(subject: str) -> str:
-    s = (subject or "").strip()
-    if s.startswith("[عاجل]") or s.startswith("[Urgent]"):
-        return s
-    return f"[عاجل] [Urgent] {s}"
+    # Legacy helper: previously prefixed subjects with "[Urgent]".
+    # Requests are no longer labeled urgent in subject lines.
+    return (subject or "").strip()
 
 
 def _portal_base_url() -> str:
@@ -4801,18 +4800,92 @@ async def _notify_hr_manager_decision(
     await _email_hr_ops_urgent(hr_title, hr_body)
 
 
-async def _notify_request_submitted(title: str, message: str, *, email_subject: Optional[str] = None):
-    """Jenan and HR both get in-app + urgent email when a therapist submits a request."""
-    jenan_id = await _jenan_therapist_id()
-    if jenan_id:
-        await _notify(jenan_id, "request_new", title, message)
-    await _notify_hr_ops("request_new", title, message)
-    body = f"{message}\n"
+def _display_request_type(request_type: Optional[str]) -> str:
+    t = (request_type or "").strip()
+    if not t:
+        return "Request"
+    norm = t.replace("_", " ").strip()
+    return norm[:1].upper() + norm[1:]
+
+
+def _yes_no(val: bool) -> str:
+    return "Yes" if bool(val) else "No"
+
+
+def _format_request_email_body(req: dict) -> str:
+    """Human-friendly staff-request email body (Jenan + HR)."""
+    requester = (req.get("therapist_name") or "—").strip() or "—"
+    rtype = _display_request_type(req.get("request_type"))
+    title = (req.get("title") or "—").strip() or "—"
+    priority = (req.get("priority") or "normal").strip()
+    date_from = (req.get("date_from") or "").strip()
+    date_to = (req.get("date_to") or "").strip()
+    desc = (req.get("description") or "").strip()
+    extra = (req.get("extra_notes") or "").strip()
+    reward = (req.get("reward_type") or "").strip()
+    requires_attachment = bool(req.get("requires_attachment"))
+    has_attachment = bool(req.get("attachment_file_path") or req.get("attachment_file_name"))
+    attach_name = (req.get("attachment_file_name") or req.get("attachment_file_path") or "").strip()
+    status = (req.get("status") or "").strip() or "pending_manager"
+    created_at = (req.get("created_at") or "").strip()
+
+    lines = [
+        "A staff request has been submitted and is pending review.",
+        "",
+        "Request details",
+        f"- Type: {rtype}",
+        f"- Requested by: {requester}",
+        f"- Title: {title}",
+        f"- Priority: {priority}",
+    ]
+    if created_at:
+        lines.append(f"- Submitted at: {created_at}")
+    if date_from or date_to:
+        if date_from and date_to and date_from != date_to:
+            lines.append(f"- Date/time window: {date_from} → {date_to}")
+        else:
+            lines.append(f"- Date/time window: {date_from or date_to}")
+    if reward:
+        lines.append(f"- Reward type: {reward}")
+    lines += [
+        f"- Attachment required: {_yes_no(requires_attachment)}",
+        f"- Attachment uploaded: {_yes_no(has_attachment)}" + (f" ({attach_name})" if has_attachment and attach_name else ""),
+        f"- Current status: {status}",
+        "",
+    ]
+    if desc:
+        lines += ["Notes", desc, ""]
+    if extra:
+        lines += ["Extra notes", extra, ""]
+
+    lines += [
+        "Next steps",
+        "- Manager reviews the request in the portal.",
+        "- After manager action, HR will proceed as needed.",
+    ]
     portal = _portal_base_url()
     if portal:
-        body += f"\nReview in portal: {portal}/requests\n"
-    body += "\n— Boost Growth Portal"
-    subj = email_subject or title
+        lines += ["", f"Review in portal: {portal}/requests"]
+        if has_attachment:
+            lines += [f"Attachment: {portal}/requests"]
+    lines += ["", "— Boost Growth Portal"]
+    return "\n".join(lines).strip() + "\n"
+
+
+async def _notify_request_submitted(req: dict):
+    """Jenan and HR both get in-app + email when a therapist submits a request."""
+    requester = (req.get("therapist_name") or "Staff").strip() or "Staff"
+    rtype = _display_request_type(req.get("request_type"))
+    title = (req.get("title") or "").strip()
+    subj = f"Staff request — {rtype}" + (f" — {title}" if title else "") + f" — {requester}"
+    msg = f"{requester}: {rtype}" + (f" — {title}" if title else "")
+
+    jenan_id = await _jenan_therapist_id()
+    if jenan_id:
+        await _notify(jenan_id, "request_new", subj, msg)
+    await _notify_hr_ops("request_new", subj, msg)
+
+    body = _format_request_email_body(req)
     await _send_urgent_email(await _jenan_recipient_email(), subj, body)
     await _email_hr_ops_urgent(subj, body)
 
@@ -4838,12 +4911,23 @@ async def _notify_leave_submitted(
     start_date: str,
     end_date: str,
     days: float,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
     notes: Optional[str] = None,
 ):
     """Jenan gets in-app + email on new leave (HR notified only after manager forwards)."""
     leave_label = _display_leave_type(leave_type)
-    title = f"New leave request from {therapist_name or 'Therapist'}"
-    summary = f"{leave_label} — {start_date} → {end_date} ({days:g} day(s))"
+    subject = f"Leave request — {leave_label} — {therapist_name or 'Therapist'}"
+    window = f"{start_date} → {end_date}"
+    if leave_label == "Permission" and (start_time or "").strip() and (end_time or "").strip():
+        window = f"{start_date} {start_time.strip()[:5]} → {end_date} {end_time.strip()[:5]}"
+    hours: Optional[float] = None
+    if (start_time or "").strip() and (end_time or "").strip():
+        hours = _session_hours_from_times(start_time.strip()[:5], end_time.strip()[:5])
+    title = subject
+    summary = f"{leave_label} — {window} ({days:g} day(s))"
+    if hours is not None:
+        summary += f" — {hours:g} hour(s)"
     jenan_id = await _jenan_therapist_id()
     if jenan_id:
         await _notify(jenan_id, "leave_request", title, summary)
@@ -4854,16 +4938,18 @@ async def _notify_leave_submitted(
         "A therapist has submitted a new leave request and it is pending your review.\n\n"
         f"Therapist: {therapist_name or '—'}\n"
         f"Leave type: {leave_label}\n"
-        f"Date range: {start_date} → {end_date}\n"
+        f"Date/time window: {window}\n"
         f"Total days: {days:g}\n"
     )
+    if hours is not None:
+        body += f"Total hours: {hours:g}\n"
     if (notes or "").strip():
         body += f"\nNotes:\n{notes.strip()}\n"
     portal = _portal_base_url()
     if portal:
         body += f"\nReview in portal: {portal}/manager\n"
     body += "\n— Boost Growth Portal"
-    await _send_urgent_email(await _jenan_recipient_email(), title, body)
+    await _send_urgent_email(await _jenan_recipient_email(), subject, body)
 
 
 async def _resend_leave_notification(leave: dict, therapist: Optional[dict], *, also_in_app: bool = True) -> dict:
@@ -10580,12 +10666,7 @@ async def create_request(payload: RequestIn, user=Depends(get_current_user)):
            "timeline": [{"event": "submitted", "at": now_iso(), "by": user.get("name")}]}
     await db.requests.insert_one(doc)
     doc.pop("_id", None)
-    msg = f"{display}: {title or body.get('title', '')} (priority: {payload.priority})"
-    await _notify_request_submitted(
-        f"New {payload.request_type} request",
-        msg,
-        email_subject=f"New staff request: {title or body.get('title', '')}",
-    )
+    await _notify_request_submitted(doc)
     return _enrich_request_attachment(doc)
 
 
@@ -10656,10 +10737,12 @@ async def upload_request_attachment(
     rid = str(uuid.uuid4())
     stored = f"req_{rid}{ext}"
     file_data = _persist_upload(stored, content)
+    th = await db.therapists.find_one({"id": user["id"]}, {"_id": 0, "id": 1, "name": 1, "key": 1})
+    display = therapist_schedule_display_name(th or user)
     doc = {
         "id": rid,
         "therapist_id": user["id"],
-        "therapist_name": user.get("name"),
+        "therapist_name": display,
         "title": (title or "").strip() or file.filename or "Report attachment",
         "description": None,
         "request_type": "attachment",
@@ -10676,12 +10759,7 @@ async def upload_request_attachment(
     }
     await db.requests.insert_one(doc)
     doc.pop("_id", None)
-    msg = f"{user.get('name')}: {doc['title']} (report date: {report_date})"
-    await _notify_request_submitted(
-        "New report attachment",
-        msg,
-        email_subject=f"New report attachment: {doc['title']}",
-    )
+    await _notify_request_submitted(doc)
     return _enrich_request_attachment(doc)
 
 
@@ -12945,6 +13023,8 @@ async def create_leave(payload: LeaveIn, user=Depends(get_current_user)):
             start_date=payload.start_date,
             end_date=payload.end_date,
             days=float(payload.days or 0),
+            start_time=payload.start_time,
+            end_time=payload.end_time,
             notes=payload.notes,
         )
     return doc

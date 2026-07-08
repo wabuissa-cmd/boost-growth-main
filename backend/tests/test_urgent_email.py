@@ -57,7 +57,6 @@ class TestUrgentRequestEmail:
             None,
         )
         assert match is not None, f"No Jenan urgent email in queue for {title}"
-        assert "[عاجل]" in match["subject"] and "[Urgent]" in match["subject"]
         assert match.get("status") in ("queued_no_key", "sent", "queued", "failed")
 
     def test_new_request_queues_urgent_email_to_hr(self, admin_headers, therapist_headers):
@@ -85,7 +84,6 @@ class TestUrgentRequestEmail:
             None,
         )
         assert hr_match is not None, f"No HR urgent email in queue on submit for {title}"
-        assert "[عاجل]" in hr_match["subject"] and "[Urgent]" in hr_match["subject"]
 
     def test_forward_to_hr_queues_urgent_email(self, admin_headers, therapist_headers):
         title = f"TEST HR forward {uuid.uuid4().hex[:8]}"
@@ -117,7 +115,8 @@ class TestUrgentRequestEmail:
             and title in (i.get("body") or "")
         ]
         assert hr_items, "No urgent HR email queued after forward"
-        assert "[عاجل]" in hr_items[0]["subject"]
+        assert "[عاجل]" not in (hr_items[0].get("subject") or "")
+        assert "[Urgent]" not in (hr_items[0].get("subject") or "")
 
 
 class TestLeaveEmail:
