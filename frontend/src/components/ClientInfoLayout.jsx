@@ -105,7 +105,7 @@ export default function ClientInfoLayout({
   isAdmin, hasOps, canDeleteClient, onOpenSection, onEdit, onRemove, onBilling, onPhoneSave,
 }) {
   const selected = useMemo(
-    () => clients.find(c => c.id === selectedId) || clients[0] || null,
+    () => clients.find(c => c.id === selectedId) || null,
     [clients, selectedId]
   );
 
@@ -119,11 +119,6 @@ export default function ClientInfoLayout({
       });
     }
   }, [onSelect]);
-
-  useEffect(() => {
-    if (!clients.length) return;
-    if (selectedId == null && clients[0]?.id) onSelect(clients[0].id);
-  }, [clients, selectedId, onSelect]);
 
   const selectedPkg = selected ? (pkgByClient[selected.id] || []) : [];
   const track = selected ? prepTrackMeta(selected) : null;
@@ -170,11 +165,6 @@ export default function ClientInfoLayout({
         <div className="ci-pane-left">
           <div className="ci-pane-brand">
             <h2><Leaf size={14} className="inline mr-1" style={{ verticalAlign: -2 }} /> Client Directory</h2>
-            <div className="ci-pane-stats">
-              <span><em>{counts.active}</em> Active</span>
-              <span><em>{counts.all}</em> Total</span>
-              {counts.attention > 0 && <span className="ci-stat-alert"><em>{counts.attention}</em> Alerts</span>}
-            </div>
           </div>
           <div className="ci-pane-list">
             {clients.map(c => {

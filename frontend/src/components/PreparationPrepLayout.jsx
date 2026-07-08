@@ -41,14 +41,13 @@ export default function PreparationPrepLayout({
   findTherapist,
 }) {
   const selected = useMemo(
-    () => clients.find(c => c.id === selectedId) || clients[0] || null,
+    () => clients.find(c => c.id === selectedId) || null,
     [clients, selectedId]
   );
 
   useEffect(() => {
-    if (clients.length && !clients.some(c => c.id === selectedId)) {
-      onSelect(clients[0].id);
-    }
+    if (selectedId == null) return;
+    if (clients.length && !clients.some(c => c.id === selectedId)) onSelect(null);
   }, [clients, selectedId, onSelect]);
 
   const attention = (counts?.urgent || 0) + (counts?.warning || 0);

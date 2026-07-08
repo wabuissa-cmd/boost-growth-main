@@ -152,7 +152,7 @@ export default function Clients() {
     attention: attentionCount,
   };
 
-  const selectedClient = filtered.find(c => c.id === selectedClientId) || filtered[0] || null;
+  const selectedClient = filtered.find(c => c.id === selectedClientId) || null;
 
   const openSection = (section) => {
     if (!selectedClient) return;
@@ -259,7 +259,7 @@ export default function Clients() {
         open={clientPickerOpen}
         onClose={() => setClientPickerOpen(false)}
         clients={filtered}
-        selectedId={selectedClient?.id}
+        selectedId={selectedClientId}
         onSelect={setSelectedClientId}
         findTherapist={findT}
       />
