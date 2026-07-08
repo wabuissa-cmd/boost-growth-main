@@ -1,13 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import api from "../api";
-import { MagnifyingGlass, UsersThree } from "@phosphor-icons/react";
+import { MagnifyingGlass } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
-
-const SUPERVISORS = [
-  { key: "fahda", label: "Ms. Fahda", labelAr: "فهداء", accent: "#6B8F71" },
-  { key: "maha", label: "Ms. Maha", labelAr: "مها", accent: "#8FA481" },
-];
+import { useAuth, canManuallySetClientStatus } from "../auth";
 
 function serviceBadge(service) {
   if (!service) return null;
@@ -18,96 +13,93 @@ function serviceBadge(service) {
   return { text: service, bg: "#EDE9E3", color: "#2C3625" };
 }
 
-function CaseloadColumn({ supervisor, rows, search, onSelect }) {
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(r =>
-      (r.name || "").toLowerCase().includes(q)
-      || (r.file_no || "").includes(q)
-      || (r.main_therapist || "").toLowerCase().includes(q)
-    );
-  }, [rows, search]);
+function normalizeSupervisorLabel(s) {
+  const raw = (s || "").trim();
+  if (!raw) return "Unassigned";
+  const low = raw.toLowerCase();
+  if (low.includes("fahd")) return "Ms. Fahda";
+  if (low.includes("maha")) return "Ms. Maha";
+  if (low.includes("jenan") || low.includes("genan")) return "Ms. Jenan";
+  if (low.startsWith("ms.")) return `Ms. ${raw.replace(/^ms\.\s*/i, "").trim()}`;
+  return raw;
+}
 
-  const activeCount = filtered.filter(r => (r.status || "Active") !== "Inactive").length;
-
+function CompactTable({ rows, canEditStatus, onSetStatus }) {
   return (
-    <section className="card overflow-hidden flex flex-col min-h-[420px]">
-      <header
-        className="px-5 py-4 border-b flex items-center justify-between gap-3"
-        style={{ background: `linear-gradient(135deg, ${supervisor.accent}22 0%, #FAFAF7 100%)`, borderColor: "#E2DDD4" }}
-      >
-        <div>
-          <h2 className="font-display text-xl m-0" style={{ color: "#2C3625" }}>{supervisor.label}</h2>
-          <div className="text-xs mt-0.5" style={{ color: "#6B7568" }}>{supervisor.labelAr}</div>
-        </div>
-        <div className="text-right">
-          <div className="text-2xl font-bold leading-none" style={{ color: supervisor.accent }}>{filtered.length}</div>
-          <div className="text-[10px] uppercase tracking-wide mt-1" style={{ color: "#8B9E7A" }}>
-            {activeCount} active
-          </div>
-        </div>
-      </header>
-
-      <ul className="flex-1 overflow-y-auto divide-y divide-[#EDE9E3]">
-        {filtered.length === 0 && (
-          <li className="p-10 text-center text-sm" style={{ color: "#8B9E7A" }}>
-            No clients match
-          </li>
-        )}
-        {filtered.map(r => {
-          const svc = serviceBadge(r.service);
-          const inactive = (r.status || "Active") === "Inactive";
-          return (
-            <li key={r.id || r.file_no}>
-              <button
-                type="button"
-                data-testid={`caseload-${supervisor.key}-${r.file_no}`}
-                onClick={() => onSelect?.(r)}
-                className="w-full text-left px-5 py-3.5 hover:bg-[#F7F5F0] transition-colors flex items-start gap-3"
-              >
-                <div
-                  className="shrink-0 w-11 h-11 rounded-xl flex items-center justify-center font-bold text-sm"
-                  style={{ background: `${supervisor.accent}18`, color: "#2C3625" }}
-                >
-                  #{r.file_no}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold truncate" style={{ color: inactive ? "#9CA3AF" : "#2C3625" }}>
-                    {r.name}
-                  </div>
-                  {r.main_therapist && (
-                    <div className="text-xs truncate mt-0.5" style={{ color: "#6B7568" }}>
-                      {r.main_therapist}
-                    </div>
+    <div className="overflow-x-auto border border-[#EDE9E3] rounded-xl bg-white">
+      <table className="min-w-full text-sm">
+        <thead className="bg-[#FAFAF7]">
+          <tr className="text-left" style={{ color: "#6B7568" }}>
+            <th className="px-3 py-2 font-semibold whitespace-nowrap">File</th>
+            <th className="px-3 py-2 font-semibold">Client</th>
+            <th className="px-3 py-2 font-semibold">Therapist</th>
+            <th className="px-3 py-2 font-semibold whitespace-nowrap">Service</th>
+            <th className="px-3 py-2 font-semibold whitespace-nowrap">Status</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#F1EEE6]">
+          {rows.map((r) => {
+            const svc = serviceBadge(r.service);
+            const inactive = (r.status || "Active") === "Inactive";
+            return (
+              <tr key={r.id || r.file_no} className={inactive ? "bg-white" : "bg-white"}>
+                <td className="px-3 py-2 whitespace-nowrap font-mono text-xs" style={{ color: "#2C3625" }}>
+                  #{r.file_no || "—"}
+                </td>
+                <td className="px-3 py-2 font-semibold" style={{ color: inactive ? "#9CA3AF" : "#2C3625" }}>
+                  {r.name || "—"}
+                </td>
+                <td className="px-3 py-2 text-xs" style={{ color: "#6B7568" }}>
+                  {r.main_therapist || "—"}
+                </td>
+                <td className="px-3 py-2">
+                  {svc ? (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: svc.bg, color: svc.color }}>
+                      {svc.text}
+                    </span>
+                  ) : (
+                    <span className="text-xs" style={{ color: "#9CA3AF" }}>—</span>
                   )}
-                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                    {svc && (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: svc.bg, color: svc.color }}>
-                        {svc.text}
-                      </span>
-                    )}
-                    {inactive ? (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#F3F4F6] text-[#6B7280]">Inactive</span>
-                    ) : (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#E8F0E4] text-[#3D5A40]">Active</span>
-                    )}
-                  </div>
-                </div>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </section>
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap">
+                  {canEditStatus && r.id ? (
+                    <select
+                      className="input text-sm py-1 px-2 h-8"
+                      value={r.status || "Active"}
+                      onChange={(e) => onSetStatus?.(r, e.target.value)}
+                    >
+                      <option value="Active">Active</option>
+                      <option value="Inactive">Inactive</option>
+                    </select>
+                  ) : (
+                    <span className={inactive ? "text-xs font-bold text-[#6B7280]" : "text-xs font-bold text-[#3D5A40]"}>
+                      {inactive ? "Inactive" : "Active"}
+                    </span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+          {rows.length === 0 && (
+            <tr>
+              <td className="px-3 py-10 text-center text-sm" style={{ color: "#8B9E7A" }} colSpan={5}>
+                No clients to show
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
 export default function SupervisionCaseload() {
-  const navigate = useNavigate();
+  const { user } = useAuth();
   const [data, setData] = useState(null);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState("active");
+  const [savingId, setSavingId] = useState(null);
 
   useEffect(() => {
     api.get("/clients/supervision-caseload")
@@ -116,29 +108,119 @@ export default function SupervisionCaseload() {
       .finally(() => setLoading(false));
   }, []);
 
-  const counts = data?.counts || {};
+  const canEditStatus = canManuallySetClientStatus(user);
+
+  const allRows = useMemo(() => {
+    const d = data || {};
+    return [
+      ...(d.fahda || []),
+      ...(d.maha || []),
+      ...(d.other || []),
+    ];
+  }, [data]);
+
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const wantInactive = tab === "inactive";
+    return allRows
+      .filter(r => {
+        const isInactive = (r.status || "Active") === "Inactive";
+        if (wantInactive !== isInactive) return false;
+        if (!q) return true;
+        return (
+          (r.name || "").toLowerCase().includes(q)
+          || (r.file_no || "").includes(q)
+          || (r.main_therapist || "").toLowerCase().includes(q)
+          || (r.supervisor || "").toLowerCase().includes(q)
+        );
+      });
+  }, [allRows, search, tab]);
+
+  const grouped = useMemo(() => {
+    const map = new Map();
+    for (const r of filteredRows) {
+      const label = normalizeSupervisorLabel(r.supervisor);
+      if (!map.has(label)) map.set(label, []);
+      map.get(label).push(r);
+    }
+    const entries = Array.from(map.entries())
+      .map(([label, rows]) => ({
+        label,
+        rows: rows.slice().sort((a, b) => String(a.file_no || "").localeCompare(String(b.file_no || ""))),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    return entries;
+  }, [filteredRows]);
+
+  const counts = useMemo(() => {
+    const active = allRows.filter(r => (r.status || "Active") !== "Inactive").length;
+    const inactive = allRows.length - active;
+    return { all: allRows.length, active, inactive };
+  }, [allRows]);
+
+  const setStatus = async (row, status) => {
+    if (!row?.id) return;
+    setSavingId(row.id);
+    try {
+      await api.put(`/clients/${row.id}/status-override`, { status, manual_override: true });
+      setData((prev) => {
+        if (!prev) return prev;
+        const patchList = (xs) => (xs || []).map((x) => (x.id === row.id ? { ...x, status } : x));
+        const next = { ...prev, fahda: patchList(prev.fahda), maha: patchList(prev.maha), other: patchList(prev.other) };
+        return next;
+      });
+    } finally {
+      setSavingId(null);
+    }
+  };
 
   return (
     <div>
       <PageBanner
-        title="Supervision Caseload"
-        subtitle="Clinical supervision · Fahda & Maha · sourced from Client Info supervisor field"
+        title="Supervision"
+        subtitle="Active / Inactive caseload grouped by supervisor"
         stats={[
-          { label: "Ms. Fahda", n: counts.fahda ?? "—", color: "#6B8F71" },
-          { label: "Ms. Maha", n: counts.maha ?? "—", color: "#8FA481" },
-          { label: "Active (Fahda)", n: counts.active_fahda ?? "—", color: "#5C8A47" },
-          { label: "Active (Maha)", n: counts.active_maha ?? "—", color: "#5C8A47" },
+          { label: "Total", n: counts.all ?? "—", color: "#6B7568" },
+          { label: "Active", n: counts.active ?? "—", color: "#3D5A40" },
+          { label: "Inactive", n: counts.inactive ?? "—", color: "#6B7280" },
         ]}
         toolbar={(
-          <div className="relative max-w-md">
-            <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#8B9E7A" }} />
-            <input
-              data-testid="supervision-search"
-              className="input pl-9 w-full"
-              placeholder="Search name, file #, therapist…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-xl border border-[#EDE9E3] bg-white overflow-hidden">
+              <button
+                type="button"
+                className={`px-4 py-2 text-sm font-semibold ${tab === "active" ? "bg-[#E8F0E4]" : "bg-white"}`}
+                style={{ color: tab === "active" ? "#2C3625" : "#6B7568" }}
+                onClick={() => setTab("active")}
+              >
+                Active
+              </button>
+              <button
+                type="button"
+                className={`px-4 py-2 text-sm font-semibold ${tab === "inactive" ? "bg-[#F3F4F6]" : "bg-white"}`}
+                style={{ color: tab === "inactive" ? "#2C3625" : "#6B7568" }}
+                onClick={() => setTab("inactive")}
+              >
+                Inactive
+              </button>
+            </div>
+
+            <div className="relative max-w-md">
+              <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#8B9E7A" }} />
+              <input
+                data-testid="supervision-search"
+                className="input pl-9 w-full"
+                placeholder="Search name, file #, therapist, supervisor…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+
+            {savingId && (
+              <div className="text-xs" style={{ color: "#8B9E7A" }}>
+                Saving…
+              </div>
+            )}
           </div>
         )}
       />
@@ -146,39 +228,32 @@ export default function SupervisionCaseload() {
       {loading ? (
         <div className="card p-16 text-center" style={{ color: "#8B9E7A" }}>
           <div className="spinner mx-auto mb-3" />
-          Loading caseload…
+          Loading supervision caseload…
         </div>
       ) : (
-        <>
-          <div className="grid lg:grid-cols-2 gap-5 stagger">
-            {SUPERVISORS.map(s => (
-              <CaseloadColumn
-                key={s.key}
-                supervisor={s}
-                rows={data?.[s.key] || []}
-                search={search}
-                onSelect={r => r.id && navigate("/clients")}
-              />
-            ))}
-          </div>
-
-          {(data?.other?.length > 0) && (
-            <div className="mt-5 card p-4 border border-[#EDE9E3]" style={{ background: "#FAFAF7" }}>
-              <div className="flex items-center gap-2 text-sm font-semibold mb-2" style={{ color: "#6B7568" }}>
-                <UsersThree size={16} />
-                Other supervisors ({data.other.length})
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {data.other.map(r => (
-                  <span key={r.id || r.file_no} className="text-xs pill px-2 py-1 bg-white border border-[#E2DDD4]">
-                    #{r.file_no} {r.name}
-                    {r.supervisor ? ` · ${r.supervisor}` : ""}
-                  </span>
-                ))}
-              </div>
+        <div className="space-y-5">
+          {grouped.length === 0 ? (
+            <div className="card p-12 text-center text-sm" style={{ color: "#8B9E7A" }}>
+              No clients found.
             </div>
+          ) : (
+            grouped.map((g) => (
+              <section key={g.label} className="card p-4 border border-[#EDE9E3]" style={{ background: "#FAFAF7" }}>
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div>
+                    <div className="text-sm font-semibold" style={{ color: "#2C3625" }}>
+                      {g.label}
+                    </div>
+                    <div className="text-xs" style={{ color: "#6B7568" }}>
+                      {g.rows.length} client{g.rows.length === 1 ? "" : "s"}
+                    </div>
+                  </div>
+                </div>
+                <CompactTable rows={g.rows} canEditStatus={canEditStatus} onSetStatus={setStatus} />
+              </section>
+            ))
           )}
-        </>
+        </div>
       )}
     </div>
   );

@@ -698,6 +698,56 @@ async def _apply_inactive_client_status() -> int:
         n += res.modified_count
     return n
 
+
+def _client_manual_status_value(client: Optional[dict]) -> Optional[str]:
+    """Return manual override status if enabled (Active/Inactive)."""
+    if not client:
+        return None
+    if not client.get("status_manual_override"):
+        return None
+    return _normalize_client_status(client.get("status_manual_value") or client.get("status"))
+
+
+async def _apply_client_auto_status(client_id: Optional[str]) -> Optional[dict]:
+    """
+    Recompute client.status from activity, unless manual override is enabled.
+
+    Rule:
+    - If status_manual_override is true, keep status_manual_value (or current status) as-is.
+    - Else, mark Inactive if (a) file_no in INACTIVE_CLIENT_FILE_NOS OR (b) no Completed sessions in last 120 days.
+      Otherwise mark Active.
+    """
+    if not client_id:
+        return None
+    client = await db.clients.find_one(_active_client_filter({"id": client_id}), {"_id": 0})
+    if not client:
+        return None
+    manual = _client_manual_status_value(client)
+    if manual in ("Active", "Inactive"):
+        if (client.get("status") or "Active") != manual:
+            await db.clients.update_one(
+                {"id": client_id},
+                {"$set": {"status": manual}},
+            )
+        return await db.clients.find_one(_active_client_filter({"id": client_id}), {"_id": 0})
+
+    file_no = str(client.get("file_no") or "").zfill(3) if client.get("file_no") else ""
+    if file_no and file_no in INACTIVE_CLIENT_FILE_NOS:
+        desired = "Inactive"
+    else:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=120)).date().isoformat()
+        recent_completed = await db.sessions.find_one(
+            {"client_id": client_id, "status": "Completed", "session_date": {"$gte": cutoff}},
+            {"_id": 0, "id": 1},
+        )
+        desired = "Active" if recent_completed else "Inactive"
+
+    desired = _normalize_client_status(desired) or desired
+    current = _normalize_client_status(client.get("status") or "Active") or (client.get("status") or "Active")
+    if desired and current != desired:
+        await db.clients.update_one({"id": client_id}, {"$set": {"status": desired}})
+    return await db.clients.find_one(_active_client_filter({"id": client_id}), {"_id": 0})
+
 UPLOAD_DIR = ROOT_DIR / 'uploads'
 UPLOAD_DIR.mkdir(exist_ok=True)
 
@@ -5562,6 +5612,50 @@ async def update_client_schedule_color(cid: str, body: ClientScheduleColorIn, _=
     color = body.color
     await db.clients.update_one({"id": cid}, {"$set": {"schedule_color": color}})
     return {"ok": True, "schedule_color": color, "client_id": cid}
+
+
+class ClientStatusOverrideIn(BaseModel):
+    status: str
+    manual_override: bool = True
+
+
+@api.put("/clients/{cid}/status-override")
+async def set_client_status_override(cid: str, body: ClientStatusOverrideIn, user=Depends(get_current_user)):
+    """Allow ops leads/supervisors to manually override Active/Inactive status."""
+    client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if not (_is_portal_admin(user) or _is_client_lead(user) or _is_hr_ops(user) or _is_walaa_ops(user)):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    desired = _normalize_client_status(body.status) or (body.status or "").strip()
+    if desired not in ("Active", "Inactive"):
+        raise HTTPException(status_code=400, detail="Invalid status")
+
+    if body.manual_override:
+        await db.clients.update_one(
+            {"id": cid},
+            {"$set": {
+                "status": desired,
+                "status_manual_override": True,
+                "status_manual_value": desired,
+                "status_manual_set_by": user.get("id"),
+                "status_manual_set_at": now_iso(),
+            }},
+        )
+        return await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
+
+    # Clear override, then recompute
+    await db.clients.update_one(
+        {"id": cid},
+        {"$unset": {
+            "status_manual_override": "",
+            "status_manual_value": "",
+            "status_manual_set_by": "",
+            "status_manual_set_at": "",
+        }},
+    )
+    return await _apply_client_auto_status(cid) or await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
 
 @api.delete("/clients/{cid}")
 async def delete_client(cid: str, _=Depends(client_lead_or_admin)):

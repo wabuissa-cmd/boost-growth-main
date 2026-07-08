@@ -111,6 +111,12 @@ export function canViewSupervisionCaseload(user) {
   return hasFullClientAccess(user);
 }
 
+/** Manual client Active/Inactive override (ops leads + supervisors). */
+export function canManuallySetClientStatus(user) {
+  if (!user) return false;
+  return isClientLead(user) || isHrOps(user) || isPortalAdmin(user) || isWalaaOps(user);
+}
+
 /** Email admin login — technical portal admin only (excludes HR ops) */
 export function isPortalAdmin(user) {
   if (!user) return false;
