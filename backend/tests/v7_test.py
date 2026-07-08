@@ -173,8 +173,9 @@ class TestLeaveFlow:
                         or "leave" in (n.get("title") or "").lower()]
         assert len(leave_notifs) >= 1, "No leave notification created for therapist"
 
-        # Cleanup
-        requests.delete(f"{API}/leaves/{lid}", headers=admin_headers)
+        # Deletion is no longer allowed after submission (draft-only policy)
+        rd = requests.delete(f"{API}/leaves/{lid}", headers=admin_headers)
+        assert rd.status_code == 403
 
 
 # ---------- Cancel-Notify (schedule cell + email queue) ----------

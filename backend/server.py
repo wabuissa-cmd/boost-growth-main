@@ -11714,8 +11714,11 @@ async def delete_request(rid: str, user=Depends(get_current_user)):
         return {"ok": True}
     if not _can_delete_staff_submission(user, req.get("therapist_id")):
         raise HTTPException(status_code=403, detail="Forbidden")
+    status = (req.get("status") or "").strip().lower()
+    if status not in ("draft", "pending_submit"):
+        raise HTTPException(status_code=403, detail="Cannot delete a submitted request. Use reject/approve/forward instead.")
     await db.requests.delete_one({"id": rid})
-    return {"ok": True}
+    return {"ok": True, "deleted": True}
 
 # ------------------- Notifications -------------------
 @api.get("/notifications")
@@ -13277,8 +13280,11 @@ async def delete_leave(lid: str, user=Depends(get_current_user)):
         return {"ok": True}
     if not _can_delete_staff_submission(user, leave.get("therapist_id")):
         raise HTTPException(status_code=403, detail="Forbidden")
+    status = (leave.get("status") or "").strip().lower()
+    if status not in ("draft", "pending_submit"):
+        raise HTTPException(status_code=403, detail="Cannot delete a submitted leave request. Use reject/approve/forward instead.")
     await db.leaves.delete_one({"id": lid})
-    return {"ok": True}
+    return {"ok": True, "deleted": True}
 
 
 @api.post("/leaves/mark-absence")

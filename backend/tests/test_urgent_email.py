@@ -156,4 +156,6 @@ class TestLeaveEmail:
         assert "date range:" in body.lower()
         assert "total days:" in body.lower()
         assert "Automated leave urgent-email test" in body
-        requests.delete(f"{API}/leaves/{lid}", headers=admin_headers)
+        # Deletion is no longer allowed after submission (draft-only policy)
+        rd = requests.delete(f"{API}/leaves/{lid}", headers=admin_headers)
+        assert rd.status_code == 403

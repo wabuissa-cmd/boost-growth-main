@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
 import {
-  Plus, X, Trash, PencilSimple, Airplane, Calendar, CheckCircle, Clock, XCircle, ArrowsClockwise
+  Plus, X, PencilSimple, Airplane, Calendar, CheckCircle, Clock, XCircle, ArrowsClockwise
 } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
@@ -75,10 +75,6 @@ export default function Leaves() {
     if (edit.id) await api.put(`/leaves/${edit.id}`, edit);
     else await api.post("/leaves", edit);
     setEdit(null); load();
-  };
-  const remove = async (id) => {
-    if (!window.confirm("Delete this leave?")) return;
-    await api.delete(`/leaves/${id}`); load();
   };
   const setStatus = async (id, status) => {
     await api.put(`/leaves/${id}/status`, { status });
@@ -213,7 +209,6 @@ export default function Leaves() {
                       <button onClick={() => setStatus(l.id, "done")} className="btn btn-ghost p-2" title="Mark Done" style={{ color: "#5C6853" }}><ArrowsClockwise size={16} /></button>
                     )}
                     <button onClick={() => setEdit({ ...l })} className="btn btn-ghost p-2"><PencilSimple size={16} /></button>
-                    {(isAdmin || l.therapist_id === user?.id) && <button onClick={() => remove(l.id)} className="btn btn-ghost p-2 text-red-700"><Trash size={16} /></button>}
                   </td>
                 </tr>
               );

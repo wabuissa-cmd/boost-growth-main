@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import api, { API, openAuthenticatedFile } from "../api";
-import { useAuth, showAdminNav, canEditStaffRequests, canManageLeaves, canHrReviewLeaves, isJenan, showSystemAdmin, canDeleteStaffRequests } from "../auth";
+import { useAuth, showAdminNav, canEditStaffRequests, canManageLeaves, canHrReviewLeaves, isJenan, showSystemAdmin } from "../auth";
 import { Navigate } from "react-router-dom";
-import { Plus, PencilSimple, Trash, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Package, UploadSimple, Eye, FileArrowDown, FileText, Buildings, ListChecks } from "@phosphor-icons/react";
+import { Plus, PencilSimple, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Package, UploadSimple, Eye, FileArrowDown, FileText, Buildings, ListChecks } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -280,7 +280,6 @@ export default function Requests({ personal = false, embedded = false, managerVi
   const leaveHr = !personal && canManageLeaves(user);
   const hrReview = !personal && canHrReviewLeaves(user);
   const isPortalAdminUser = !personal && showAdminNav(user);
-  const canDeleteReq = !personal && canDeleteStaffRequests(user);
   const isManager = !personal && isJenan(user) && !isPortalAdminUser;
   const adminManagerPreview = managerView && isPortalAdminUser && showSystemAdmin(user);
   const inManagerReviewMode = managerView && (isManager || adminManagerPreview);
@@ -400,19 +399,6 @@ export default function Requests({ personal = false, embedded = false, managerVi
     await api.put(`/requests/${statusEdit.id}/status`, payload);
     setStatusEdit(null);
     load();
-  };
-  const remove = async (id) => { if (!window.confirm("Delete this request? This cannot be undone.")) return; await api.delete(`/requests/${id}`); load(); };
-  const removeLeave = async (id) => { if (!window.confirm("Delete this leave request? This cannot be undone.")) return; await api.delete(`/leaves/${id}`); loadLeaves(); };
-  const removeQueueItem = async (r) => {
-    const isLeave = r._queueKind === "leave";
-    if (!window.confirm(isLeave ? "Delete this leave request? This cannot be undone." : "Delete this request? This cannot be undone.")) return;
-    if (isLeave) {
-      await api.delete(`/leaves/${r.id}`);
-      loadLeaves();
-    } else {
-      await api.delete(`/requests/${r.id}`);
-      load();
-    }
   };
 
   const updateLeaveDates = (form, start, end) => {
@@ -673,18 +659,6 @@ export default function Requests({ personal = false, embedded = false, managerVi
                             >
                               <Eye size={13}/> {isManagerReviewableItem(r) ? "Review" : "View status"}
                             </button>
-                            {canDeleteReq && (
-                              <button
-                                type="button"
-                                data-testid={`delete-request-${isLeave ? "leave" : "staff"}-${r.id}`}
-                                onClick={() => removeQueueItem(r)}
-                                className="btn btn-ghost p-1.5"
-                                style={{ color: "#9A8A8A" }}
-                                title={isLeave ? "Delete leave request" : "Delete request"}
-                              >
-                                <Trash size={14} weight="regular" />
-                              </button>
-                            )}
                           </div>
                         </td>
                       </tr>
@@ -741,18 +715,6 @@ export default function Requests({ personal = false, embedded = false, managerVi
                     </div>
                     <div className="flex flex-col gap-1 shrink-0">
                       {canManageReq && <button data-testid={`update-status-${r.id}`} onClick={() => setStatusEdit({...r})} className="btn btn-secondary text-[10px] py-1 px-2"><PencilSimple size={12}/></button>}
-                      {canDeleteReq && (
-                        <button
-                          type="button"
-                          data-testid={`delete-request-staff-${r.id}`}
-                          onClick={() => remove(r.id)}
-                          className="btn btn-ghost p-1.5"
-                          style={{ color: "#9A8A8A" }}
-                          title="Delete request"
-                        >
-                          <Trash size={14} weight="regular" />
-                        </button>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -830,18 +792,6 @@ export default function Requests({ personal = false, embedded = false, managerVi
                           )}
                           <button type="button" onClick={() => setLeaveStatus(l, "rejected")} className="btn btn-outline text-[10px] py-1 px-2" style={{ color: "#8A3F27" }}>Reject</button>
                         </div>
-                      )}
-                      {canDeleteReq && (
-                        <button
-                          type="button"
-                          data-testid={`delete-leave-sidebar-${l.id}`}
-                          onClick={() => removeLeave(l.id)}
-                          className="btn btn-ghost p-1 mt-1"
-                          style={{ color: "#9A8A8A" }}
-                          title="Delete leave request"
-                        >
-                          <Trash size={14} weight="regular" />
-                        </button>
                       )}
                     </div>
                   );
