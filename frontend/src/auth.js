@@ -216,9 +216,9 @@ export function canAccessPurchases(user) {
   return hasOpsAccess(user) || isClientLead(user);
 }
 
-/** Finance nav — Staff Payments (Jenan) vs Purchases (ops/admin) */
+/** Finance nav label — unified across all roles */
 export function purchasesNavLabel(user) {
-  return isJenan(user) ? "Staff Payments" : "Purchases";
+  return "Employees' Purchases";
 }
 
 /** Clinical sidebar section — intake queues and/or supervision caseload */

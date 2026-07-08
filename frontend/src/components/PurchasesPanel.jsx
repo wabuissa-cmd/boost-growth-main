@@ -143,7 +143,7 @@ export default function PurchasesPanel({ compact = true, onSubmitted }) {
           <div>
             <h2 className="font-bold text-sm m-0 flex items-center gap-1.5" style={{ color: "#2C3625" }}>
               <ShoppingBag size={14} weight="duotone" style={{ color: "#7A8A6A" }}/>
-              Purchases
+              Employees' Purchases
             </h2>
             <p className="text-xs mt-0.5 mb-0" style={{ color: "#8B9E7A" }}>Your work-related expenses</p>
           </div>

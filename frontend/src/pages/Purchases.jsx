@@ -254,7 +254,7 @@ export default function Purchases({ embedded = false }) {
     <div className="page-enter">
       {!embedded && (
       <PageBanner
-        title="Purchases"
+        title="Employees' Purchases"
         subtitle="Payment requests from therapists & supervisors · review & reimburse"
         className="editorial-banner--compact-mobile"
         toolbar={(
