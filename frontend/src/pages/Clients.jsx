@@ -361,10 +361,16 @@ export default function Clients() {
                 </select>
               </FormField>
               <FormField label="Status">
-                <select data-testid="client-status-select" className="modal-input" value={edit.status || "Active"} onChange={e => setEdit({ ...edit, status: e.target.value })}>
-                  <option value="Active">Active</option>
-                  <option value="Inactive">Inactive</option>
-                </select>
+                {isAdmin ? (
+                  <select data-testid="client-status-select" className="modal-input" value={edit.status || "Active"} onChange={e => setEdit({ ...edit, status: e.target.value })}>
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                  </select>
+                ) : (
+                  <div className="modal-input text-sm" style={{ background: "#F5F5F0", color: "#3D4F35" }}>
+                    {edit.status || "Active"} (auto)
+                  </div>
+                )}
               </FormField>
               <FormField label="Billing mode">
                 <select className="modal-input" value={edit.billing_mode || "hours"} onChange={e => setEdit({ ...edit, billing_mode: e.target.value })} data-testid="billing-mode-select">

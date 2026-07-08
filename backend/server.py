@@ -5215,6 +5215,12 @@ async def create_schedule_cell(payload: ScheduleCellIn, _=Depends(schedule_edit_
     doc.pop("_id", None)
     if doc.get("child_name"):
         await _ensure_co_therapist_from_schedule(doc.get("therapist_id"), doc.get("child_name"))
+        try:
+            c = await _find_client_by_schedule_child_name(doc.get("child_name"))
+            if c and c.get("id"):
+                await _apply_client_auto_status(c["id"])
+        except Exception:
+            logger.exception("Auto status recompute failed after schedule create")
     if doc.get("therapist_id"):
         await _notify(doc["therapist_id"], "schedule", "New session added",
                       f"{doc.get('service_code')} | {doc.get('child_name') or ''} at {doc.get('time_slot')}")
@@ -5238,6 +5244,12 @@ async def update_schedule_cell(cid: str, payload: ScheduleCellIn, user=Depends(s
     cell = await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
     if cell and cell.get("child_name"):
         await _ensure_co_therapist_from_schedule(cell.get("therapist_id"), cell.get("child_name"))
+        try:
+            c = await _find_client_by_schedule_child_name(cell.get("child_name"))
+            if c and c.get("id"):
+                await _apply_client_auto_status(c["id"])
+        except Exception:
+            logger.exception("Auto status recompute failed after schedule update")
     actor = _actor_display(user)
     new_state = (cell or {}).get("state") or "normal"
     if prev_state in ("cancel_therapist", "cancel_child") and new_state not in ("cancel_therapist", "cancel_child"):
@@ -5293,7 +5305,15 @@ async def duplicate_cell(cid: str, _=Depends(schedule_edit_or_admin)):
 
 @api.delete("/schedule/{cid}")
 async def delete_schedule_cell(cid: str, _=Depends(schedule_edit_or_admin)):
+    prev = await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
     await db.schedule_cells.delete_one({"id": cid})
+    if prev and prev.get("child_name"):
+        try:
+            c = await _find_client_by_schedule_child_name(prev.get("child_name"))
+            if c and c.get("id"):
+                await _apply_client_auto_status(c["id"])
+        except Exception:
+            logger.exception("Auto status recompute failed after schedule delete")
     return {"ok": True}
 
 @api.post("/schedule/{cid}/notify")
@@ -5462,6 +5482,7 @@ async def create_client(payload: ClientIn, _=Depends(client_lead_or_admin)):
     data = payload.model_dump()
     data["locations"] = [l for l in (data.get("locations") or [])]
     data["status"] = _normalize_client_status(data.get("status"))
+    data["supervisor"] = _normalize_supervisor_value(data.get("supervisor"))
     doc = {"id": cid, **data, "created_at": now_iso()}
     await db.clients.insert_one(doc)
     doc.pop("_id", None)
@@ -5508,6 +5529,7 @@ async def update_client(cid: str, payload: ClientIn, user=Depends(get_current_us
     data = payload.model_dump()
     data["locations"] = [l for l in (data.get("locations") or [])]
     data["status"] = _normalize_client_status(data.get("status"))
+    data["supervisor"] = _normalize_supervisor_value(data.get("supervisor"))
     if data.get("record_files") is not None:
         data["record_files"] = [
             {k: v for k, v in (rf or {}).items() if k != "file_data"}
@@ -9531,6 +9553,10 @@ async def create_session(payload: SessionIn, user=Depends(get_current_user)):
             elif rem <= 0:
                 await _notify_admins("low_hours", f"🔴 {cname} package exhausted ({inv_label})",
                                      f"Used {used_h}h of {pkg_h}h on {inv_label}.")
+    try:
+        await _apply_client_auto_status(payload.client_id)
+    except Exception:
+        logger.exception("Auto status recompute failed for client %s", payload.client_id)
     return doc
 
 @api.put("/sessions/{sid}")
@@ -9566,6 +9592,10 @@ async def update_session(sid: str, payload: SessionIn, user=Depends(get_current_
             await _sync_prep_history_for_session(updated, user["id"], notes=patch.get("note"))
     except Exception:
         logger.exception("Prep history sync on session update failed")
+    try:
+        await _apply_client_auto_status(updated.get("client_id") or payload.client_id)
+    except Exception:
+        logger.exception("Auto status recompute failed after session update %s", sid)
     return updated
 
 @api.delete("/sessions/{sid}")
@@ -9585,6 +9615,10 @@ async def delete_session(sid: str, user=Depends(get_current_user)):
     except Exception:
         logger.exception("cleanup prep for deleted session %s", sid)
     await db.sessions.delete_one({"id": sid})
+    try:
+        await _apply_client_auto_status(sess.get("client_id"))
+    except Exception:
+        logger.exception("Auto status recompute failed after session delete %s", sid)
     return {"ok": True}
 
 # ------------------- Attendance Sheets (file upload, kept for backward compat) -------------------
