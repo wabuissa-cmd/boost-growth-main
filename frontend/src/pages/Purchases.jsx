@@ -71,10 +71,56 @@ export default function Purchases({ embedded = false }) {
   const [submitting, setSubmitting] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterMonth, setFilterMonth] = useState("");
+  const [search, setSearch] = useState("");
+  const [filterCategory, setFilterCategory] = useState("");
+  const [filterTherapist, setFilterTherapist] = useState("");
   const [settings, setSettings] = useState({ day_of_month: 25, enabled: true, therapist_ids: [] });
   const [savingSettings, setSavingSettings] = useState(false);
   const [sending, setSending] = useState(false);
   const [syncing, setSyncing] = useState(false);
+
+  const therapistOptions = useMemo(() => {
+    const arr = Array.isArray(therapists) ? therapists : [];
+    return arr
+      .map((t) => ({ ...t, id: t.id, label: getTherapistScheduleName(t) }))
+      .filter((t) => t.id);
+  }, [therapists]);
+
+  const resolvePurchaserName = (p) => {
+    if (!p) return "—";
+    const direct =
+      (p.therapist_name || "").trim() ||
+      (p.purchaser_name || "").trim() ||
+      (p.submitter_name || "").trim();
+    if (direct) return direct;
+    const id = p.therapist_id || p.purchaser_id || p.user_id;
+    if (!id) return "—";
+    const t = therapistOptions.find((x) => x.id === id);
+    return t ? t.label : String(id);
+  };
+
+  const displayedItems = useMemo(() => {
+    const q = (search || "").trim().toLowerCase();
+    return (items || []).filter((p) => {
+      if (!p) return false;
+      if (filterCategory && (p.category || "") !== filterCategory) return false;
+      if (filterTherapist && String(p.therapist_id || "") !== String(filterTherapist)) return false;
+      if (!q) return true;
+      const hay = [
+        p.item,
+        p.category,
+        p.description,
+        p.notes,
+        p.purchase_month,
+        p.therapist_name,
+        resolvePurchaserName(p),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [items, search, filterCategory, filterTherapist, therapistOptions]);
 
   const load = async () => {
     const params = {};
