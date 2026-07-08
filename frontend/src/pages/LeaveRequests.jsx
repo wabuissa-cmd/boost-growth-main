@@ -853,6 +853,11 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
   const isManager = !personal && isJenan(user) && !portalAdmin;
   const reviewerView = leaveManager || hrReview || isManager || portalAdmin;
   const [statusFilter, setStatusFilter] = useState("");
+  const [filterTherapist, setFilterTherapist] = useState("");
+  const [filterType, setFilterType] = useState("");
+  const [filterMonth, setFilterMonth] = useState("");
+  const [search, setSearch] = useState("");
+  const [selectedId, setSelectedId] = useState(null);
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
   const [tab, setTab] = useState("active");
@@ -886,7 +891,7 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
       setMyBalance(null);
     }
   };
-  useEffect(() => { load(); }, [year, reviewerView, user?.id, searchParams]);
+  useEffect(() => { load(); }, [year, reviewerView, user?.id, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (edit?.start_date && edit?.end_date) {
@@ -948,6 +953,40 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
     }
     return list.sort((a, b) => String(b.start_date).localeCompare(String(a.start_date)));
   }, [reviewerView, activeLeaves, leaves, therapistFilter, isManager, hrReview, portalAdmin, leaveManager, grievanceTypes, statusFilter]);
+
+  const months = useMemo(() => {
+    const set = new Set(displayLeaves.map(l => (l.start_date || "").slice(0, 7)).filter(Boolean));
+    return [...set].sort().reverse();
+  }, [displayLeaves]);
+
+  const activeFilteredLeaves = useMemo(() => {
+    let list = [...displayLeaves];
+    if (filterTherapist) list = list.filter(l => l.therapist_id === filterTherapist);
+    if (filterType) list = list.filter(l => l.leave_type === filterType);
+    if (filterMonth) list = list.filter(l => (l.start_date || "").startsWith(filterMonth));
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter(l =>
+        (l.therapist_name || "").toLowerCase().includes(q) ||
+        (l.notes || "").toLowerCase().includes(q) ||
+        (l.leave_type || "").toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [displayLeaves, filterTherapist, filterType, filterMonth, search]);
+
+  const selectedLeave = useMemo(
+    () => activeFilteredLeaves.find(l => l.id === selectedId) || null,
+    [activeFilteredLeaves, selectedId]
+  );
+
+  useEffect(() => {
+    if (!reviewerView || tab !== "active") return;
+    if (activeFilteredLeaves.length === 0) { setSelectedId(null); return; }
+    if (!selectedId || !activeFilteredLeaves.some(l => l.id === selectedId)) {
+      setSelectedId(activeFilteredLeaves[0].id);
+    }
+  }, [reviewerView, tab, activeFilteredLeaves, selectedId]);
 
   const filteredTherapist = therapistFilter ? therapists.find(t => t.id === therapistFilter) : null;
   const therapistProfileView = Boolean(therapistFilter && reviewerView);
@@ -1052,7 +1091,7 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
               {t.label}
             </button>
           ))}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2 flex-wrap">
             <span className="text-xs font-bold" style={{ color: "#5C6853" }}>Status</span>
             <select className="select text-xs" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
               <option value="">All</option>
@@ -1065,25 +1104,123 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
       )}
 
       {(!reviewerView || tab === "active") && reviewerView && !therapistProfileView && (
-        <div className="space-y-4">
-          {displayLeaves.length === 0 && (
-            <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>No active leave requests</div>
-          )}
-          {displayLeaves.map(l => (
-            <LeaveRequestCard
-              key={l.id}
-              leave={l}
-              user={user}
-              onRefresh={load}
-              onEdit={setEdit}
-              therapists={therapists}
-              personal={personal}
-              leaveManager={leaveManager}
-              hrReview={hrReview}
-              portalAdmin={portalAdmin}
-              isManager={isManager}
-            />
-          ))}
+        <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-4 items-start">
+          <div className="card p-3 lg:sticky lg:top-4">
+            <div className="flex items-center gap-2 flex-wrap mb-3">
+              <div className="relative flex-1 min-w-[160px]">
+                <MagnifyingGlass size={16} className="absolute left-2 top-2.5" style={{ color: "#8B9E7A" }} />
+                <input
+                  className="input pl-8 text-sm"
+                  placeholder="Search therapist / notes / type…"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
+              </div>
+              {(search || filterTherapist || filterType || filterMonth) && (
+                <button
+                  type="button"
+                  onClick={() => { setSearch(""); setFilterTherapist(""); setFilterType(""); setFilterMonth(""); }}
+                  className="btn btn-ghost text-xs"
+                >
+                  <X size={12} /> Clear
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <select className="select text-xs" value={filterTherapist} onChange={e => setFilterTherapist(e.target.value)}>
+                <option value="">All Therapists</option>
+                {therapists.map(t => <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>)}
+              </select>
+              <select className="select text-xs" value={filterType} onChange={e => setFilterType(e.target.value)}>
+                <option value="">All Types</option>
+                {Object.keys(LEAVE_TYPES).map(k => <option key={k} value={k}>{LEAVE_TYPES[k]?.label || k}</option>)}
+              </select>
+              <select className="select text-xs" value={filterMonth} onChange={e => setFilterMonth(e.target.value)}>
+                <option value="">All Months</option>
+                {months.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+              <div className="text-xs font-semibold flex items-center justify-end pr-1" style={{ color: "#5C6853" }}>
+                {activeFilteredLeaves.length} shown
+              </div>
+            </div>
+
+            <div className="rounded-xl border overflow-hidden" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+              <div className="max-h-[70vh] overflow-y-auto">
+                {activeFilteredLeaves.length === 0 && (
+                  <div className="p-8 text-center text-sm" style={{ color: "#8B9E7A" }}>
+                    No requests match your filters
+                  </div>
+                )}
+                {activeFilteredLeaves.map(l => {
+                  const isSelected = l.id === selectedId;
+                  const st = LEAVE_STATUS[l.status] || LEAVE_STATUS.pending;
+                  const tp = LEAVE_TYPES[l.leave_type] || { label: l.leave_type, color: "#7A8A6A" };
+                  return (
+                    <button
+                      key={l.id}
+                      type="button"
+                      onClick={() => setSelectedId(l.id)}
+                      className="w-full text-left px-3 py-3 border-b last:border-b-0 transition"
+                      style={{
+                        borderColor: "#E2DDD4",
+                        background: isSelected ? "#E5EBE1" : "transparent",
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-bold text-sm truncate" style={{ color: "#2C3625" }}>
+                            {l.therapist_name || "—"}
+                          </div>
+                          <div className="text-[11px] mt-0.5 truncate" style={{ color: "#5C6853" }}>
+                            <span className="pill text-[10px] px-2 py-0.5 mr-1 font-bold" style={{ background: `${tp.color}22`, color: tp.color }}>
+                              {tp.label}
+                            </span>
+                            {fmtLeaveSchedule(l)}
+                          </div>
+                          {l.notes && (
+                            <div className="text-[11px] mt-1 truncate" style={{ color: "#8B9E7A" }}>
+                              💬 {l.notes}
+                            </div>
+                          )}
+                        </div>
+                        <div className="shrink-0 flex flex-col items-end gap-1">
+                          <span className="pill text-[10px] font-bold px-2 py-0.5" style={{ background: st.bg, color: st.color }}>
+                            {st.label}
+                          </span>
+                          <span className="text-[10px] font-semibold" style={{ color: "#8B9E7A" }}>
+                            {(l.start_date || "").slice(0, 10)}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            {!selectedLeave ? (
+              <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>
+                Select a request to review
+              </div>
+            ) : (
+              <LeaveRequestCard
+                key={selectedLeave.id}
+                leave={selectedLeave}
+                user={user}
+                onRefresh={load}
+                onEdit={setEdit}
+                therapists={therapists}
+                personal={personal}
+                leaveManager={leaveManager}
+                hrReview={hrReview}
+                portalAdmin={portalAdmin}
+                isManager={isManager}
+              />
+            )}
+          </div>
         </div>
       )}
 
