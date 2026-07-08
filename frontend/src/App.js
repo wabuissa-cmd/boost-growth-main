@@ -16,6 +16,7 @@ const Directory = lazy(() => import("./pages/Directory"));
 const Intake = lazy(() => import("./pages/Intake"));
 import IntakeWaiting from "./pages/IntakeWaiting";
 import SchoolWaiting from "./pages/SchoolWaiting";
+const Waiting = lazy(() => import("./pages/Waiting"));
 const Resources = lazy(() => import("./pages/Resources"));
 const Admin = lazy(() => import("./pages/Admin"));
 const Reports = lazy(() => import("./pages/Reports"));
@@ -200,8 +201,9 @@ function AppRoutes() {
         <Route path="/clients" element={<Clients/>}/>
         <Route path="/supervision" element={<SupervisionAccess><SupervisionCaseload/></SupervisionAccess>}/>
         <Route path="/intake" element={<IntakeAccess><Intake/></IntakeAccess>}/>
-        <Route path="/waiting/intake" element={<IntakeAccess><IntakeWaiting/></IntakeAccess>}/>
-        <Route path="/waiting/school" element={<IntakeAccess><SchoolWaiting/></IntakeAccess>}/>
+        <Route path="/waiting" element={<IntakeAccess><Waiting/></IntakeAccess>}/>
+        <Route path="/waiting/intake" element={<Navigate to="/waiting?view=intake" replace/>}/>
+        <Route path="/waiting/school" element={<Navigate to="/waiting?view=school" replace/>}/>
         <Route path="/my-requests" element={<TherapistRequests/>}/>
         <Route path="/my-reports" element={<MyReportsAccess><TherapistMyReports/></MyReportsAccess>}/>
         <Route path="/my-performance" element={<Protected><PerformanceMeetings/></Protected>}/>
@@ -218,6 +220,10 @@ function AppRoutes() {
         <Route path="/admin" element={<SystemAdminOnly><Admin/></SystemAdminOnly>}/>
         <Route path="/leave-balance" element={<Navigate to="/staff-leave?tab=vacation" replace/>}/>
         <Route path="/purchases" element={<PurchasesAccess><Purchases/></PurchasesAccess>}/>
+        <Route path="/employees-purchases" element={<Navigate to="/purchases" replace/>}/>
+        <Route path="/employee-purchases" element={<Navigate to="/purchases" replace/>}/>
+        <Route path="/purchase" element={<Navigate to="/purchases" replace/>}/>
+        <Route path="/purchase-requests" element={<Navigate to="/purchases" replace/>}/>
         <Route path="/leaves" element={<Navigate to="/staff-leave?tab=vacation" replace/>}/>
         <Route path="/leave-requests" element={<Navigate to="/staff-leave?tab=vacation" replace/>}/>
         <Route path="/therapist-leaves" element={<Navigate to="/staff-leave?tab=vacation" replace/>}/>

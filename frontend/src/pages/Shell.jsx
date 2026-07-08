@@ -43,6 +43,7 @@ const ROUTE_PREFETCH = {
   "/supervision": () => {
     prefetch("/clients/supervision-caseload");
   },
+  "/waiting": () => { prefetch("/intake"); },
   "/waiting/intake": () => { prefetch("/intake"); },
   "/waiting/school": () => { prefetch("/intake"); },
   "/admin/center-tests": () => { prefetch("/center-test/attempts"); },
@@ -117,8 +118,7 @@ export default function Shell() {
   const clinicalItems = [
     ...(intakeAccess
       ? [
-          { to: "/waiting/intake", label: "Intake", testid: "nav-intake-waiting", icon: <Hourglass size={17} weight="duotone"/> },
-          { to: "/waiting/school", label: "School Waiting", testid: "nav-school-waiting", icon: <Buildings size={17} weight="duotone"/> },
+          { to: "/waiting", label: "Waiting", testid: "nav-waiting", icon: <Hourglass size={17} weight="duotone"/> },
         ]
       : []),
     ...(canViewSupervisionCaseload(user)
