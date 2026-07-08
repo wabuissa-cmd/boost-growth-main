@@ -186,8 +186,10 @@ function requestAwaitingAttachment(r) {
 
 function leaveAwaitingAttachment(leave) {
   if (!leave) return false;
+  // Permission/استئذان is never blocked on attachment — even if legacy status is pending_attachment.
+  if (!leaveRequiresDocument(leave.leave_type)) return false;
   return leave.status === "pending_attachment"
-    || (leaveRequiresDocument(leave.leave_type) && !leave.document_file_path && !leave.document_url);
+    || (!leave.document_file_path && !leave.document_url);
 }
 
 function normalizeLeaveStatus(status) {
@@ -948,11 +950,11 @@ export default function Requests({ personal = false, embedded = false, managerVi
             <FormField label="Note">
               <textarea className="modal-input" rows={2} value={leaveModal.notes || ""} onChange={e => setLeaveModal({ ...leaveModal, notes: e.target.value })} />
             </FormField>
-            <FormField label="Document (optional)">
+            <FormField label="Document (optional / اختياري)">
               <input ref={leaveFileRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" className="hidden"
                 onChange={e => setLeaveDoc(e.target.files?.[0] || null)} />
               <button type="button" onClick={() => leaveFileRef.current?.click()} className="btn btn-outline text-sm">
-                <UploadSimple size={16}/> {leaveDoc ? leaveDoc.name : "Upload Document"}
+                <UploadSimple size={16}/> {leaveDoc ? leaveDoc.name : "Upload Document (optional)"}
               </button>
             </FormField>
           </FormSection>

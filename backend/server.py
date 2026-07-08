@@ -836,6 +836,17 @@ JENAN_EMAIL = "jsalmuhaisin@boostgrowthsa.com"
 PENDING_MANAGER_STATUSES = frozenset({"pending", "pending_manager"})
 # Permission (استئذان) must be submit-able without attachments.
 LEAVE_DOC_REQUIRED_TYPES = frozenset({"Sickleave", "Absence"})
+# Canonical + Arabic / informal aliases — never require a file for these.
+PERMISSION_LEAVE_ALIASES = frozenset({
+    "permission",
+    "استئذان",
+    "استيذان",
+    "استذان",
+    "اذن",
+    "إذن",
+    "early leave",
+    "earlyleave",
+})
 PENDING_MANAGER_REQUEST_STATUSES = frozenset({"pending", "pending_manager"})
 MANAGER_ACTIVE_REQUEST_STATUSES = frozenset({"pending", "pending_manager", "in_progress"})
 MANAGER_FORWARD_HR_LEAVE_SOURCES = PENDING_MANAGER_STATUSES | frozenset({"pending_attachment"})
@@ -4892,15 +4903,15 @@ async def _notify_request_submitted(req: dict):
 
 def _display_leave_type(leave_type: Optional[str]) -> str:
     """Human-friendly leave type label for emails."""
-    t = (leave_type or "").strip().lower()
-    if t in ("annual", "annual leave"):
-        return "Annual"
-    if t in ("unpaid", "absence"):
-        return "Unpaid"
-    if t in ("sick", "sick leave"):
-        return "Sick"
-    if t in ("permission",):
+    canon = _canonical_leave_type(leave_type)
+    if canon == "Permission":
         return "Permission"
+    if canon == "Annual":
+        return "Annual"
+    if canon in ("Unpaid", "Absence"):
+        return "Unpaid"
+    if canon == "Sickleave":
+        return "Sick"
     return (leave_type or "Leave").strip() or "Leave"
 
 
@@ -12749,12 +12760,79 @@ def _normalize_request_status(status: Optional[str]) -> str:
     return "pending_manager" if s == "pending" else s
 
 
+def _canonical_leave_type(leave_type: Optional[str]) -> str:
+    """Normalize leave type keys; Permission includes Arabic استئذان aliases."""
+    raw = (leave_type or "").strip()
+    if not raw:
+        return ""
+    t = raw.lower()
+    if t in PERMISSION_LEAVE_ALIASES or "استئذان" in raw or "استيذان" in raw:
+        return "Permission"
+    if t in ("sickleave", "sick", "sick leave", "sick-leave"):
+        return "Sickleave"
+    if t in ("absence",):
+        return "Absence"
+    if t in ("annual", "annual leave"):
+        return "Annual"
+    if t in ("unpaid", "unpaid leave"):
+        return "Unpaid"
+    # Preserve known exact keys (Annual, Sickleave, …)
+    return raw
+
+
 def _leave_requires_document(leave_type: Optional[str]) -> bool:
-    return (leave_type or "") in LEAVE_DOC_REQUIRED_TYPES
+    """True only for sick/absence — Permission/استئذان is never document-required."""
+    canon = _canonical_leave_type(leave_type)
+    if canon == "Permission":
+        return False
+    return canon in LEAVE_DOC_REQUIRED_TYPES
 
 
 def _leave_has_document(leave: dict) -> bool:
     return bool(leave.get("document_file_path") or leave.get("document_file_data"))
+
+
+async def _heal_optional_doc_pending_attachment(leave: dict) -> dict:
+    """Promote Permission (and other non-doc types) out of stuck pending_attachment."""
+    if not leave or leave.get("status") != "pending_attachment":
+        return leave
+    if _leave_requires_document(leave.get("leave_type")):
+        return leave
+    timeline = _append_leave_timeline(
+        leave,
+        "attachment_optional_auto_promoted",
+        "system",
+    )
+    await db.leaves.update_one(
+        {"id": leave["id"]},
+        {"$set": {
+            "status": "pending_manager",
+            "timeline": timeline,
+            "updated_at": now_iso(),
+            "leave_type": _canonical_leave_type(leave.get("leave_type")) or leave.get("leave_type"),
+        }},
+    )
+    leave = {**leave, "status": "pending_manager", "timeline": timeline}
+    return leave
+
+
+async def _heal_stuck_permission_attachments() -> int:
+    """Startup: Permission/استئذان left in pending_attachment before optional-file fix."""
+    q = {
+        "status": "pending_attachment",
+        "$or": [
+            {"leave_type": "Permission"},
+            {"leave_type": {"$regex": r"permission|استئذان|استيذان", "$options": "i"}},
+        ],
+    }
+    stuck = await db.leaves.find(q, {"_id": 0, "id": 1, "leave_type": 1, "status": 1, "timeline": 1}).to_list(500)
+    n = 0
+    for leave in stuck:
+        if _leave_requires_document(leave.get("leave_type")):
+            continue
+        await _heal_optional_doc_pending_attachment(leave)
+        n += 1
+    return n
 
 
 def _request_has_attachment(req: dict) -> bool:
@@ -13014,7 +13092,11 @@ async def list_leaves(
                     if can_view_all:
                         it["therapist_email"] = linked.get("email")
                     break
-    return [_enrich_leave_document_url(it) for it in items]
+    out = []
+    for it in items:
+        it = await _heal_optional_doc_pending_attachment(it)
+        out.append(_enrich_leave_document_url(it))
+    return out
 
 @api.get("/leaves/balance")
 async def leaves_balance(year: Optional[int] = None, scope: Optional[str] = None, user=Depends(get_current_user)):
@@ -13036,6 +13118,8 @@ async def create_leave(payload: LeaveIn, user=Depends(get_current_user)):
     tid, therapist_name = await _resolve_leave_subject(user, payload.therapist_id)
     lid = str(uuid.uuid4())
     body = payload.model_dump()
+    leave_type = _canonical_leave_type(payload.leave_type) or (payload.leave_type or "Annual")
+    body["leave_type"] = leave_type
     body["therapist_id"] = tid
     body["therapist_name"] = therapist_name
     doc = {"id": lid, **body, **_leave_default_fields(), "created_by": user["id"], "created_at": now_iso()}
@@ -13043,7 +13127,8 @@ async def create_leave(payload: LeaveIn, user=Depends(get_current_user)):
         "", "pending", "pending_manager", "pending_attachment",
     )
     if user.get("role") != "admin" or submitted_pending:
-        if _leave_requires_document(payload.leave_type) and not _leave_has_document(doc):
+        # Permission/استئذان never enters pending_attachment — attachment is optional.
+        if _leave_requires_document(leave_type) and not _leave_has_document(doc):
             doc["status"] = "pending_attachment"
         else:
             doc["status"] = "pending_manager"
@@ -13053,7 +13138,7 @@ async def create_leave(payload: LeaveIn, user=Depends(get_current_user)):
     if doc.get("status") in ("pending_manager", "pending_attachment", "pending"):
         await _notify_leave_submitted(
             therapist_name=therapist_name,
-            leave_type=payload.leave_type,
+            leave_type=leave_type,
             start_date=payload.start_date,
             end_date=payload.end_date,
             days=float(payload.days or 0),
@@ -13079,6 +13164,7 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
     leave = await db.leaves.find_one({"id": lid})
     if not leave:
         raise HTTPException(status_code=404, detail="Not found")
+    leave = await _heal_optional_doc_pending_attachment(leave)
     prev_status = leave.get("status")
     effective_prev = _normalize_leave_status(prev_status)
     new_status = _coerce_manager_approve_to_hr(payload.status, payload.notify_hr)
@@ -13091,20 +13177,22 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
         (new_status in ("pending_hr", "rejected")) if is_jenan_mgr else True
     )
     notify_therapist = payload.notify_therapist if payload.notify_therapist is not None else (not is_jenan_mgr)
+    doc_required = _leave_requires_document(leave.get("leave_type"))
 
     if is_pa:
         pass
     elif is_jenan_mgr:
         if effective_prev not in PENDING_MANAGER_STATUSES and effective_prev != "pending_attachment":
             raise HTTPException(status_code=403, detail="Manager can only act on pending manager requests")
-        if effective_prev == "pending_attachment" or (_leave_requires_document(leave.get("leave_type")) and not _leave_has_document(leave)):
+        # Only true doc-required types block review; Permission is never blocked.
+        if doc_required and (effective_prev == "pending_attachment" or not _leave_has_document(leave)):
             raise HTTPException(status_code=400, detail="Document attachment required before review")
         if new_status not in ("pending_hr", "rejected", "pending_manager", "approved"):
             raise HTTPException(status_code=400, detail="Manager must choose pending, approve, or reject")
     elif is_hr:
         if effective_prev != "pending_hr":
             raise HTTPException(status_code=403, detail="HR can only act on HR-pending requests")
-        if _leave_requires_document(leave.get("leave_type")) and not _leave_has_document(leave):
+        if doc_required and not _leave_has_document(leave):
             raise HTTPException(status_code=400, detail="Document attachment required before approval")
         if new_status not in ("approved", "rejected"):
             raise HTTPException(status_code=400, detail="HR must approve or reject")
@@ -16863,6 +16951,13 @@ async def _run_startup():
                 logger.info(f"Schedule week therapist_order migration: fixed {n} week(s)")
         except Exception as e:
             logger.warning(f"Schedule week therapist_order migration skipped: {e}")
+
+        try:
+            n = await _heal_stuck_permission_attachments()
+            if n:
+                logger.info(f"Healed {n} Permission leave(s) stuck in pending_attachment")
+        except Exception as e:
+            logger.warning(f"Permission pending_attachment heal skipped: {e}")
 
         try:
             n = await _backfill_schedule_cell_colors_for_week("2026-06-28")

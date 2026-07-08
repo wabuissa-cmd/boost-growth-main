@@ -44,16 +44,41 @@ export const DOC_TYPES = [
 
 // Permission (استئذان) attachments are optional (therapists may not have a file).
 const DOC_REQUIRED_TYPES = new Set(["Sickleave", "Absence"]);
+const PERMISSION_TYPE_ALIASES = new Set([
+  "permission",
+  "استئذان",
+  "استيذان",
+  "استذان",
+  "اذن",
+  "إذن",
+  "early leave",
+  "earlyleave",
+]);
 
 export const ATTACHMENT_REQUIRED_MSG = "Request will NOT be reviewed until file is uploaded.";
 
+/** Canonical leave type key — maps Arabic استئذان / informal aliases to Permission. */
+export function canonicalLeaveType(leaveType) {
+  const raw = String(leaveType || "").trim();
+  if (!raw) return "";
+  const lower = raw.toLowerCase();
+  if (PERMISSION_TYPE_ALIASES.has(lower) || raw.includes("استئذان") || raw.includes("استيذان")) {
+    return "Permission";
+  }
+  if (["sickleave", "sick", "sick leave", "sick-leave"].includes(lower)) return "Sickleave";
+  if (lower === "absence") return "Absence";
+  if (["annual", "annual leave"].includes(lower)) return "Annual";
+  if (["unpaid", "unpaid leave"].includes(lower)) return "Unpaid";
+  return raw;
+}
+
 export function leavePayCategory(leaveType) {
-  return leaveType === "Unpaid" ? "Unpaid" : "Paid";
+  return canonicalLeaveType(leaveType) === "Unpaid" ? "Unpaid" : "Paid";
 }
 
 /** Permission approved without balance deduction — show in leave list. */
 export function permissionPayLabel(leave) {
-  if (!leave || leave.leave_type !== "Permission") return null;
+  if (!leave || canonicalLeaveType(leave.leave_type) !== "Permission") return null;
   if (leave.is_paid === false) return "Unpaid";
   return null;
 }
@@ -63,8 +88,11 @@ export function leaveStatusLabel(status, forTherapist = false) {
   return forTherapist && st.therapistLabel ? st.therapistLabel : st.label;
 }
 
+/** Permission/استئذان never requires a document. */
 export function leaveRequiresDocument(leaveType) {
-  return DOC_REQUIRED_TYPES.has(leaveType);
+  const canon = canonicalLeaveType(leaveType);
+  if (canon === "Permission") return false;
+  return DOC_REQUIRED_TYPES.has(canon);
 }
 
 export function documentBadge(leave) {
@@ -163,7 +191,7 @@ export function addHoursToTime24(time, hours) {
 export function fmtLeaveDuration(leave) {
   const days = parseFloat(leave?.days);
   if (!Number.isFinite(days)) return "";
-  if (leave?.leave_type === "Permission" && days < 1) {
+  if (canonicalLeaveType(leave?.leave_type) === "Permission" && days < 1) {
     const hrs = Math.round(days * 8 * 10) / 10;
     return `${hrs} hr${hrs !== 1 ? "s" : ""}`;
   }
@@ -173,7 +201,7 @@ export function fmtLeaveDuration(leave) {
 export function fmtLeaveSchedule(leave) {
   const range = fmtDateRange(leave?.start_date, leave?.end_date);
   const dur = fmtLeaveDuration(leave);
-  if (leave?.leave_type === "Permission" && leave?.start_time) {
+  if (canonicalLeaveType(leave?.leave_type) === "Permission" && leave?.start_time) {
     const timePart = fmtTimeRange(leave.start_time, leave.end_time);
     return `${range} · ${timePart}${dur ? ` · ${dur}` : ""}`;
   }

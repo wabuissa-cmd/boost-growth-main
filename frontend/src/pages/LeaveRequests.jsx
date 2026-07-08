@@ -146,7 +146,8 @@ function LeaveRequestCard({
   const [impactOpen, setImpactOpen] = useState(false);
   const attachRef = useRef(null);
   const pendingManager = isManagerReviewableLeave(leave);
-  const awaitingAttachment = leave.status === "pending_attachment";
+  const awaitingAttachment = leave.status === "pending_attachment"
+    && leaveRequiresDocument(leave.leave_type);
   const pendingHr = leave.status === "pending_hr";
   const showAdminActions = leaveManager || hrReview || portalAdmin || isManager;
 

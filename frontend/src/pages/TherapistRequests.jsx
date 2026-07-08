@@ -308,7 +308,7 @@ export default function TherapistRequests() {
   const leaveDropdownOptions = LEAVE_REQUEST_TYPES.map((t) => ({
     id: t.id,
     label: t.id === "Sickleave" ? "Sick" : t.id,
-    suffix: t.needsFile ? " (file required)" : (t.optionalFile ? " (file optional)" : ""),
+    suffix: t.needsFile ? " (file required)" : (t.optionalFile ? " (file optional / اختياري)" : ""),
     testId: `leave-type-${t.id}`,
   }));
 
@@ -846,10 +846,10 @@ export default function TherapistRequests() {
                         placeholder="Reason for permission…"
                       />
                     </FormField>
-                    <FormField label="Supporting document" hint="Optional — PDF or image (if available)">
+                    <FormField label="Supporting document" hint="Optional (اختياري) — PDF or image if available">
                       <label className="req-file-upload">
                         <UploadSimple size={15} weight="duotone" />
-                        <span>{form.attachmentFile ? form.attachmentFile.name : "Choose file (optional)"}</span>
+                        <span>{form.attachmentFile ? form.attachmentFile.name : "Choose file (optional / اختياري)"}</span>
                         <input
                           type="file"
                           accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx"
