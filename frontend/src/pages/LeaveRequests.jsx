@@ -234,6 +234,25 @@ function LeaveRequestCard({
     }
   };
 
+  const saveHrDraft = async () => {
+    setHrValidation("");
+    setSavingDecision(true);
+    try {
+      const payload = {
+        admin_note: (hrNote || "").trim() || undefined,
+        adjusted_start_date: adjStart || undefined,
+        adjusted_end_date: adjEnd || undefined,
+        adjusted_days: adjDays === "" ? undefined : parseFloat(adjDays),
+        adjusted_start_time: adjStartTime || undefined,
+        adjusted_end_time: adjEndTime || undefined,
+        successMessage: "Saved (Pending HR).",
+      };
+      await setStatus("pending_hr", payload);
+    } finally {
+      setSavingDecision(false);
+    }
+  };
+
   // Default HR adjustments to the original request.
   // Days auto-calc from the chosen adjusted date range unless HR manually overrides.
   // For Permission, also default start/end time; HR can override.
@@ -422,6 +441,14 @@ function LeaveRequestCard({
                   >
                     <CheckCircle size={14} /> {savingDecision ? "Saving…" : "Save (Unpaid)"}
                   </button>
+                  <button
+                    type="button"
+                    disabled={savingDecision}
+                    onClick={saveHrDraft}
+                    className="btn btn-outline text-xs"
+                  >
+                    {savingDecision ? "Saving…" : "Save as Pending"}
+                  </button>
                 </div>
               </div>
             </>
@@ -471,6 +498,14 @@ function LeaveRequestCard({
                     data-testid={`approve-${leave.id}`}
                   >
                     <CheckCircle size={14} /> {savingDecision ? "Saving…" : "Save"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={savingDecision}
+                    onClick={saveHrDraft}
+                    className="btn btn-outline text-xs"
+                  >
+                    {savingDecision ? "Saving…" : "Save as Pending"}
                   </button>
                 </div>
               </div>

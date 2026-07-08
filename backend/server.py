@@ -923,6 +923,20 @@ def _coerce_manager_approve_to_hr(status: str, notify_hr: Optional[bool] = None)
     return status
 
 
+def _leave_days_inclusive(start_iso: Optional[str], end_iso: Optional[str]) -> Optional[float]:
+    """Inclusive day-count between yyyy-mm-dd dates (min 1)."""
+    if not start_iso or not end_iso:
+        return None
+    try:
+        a = datetime.fromisoformat(str(start_iso)[:10]).date()
+        b = datetime.fromisoformat(str(end_iso)[:10]).date()
+        if b < a:
+            return None
+        return float(max(1, (b - a).days + 1))
+    except Exception:
+        return None
+
+
 def _is_client_lead(user: dict) -> bool:
     email = (user.get("email") or "").lower().strip()
     if email in CLIENT_LEAD_EMAILS:
@@ -13315,7 +13329,7 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
     leave = await _heal_optional_doc_pending_attachment(leave)
     prev_status = leave.get("status")
     effective_prev = _normalize_leave_status(prev_status)
-    new_status = _coerce_manager_approve_to_hr(payload.status, payload.notify_hr)
+    new_status = (_coerce_manager_approve_to_hr(payload.status, payload.notify_hr) or "").strip().lower()
     is_pa = _is_portal_admin(user)
     is_hr = _is_hr_ops(user)
     is_jenan_mgr = _is_jenan(user) and not is_pa
@@ -13342,7 +13356,8 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
             raise HTTPException(status_code=403, detail="HR can only act on HR-pending requests")
         if doc_required and not _leave_has_document(leave):
             raise HTTPException(status_code=400, detail="Document attachment required before approval")
-        if new_status not in ("approved", "rejected"):
+        # HR can either finalize (approved/rejected) OR save adjustments/notes while keeping it pending.
+        if new_status not in ("approved", "rejected", "pending_hr"):
             raise HTTPException(status_code=400, detail="HR must approve or reject")
     else:
         raise HTTPException(status_code=403, detail="Leave management access required")
@@ -13357,16 +13372,29 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
         if lt in ("unpaid", "absence") or not is_paid:
             deduct = False
     actor = _actor_display(user)
-    timeline = _append_leave_timeline(leave, new_status, actor)
+    # HR draft save: keep status as pending_hr, don't overwrite final decision metadata.
+    is_hr_draft_save = bool(is_hr and not is_pa and new_status == "pending_hr")
+    timeline = leave.get("timeline") or []
+    if not is_hr_draft_save:
+        timeline = _append_leave_timeline(leave, new_status, actor)
     # HR may adjust dates/days/hours; preserve original values the first time.
     set_patch: dict = {
-        "status": new_status,
         "admin_note": payload.admin_note,
-        "decided_by": actor,
-        "decided_at": now_iso(),
         "is_paid": is_paid,
         "timeline": timeline,
     }
+    if not is_hr_draft_save:
+        set_patch.update({
+            "status": new_status,
+            "decided_by": actor,
+            "decided_at": now_iso(),
+        })
+    else:
+        set_patch.update({
+            "status": "pending_hr",
+            "hr_updated_by": actor,
+            "hr_updated_at": now_iso(),
+        })
     if is_hr and not is_pa:
         adj_any = any(
             v is not None
@@ -13394,6 +13422,11 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
             if payload.adjusted_days is not None:
                 set_patch["days"] = float(payload.adjusted_days)
                 leave["days"] = set_patch["days"]
+            else:
+                auto_days = _leave_days_inclusive(leave.get("start_date"), leave.get("end_date"))
+                if auto_days is not None:
+                    set_patch["days"] = auto_days
+                    leave["days"] = set_patch["days"]
             if payload.adjusted_start_time is not None:
                 set_patch["start_time"] = payload.adjusted_start_time
                 leave["start_time"] = set_patch["start_time"]
