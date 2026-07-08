@@ -19,7 +19,7 @@ import {
   isPendingLeaveStatus,
   selectableLeaveTypeEntries,
 } from "../leaveUtils";
-import { getTherapistScheduleName } from "../scheduleConstants";
+import { getPortalDisplayName, getTherapistScheduleName } from "../scheduleConstants";
 
 function emptyLeave(therapistId = "") {
   const today = new Date().toISOString().slice(0, 10);
@@ -161,6 +161,13 @@ function LeaveRequestCard({
   };
 
   const unpaidLabel = permissionPayLabel(leave);
+  const portalName = useMemo(() => {
+    if (!user) return "";
+    const row = (therapists || []).find(
+      (t) => t?.id === user?.id || ((t?.email || "").toLowerCase() === (user?.email || "").toLowerCase()),
+    );
+    return getPortalDisplayName(user, row) || user?.email || "";
+  }, [user, therapists]);
 
   const markAbsent = async () => {
     const msg = `Mark ${leave.therapist_name || "therapist"} as absent on ${fmtDateRange(leave.start_date, leave.end_date)}?\n\nThis will automatically cancel all their sessions on these dates in the schedule.`;
@@ -192,7 +199,9 @@ function LeaveRequestCard({
             {(leave.therapist_name || "?").replace("Ms. ", "").charAt(0)}
           </div>
           <div>
-            <div className="font-bold text-lg" style={{ color: "#2C3625" }}>{leave.therapist_name || user?.name || "—"}</div>
+            <div className="font-bold text-lg" style={{ color: "#2C3625" }}>
+              {leave.therapist_name || portalName || "—"}
+            </div>
             <div className="text-sm" style={{ color: "#5C6853" }}>
               <span className="pill text-[10px] px-2 py-0.5 mr-1" style={{ background: `${tp.color}22`, color: tp.color }}>{tp.label}</span>
               · {fmtLeaveSchedule(leave)}
@@ -280,7 +289,7 @@ function LeaveRequestCard({
           )}
           {isManager && pendingManager && !portalAdmin && (
             <>
-              <button onClick={() => setStatus("pending_hr")} className="btn btn-primary text-xs" data-testid={`forward-hr-${leave.id}`}>
+              <button onClick={() => setStatus("pending_hr")} className="btn btn-primary text-xs" data-testid={`approve-manager-${leave.id}`}>
                 <CheckCircle size={14} /> Approve
               </button>
               <button onClick={() => setStatus("rejected")} className="btn btn-outline text-xs" data-testid={`reject-${leave.id}`}>

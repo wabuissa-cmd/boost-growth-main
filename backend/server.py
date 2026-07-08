@@ -1025,10 +1025,27 @@ async def billing_view_or_ops(user: dict = Depends(get_current_user)) -> dict:
     raise HTTPException(status_code=403, detail="Admin access required")
 
 def _actor_display(user: dict) -> str:
+    """Human-friendly actor label for UI timelines + emails.
+
+    Prefer stable English display names for key staff accounts; avoid Arabic-only names
+    when an email uniquely identifies the staff member.
+    """
+    email = (user.get("email") or "").strip().lower()
+    if email:
+        # Canonical staff names (source of truth: existing portal config + therapist family mapping).
+        if email == HR_OPS_EMAIL.lower():
+            return "HR"
+        if email in WALAA_LOGIN_EMAILS:
+            return "Walaa Abu Eissa"
+        if email in (JENAN_EMAIL.lower(), "jsalmuhaisin@boostgrowthsa.com"):
+            return "Jenan Almuhaisin"
+        if email == "msalthunayan@boostgrowthsa.com":
+            return "Maha Althunayan"
+        if email == "falghadeeb@boostgrowthsa.com":
+            return "Fahda Alghadeeb"
     name = (user.get("name") or "").strip()
     if name:
         return name.replace("Ms. ", "", 1) if name.startswith("Ms. ") else name
-    email = (user.get("email") or "").strip()
     if email:
         return email.split("@")[0].replace(".", " ").title()
     return "Staff"
@@ -4766,7 +4783,7 @@ async def _notify_hr_manager_decision(
 ):
     """HR in-app + email when the direct manager saves any review outcome."""
     decision_labels = {
-        "pending_hr": "Approve & forward to HR",
+        "pending_hr": "Approved by manager",
         "pending_manager": "Pending manager review",
         "rejected": "Rejected by manager",
     }
@@ -10609,7 +10626,7 @@ async def add_request_attachment(
     if req.get("status") == "pending_attachment" or (req.get("requires_attachment") and not req.get("attachment_file_path")):
         patch["status"] = "pending_manager"
         timeline = list(req.get("timeline") or [])
-        timeline.append({"event": "attachment_uploaded", "at": now_iso(), "by": user.get("name")})
+        timeline.append({"event": "attachment_uploaded", "at": now_iso(), "by": _actor_display(user)})
         patch["timeline"] = timeline
     await db.requests.update_one({"id": rid}, {"$set": patch})
     updated = {**req, **patch}
@@ -11526,9 +11543,9 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
     else:
         raise HTTPException(status_code=403, detail="Staff request management access required")
 
+    actor = _actor_display(user)
     timeline = req.get("timeline", [])
-    timeline.append({"event": new_status, "at": now_iso(), "by": user.get("name") or _actor_display(user),
-                     "note": payload.admin_note})
+    timeline.append({"event": new_status, "at": now_iso(), "by": actor, "note": payload.admin_note})
     await db.requests.update_one({"id": rid}, {"$set": {
         "status": new_status, "admin_note": payload.admin_note,
         "updated_at": now_iso(), "timeline": timeline,
@@ -12954,7 +12971,11 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
     is_pa = _is_portal_admin(user)
     is_hr = _is_hr_ops(user)
     is_jenan_mgr = _is_jenan(user) and not is_pa
-    notify_hr = payload.notify_hr if payload.notify_hr is not None else (not is_jenan_mgr)
+    # Jenan manager decisions should always notify HR when she approves/rejects,
+    # and the request should move into the HR queue automatically.
+    notify_hr = payload.notify_hr if payload.notify_hr is not None else (
+        (new_status in ("pending_hr", "rejected")) if is_jenan_mgr else True
+    )
     notify_therapist = payload.notify_therapist if payload.notify_therapist is not None else (not is_jenan_mgr)
 
     if is_pa:
@@ -12989,7 +13010,7 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
     timeline = _append_leave_timeline(leave, new_status, actor)
     await db.leaves.update_one({"id": lid}, {"$set": {
         "status": new_status, "admin_note": payload.admin_note,
-        "decided_by": user.get("name") or actor, "decided_at": now_iso(),
+        "decided_by": actor, "decided_at": now_iso(),
         "is_paid": is_paid,
         "timeline": timeline,
     }})
