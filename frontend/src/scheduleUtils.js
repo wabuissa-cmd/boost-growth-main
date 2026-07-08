@@ -85,9 +85,9 @@ export const SHIFT_SESSION_STYLES = {
 
 /** Column band metadata for schedule headers (matches TIME_SLOTS: 4 + 4 + 2). */
 export const SHIFT_BANDS = [
-  { shift: 1, label: "Shift 1 · 8–12", slotCount: 4 },
-  { shift: 2, label: "Shift 2 · 12–4", slotCount: 4 },
-  { shift: 3, label: "Shift 3 · 4–8", slotCount: 2 },
+  { shift: 1, label: "1 · 8–12", slotCount: 4 },
+  { shift: 2, label: "2 · 12–4", slotCount: 4 },
+  { shift: 3, label: "3 · 4–8", slotCount: 2 },
 ];
 
 /** Legend colors — must match .evt-* in index.css */
