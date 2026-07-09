@@ -27,6 +27,7 @@ const PENDING_MANAGER_STATUSES = new Set(["pending", "pending_manager"]);
 const PENDING_HR_STATUS = "pending_hr";
 /** UI-only key for Jinan manager review — saved as pending_hr */
 const MANAGER_APPROVE_KEY = "manager_approve";
+const MANAGER_REJECT_KEY = "manager_reject";
 
 const MANAGER_REVIEW_STATUS_MAP = {
   pending_manager: {
@@ -47,6 +48,12 @@ const MANAGER_REVIEW_STATUS_MAP = {
     icon: <Clock size={14} weight="duotone" />,
     color: "#A4BCCB",
   },
+  [MANAGER_REJECT_KEY]: {
+    label: "Reject",
+    cls: "bg-[#F8EBE7] text-[#8A3F27] border-[#ECA6A6]",
+    icon: <XCircle size={14} weight="duotone" />,
+    color: "#ECA6A6",
+  },
 };
 
 function isPendingManagerStatus(status) {
@@ -65,7 +72,7 @@ function isManagerReviewableItem(item) {
   return isPendingManagerStatus(item.status) || item.status === "in_progress";
 }
 
-const MANAGER_REVIEW_OPTIONS = [MANAGER_APPROVE_KEY, "pending_manager", "in_progress"];
+const MANAGER_REVIEW_OPTIONS = [MANAGER_APPROVE_KEY, "pending_manager", "in_progress", MANAGER_REJECT_KEY];
 
 function managerReviewStatusOptions() {
   return MANAGER_REVIEW_OPTIONS;
@@ -86,7 +93,7 @@ function managerTrackingStatusKey(status) {
 function ManagerStatusGrid({ activeKey, readOnly = false, onSelect }) {
   return (
     <div
-      className="grid grid-cols-3 gap-2 p-2 rounded-xl mb-3"
+      className="grid grid-cols-2 gap-2 p-2 rounded-xl mb-3"
       style={{ background: "#FAFAF7", border: "1px solid #E2DDD4" }}
       role={readOnly ? "group" : "radiogroup"}
       aria-label={readOnly ? "Request status" : "Manager decision"}
@@ -145,6 +152,9 @@ function allowedStatusOptions(user, currentStatus) {
 
 function managerWorkflowLabel(r) {
   if (r.status === "pending_hr") {
+    if (r.manager_decision === "rejected") {
+      return { label: "Manager rejected → HR", cls: "bg-[#F8EBE7] text-[#8A3F27] border-[#ECA6A6]" };
+    }
     return { label: "Forwarded to HR", cls: "bg-[#F5EBE3] text-[#965132] border-[#E6C983]" };
   }
   if (r.status === "rejected") {
@@ -152,7 +162,7 @@ function managerWorkflowLabel(r) {
   }
   const timeline = r.timeline || [];
   const managerTouched = timeline.some(ev =>
-    ev.event === "pending_hr" || (ev.note && ev.event !== "submitted")
+    ev.event === "pending_hr" || ev.event === "manager_rejected" || (ev.note && ev.event !== "submitted")
   );
   if (r.admin_note || managerTouched) {
     return { label: "Edited", cls: "bg-[#EAF0F3] text-[#375568] border-[#A4BCCB]" };
@@ -214,6 +224,8 @@ function normalizeLeaveForQueue(leave) {
     created_at: leave.created_at,
     status: normalizeLeaveStatus(leave.status),
     admin_note: leave.admin_note,
+    manager_decision: leave.manager_decision,
+    manager_note: leave.manager_note,
     timeline: leave.timeline,
     _leave: leave,
   };
@@ -713,6 +725,11 @@ export default function Requests({ personal = false, embedded = false, managerVi
                       <div className="text-[10px] mt-0.5" style={{color: "var(--brand-sage)"}}>{new Date(r.created_at).toLocaleString('en-US')}</div>
                       {r.admin_note && (
                         <div className="mt-2 p-2 rounded-lg text-xs bg-[#E5EBE1]" style={{color: "var(--brand-dark)"}}>{r.admin_note}</div>
+                      )}
+                      {r.manager_decision === "rejected" && r.status === PENDING_HR_STATUS && (
+                        <div className="text-[10px] mt-1 font-semibold" style={{ color: "#8A3F27" }}>
+                          Manager rejected{r.manager_note ? `: ${r.manager_note}` : ""}
+                        </div>
                       )}
                       {canManageReq && r.status === PENDING_HR_STATUS && hrReview && !isPortalAdminUser && (
                         <div className="flex flex-wrap gap-1 mt-2">

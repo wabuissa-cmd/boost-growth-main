@@ -70,10 +70,10 @@ function DocumentSection({ leave, isAdmin, onRefresh, canUpload }) {
   const viewDoc = async () => {
     try {
       await openAuthenticatedFile(downloadUrl, {
-        errorMessage: "تعذّر فتح المستند — اطلبي من المعالجة إعادة رفعه / Could not open document",
+        errorMessage: "Could not open document. Please ask the therapist to re-upload it.",
       });
     } catch (e) {
-      alert(e?.message || "تعذّر فتح المستند — اطلبي من المعالجة إعادة رفعه");
+      alert(e?.message || "Could not open document. Please ask the therapist to re-upload it.");
     }
   };
 
@@ -372,9 +372,9 @@ function LeaveRequestCard({
           {isManager && pendingManager && !portalAdmin && (
             <>
               <button onClick={() => setStatus("pending_hr")} className="btn btn-primary text-xs" data-testid={`approve-manager-${leave.id}`}>
-                <CheckCircle size={14} /> Approve
+                <CheckCircle size={14} /> Forward to HR
               </button>
-              <button onClick={() => setStatus("rejected")} className="btn btn-outline text-xs" data-testid={`reject-${leave.id}`}>
+              <button onClick={() => setStatus("manager_reject")} className="btn btn-outline text-xs" data-testid={`reject-${leave.id}`}>
                 <XCircle size={14} /> Reject
               </button>
             </>

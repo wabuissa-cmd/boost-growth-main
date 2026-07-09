@@ -922,7 +922,32 @@ def _coerce_manager_approve_to_hr(status: str, notify_hr: Optional[bool] = None)
     # HR (and portal admins) send canonical "approved"/"rejected" and must not be coerced.
     if status == "manager_approve":
         return "approved" if notify_hr is False else "pending_hr"
+    if status in ("manager_reject", "manager_rejected"):
+        return "pending_hr"
     return status
+
+
+def _manager_outcome_for_hr(
+    *,
+    is_jenan_mgr: bool,
+    raw_status: str,
+    coerced_status: str,
+    notify_hr: Optional[bool],
+) -> tuple:
+    """When the direct manager acts, always route outcomes to HR (pending_hr) with a recommendation."""
+    if not is_jenan_mgr:
+        return coerced_status, None
+    raw = (raw_status or "").strip().lower()
+    status = (coerced_status or "").strip().lower()
+    if raw in ("manager_reject", "manager_rejected") or status == "rejected":
+        return "pending_hr", "rejected"
+    if raw == "manager_approve" or status == "pending_hr":
+        return "pending_hr", "approved"
+    if status == "in_progress":
+        return "in_progress", "in_progress"
+    if status == "pending_manager":
+        return "pending_manager", None
+    return status, None
 
 
 def _leave_days_inclusive(start_iso: Optional[str], end_iso: Optional[str]) -> Optional[float]:
@@ -4863,7 +4888,9 @@ async def _email_hr_ops_urgent(subject: str, body: str) -> List[dict]:
     return results
 
 
-MANAGER_HR_NOTIFY_STATUSES = frozenset({"pending_hr", "pending_manager", "rejected"})
+MANAGER_HR_NOTIFY_STATUSES = frozenset({
+    "pending_hr", "pending_manager", "rejected", "manager_rejected", "in_progress", "approved",
+})
 
 
 async def _notify_hr_manager_decision(
@@ -4876,9 +4903,11 @@ async def _notify_hr_manager_decision(
 ):
     """HR in-app + email when the direct manager saves any review outcome."""
     decision_labels = {
-        "pending_hr": "Approved by manager",
+        "pending_hr": "Forwarded to HR by manager",
         "pending_manager": "Pending manager review",
         "rejected": "Rejected by manager",
+        "manager_rejected": "Rejected by manager",
+        "manager_reject": "Rejected by manager",
         "in_progress": "Marked in progress by manager",
         "approved": "Approved by manager",
     }
@@ -5778,14 +5807,18 @@ async def _heal_walaa_my_requests_once() -> dict:
                 "title": "Companies request",
                 "description": "Request restored for Walaa — companies paperwork",
                 "priority": "normal",
-                "status": "rejected",
-                "admin_note": "Not approved at this time. Please contact HR if you need clarification.",
+                "status": "pending_hr",
+                "manager_decision": "rejected",
+                "manager_note": "Not approved at this time. Please contact HR if you need clarification.",
+                "manager_decided_at": now,
+                "manager_decided_by": "Ms. Jenan",
+                "admin_note": None,
                 "created_at": now,
                 "updated_at": now,
                 "timeline": [
                     {"event": "submitted", "at": now, "by": "Walaa Abu Eissa"},
-                    {"event": "pending_hr", "at": now, "by": "Ms. Jenan", "note": "Forwarded to HR"},
-                    {"event": "rejected", "at": now, "by": "HR", "note": "Not approved at this time."},
+                    {"event": "manager_rejected", "at": now, "by": "Ms. Jenan", "note": "Not approved at this time."},
+                    {"event": "pending_hr", "at": now, "by": "Ms. Jenan", "note": "Forwarded to HR for final decision"},
                 ],
             }
             await db.requests.insert_one(doc)
@@ -5807,15 +5840,19 @@ async def _heal_walaa_my_requests_once() -> dict:
                 "end_time": "15:00",
                 "days": 0.125,
                 "notes": "Permission request restored for Walaa",
-                "status": "rejected",
-                "admin_note": "Not approved at this time.",
+                "status": "pending_hr",
+                "manager_decision": "rejected",
+                "manager_note": "Not approved at this time.",
+                "manager_decided_at": now,
+                "manager_decided_by": "Ms. Jenan",
+                "admin_note": None,
                 "is_paid": True,
                 "created_at": now,
                 "updated_at": now,
                 "timeline": [
                     {"event": "submitted", "at": now, "by": "Walaa Abu Eissa"},
-                    {"event": "pending_hr", "at": now, "by": "Ms. Jenan", "note": "Forwarded to HR"},
-                    {"event": "rejected", "at": now, "by": "HR", "note": "Not approved at this time."},
+                    {"event": "manager_rejected", "at": now, "by": "Ms. Jenan", "note": "Not approved at this time."},
+                    {"event": "pending_hr", "at": now, "by": "Ms. Jenan", "note": "Forwarded to HR for final decision"},
                 ],
             }
             await db.leaves.insert_one(leave_doc)
@@ -5833,14 +5870,18 @@ async def _heal_walaa_my_requests_once() -> dict:
                 "title": "Materials request",
                 "description": "Request restored for Walaa — classroom materials",
                 "priority": "normal",
-                "status": "rejected",
-                "admin_note": "Not approved at this time.",
+                "status": "pending_hr",
+                "manager_decision": "rejected",
+                "manager_note": "Not approved at this time.",
+                "manager_decided_at": now,
+                "manager_decided_by": "Ms. Jenan",
+                "admin_note": None,
                 "created_at": now,
                 "updated_at": now,
                 "timeline": [
                     {"event": "submitted", "at": now, "by": "Walaa Abu Eissa"},
-                    {"event": "pending_hr", "at": now, "by": "Ms. Jenan", "note": "Forwarded to HR"},
-                    {"event": "rejected", "at": now, "by": "HR", "note": "Not approved at this time."},
+                    {"event": "manager_rejected", "at": now, "by": "Ms. Jenan", "note": "Not approved at this time."},
+                    {"event": "pending_hr", "at": now, "by": "Ms. Jenan", "note": "Forwarded to HR for final decision"},
                 ],
             }
             await db.requests.insert_one(doc2)
@@ -5857,14 +5898,58 @@ async def _heal_walaa_my_requests_once() -> dict:
                 req_doc = await db.requests.find_one({"id": rid}, {"_id": 0})
                 if req_doc:
                     try:
-                        await _send_staff_request_decision_email(
-                            req_doc,
-                            new_status="rejected",
-                            decided_at=now,
-                            admin_note=req_doc.get("admin_note") or "",
+                        await _notify_hr_manager_decision(
+                            ntype="request",
+                            therapist_name=req_doc.get("therapist_name") or "Staff",
+                            summary=req_doc.get("title") or "Request",
+                            decision_status="manager_rejected",
+                            admin_note=req_doc.get("manager_note") or req_doc.get("admin_note"),
                         )
                     except Exception:
                         pass
+
+    # Demo / legacy Walaa rows: manager rejected but never reached HR queue.
+    now_fix = now_iso()
+    for coll_name in ("requests", "leaves"):
+        coll = db.requests if coll_name == "requests" else db.leaves
+        async for row in coll.find(
+            {
+                "therapist_id": walaa_tid,
+                "status": "rejected",
+                "hr_decided_at": {"$exists": False},
+            },
+            {"_id": 0},
+        ):
+            timeline = list(row.get("timeline") or [])
+            if not any(ev.get("event") == "manager_rejected" for ev in timeline):
+                timeline.append({
+                    "event": "manager_rejected",
+                    "at": now_fix,
+                    "by": "Ms. Jenan",
+                    "note": row.get("admin_note") or "Rejected by manager — awaiting HR review",
+                })
+            timeline = [ev for ev in timeline if not (
+                ev.get("event") == "rejected" and "hr" in (ev.get("by") or "").lower()
+            )]
+            if not any(ev.get("event") == "pending_hr" for ev in timeline):
+                timeline.append({
+                    "event": "pending_hr",
+                    "at": now_fix,
+                    "by": "Ms. Jenan",
+                    "note": "Forwarded to HR for final decision",
+                })
+            await coll.update_one(
+                {"id": row["id"]},
+                {"$set": {
+                    "status": "pending_hr",
+                    "manager_decision": "rejected",
+                    "manager_note": row.get("admin_note") or "Rejected by manager",
+                    "manager_decided_at": now_fix,
+                    "manager_decided_by": "Ms. Jenan",
+                    "timeline": timeline,
+                    "updated_at": now_fix,
+                }},
+            )
 
     return {
         "walaa_therapist_id": walaa_tid,
@@ -5872,6 +5957,92 @@ async def _heal_walaa_my_requests_once() -> dict:
         "relinked_leaves": relink_leave.modified_count,
         "created": created,
     }
+
+
+def _timeline_has_hr_final_decision(timeline: Optional[list]) -> bool:
+    for ev in timeline or []:
+        by = (ev.get("by") or "").lower()
+        if ev.get("event") in ("approved", "rejected", "done") and "hr" in by:
+            return True
+    return False
+
+
+async def _heal_manager_only_rejects_to_hr_once() -> dict:
+    """Move manager-only rejections into the HR queue (pending_hr) so HR always sees them."""
+    meta_key = "manager_rejects_to_hr_queue_v1"
+    if await db.meta.find_one({"key": meta_key, "done": True}):
+        return {"skipped": "already_ran"}
+    now = now_iso()
+    fixed_req = 0
+    fixed_leave = 0
+    for req in await db.requests.find({"status": "rejected"}, {"_id": 0}).to_list(1000):
+        if req.get("hr_decided_at") or _timeline_has_hr_final_decision(req.get("timeline")):
+            continue
+        timeline = list(req.get("timeline") or [])
+        if not any(ev.get("event") == "manager_rejected" for ev in timeline):
+            timeline.append({
+                "event": "manager_rejected",
+                "at": now,
+                "by": req.get("manager_decided_by") or "Ms. Jenan",
+                "note": req.get("manager_note") or req.get("admin_note"),
+            })
+        if not any(ev.get("event") == "pending_hr" for ev in timeline):
+            timeline.append({
+                "event": "pending_hr",
+                "at": now,
+                "by": req.get("manager_decided_by") or "Ms. Jenan",
+                "note": "Awaiting HR review",
+            })
+        await db.requests.update_one(
+            {"id": req["id"]},
+            {"$set": {
+                "status": "pending_hr",
+                "manager_decision": req.get("manager_decision") or "rejected",
+                "manager_note": req.get("manager_note") or req.get("admin_note"),
+                "manager_decided_at": req.get("manager_decided_at") or now,
+                "manager_decided_by": req.get("manager_decided_by") or "Ms. Jenan",
+                "timeline": timeline,
+                "updated_at": now,
+            }},
+        )
+        fixed_req += 1
+    for leave in await db.leaves.find({"status": "rejected"}, {"_id": 0}).to_list(1000):
+        if leave.get("hr_decided_at") or _timeline_has_hr_final_decision(leave.get("timeline")):
+            continue
+        timeline = list(leave.get("timeline") or [])
+        if not any(ev.get("event") == "manager_rejected" for ev in timeline):
+            timeline.append({
+                "event": "manager_rejected",
+                "at": now,
+                "by": leave.get("manager_decided_by") or "Ms. Jenan",
+                "note": leave.get("manager_note") or leave.get("admin_note"),
+            })
+        if not any(ev.get("event") == "pending_hr" for ev in timeline):
+            timeline.append({
+                "event": "pending_hr",
+                "at": now,
+                "by": leave.get("manager_decided_by") or "Ms. Jenan",
+                "note": "Awaiting HR review",
+            })
+        await db.leaves.update_one(
+            {"id": leave["id"]},
+            {"$set": {
+                "status": "pending_hr",
+                "manager_decision": leave.get("manager_decision") or "rejected",
+                "manager_note": leave.get("manager_note") or leave.get("admin_note"),
+                "manager_decided_at": leave.get("manager_decided_at") or now,
+                "manager_decided_by": leave.get("manager_decided_by") or "Ms. Jenan",
+                "timeline": timeline,
+                "updated_at": now,
+            }},
+        )
+        fixed_leave += 1
+    await db.meta.update_one(
+        {"key": meta_key},
+        {"$set": {"done": True, "updated_at": now, "requests": fixed_req, "leaves": fixed_leave}},
+        upsert=True,
+    )
+    return {"requests": fixed_req, "leaves": fixed_leave}
 
 
 @api.get("/clients/resolve-schedule-name")
@@ -12164,12 +12335,22 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
         raise HTTPException(status_code=404, detail="Not found")
     prev_status = req.get("status")
     effective_prev = _normalize_request_status(prev_status)
-    new_status = _coerce_manager_approve_to_hr(payload.status, payload.notify_hr)
+    raw_status = payload.status
+    new_status = _coerce_manager_approve_to_hr(raw_status, payload.notify_hr)
     is_pa = _is_portal_admin(user)
     is_hr = _is_hr_ops(user)
     is_jenan_mgr = _is_jenan(user) and not is_pa
-    notify_hr = payload.notify_hr if payload.notify_hr is not None else (not is_jenan_mgr)
+    if is_jenan_mgr:
+        notify_hr = True
+    else:
+        notify_hr = payload.notify_hr if payload.notify_hr is not None else True
     notify_therapist = payload.notify_therapist if payload.notify_therapist is not None else (not is_jenan_mgr)
+    new_status, manager_decision = _manager_outcome_for_hr(
+        is_jenan_mgr=is_jenan_mgr,
+        raw_status=raw_status,
+        coerced_status=new_status,
+        notify_hr=notify_hr,
+    )
 
     # Walaa should not change staff-request workflow statuses; HR + Jenan only.
     if _is_walaa_ops(user) and not is_hr and not _is_jenan(user):
@@ -12184,9 +12365,9 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
             raise HTTPException(status_code=400, detail="Attachment required before manager review")
         if effective_prev == "in_progress":
             if new_status not in ("pending_hr", "in_progress", "pending_manager"):
-                raise HTTPException(status_code=400, detail="Manager must forward to HR or keep in progress/pending")
+                raise HTTPException(status_code=400, detail="Manager must forward to HR, reject, or keep in progress/pending")
         elif new_status not in ("pending_hr", "in_progress", "pending_manager"):
-            raise HTTPException(status_code=400, detail="Manager must forward to HR or keep in progress/pending")
+            raise HTTPException(status_code=400, detail="Manager must forward to HR, reject, or keep in progress/pending")
     elif is_hr:
         if effective_prev != "pending_hr":
             raise HTTPException(status_code=403, detail="HR can only act on HR-pending requests")
@@ -12197,19 +12378,52 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
 
     updated_at = now_iso()
     actor = _actor_display(user)
-    timeline = req.get("timeline", [])
+    timeline = list(req.get("timeline") or [])
+    if is_jenan_mgr and manager_decision == "rejected":
+        timeline.append({
+            "event": "manager_rejected",
+            "at": updated_at,
+            "by": actor,
+            "note": (payload.admin_note or "").strip() or None,
+        })
+    elif is_jenan_mgr and manager_decision == "approved" and new_status == "pending_hr":
+        timeline.append({
+            "event": "manager_approved",
+            "at": updated_at,
+            "by": actor,
+            "note": (payload.admin_note or "").strip() or None,
+        })
+    elif is_jenan_mgr and new_status == "in_progress":
+        timeline.append({
+            "event": "in_progress",
+            "at": updated_at,
+            "by": actor,
+            "note": (payload.admin_note or "").strip() or None,
+        })
     timeline.append({"event": new_status, "at": updated_at, "by": actor, "note": payload.admin_note})
-    await db.requests.update_one({"id": rid}, {"$set": {
-        "status": new_status, "admin_note": payload.admin_note,
-        "updated_at": updated_at, "timeline": timeline,
-    }})
-    # Whenever Jenan (manager) changes status, HR should be notified immediately.
-    if is_jenan_mgr and effective_prev in MANAGER_ACTIVE_REQUEST_STATUSES and notify_hr and new_status != effective_prev:
+    set_patch = {
+        "status": new_status,
+        "admin_note": payload.admin_note,
+        "updated_at": updated_at,
+        "timeline": timeline,
+    }
+    if is_jenan_mgr and manager_decision:
+        set_patch["manager_decision"] = manager_decision
+        set_patch["manager_note"] = (payload.admin_note or "").strip() or None
+        set_patch["manager_decided_at"] = updated_at
+        set_patch["manager_decided_by"] = actor
+    if is_hr and new_status in ("approved", "rejected", "done", "in_progress"):
+        set_patch["hr_decided_at"] = updated_at
+        set_patch["hr_decided_by"] = actor
+    await db.requests.update_one({"id": rid}, {"$set": set_patch})
+    # Whenever Jenan (manager) changes status, HR is notified immediately (approve, reject, in progress).
+    if is_jenan_mgr and effective_prev in MANAGER_ACTIVE_REQUEST_STATUSES and new_status != effective_prev:
+        notify_status = "manager_rejected" if manager_decision == "rejected" else (manager_decision or new_status)
         await _notify_hr_manager_decision(
             ntype="request",
             therapist_name=req.get("therapist_name") or "Staff",
             summary=req.get("title") or "Request",
-            decision_status=new_status,
+            decision_status=notify_status,
             admin_note=payload.admin_note,
         )
     status_map = {
@@ -13761,16 +13975,22 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
     leave = await _heal_optional_doc_pending_attachment(leave)
     prev_status = leave.get("status")
     effective_prev = _normalize_leave_status(prev_status)
-    new_status = (_coerce_manager_approve_to_hr(payload.status, payload.notify_hr) or "").strip().lower()
+    raw_status = payload.status
+    new_status = (_coerce_manager_approve_to_hr(raw_status, payload.notify_hr) or "").strip().lower()
     is_pa = _is_portal_admin(user)
     is_hr = _is_hr_ops(user)
     is_jenan_mgr = _is_jenan(user) and not is_pa
-    # Jenan manager decisions should always notify HR when she approves/rejects,
-    # and the request should move into the HR queue automatically.
-    notify_hr = payload.notify_hr if payload.notify_hr is not None else (
-        (new_status in ("pending_hr", "rejected")) if is_jenan_mgr else True
-    )
+    if is_jenan_mgr:
+        notify_hr = True
+    else:
+        notify_hr = payload.notify_hr if payload.notify_hr is not None else True
     notify_therapist = payload.notify_therapist if payload.notify_therapist is not None else (not is_jenan_mgr)
+    new_status, manager_decision = _manager_outcome_for_hr(
+        is_jenan_mgr=is_jenan_mgr,
+        raw_status=raw_status,
+        coerced_status=new_status,
+        notify_hr=notify_hr,
+    )
     doc_required = _leave_requires_document(leave.get("leave_type"))
 
     if is_pa:
@@ -13781,8 +14001,8 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
         # Only true doc-required types block review; Permission is never blocked.
         if doc_required and (effective_prev == "pending_attachment" or not _leave_has_document(leave)):
             raise HTTPException(status_code=400, detail="Document attachment required before review")
-        if new_status not in ("pending_hr", "rejected", "pending_manager", "approved"):
-            raise HTTPException(status_code=400, detail="Manager must choose pending, approve, or reject")
+        if new_status not in ("pending_hr", "pending_manager", "in_progress"):
+            raise HTTPException(status_code=400, detail="Manager must forward to HR, reject, or keep pending/in progress")
     elif is_hr:
         if effective_prev != "pending_hr":
             raise HTTPException(status_code=403, detail="HR can only act on HR-pending requests")
@@ -13806,9 +14026,23 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
     actor = _actor_display(user)
     # HR draft save: keep status as pending_hr, don't overwrite final decision metadata.
     is_hr_draft_save = bool(is_hr and not is_pa and new_status == "pending_hr")
-    timeline = leave.get("timeline") or []
+    timeline = list(leave.get("timeline") or [])
+    if is_jenan_mgr and manager_decision == "rejected":
+        timeline.append({
+            "event": "manager_rejected",
+            "at": now_iso(),
+            "by": actor,
+            "note": (payload.admin_note or "").strip() or None,
+        })
+    elif is_jenan_mgr and manager_decision == "approved" and new_status == "pending_hr":
+        timeline.append({
+            "event": "manager_approved",
+            "at": now_iso(),
+            "by": actor,
+            "note": (payload.admin_note or "").strip() or None,
+        })
     if not is_hr_draft_save:
-        timeline = _append_leave_timeline(leave, new_status, actor)
+        timeline = _append_leave_timeline({**leave, "timeline": timeline}, new_status, actor)
     # HR may adjust dates/days/hours; preserve original values the first time.
     set_patch: dict = {
         "admin_note": payload.admin_note,
@@ -13821,6 +14055,14 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
             "decided_by": actor,
             "decided_at": now_iso(),
         })
+        if is_jenan_mgr and manager_decision:
+            set_patch["manager_decision"] = manager_decision
+            set_patch["manager_note"] = (payload.admin_note or "").strip() or None
+            set_patch["manager_decided_at"] = now_iso()
+            set_patch["manager_decided_by"] = actor
+        if is_hr and new_status in ("approved", "rejected"):
+            set_patch["hr_decided_at"] = now_iso()
+            set_patch["hr_decided_by"] = actor
     else:
         set_patch.update({
             "status": "pending_hr",
@@ -13866,7 +14108,8 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
                 set_patch["end_time"] = payload.adjusted_end_time
                 leave["end_time"] = set_patch["end_time"]
     await db.leaves.update_one({"id": lid}, {"$set": set_patch})
-    if is_jenan_mgr and effective_prev in MANAGER_FORWARD_HR_LEAVE_SOURCES and notify_hr and new_status in MANAGER_HR_NOTIFY_STATUSES:
+    if is_jenan_mgr and effective_prev in MANAGER_FORWARD_HR_LEAVE_SOURCES and new_status != effective_prev:
+        notify_status = "manager_rejected" if manager_decision == "rejected" else (manager_decision or new_status)
         tname = leave.get("leave_type") or "Leave"
         summary = (
             f"{tname} {leave.get('days')}d "
@@ -13876,7 +14119,7 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
             ntype="leave_request",
             therapist_name=leave.get("therapist_name") or "Therapist",
             summary=summary,
-            decision_status=new_status,
+            decision_status=notify_status,
             admin_note=payload.admin_note,
         )
     # Deduct balance when newly approved (skip unpaid / absence)
@@ -17828,6 +18071,13 @@ async def _run_startup():
                 logger.info("Walaa My Requests heal: %s", heal)
         except Exception as e:
             logger.warning(f"Walaa My Requests heal skipped: {e}")
+
+        try:
+            mgr = await _heal_manager_only_rejects_to_hr_once()
+            if mgr.get("requests") or mgr.get("leaves"):
+                logger.info("Manager rejects moved to HR queue: %s", mgr)
+        except Exception as e:
+            logger.warning(f"Manager reject → HR queue heal skipped: {e}")
 
         try:
             leave_names = await _backfill_leave_therapist_names()
