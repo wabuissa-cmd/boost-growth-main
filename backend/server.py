@@ -2367,7 +2367,7 @@ MASTER_CLIENTS = [
 async def _resolve_therapist_id(key_to_id: dict, key: str) -> Optional[str]:
     return key_to_id.get(key)
 
-async def _seed_master_data_impl() -> dict:
+async def _seed_master_data_impl(file_nos: Optional[set] = None) -> dict:
     """Idempotently seed/update therapists and clients with the canonical master list."""
     results = {"therapists": {"updated": [], "created": [], "skipped": []},
                "clients": {"updated": [], "created": [], "skipped": []}}
@@ -2413,6 +2413,8 @@ async def _seed_master_data_impl() -> dict:
 
     # 2) Clients
     for (file_no, name, main_k, co_ks, pkg, sup_k, service, address) in MASTER_CLIENTS:
+        if file_nos and file_no not in file_nos:
+            continue
         match = await db.clients.find_one({"file_no": file_no})
         if match and match.get("deleted"):
             results["clients"]["skipped"].append({"file_no": file_no, "name": name, "reason": "soft-deleted"})
@@ -17248,6 +17250,15 @@ async def _run_startup():
                 logger.info(f"Healed {n} Permission leave(s) stuck in pending_attachment")
         except Exception as e:
             logger.warning(f"Permission pending_attachment heal skipped: {e}")
+
+        try:
+            boot = await _seed_master_data_impl({"081", "076"})
+            n_new = len(boot.get("clients", {}).get("created") or [])
+            n_up = len(boot.get("clients", {}).get("updated") or [])
+            if n_new or n_up:
+                logger.info(f"Master clients 081/076 sync: {n_new} created, {n_up} updated")
+        except Exception as e:
+            logger.warning(f"Master clients 081/076 sync skipped: {e}")
 
         try:
             n = await _backfill_schedule_cell_colors_for_week("2026-06-28")
