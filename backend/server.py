@@ -10810,14 +10810,15 @@ def _enrich_request_attachment(req: dict) -> dict:
 async def list_requests(scope: Optional[str] = None, user=Depends(get_current_user)):
     """List requests. Default: caller's own. scope=staff: manager/HR staff queue (not own rows for Jenan)."""
     scope_norm = (scope or "").strip().lower()
+    uid = await _resolve_user_therapist_id(user) or user.get("id")
     if scope_norm == "staff":
         if not _can_staff_request_scope(user):
             raise HTTPException(status_code=403, detail="Staff request access required")
         q: dict = {}
         if _is_jenan(user) and not _is_portal_admin(user) and not _is_hr_ops(user):
-            q = {"therapist_id": {"$ne": user["id"]}}
+            q = {"therapist_id": {"$ne": uid}}
     else:
-        q = {"therapist_id": user["id"]}
+        q = {"therapist_id": uid}
     items = await db.requests.find(q, {"_id": 0, "attachment_file_data": 0}).sort("created_at", -1).to_list(500)
     therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1}).to_list(500)
     t_by_id = {t["id"]: t for t in therapists}
@@ -10845,12 +10846,13 @@ async def create_request(payload: RequestIn, user=Depends(get_current_user)):
     initial_status = "pending_manager"
     if payload.requires_attachment:
         initial_status = "pending_attachment"
-    th = await db.therapists.find_one({"id": user["id"]}, {"_id": 0, "id": 1, "name": 1, "key": 1})
+    tid = await _resolve_user_therapist_id(user) or user["id"]
+    th = await db.therapists.find_one({"id": tid}, {"_id": 0, "id": 1, "name": 1, "key": 1})
     display = therapist_schedule_display_name(th or user)
     body = payload.model_dump()
     if title:
         body["title"] = title
-    doc = {"id": rid, "therapist_id": user["id"], "therapist_name": display,
+    doc = {"id": rid, "therapist_id": tid, "therapist_name": display,
            **body, "status": initial_status, "admin_note": None,
            "created_at": now_iso(), "updated_at": now_iso(),
            "timeline": [{"event": "submitted", "at": now_iso(), "by": user.get("name")}]}
