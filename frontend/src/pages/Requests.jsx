@@ -36,16 +36,16 @@ const MANAGER_REVIEW_STATUS_MAP = {
     color: "#E6C983",
   },
   [MANAGER_APPROVE_KEY]: {
-    label: "Approve",
+    label: "Forward to HR",
     cls: "bg-[#E5EBE1] text-[var(--brand-dark)] border-[#B4C2A9]",
     icon: <CheckCircle size={14} weight="duotone"/>,
     color: "#B4C2A9",
   },
-  rejected: {
-    label: "Reject",
-    cls: "bg-[#F8EBE7] text-[#8A3F27] border-[#ECA6A6]",
-    icon: <XCircle size={14} weight="duotone"/>,
-    color: "#ECA6A6",
+  in_progress: {
+    label: "In progress",
+    cls: "bg-[#EAF0F3] text-[#375568] border-[#A4BCCB]",
+    icon: <Clock size={14} weight="duotone" />,
+    color: "#A4BCCB",
   },
 };
 
@@ -65,14 +65,13 @@ function isManagerReviewableItem(item) {
   return isPendingManagerStatus(item.status) || item.status === "in_progress";
 }
 
-const MANAGER_REVIEW_OPTIONS = [MANAGER_APPROVE_KEY, "pending_manager", "rejected"];
+const MANAGER_REVIEW_OPTIONS = [MANAGER_APPROVE_KEY, "pending_manager", "in_progress"];
 
 function managerReviewStatusOptions() {
   return MANAGER_REVIEW_OPTIONS;
 }
 
 function managerReviewInitialStatus(currentStatus) {
-  if (currentStatus === "rejected") return "rejected";
   if (currentStatus === "approved" || currentStatus === "done") return MANAGER_APPROVE_KEY;
   return "pending_manager";
 }
@@ -123,9 +122,6 @@ function ManagerStatusGrid({ activeKey, readOnly = false, onSelect }) {
 }
 
 function resolveManagerSaveStatus(status) {
-  if (status === MANAGER_APPROVE_KEY) {
-    return "approved";
-  }
   return status;
 }
 
@@ -353,7 +349,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
       ...r,
       status: inManagerReviewMode ? managerReviewInitialStatus(r.status) : r.status,
       _managerReviewable: isManagerReviewableItem(r),
-      notify_hr: false,
+      notify_hr: true,
       notify_therapist: false,
     });
   };
@@ -393,8 +389,8 @@ export default function Requests({ personal = false, embedded = false, managerVi
       admin_note: statusEdit.admin_note,
     };
     if (inManagerReviewMode) {
-      payload.notify_hr = !!statusEdit.notify_hr;
-      payload.notify_therapist = !!statusEdit.notify_therapist;
+      payload.notify_hr = true;
+      payload.notify_therapist = false;
     }
     await api.put(`/requests/${statusEdit.id}/status`, payload);
     setStatusEdit(null);
@@ -1267,30 +1263,9 @@ export default function Requests({ personal = false, embedded = false, managerVi
                       className="space-y-3 mt-3 pt-3 rounded-xl p-3"
                       style={{ borderTop: "1px solid #E2DDD4", background: "#FAFAF7" }}
                     >
-                      <label className="flex items-center gap-2.5 text-sm cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={!!statusEdit.notify_hr}
-                          onChange={e => setStatusEdit({ ...statusEdit, notify_hr: e.target.checked })}
-                          style={{ accentColor: "#3D4F35" }}
-                        />
-                        <span style={{ color: "#3D4F35" }}>Sent to HR for follow-up</span>
-                      </label>
-                      <button
-                        type="button"
-                        className="text-xs w-full py-2.5 rounded-lg font-semibold transition"
-                        onClick={() => setStatusEdit({ ...statusEdit, notify_therapist: !statusEdit.notify_therapist })}
-                        style={{
-                          background: statusEdit.notify_therapist ? "#E5EBE1" : "#F5F5F0",
-                          color: "#3D4F35",
-                          border: statusEdit.notify_therapist ? "2px solid #3D4F35" : "1px solid #E2DDD4",
-                        }}
-                      >
-                        Notify therapist directly
-                      </button>
-                      {statusEdit.notify_therapist && (
-                        <p className="text-[10px] m-0" style={{ color: "#8B9E7A" }}>Therapist will be notified when you save.</p>
-                      )}
+                      <div className="text-xs" style={{ color: "#3D4F35" }}>
+                        Manager step always forwards to HR. HR will send the final email to the therapist.
+                      </div>
                     </div>
                   )}
 

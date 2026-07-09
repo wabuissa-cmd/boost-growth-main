@@ -11809,10 +11809,10 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
         if _request_awaiting_attachment(req):
             raise HTTPException(status_code=400, detail="Attachment required before manager review")
         if effective_prev == "in_progress":
-            if new_status not in ("pending_hr", "rejected", "in_progress"):
-                raise HTTPException(status_code=400, detail="Manager must approve (forward to HR) or reject")
-        elif new_status not in ("pending_hr", "rejected", "in_progress", "pending_manager", "approved"):
-            raise HTTPException(status_code=400, detail="Manager must choose pending, approve, or reject")
+            if new_status not in ("pending_hr", "in_progress", "pending_manager"):
+                raise HTTPException(status_code=400, detail="Manager must forward to HR or keep in progress/pending")
+        elif new_status not in ("pending_hr", "in_progress", "pending_manager"):
+            raise HTTPException(status_code=400, detail="Manager must forward to HR or keep in progress/pending")
     elif is_hr:
         if effective_prev != "pending_hr":
             raise HTTPException(status_code=403, detail="HR can only act on HR-pending requests")
