@@ -4972,7 +4972,7 @@ def _format_request_email_body(req: dict) -> str:
 
 
 async def _notify_request_submitted(req: dict):
-    """Email Jenan when a therapist submits a request (HR notified after manager action)."""
+    """Email Jenan + HR when a therapist submits a request."""
     requester = (req.get("therapist_name") or "Staff").strip() or "Staff"
     rtype = _display_request_type(req.get("request_type"))
     title = (req.get("title") or "").strip()
@@ -4985,6 +4985,8 @@ async def _notify_request_submitted(req: dict):
 
     body = _format_request_email_body(req)
     await _send_urgent_email(await _jenan_recipient_email(), subj, body)
+    await _notify_hr_ops("request_new", subj, msg, link="/requests")
+    await _email_hr_ops_urgent(subj, body)
 
 
 def _display_leave_type(leave_type: Optional[str]) -> str:
@@ -11776,6 +11778,10 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
     notify_hr = payload.notify_hr if payload.notify_hr is not None else (not is_jenan_mgr)
     notify_therapist = payload.notify_therapist if payload.notify_therapist is not None else (not is_jenan_mgr)
 
+    # Walaa should not change staff-request workflow statuses; HR + Jenan only.
+    if _is_walaa_ops(user) and not is_hr and not _is_jenan(user):
+        raise HTTPException(status_code=403, detail="Only Jenan or HR can update staff requests")
+
     if is_pa:
         pass
     elif is_jenan_mgr:
@@ -11796,12 +11802,13 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
     else:
         raise HTTPException(status_code=403, detail="Staff request management access required")
 
+    updated_at = now_iso()
     actor = _actor_display(user)
     timeline = req.get("timeline", [])
-    timeline.append({"event": new_status, "at": now_iso(), "by": actor, "note": payload.admin_note})
+    timeline.append({"event": new_status, "at": updated_at, "by": actor, "note": payload.admin_note})
     await db.requests.update_one({"id": rid}, {"$set": {
         "status": new_status, "admin_note": payload.admin_note,
-        "updated_at": now_iso(), "timeline": timeline,
+        "updated_at": updated_at, "timeline": timeline,
     }})
     # Whenever Jenan (manager) changes status, HR should be notified immediately.
     if is_jenan_mgr and effective_prev in MANAGER_ACTIVE_REQUEST_STATUSES and notify_hr and new_status != effective_prev:
@@ -11851,6 +11858,7 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
                 lines.append(f"- Requested window: {window}")
             lines += [
                 f"- Final status: {hr_label}",
+                f"- Final decision at: {updated_at}",
             ]
             if (payload.admin_note or "").strip():
                 lines += ["", "HR note", (payload.admin_note or "").strip()]
