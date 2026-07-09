@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import api, { formatErr } from "../api";
 import {
-  ShoppingBag, Bell, CheckCircle, Hourglass, Clock, FloppyDisk, PaperPlaneTilt, ArrowsClockwise, Plus, Trash, XCircle,
+  ShoppingBag, Bell, CheckCircle, Hourglass, Clock, FloppyDisk, PaperPlaneTilt, ArrowsClockwise, Plus, Trash, XCircle, ChartBar,
 } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
 import {
@@ -80,6 +80,7 @@ export default function Purchases({ embedded = false }) {
   const [savingSettings, setSavingSettings] = useState(false);
   const [sending, setSending] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [pageTab, setPageTab] = useState("purchases");
 
   const openAddPurchase = () => {
     const base = emptyPurchaseForm();
@@ -314,6 +315,61 @@ export default function Purchases({ embedded = false }) {
     [items, pendingQueue, selectedId]
   );
 
+  const reportSource = useMemo(() => {
+    const base = filterMonth
+      ? allItems.filter((p) => purchaseMonthKey(p) === filterMonth)
+      : allItems;
+    return base.filter((p) => {
+      if (filterCategory && (p.category || "") !== filterCategory) return false;
+      if (filterTherapist && String(p.therapist_id || "") !== String(filterTherapist)) return false;
+      if (filterStatus && p.status !== filterStatus) return false;
+      return true;
+    });
+  }, [allItems, filterMonth, filterCategory, filterTherapist, filterStatus]);
+
+  const reportStats = useMemo(() => {
+    const itemCounts = {};
+    const categoryTotals = {};
+    const monthly = {};
+    let sum = 0;
+    reportSource.forEach((p) => {
+      const itemKey = (p.item || "").trim();
+      if (itemKey) itemCounts[itemKey] = (itemCounts[itemKey] || 0) + 1;
+      const cat = p.category || "Uncategorized";
+      const amt = parseFloat(p.total) || 0;
+      sum += amt;
+      categoryTotals[cat] = (categoryTotals[cat] || 0) + amt;
+      const mk = purchaseMonthKey(p) || "—";
+      if (!monthly[mk]) monthly[mk] = { sum: 0, count: 0 };
+      monthly[mk].sum += amt;
+      monthly[mk].count += 1;
+    });
+    const topItems = Object.entries(itemCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([name, count]) => ({ name, count }));
+    const topCategories = Object.entries(categoryTotals)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([name, total]) => ({ name, total }));
+    const monthlyAvgs = Object.entries(monthly)
+      .map(([month, v]) => ({
+        month,
+        total: v.sum,
+        count: v.count,
+        avg: v.count ? v.sum / v.count : 0,
+      }))
+      .sort((a, b) => a.month.localeCompare(b.month));
+    return {
+      count: reportSource.length,
+      sum,
+      avg: reportSource.length ? sum / reportSource.length : 0,
+      topItems,
+      topCategories,
+      monthlyAvgs,
+    };
+  }, [reportSource]);
+
   return (
     <div className="page-enter">
       {!embedded && (
@@ -339,311 +395,309 @@ export default function Purchases({ embedded = false }) {
       />
       )}
 
-      {canManageStatus && pendingQueue.length > 0 && (
-        <div className="card p-3 rounded-[20px] mb-4">
-          <div className="text-xs font-bold tracking-wider mb-2 flex items-center gap-2" style={{ color: "#8A3F27" }}>
-            <Hourglass size={16} weight="duotone"/> Needs attention · {pendingQueue.length} pending
-          </div>
-          <p className="text-[11px] mb-3 m-0" style={{ color: "#8B9E7A" }}>
-            Submissions awaiting review & reimbursement
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {pendingQueue.map(p => {
-              const active = selectedId === p.id;
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setSelectedId(p.id)}
-                  className={`text-left p-3 rounded-xl border transition min-w-[10rem] flex-1 max-w-[14rem] ${active ? "border-[#7A8A6A] bg-[#E5EBE1]" : "border-[#EDE9E3] bg-[#FAFAF7]"}`}
-                >
-                  <div className="font-semibold text-sm truncate" style={{ color: "#2C3625" }}>{p.item}</div>
-                  <div className="text-[10px] mt-0.5" style={{ color: "#8B9E7A" }}>
-                    {resolvePurchaserName(p)} · {formatMonthValue(p.purchase_month)}
-                  </div>
-                  <div className="text-[10px] font-bold mt-1" style={{ color: "#6B5218" }}>{fmtMoney(p)}</div>
-                </button>
-              );
-            })}
-          </div>
-          {selected && (
-            <div className="mt-3 pt-3 border-t flex flex-col gap-2" style={{ borderColor: "#EDE9E3" }}>
-              {(selected.approval_trail || []).length > 0 && (
-                <div className="text-[10px]" style={{ color: "#5C6853" }}>
-                  {(selected.approval_trail || []).map((t, i) => (
-                    <div key={i}>{t.by_name}: {t.action}{t.note ? ` — ${t.note}` : ""}</div>
-                  ))}
-                </div>
-              )}
-              {canSupervisorReview && ["pending", "supervisor_approved"].includes(selected.status) && (
-                <>
-                  <textarea className="modal-input text-xs" rows={2} placeholder="Note to therapist (optional)" value={reviewNote} onChange={e => setReviewNote(e.target.value)} />
-                  <div className="flex flex-wrap gap-2">
-                    <button type="button" className="btn btn-secondary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "supervisor_approved")}>Approve</button>
-                    <button type="button" className="btn btn-outline text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "supervisor_rejected")}>Reject</button>
-                    <button type="button" className="btn btn-primary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "supervisor_approved", { forward: true })}>Forward to Jenan</button>
-                  </div>
-                </>
-              )}
-              {canManagerFinalize && ["pending_manager", "supervisor_approved", "manager_approved"].includes(selected.status) && (
-                <div className="flex flex-wrap gap-2">
-                  <button type="button" className="btn btn-secondary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "manager_approved")}>Final approve</button>
-                  <button type="button" className="btn btn-outline text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "manager_rejected")}>Reject</button>
-                  <button type="button" className="btn btn-primary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "reimbursed")}>Mark reimbursed</button>
-                </div>
-              )}
-            </div>
-          )}
+      <div className="purchases-workspace">
+        <div className="editorial-pill-row">
+          <button
+            type="button"
+            className={`editorial-pill${pageTab === "purchases" ? " is-active" : ""}`}
+            onClick={() => setPageTab("purchases")}
+          >
+            <ShoppingBag size={14} weight="duotone" /> Purchases
+          </button>
+          <button
+            type="button"
+            className={`editorial-pill${pageTab === "reports" ? " is-active" : ""}`}
+            onClick={() => setPageTab("reports")}
+          >
+            <ChartBar size={14} weight="duotone" /> Reports
+          </button>
         </div>
-      )}
 
-      <div className="req-split">
-        <aside className="req-panel-sidebar">
-          <div className="req-panel-head">
-            <h2 className="font-bold text-sm m-0 flex items-center gap-1.5" style={{ color: "#2C3625" }}>
-              <ShoppingBag size={16} weight="duotone" style={{ color: "#7A8A6A" }}/> Browse
-            </h2>
-            <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>
-              Months, filters, and quick totals
-            </p>
-          </div>
-
-          <div className="p-3">
-            <div className="text-[10px] font-bold tracking-wider mb-2" style={{ color: "#8B9E7A" }}>MONTH</div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setFilterMonth("")}
-                className={`p-3 rounded-xl border text-left transition ${!filterMonth ? "border-[#7A8A6A] bg-[#E5EBE1]" : "border-[#E2DDD4] bg-white hover:bg-[#FAFAF7]"}`}
-              >
-                <div className="text-xs font-bold" style={{ color: "#2C3625" }}>All months</div>
-                <div className="text-[10px] mt-0.5" style={{ color: "#8B9E7A" }}>{allItems.length} entries</div>
-              </button>
-              {monthTabs.map((m) => {
-                const active = filterMonth === m.value;
-                const count = allItems.filter((p) => purchaseMonthKey(p) === m.value).length;
-                return (
-                  <button
-                    key={m.value}
-                    type="button"
-                    onClick={() => setFilterMonth(m.value)}
-                    className={`p-3 rounded-xl border text-left transition ${active ? "border-[#7A8A6A] bg-[#E5EBE1]" : "border-[#E2DDD4] bg-white hover:bg-[#FAFAF7]"}`}
-                  >
-                    <div className="text-xs font-bold" style={{ color: "#2C3625" }}>{m.label}</div>
-                    <div className="text-[10px] mt-0.5" style={{ color: "#8B9E7A" }}>{m.short} · {count}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="p-3 border-t" style={{ borderColor: "#E2DDD4" }}>
-            <div className="text-[10px] font-bold tracking-wider mb-2" style={{ color: "#8B9E7A" }}>FILTERS</div>
-            <div className="flex flex-col gap-2">
-              <input
-                className="input text-sm"
-                placeholder="Search item, category, name…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-              <select className="input text-sm" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-                <option value="">All statuses</option>
-                <option value="pending">Pending</option>
-                <option value="approved">Approved</option>
-                <option value="reimbursed">Reimbursed</option>
-              </select>
-              <select className="input text-sm" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
-                <option value="">All categories</option>
-                {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-              {canManageStatus && (
-                <select className="input text-sm" value={filterTherapist} onChange={e => setFilterTherapist(e.target.value)}>
-                  <option value="">All therapists</option>
-                  {therapistOptions.map((t) => (
-                    <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>
+        {pageTab === "purchases" && (
+          <>
+            {canManageStatus && pendingQueue.length > 0 && (
+              <div className="purchases-pending-strip">
+                <div className="text-[11px] font-bold mb-1.5 flex items-center gap-1.5" style={{ color: "#8A3F27" }}>
+                  <Hourglass size={14} weight="duotone" /> {pendingQueue.length} pending — click to review
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {pendingQueue.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setSelectedId(p.id)}
+                      className={`text-left px-2.5 py-1.5 rounded-lg border text-[11px] ${selectedId === p.id ? "border-[#7A8A6A] bg-[#E5EBE1]" : "border-[#EDE9E3] bg-white"}`}
+                    >
+                      <span className="font-semibold">{p.item}</span>
+                      <span className="mx-1" style={{ color: "#8B9E7A" }}>·</span>
+                      <span style={{ color: "#6B5218" }}>{fmtMoney(p)}</span>
+                    </button>
                   ))}
-                </select>
-              )}
-              <button
-                type="button"
-                className="btn btn-secondary text-xs"
-                onClick={() => { setSearch(""); setFilterStatus(""); setFilterCategory(""); setFilterTherapist(""); }}
-              >
-                Clear filters
-              </button>
-            </div>
-          </div>
-
-          <div className="p-3 border-t" style={{ borderColor: "#E2DDD4" }}>
-            <div className="text-[10px] font-bold tracking-wider mb-2" style={{ color: "#8B9E7A" }}>RESULTS</div>
-            <div className="flex flex-wrap gap-2 text-[10px]">
-              <span className="pill bg-[#FAFAF7]" style={{ color: "#5C6853", border: "1px solid #E2DDD4" }}>
-                Showing {displayedItems.length}
-              </span>
-              {filterMonth && (
-                <span className="pill bg-[#FAFAF7]" style={{ color: "#5C6853", border: "1px solid #E2DDD4" }}>
-                  {formatMonthValue(filterMonth)}
-                </span>
-              )}
-            </div>
-          </div>
-        </aside>
-
-        <section className="req-panel-left">
-          <div className="card overflow-hidden mb-4">
-            <div className="px-3 py-2 border-b text-[10px] font-bold tracking-wider" style={{ borderColor: "#E2DDD4", background: "#FAFAF7", color: "#5C6853" }}>
-              PURCHASES · {purchaseYear}
-            </div>
-
-            <div className="intake-table-wrap" style={{ margin: 0, borderRadius: 0, border: "none" }}>
-              <table className="intake-table">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Purchase</th>
-                    {canPickPurchaser && <th>Purchaser</th>}
-                    <th>Date</th>
-                    <th>Qty</th>
-                    <th>Total</th>
-                    <th>Month</th>
-                    <th>Status</th>
-                    <th>Reimb. date</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {displayedItems.length === 0 && (
-                    <tr><td colSpan={canPickPurchaser ? 10 : 9} className="text-center py-8" style={{ color: "#8B9E7A" }}>No purchases found</td></tr>
-                  )}
-                  {displayedItems.map((p, i) => {
-                    const st = STATUS_META[p.status] || STATUS_META.pending;
-                    const active = selectedId === p.id;
-                    return (
-                      <tr
-                        key={p.id}
-                        className={active ? "bg-[#FAFAF7]" : ""}
-                        onClick={() => setSelectedId(p.id)}
-                        style={{ cursor: "pointer" }}
-                      >
-                        <td>{p.row_no || i + 1}</td>
-                        <td>
-                          <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                            {p.category && (
-                              <span className="pill text-[10px] bg-[#F3EFE8]" style={{ color: "#606E52" }}>{p.category}</span>
-                            )}
-                            {(p.line_items || []).length > 1 && (
-                              <span className="pill text-[10px] bg-[#EAF0F3]" style={{ color: "#375568" }}>
-                                {p.line_items.length} items
-                              </span>
-                            )}
-                          </div>
-                          <div className="font-semibold" style={{ color: "#2C3625" }}>{p.item}</div>
-                          {p.description && p.description !== "-" && (
-                            <div className="text-[10px] line-clamp-2" style={{ color: "#8B9E7A" }}>{p.description}</div>
-                          )}
-                        </td>
-                        {canPickPurchaser && <td>{resolvePurchaserName(p)}</td>}
-                        <td className="text-xs whitespace-nowrap">{fmtDate(p.purchase_date)}</td>
-                        <td>{p.qty || "—"}</td>
-                        <td className="text-xs font-bold" style={{ color: "#6B5218" }}>{fmtMoney(p)}</td>
-                        <td className="text-xs whitespace-nowrap" title={p.purchase_month || ""}>{formatMonthValue(p.purchase_month)}</td>
-                        <td><span className={`pill text-[10px] ${st.cls}`}>{st.icon} {st.label}</span></td>
-                        <td className="text-xs whitespace-nowrap">{fmtDate(p.reimbursement_date)}</td>
-                        <td onClick={(e) => e.stopPropagation()}>
-                          {canSupervisorReview && ["pending", "supervisor_approved"].includes(p.status) && (
-                            <button type="button" className="text-[10px] underline mr-2" onClick={() => updateStatus(p.id, "supervisor_approved")}>Approve</button>
-                          )}
-                          {canManagerFinalize && ["pending_manager", "manager_approved"].includes(p.status) && (
-                            <button type="button" className="text-[10px] underline" onClick={() => updateStatus(p.id, "reimbursed")}>Reimburse</button>
-                          )}
-                          {canDelete && (
-                            <button type="button" className="text-[10px] text-red-700 underline ml-2" onClick={() => deletePurchase(p.id)} title="Delete">
-                              <Trash size={12} className="inline"/> Delete
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {categories.length > 0 && (
-              <div className="text-[10px] p-3 border-t" style={{ color: "#8B9E7A", borderColor: "#EDE9E3" }}>
-                Categories: {categories.join(" · ")}
+                </div>
+                {selected && pendingQueue.some((p) => p.id === selected.id) && (
+                  <div className="mt-2 pt-2 border-t flex flex-col gap-2" style={{ borderColor: "#EDE9E3" }}>
+                    {canSupervisorReview && ["pending", "supervisor_approved"].includes(selected.status) && (
+                      <>
+                        <textarea className="modal-input text-xs" rows={2} placeholder="Note (optional)" value={reviewNote} onChange={e => setReviewNote(e.target.value)} />
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" className="btn btn-secondary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "supervisor_approved")}>Approve</button>
+                          <button type="button" className="btn btn-outline text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "supervisor_rejected")}>Reject</button>
+                          <button type="button" className="btn btn-primary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "supervisor_approved", { forward: true })}>Forward to Jenan</button>
+                        </div>
+                      </>
+                    )}
+                    {canManagerFinalize && ["pending_manager", "supervisor_approved", "manager_approved"].includes(selected.status) && (
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" className="btn btn-secondary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "manager_approved")}>Final approve</button>
+                        <button type="button" className="btn btn-outline text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "manager_rejected")}>Reject</button>
+                        <button type="button" className="btn btn-primary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "reimbursed")}>Mark reimbursed</button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        </section>
-      </div>
 
-      {!embedded && (
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="card p-4 lg:col-span-1">
-          <div className="text-xs font-bold tracking-wider mb-2" style={{ color: "#8B9E7A" }}>SUMMARY</div>
-          <div className="font-display text-2xl font-semibold" style={{ color: "#2C3625" }}>{totals.count} entries</div>
-          <div className="text-sm mt-1" style={{ color: "#606E52" }}>{totals.sum.toLocaleString()} SR total (parsed)</div>
-          <div className="flex gap-2 flex-wrap mt-3 text-[10px]">
-            {Object.entries(totals.byStatus).map(([k, v]) => (
-              <span key={k} className={`pill ${STATUS_META[k]?.cls || ""}`}>{STATUS_META[k]?.label}: {v}</span>
-            ))}
-          </div>
-        </div>
+            <div className="purchases-split">
+              <section className="purchases-main-panel">
+                <div className="purchases-panel-head">
+                  <div>
+                    <div className="text-xs font-bold" style={{ color: "#2C3625" }}>Purchases · {purchaseYear}</div>
+                    <div className="text-[10px]" style={{ color: "#8B9E7A" }}>
+                      {displayedItems.length} shown · {totals.sum.toLocaleString()} SR
+                    </div>
+                  </div>
+                  {filterMonth && (
+                    <span className="pill text-[10px] bg-[#E5EBE1]" style={{ color: "#3D4F35" }}>
+                      {formatMonthValue(filterMonth)}
+                    </span>
+                  )}
+                </div>
+                <div className="purchases-main-scroll">
+                  <table className="intake-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Purchase</th>
+                        {canPickPurchaser && <th>Purchaser</th>}
+                        <th>Date</th>
+                        <th>Total</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayedItems.length === 0 && (
+                        <tr><td colSpan={canPickPurchaser ? 7 : 6} className="text-center py-8" style={{ color: "#8B9E7A" }}>No purchases found</td></tr>
+                      )}
+                      {displayedItems.map((p, i) => {
+                        const st = STATUS_META[p.status] || STATUS_META.pending;
+                        const active = selectedId === p.id;
+                        return (
+                          <tr
+                            key={p.id}
+                            className={active ? "bg-[#FAFAF7]" : ""}
+                            onClick={() => setSelectedId(p.id)}
+                            style={{ cursor: "pointer" }}
+                          >
+                            <td>{p.row_no || i + 1}</td>
+                            <td>
+                              {p.category && (
+                                <div className="text-[10px] font-semibold mb-0.5" style={{ color: "#606E52" }}>{p.category}</div>
+                              )}
+                              <div className="font-semibold text-sm" style={{ color: "#2C3625" }}>{p.item}</div>
+                              <div className="text-[10px]" style={{ color: "#8B9E7A" }}>
+                                {formatMonthValue(p.purchase_month)} · Qty {p.qty || "—"}
+                              </div>
+                            </td>
+                            {canPickPurchaser && <td className="text-xs">{resolvePurchaserName(p)}</td>}
+                            <td className="text-xs whitespace-nowrap">{fmtDate(p.purchase_date)}</td>
+                            <td className="text-xs font-bold whitespace-nowrap" style={{ color: "#6B5218" }}>{fmtMoney(p)}</td>
+                            <td><span className={`pill text-[10px] ${st.cls}`}>{st.label}</span></td>
+                            <td onClick={(e) => e.stopPropagation()}>
+                              {canSupervisorReview && ["pending", "supervisor_approved"].includes(p.status) && (
+                                <button type="button" className="text-[10px] underline mr-1" onClick={() => updateStatus(p.id, "supervisor_approved")}>Approve</button>
+                              )}
+                              {canManagerFinalize && ["pending_manager", "manager_approved"].includes(p.status) && (
+                                <button type="button" className="text-[10px] underline" onClick={() => updateStatus(p.id, "reimbursed")}>Reimburse</button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
 
-        <div className="card p-4 lg:col-span-2">
-          <div className="flex items-center gap-2 mb-3">
-            <Bell size={18} weight="duotone" style={{ color: "#7A8A6A" }}/>
-            <h3 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Monthly reminder</h3>
+              <aside className="purchases-sidebar">
+                <div className="purchases-sidebar-section">
+                  <div className="text-[10px] font-bold tracking-wider mb-1.5" style={{ color: "#8B9E7A" }}>MONTH</div>
+                  <div className="purchases-month-grid">
+                    <button
+                      type="button"
+                      className={`purchases-month-btn${!filterMonth ? " is-active" : ""}`}
+                      onClick={() => setFilterMonth("")}
+                    >
+                      <div className="font-bold">All</div>
+                      <div style={{ color: "#8B9E7A" }}>{allItems.length}</div>
+                    </button>
+                    {monthTabs.map((m) => {
+                      const count = allItems.filter((p) => purchaseMonthKey(p) === m.value).length;
+                      return (
+                        <button
+                          key={m.value}
+                          type="button"
+                          className={`purchases-month-btn${filterMonth === m.value ? " is-active" : ""}`}
+                          onClick={() => setFilterMonth(m.value)}
+                        >
+                          <div className="font-bold">{m.short}</div>
+                          <div style={{ color: "#8B9E7A" }}>{count}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="purchases-sidebar-section">
+                  <div className="text-[10px] font-bold tracking-wider mb-1.5" style={{ color: "#8B9E7A" }}>FILTER</div>
+                  <div className="flex flex-col gap-1.5">
+                    <input
+                      className="input text-xs py-1.5"
+                      placeholder="Search…"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                    />
+                    <select className="input text-xs py-1.5" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+                      <option value="">All statuses</option>
+                      <option value="pending">Pending</option>
+                      <option value="approved">Approved</option>
+                      <option value="reimbursed">Reimbursed</option>
+                    </select>
+                    <select className="input text-xs py-1.5" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
+                      <option value="">All categories</option>
+                      {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    {canManageStatus && (
+                      <select className="input text-xs py-1.5" value={filterTherapist} onChange={e => setFilterTherapist(e.target.value)}>
+                        <option value="">All staff</option>
+                        {therapistOptions.map((t) => (
+                          <option key={t.id} value={t.id}>{t.label}</option>
+                        ))}
+                      </select>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-secondary text-[10px] py-1"
+                      onClick={() => { setSearch(""); setFilterStatus(""); setFilterCategory(""); setFilterTherapist(""); }}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+
+                <div className="purchases-sidebar-section">
+                  <div className="text-[10px] font-bold tracking-wider mb-1" style={{ color: "#8B9E7A" }}>SUMMARY</div>
+                  <div className="text-lg font-bold" style={{ color: "#2C3625" }}>{totals.count}</div>
+                  <div className="text-[10px]" style={{ color: "#8B9E7A" }}>{totals.sum.toLocaleString()} SR total</div>
+                </div>
+              </aside>
+            </div>
+          </>
+        )}
+
+        {pageTab === "reports" && (
+          <div className="purchases-reports-panel">
+            <div className="purchases-panel-head">
+              <div>
+                <div className="text-xs font-bold" style={{ color: "#2C3625" }}>Purchase analytics</div>
+                <div className="text-[10px]" style={{ color: "#8B9E7A" }}>
+                  {reportStats.count} records · avg {reportStats.avg.toFixed(0)} SR per request
+                </div>
+              </div>
+            </div>
+            <div className="purchases-main-scroll">
+              <div className="purchases-report-grid">
+                <div className="purchases-report-card">
+                  <h3>Most repeated items</h3>
+                  {reportStats.topItems.length === 0 ? (
+                    <div className="text-xs" style={{ color: "#8B9E7A" }}>No data</div>
+                  ) : reportStats.topItems.map((row) => (
+                    <div key={row.name} className="purchases-report-row">
+                      <span className="truncate">{row.name}</span>
+                      <strong>{row.count}×</strong>
+                    </div>
+                  ))}
+                </div>
+                <div className="purchases-report-card">
+                  <h3>Spend by category</h3>
+                  {reportStats.topCategories.length === 0 ? (
+                    <div className="text-xs" style={{ color: "#8B9E7A" }}>No data</div>
+                  ) : reportStats.topCategories.map((row) => (
+                    <div key={row.name} className="purchases-report-row">
+                      <span className="truncate">{row.name}</span>
+                      <strong>{row.total.toLocaleString()} SR</strong>
+                    </div>
+                  ))}
+                </div>
+                <div className="purchases-report-card">
+                  <h3>Monthly averages</h3>
+                  {reportStats.monthlyAvgs.length === 0 ? (
+                    <div className="text-xs" style={{ color: "#8B9E7A" }}>No data</div>
+                  ) : reportStats.monthlyAvgs.map((row) => (
+                    <div key={row.month} className="purchases-report-row">
+                      <span>{formatMonthValue(row.month)}</span>
+                      <span className="text-right">
+                        <strong>{row.avg.toFixed(0)} SR</strong>
+                        <span className="block text-[10px] font-normal" style={{ color: "#8B9E7A" }}>
+                          {row.count} req · {row.total.toLocaleString()} SR
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {!embedded && canManageStatus && (
+                <div className="p-3 border-t m-3 rounded-xl" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Bell size={16} weight="duotone" style={{ color: "#7A8A6A" }} />
+                    <h3 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Monthly reminder</h3>
+                  </div>
+                  <p className="text-[11px] mb-2 m-0" style={{ color: "#5C6853" }}>
+                    Remind staff to log purchases before month-end.
+                  </p>
+                  <div className="flex flex-wrap items-end gap-2 mb-2">
+                    <label className="text-[11px]">
+                      Day
+                      <input
+                        type="number"
+                        min={1}
+                        max={28}
+                        className="input w-16 text-xs ml-1"
+                        value={settings.day_of_month || 25}
+                        onChange={e => setSettings(s => ({ ...s, day_of_month: parseInt(e.target.value, 10) || 25 }))}
+                      />
+                    </label>
+                    <label className="flex items-center gap-1 text-[11px]">
+                      <input type="checkbox" checked={settings.enabled !== false} onChange={e => setSettings(s => ({ ...s, enabled: e.target.checked }))} />
+                      Auto-send
+                    </label>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <button type="button" className="btn btn-primary text-[10px] py-1" onClick={saveSettings} disabled={savingSettings}>
+                      Save
+                    </button>
+                    <button type="button" className="btn btn-outline text-[10px] py-1" onClick={sendReminders} disabled={sending}>
+                      Send now
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-          <p className="text-xs mb-3" style={{ color: "#5C6853" }}>
-            Remind selected therapists to log purchases before month-end. Sends a <strong>portal notification</strong> and <strong>email</strong> to each selected therapist.
-          </p>
-          <div className="flex flex-wrap items-end gap-3 mb-3">
-            <label className="text-xs">
-              <span className="label block mb-1">Day of month</span>
-              <input
-                type="number"
-                min={1}
-                max={28}
-                className="input w-20"
-                value={settings.day_of_month || 25}
-                onChange={e => setSettings(s => ({ ...s, day_of_month: parseInt(e.target.value, 10) || 25 }))}
-              />
-            </label>
-            <label className="flex items-center gap-2 text-xs cursor-pointer pb-1">
-              <input
-                type="checkbox"
-                checked={settings.enabled !== false}
-                onChange={e => setSettings(s => ({ ...s, enabled: e.target.checked }))}
-              />
-              Auto-send on that day each month
-            </label>
-          </div>
-          <div className="text-xs font-bold mb-2" style={{ color: "#8B9E7A" }}>Send reminders to</div>
-          <div className="flex flex-wrap gap-2 mb-3 max-h-28 overflow-y-auto">
-            {therapists.map(t => (
-              <label key={t.id} className="flex items-center gap-1.5 pill cursor-pointer text-[11px] px-2 py-1 border border-[#E2DDD4]">
-                <input
-                  type="checkbox"
-                  checked={(settings.therapist_ids || []).includes(t.id)}
-                  onChange={() => toggleTherapist(t.id)}
-                />
-                {getTherapistScheduleName(t)}
-              </label>
-            ))}
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <button type="button" className="btn btn-primary text-xs" onClick={saveSettings} disabled={savingSettings}>
-              <FloppyDisk size={14}/> {savingSettings ? "Saving…" : "Save settings"}
-            </button>
-            <button type="button" className="btn btn-outline text-xs" onClick={sendReminders} disabled={sending}>
-              <PaperPlaneTilt size={14}/> {sending ? "Sending…" : "Send reminders now"}
-            </button>
-          </div>
-        </div>
+        )}
       </div>
-      )}
 
       {addOpen && (
         <ModalBase

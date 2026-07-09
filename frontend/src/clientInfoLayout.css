@@ -1300,6 +1300,169 @@
   grid-template-columns: repeat(3, 1fr);
 }
 
+/* Employees' Purchases — main list left, filters right, scroll inside panels */
+.purchases-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: calc(100dvh - 7.5rem);
+  min-height: 420px;
+}
+
+.purchases-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 252px;
+  gap: 0.75rem;
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.purchases-main-panel,
+.purchases-reports-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid #E2DDD4;
+  border-radius: 16px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.purchases-panel-head {
+  flex-shrink: 0;
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid #E2DDD4;
+  background: #FAFAF7;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.purchases-main-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.purchases-main-scroll .intake-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #FAFAF7;
+}
+
+.purchases-sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #E2DDD4;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.purchases-sidebar-section {
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid #F0EDE9;
+}
+
+.purchases-sidebar-section:last-child {
+  border-bottom: none;
+}
+
+.purchases-month-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+}
+
+.purchases-month-btn {
+  padding: 0.45rem 0.5rem;
+  border-radius: 10px;
+  border: 1px solid #E2DDD4;
+  background: #fff;
+  text-align: left;
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.purchases-month-btn:hover {
+  background: #FAFAF7;
+}
+
+.purchases-month-btn.is-active {
+  border-color: #7A8A6A;
+  background: #E5EBE1;
+}
+
+.purchases-report-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+  padding: 0.85rem;
+}
+
+.purchases-report-card {
+  border: 1px solid #E2DDD4;
+  border-radius: 14px;
+  padding: 0.75rem;
+  background: #FAFAF7;
+}
+
+.purchases-report-card h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8B9E7A;
+}
+
+.purchases-report-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid #EDE9E3;
+}
+
+.purchases-report-row:last-child {
+  border-bottom: none;
+}
+
+.purchases-pending-strip {
+  flex-shrink: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #ECA6A6;
+  border-radius: 12px;
+  background: #FFFBF8;
+}
+
+@media (max-width: 900px) {
+  .purchases-workspace {
+    max-height: none;
+  }
+  .purchases-split {
+    grid-template-columns: 1fr;
+  }
+  .purchases-sidebar {
+    max-height: 280px;
+    order: 2;
+  }
+  .purchases-main-panel {
+    order: 1;
+    min-height: 360px;
+  }
+}
+
 @media (max-width: 480px) {
   .req-leave-stat-grid--six {
     grid-template-columns: repeat(2, 1fr);
