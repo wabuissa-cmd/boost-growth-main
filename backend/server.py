@@ -14236,9 +14236,9 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
             f"Leave {label.lower()}: {tname}",
             f"{leave.get('start_date')} → {leave.get('end_date')} ({leave.get('days')} day(s))",
         )
-            therapist = await db.therapists.find_one({"id": leave["therapist_id"]}, {"_id": 0, "email": 1, "name": 1})
-            therapist_emails = await _therapist_emails(leave["therapist_id"])
-            if therapist and therapist_emails:
+        therapist = await db.therapists.find_one({"id": leave["therapist_id"]}, {"_id": 0, "email": 1, "name": 1})
+        therapist_emails = await _therapist_emails(leave["therapist_id"])
+        if therapist and therapist_emails:
                 submitted = (leave.get("created_at") or "").strip()
                 leave_type = _display_leave_type(leave.get("leave_type"))
                 orig_start = (leave.get("original_start_date") or leave.get("start_date") or "").strip()
