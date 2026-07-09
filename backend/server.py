@@ -12634,6 +12634,12 @@ async def list_email_queue(_=Depends(admin_only)):
     return await db.email_queue.find({}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
 
 
+@api.get("/ops/email-queue")
+async def ops_list_email_queue(_=Depends(ops_or_admin)):
+    """Read-only email delivery log for HR/Ops (latest 100)."""
+    return await db.email_queue.find({}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
+
+
 @api.post("/admin/email-queue/retry")
 async def admin_retry_email_queue(limit: int = Query(50, ge=1, le=200), _=Depends(admin_only)):
     """Re-send queued or failed emails from email_queue (newest failures first)."""
@@ -12668,6 +12674,31 @@ async def admin_retry_email_queue(limit: int = Query(50, ge=1, le=200), _=Depend
 @api.get("/admin/jenan-email-status")
 async def admin_jenan_email_status(_=Depends(admin_only)):
     """Last delivery attempt to Jenan + counts of failed/queued urgent notifications."""
+    await _reload_email_settings_from_db()
+    jenan = await _jenan_recipient_email()
+    jenan_re = {"$regex": f"^{re.escape(jenan)}$", "$options": "i"}
+    last_rows = await db.email_queue.find({"to": jenan_re}, {"_id": 0}).sort("created_at", -1).limit(1).to_list(1)
+    pending_statuses = ["failed", "queued", "queued_no_key"]
+    pending_count = await db.email_queue.count_documents({"to": jenan_re, "status": {"$in": pending_statuses}})
+    failed_count = await db.email_queue.count_documents({"to": jenan_re, "status": "failed"})
+    sent_count = await db.email_queue.count_documents({"to": jenan_re, "status": "sent"})
+    settings = await _email_settings_snapshot()
+    return {
+        "jenan_email": jenan,
+        "last_email": last_rows[0] if last_rows else None,
+        "pending_count": pending_count,
+        "failed_count": failed_count,
+        "sent_count": sent_count,
+        "provider_configured": settings.get("configured"),
+        "active_provider": settings.get("active_provider"),
+        "smtp_blocked_on_railway": settings.get("smtp_blocked_on_railway"),
+        "delivery_warning": settings.get("delivery_warning"),
+    }
+
+
+@api.get("/ops/email-status")
+async def ops_email_status(_=Depends(ops_or_admin)):
+    """Email delivery status snapshot for HR/Ops (Jenan inbox focus)."""
     await _reload_email_settings_from_db()
     jenan = await _jenan_recipient_email()
     jenan_re = {"$regex": f"^{re.escape(jenan)}$", "$options": "i"}

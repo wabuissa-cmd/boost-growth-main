@@ -20,6 +20,7 @@ const Waiting = lazy(() => import("./pages/Waiting"));
 const Resources = lazy(() => import("./pages/Resources"));
 const Admin = lazy(() => import("./pages/Admin"));
 const Reports = lazy(() => import("./pages/Reports"));
+const EmailStatus = lazy(() => import("./pages/EmailStatus"));
 const ImportPage = lazy(() => import("./pages/Import"));
 const LeaveBalance = lazy(() => import("./pages/LeaveBalance"));
 const LeaveRequests = lazy(() => import("./pages/LeaveRequests"));
@@ -215,6 +216,7 @@ function AppRoutes() {
         <Route path="/resources" element={<Resources/>}/>
         <Route path="/manager" element={<ManagerHubAccess><ManagerHub/></ManagerHubAccess>}/>
         <Route path="/reports" element={<ReportsAccess><Reports/></ReportsAccess>}/>
+        <Route path="/email-status" element={<OpsOnly><EmailStatus/></OpsOnly>}/>
         <Route path="/admin/center-tests" element={<CenterTestsAdminAccess><AdminCenterTests/></CenterTestsAdminAccess>}/>
         <Route path="/import" element={<ImportAccess><ImportPage/></ImportAccess>}/>
         <Route path="/admin" element={<SystemAdminOnly><Admin/></SystemAdminOnly>}/>

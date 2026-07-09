@@ -6,7 +6,7 @@ import { prefetch, cachedGet } from "../dataCache";
 import { getPortalDisplayName } from "../scheduleConstants";
 import {
   House, CalendarBlank,   ClipboardText, UsersThree, Receipt,
-  Bell, SignOut,   ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, CaretDown, Folder, UserCircle,
+  Bell, SignOut,   ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, CaretDown, Folder, UserCircle, EnvelopeSimple,
   SidebarSimple, Rows, ShoppingBag, FileText, Buildings, Hourglass, Eye, GraduationCap,
 } from "@phosphor-icons/react";
 
@@ -168,6 +168,9 @@ export default function Shell() {
   const adminTools = [
     ...(canImportData(user)
       ? [{ to: "/import", label: "Import", testid: "nav-import", icon: <UploadSimple size={17} weight="duotone"/> }]
+      : []),
+    ...((hrOps || walaaOps || showSystemAdmin(user))
+      ? [{ to: "/email-status", label: "Email Status", testid: "nav-email-status", icon: <EnvelopeSimple size={17} weight="duotone"/> }]
       : []),
     ...(showSystemAdmin(user)
       ? [
