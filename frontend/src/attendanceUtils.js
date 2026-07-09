@@ -908,6 +908,7 @@ export function prepTrackMeta(client) {
       pct: client.hsProgress?.pct ?? 0,
       label: `Home Session · ${used.toFixed(1)}h of ${pkg}h`,
       sub: `${remaining.toFixed(1)}h remaining`,
+      short: `${used.toFixed(1)}/${pkg}h`,
       service: "HS",
     };
   }
@@ -921,10 +922,11 @@ export function prepTrackMeta(client) {
       pct,
       label: `School Support · ${done}/${total} weeks done`,
       sub: current ? `Week ${current.weekNumber} · ${current.weekStatus}` : client.ssAlert || "",
+      short: `${done}/${total} wk`,
       service: "SS",
     };
   }
-  return { pct: 0, label: "No open package", sub: "", service: client?.locationService || "HS" };
+  return { pct: 0, label: "No open package", sub: "", short: "—", service: client?.locationService || "HS" };
 }
 
 export function ssWeekAlertText(ssRow) {

@@ -121,7 +121,7 @@ export default function PreparationClientRow({
           </div>
           <div className="flex justify-between mt-1.5 text-[10px] font-bold" style={{ color: C.textMid }}>
             <span className="truncate pr-2">{track.label}</span>
-            <span className="shrink-0" style={{ color: "#6B5218" }}>{track.pct}%</span>
+            <span className="shrink-0" style={{ color: "#6B5218" }}>{track.sub || track.short}</span>
           </div>
         </div>
         {client.hasSs && client.ssWeeks?.length > 0 && (

@@ -7,7 +7,8 @@ import LocationLink from "./LocationLink";
 import SsWeekStatusRow from "./SsWeekStatusRow";
 import "../preparationLayout.css";
 
-function PrepRing({ value }) {
+function PrepRing({ track }) {
+  const value = track?.pct ?? 0;
   const r = 46;
   const c = 2 * Math.PI * r;
   const offset = c - (Math.min(100, Math.max(0, value)) / 100) * c;
@@ -22,8 +23,8 @@ function PrepRing({ value }) {
         />
       </svg>
       <div className="prep-ring-center">
-        <div className="prep-ring-val">{value}%</div>
-        <div className="prep-ring-lbl">Progress</div>
+        <div className="prep-ring-val">{track?.short || "—"}</div>
+        <div className="prep-ring-lbl">{track?.service === "SS" ? "Weeks" : "Hours"}</div>
       </div>
     </div>
   );
@@ -92,8 +93,8 @@ export default function PreparationPrepLayout({
             <Clock size={22} weight="fill" />
           </div>
           <div>
-            <div className="prep-stat-value">{track?.pct ?? 0}%</div>
-            <div className="prep-stat-label">Selected progress</div>
+            <div className="prep-stat-value">{selected ? (track?.short || "—") : "—"}</div>
+            <div className="prep-stat-label">Selected package</div>
           </div>
         </div>
       </div>
@@ -126,7 +127,7 @@ export default function PreparationPrepLayout({
                     ) : null}
                   </div>
                 </div>
-                <span className="prep-pill">{svc} · {t.pct}%</span>
+                <span className="prep-pill">{svc} · {t.short}</span>
                 <button
                   type="button"
                   className="prep-card-btn"
@@ -152,7 +153,7 @@ export default function PreparationPrepLayout({
               </div>
             </div>
             <div className="prep-ring-wrap">
-              <PrepRing value={track?.pct ?? 0} />
+              <PrepRing track={track} />
             </div>
             <div className="prep-detail-rows">
               <div className="prep-detail-row"><span>Package</span><span>{track?.label || "—"}</span></div>
