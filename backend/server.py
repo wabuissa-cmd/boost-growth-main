@@ -10799,6 +10799,20 @@ async def _therapist_email(therapist_id: str) -> Optional[str]:
     return None
 
 
+async def _therapist_emails(therapist_id: str) -> List[str]:
+    """Return all emails that should receive therapist notifications (Walaa gets both aliases)."""
+    primary = await _therapist_email(therapist_id)
+    emails: List[str] = []
+    if primary:
+        emails.append(primary)
+    # Ensure Walaa receives emails even if she checks the alias inbox.
+    if primary and primary.lower().strip() == WALAA_CANONICAL_EMAIL:
+        for em in sorted(WALAA_LOGIN_EMAILS):
+            if em not in emails:
+                emails.append(em)
+    return emails
+
+
 async def _send_staff_request_decision_email(
     req: dict,
     *,
@@ -10807,8 +10821,8 @@ async def _send_staff_request_decision_email(
     admin_note: str = "",
 ) -> bool:
     """Email therapist when HR reaches a final request decision."""
-    email = await _therapist_email(req.get("therapist_id"))
-    if not email:
+    emails = await _therapist_emails(req.get("therapist_id"))
+    if not emails:
         return False
     tdoc = await db.therapists.find_one({"id": req.get("therapist_id")}, {"_id": 0, "name": 1})
     therapist_name = (tdoc or {}).get("name") or req.get("therapist_name") or "Staff member"
@@ -10830,7 +10844,8 @@ async def _send_staff_request_decision_email(
         admin_note=admin_note,
     )
     subject = _staff_request_decision_subject(new_status, rtype, title)
-    await _send_email_stub(email, subject, body)
+    for to in emails:
+        await _send_email_stub(to, subject, body)
     return True
 
 
@@ -10842,8 +10857,8 @@ async def _send_staff_request_manager_email(
     manager_note: str = "",
 ) -> bool:
     """Email therapist immediately when the direct manager forwards to HR (approval/rejection/in progress)."""
-    email = await _therapist_email(req.get("therapist_id"))
-    if not email:
+    emails = await _therapist_emails(req.get("therapist_id"))
+    if not emails:
         return False
     tdoc = await db.therapists.find_one({"id": req.get("therapist_id")}, {"_id": 0, "name": 1})
     therapist_name = (tdoc or {}).get("name") or req.get("therapist_name") or "Staff member"
@@ -10879,7 +10894,9 @@ async def _send_staff_request_manager_email(
     lines += ["", "Sincerely,", "Boost Growth Portal"]
 
     subject = f"Request update — sent to HR — {rtype} — {title}"
-    await _send_email_stub(email, subject, "\n".join(lines).strip() + "\n")
+    body = "\n".join(lines).strip() + "\n"
+    for to in emails:
+        await _send_email_stub(to, subject, body)
     return True
 
 
@@ -14219,9 +14236,9 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
             f"Leave {label.lower()}: {tname}",
             f"{leave.get('start_date')} → {leave.get('end_date')} ({leave.get('days')} day(s))",
         )
-        therapist = await db.therapists.find_one({"id": leave["therapist_id"]}, {"_id": 0, "email": 1, "name": 1})
-        therapist_email = await _therapist_email(leave["therapist_id"])
-        if therapist and therapist_email:
+            therapist = await db.therapists.find_one({"id": leave["therapist_id"]}, {"_id": 0, "email": 1, "name": 1})
+            therapist_emails = await _therapist_emails(leave["therapist_id"])
+            if therapist and therapist_emails:
                 submitted = (leave.get("created_at") or "").strip()
                 leave_type = _display_leave_type(leave.get("leave_type"))
                 orig_start = (leave.get("original_start_date") or leave.get("start_date") or "").strip()
@@ -14294,7 +14311,9 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
                 else:
                     lines += ["", "Next step", "- Please check your page on the portal."]
                 lines += ["", "Sincerely,", "HR Department", "Boost Growth"]
-                await _send_email_stub(therapist_email, f"Leave request update — {leave_type}", "\n".join(lines).strip() + "\n")
+                body = "\n".join(lines).strip() + "\n"
+                for to in therapist_emails:
+                    await _send_email_stub(to, f"Leave request update — {leave_type}", body)
     return await db.leaves.find_one({"id": lid}, {"_id": 0})
 
 @api.delete("/leaves/{lid}")
