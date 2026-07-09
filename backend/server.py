@@ -10302,14 +10302,27 @@ def _schedule_cell_date_iso(cell: dict) -> Optional[str]:
 
 
 async def _process_unprepared_session_alerts(force: bool = False) -> dict:
-    """After midnight: alert ops leads about yesterday's scheduled sessions not prepared/logged."""
+    """Alert ops leads about schedule cells older than 24h with no prep/log."""
     now = datetime.now(timezone.utc)
     today = now.date().isoformat()
-    yesterday = (now.date() - timedelta(days=1)).isoformat()
+    target_date = (now.date() - timedelta(days=1)).isoformat()
     meta = await db.meta.find_one({"key": "unprepared_alerts_last_run"})
-    if not force and meta and (meta.get("date") or "")[:10] == today:
-        return {"skipped": "already_ran_today", "alerts": 0}
-    target_date = yesterday
+    if not force and meta and (meta.get("at") or "").strip():
+        try:
+            last = str(meta.get("at") or "").replace("Z", "+00:00")
+            last_dt = datetime.fromisoformat(last)
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+            if (now - last_dt).total_seconds() < 3600:
+                return {"skipped": "recently_ran", "alerts": 0, "target_date": target_date}
+        except Exception:
+            pass
+
+    # Sliding window: session day whose slots are now at least 24h old.
+    try:
+        target_date = (now - timedelta(hours=24)).date().isoformat()
+    except Exception:
+        target_date = (now.date() - timedelta(days=1)).isoformat()
     cells = await db.schedule_cells.find(
         {
             "child_name": {"$exists": True, "$nin": ["", None]},
