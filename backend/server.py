@@ -2121,9 +2121,9 @@ async def restore_from_uploaded_backup(
         "dry_run": is_dry,
         "collections": report,
         "recovery_note_ar": (
-            "تجربة جافة — لم يُكتب شيء. عيّن dry_run=false للتطبيق."
+            "Dry run — nothing was written. Set dry_run=false to apply."
             if is_dry else
-            "تمت الاستعادة. راجع الأعداد أدناه ثم أعد تحميل البوابة."
+            "Restore completed. Review the counts below, then refresh the portal."
         ),
     }
 
@@ -2204,27 +2204,27 @@ def _arabic_recover_summary(results: dict) -> str:
     lines: List[str] = []
     td = results.get("therapist_dedupe") or {}
     if td.get("removed"):
-        lines.append(f"دمج {td['removed']} معالج مكرر (بريد)")
+        lines.append(f"Merged {td['removed']} duplicate therapist(s) (email)")
     idd = results.get("identity_dedupe") or {}
     if idd.get("removed"):
-        lines.append(f"دمج {idd['removed']} حساب بنفس الهوية")
+        lines.append(f"Merged {idd['removed']} account(s) with same identity")
     prep = results.get("prep_recovery") or {}
     if any((prep.get(k) or 0) for k in prep):
-        lines.append("إصلاح تواريخ التحضير للأسبوع التجريبي")
+        lines.append("Fixed preparation dates for the trial week")
     if results.get("prep_relink"):
-        lines.append("إعادة ربط التحضير (الحالي + التجريبي)")
+        lines.append("Re-linked preparation data (current + trial)")
     if results.get("schedule_order_fix"):
-        lines.append(f"إصلاح صفوف مكررة في الجدول ({results['schedule_order_fix']} أسبوع)")
+        lines.append(f"Fixed duplicate schedule rows ({results['schedule_order_fix']} week(s))")
     seed = results.get("seed_master")
     if seed:
         created = len((seed.get("clients") or {}).get("created") or [])
         updated = len((seed.get("clients") or {}).get("updated") or [])
         if created or updated:
-            lines.append(f"تحديث البيانات الرئيسية (+{created} طفل / ~{updated} محدّث)")
+            lines.append(f"Updated master data (+{created} children / ~{updated} updated)")
     if results.get("backup"):
-        lines.append("حفظ نسخة احتياطية")
+        lines.append("Saved a backup")
     if not lines:
-        return "لا توجد مشاكل — البيانات تبدو سليمة ✓"
+        return "No issues found — data looks healthy ✓"
     return " · ".join(lines)
 
 
@@ -2357,11 +2357,11 @@ MASTER_CLIENTS = [
     ("068", "Abdulrahman Alshawi",   "msRazan",    ["msFahda"],                24, "msFahda", "HS",    "AR Rayan"),
     ("070", "Abdulelah Almuhana",    "msAbeer",    ["msMaha"],                 32, "msMaha",  "HS",    "Al-Manziliyah"),
     ("072", "Khalid Bin Shuael",     "msShatha",   ["msFahda"],                24, "msFahda", "HS",    "AlMursalat"),
-    ("076", "Sultan Aba Alkheil (سلطان ابا الخيل)", "msShatha",   [],           24, "msMaha",  "HS/SS", "Al-Mursalat"),
+    ("076", "Sultan Aba Alkheil", "msShatha",   [],           24, "msMaha",  "HS/SS", "Al-Mursalat"),
     ("079", "Fahad Suliman",         "msFahda",    ["msFahda"],                40, "msFahda", "HS",    "Al-Sahafa"),
     ("053", "Ahmad Alshalfan",       "msHajer",    ["msFahda"],                24, "msFahda", "HS/SS", "Almalqa"),
     ("080", "Faisal Alzughaibi",     "msFatimah",  [],                         24, "msFahda", "HS",    "Alyasmeen"),
-    ("081", "Abdulmohsen (عبدالمحسن)", "msFahda",  [],                         24, "msFahda", "SS/HS", "TBD"),
+    ("081", "Abdulmohsen", "msFahda",  [],                         24, "msFahda", "SS/HS", "TBD"),
 ]
 
 async def _resolve_therapist_id(key_to_id: dict, key: str) -> Optional[str]:
@@ -5108,7 +5108,7 @@ async def _walaa_notify_user_ids() -> List[str]:
     return []
 
 
-SCHEDULE_DAYS_AR = ("الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس")
+SCHEDULE_DAYS_AR = ("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday")
 
 
 async def _mark_parent_cancel_pending(cell_id: str) -> None:
@@ -5533,9 +5533,27 @@ async def _resolve_user_therapist_id(user: dict) -> Optional[str]:
         return uid
     email = (user.get("email") or "").lower().strip()
     if email:
+        # Try alias-mapped email first (e.g. Walaa ops logins).
+        alias = THERAPIST_LOGIN_EMAIL_ALIASES.get(email)
+        if alias and alias != email:
+            t = await db.therapists.find_one({"email": {"$regex": f"^{re.escape(alias)}$", "$options": "i"}}, {"_id": 0, "id": 1})
+            if t:
+                return t["id"]
         t = await db.therapists.find_one({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}}, {"_id": 0, "id": 1})
         if t:
             return t["id"]
+        # Special-case: Walaa ops emails may not match therapist email exactly.
+        if email in WALAA_LOGIN_EMAILS:
+            hit = await db.therapists.find_one(
+                {"key": {"$regex": r"^mswalaa$", "$options": "i"}},
+                {"_id": 0, "id": 1},
+            )
+            if hit:
+                return hit["id"]
+            for trow in await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1}).to_list(200):
+                name = (trow.get("name") or "").lower().replace("ms.", "").replace("ms ", "").strip()
+                if name.startswith("walaa"):
+                    return trow["id"]
     key = (user.get("key") or "").lower()
     if key:
         t = await db.therapists.find_one({"key": key}, {"_id": 0, "id": 1})
@@ -7887,34 +7905,34 @@ def _arabic_drive_child_line(r: dict) -> str:
         updated = len(r.get("invoices_updated") or [])
         sess = int(r.get("sessions_added") or 0)
         warn = r.get("warning")
-        base = f"{label}: ✓ {added} فاتورة جديدة"
+        base = f"{label}: ✓ {added} new invoice(s)"
         if updated:
-            base += f" · {updated} محدّثة"
-        base += f" · {sess} جلسة"
+            base += f" · {updated} updated"
+        base += f" · {sess} session(s)"
         if warn:
             base += f" ⚠ {warn[:48]}"
         return base
     if st == "meta_synced":
-        return f"{label}: روابط Drive فقط (لا Attendance Sheet)"
+        return f"{label}: Drive links only (no Attendance Sheet)"
     if st == "skipped":
-        return f"{label}: تخطّي — {r.get('reason') or 'غير معروف'}"
+        return f"{label}: skipped — {r.get('reason') or 'unknown'}"
     if st == "error":
-        err = (r.get("error") or "خطأ")[:72]
+        err = (r.get("error") or "error")[:72]
         return f"{label}: ❌ {err}"
     if st == "dry_run":
-        return f"{label}: معاينة — {'يوجد Sheet' if r.get('sheet_url') else 'بدون Sheet'}"
+        return f"{label}: preview — {'has sheet' if r.get('sheet_url') else 'no sheet'}"
     if st == "created":
-        return f"{label}: ✓ أُنشئ في البوابة ثم {r.get('follow_up') or 'بانتظار المزامنة'}"
-    return f"{label}: {st or '؟'}"
+        return f"{label}: ✓ created in portal, then {r.get('follow_up') or 'awaiting sync'}"
+    return f"{label}: {st or '?'}"
 
 
 def _build_drive_sync_arabic_report(results: List[dict], *, totals: dict) -> str:
     lines: List[str] = []
     lines.append(
-        f"المجموع: {totals.get('synced', 0)} مزامنة · "
-        f"{totals.get('meta_synced', 0)} روابط فقط · "
-        f"{totals.get('skipped', 0)} تخطّى · "
-        f"{totals.get('errors', 0)} أخطاء"
+        f"Totals: {totals.get('synced', 0)} synced · "
+        f"{totals.get('meta_synced', 0)} links-only · "
+        f"{totals.get('skipped', 0)} skipped · "
+        f"{totals.get('errors', 0)} errors"
     )
     for r in results:
         lines.append(_arabic_drive_child_line(r))
@@ -8124,25 +8142,25 @@ def _arabic_full_restore_summary(results: dict) -> str:
     imp = results.get("clients") or {}
     if imp:
         parts.append(
-            f"أطفال: {imp.get('created', 0)} جديد · {imp.get('updated', 0)} محدّث"
+            f"Children: {imp.get('created', 0)} created · {imp.get('updated', 0)} updated"
         )
     drv = results.get("drive") or {}
     if drv:
         parts.append(
-            f"Drive: {drv.get('synced', 0)} مزامنة · "
-            f"{drv.get('sessions_total', 0)} جلسة · {drv.get('errors', 0)} أخطاء"
+            f"Drive: {drv.get('synced', 0)} synced · "
+            f"{drv.get('sessions_total', 0)} sessions · {drv.get('errors', 0)} errors"
         )
         if drv.get("summary_ar"):
             parts.append(drv["summary_ar"])
     sch = results.get("schedule") or {}
     if sch:
         parts.append(
-            f"جدول {sch.get('week_start', '')}: {sch.get('cells_inserted', 0)} خلية"
+            f"Schedule {sch.get('week_start', '')}: {sch.get('cells_inserted', 0)} cells"
         )
     rec = results.get("recover") or {}
     if rec.get("summary_ar"):
         parts.append(rec["summary_ar"])
-    return " · ".join(parts) if parts else "اكتملت الاستعادة"
+    return " · ".join(parts) if parts else "Restore completed"
 
 
 async def _run_full_restore_from_drive(
@@ -15526,15 +15544,15 @@ async def admin_import_clients_and_sync(
     recover_result = await _run_auto_recover(store_backup=True)
     imp = import_result
     parts = [
-        f"استيراد: {imp.get('created', 0)} جديد · {imp.get('updated', 0)} محدّث · {imp.get('skipped', 0)} تخطّى",
+        f"Import: {imp.get('created', 0)} created · {imp.get('updated', 0)} updated · {imp.get('skipped', 0)} skipped",
     ]
     if imp.get("removed_missing"):
-        parts.append(f"{imp['removed_missing']} محذوف (غير موجود في الملف)")
+        parts.append(f"{imp['removed_missing']} removed (not present in uploaded file)")
     rec = recover_result.get("summary_ar") or ""
     if rec:
         parts.append(rec)
     parts.append(
-        "ملاحظة: الفواتير والجلسات لا تُستورد من هذا الملف — استخدم Sync من Drive أو رفع Excel لكل طفل."
+        "Note: invoices and sessions are not imported from this file — use Drive sync or upload an Excel per child."
     )
     return {
         "ok": True,
@@ -16967,8 +16985,8 @@ CLIENT_SEED = [
     {"file_no":"068","name":"Abdulrahman Alshawi","main":"Ms. Razan","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#C9DAF8","locs":[{"service":"HS","address":"AR Rayan - Home no 32"}]},
     {"file_no":"070","name":"Abdulelah Almuhana","main":"Ms. Abeer","co":["Ms. Maha"],"pkg":32,"sup":"Ms. Maha","color":"#CFE2F3","locs":[{"service":"HS","address":"Al-Manziliyah"}]},
     {"file_no":"072","name":"Khalid Bin Shuael","main":"Ms. Shatha","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#EAD1DC","locs":[{"service":"HS","address":"AlMursalat"}]},
-    {"file_no":"076","name":"Sultan Aba Alkheil (سلطان ابا الخيل)","main":"Ms. Shatha","co":[],"pkg":24,"sup":"Ms. Maha","color":"#D0E0E3","locs":[{"service":"HS","address":"Al-Mursalat"},{"service":"SS","address":"Al-Mursalat"}]},
-    {"file_no":"081","name":"Abdulmohsen (عبدالمحسن)","main":"Ms. Fahda","co":[],"pkg":24,"sup":"Ms. Fahda","color":"#EAD1DC","locs":[{"service":"SS","address":"TBD"}]},
+    {"file_no":"076","name":"Sultan Aba Alkheil","main":"Ms. Shatha","co":[],"pkg":24,"sup":"Ms. Maha","color":"#D0E0E3","locs":[{"service":"HS","address":"Al-Mursalat"},{"service":"SS","address":"Al-Mursalat"}]},
+    {"file_no":"081","name":"Abdulmohsen","main":"Ms. Fahda","co":[],"pkg":24,"sup":"Ms. Fahda","color":"#EAD1DC","locs":[{"service":"SS","address":"TBD"}]},
 ]
 
 CLIENT_ATTENDANCE_SHEETS = {
@@ -17082,7 +17100,7 @@ INTAKE_SEED = [
     {"intake_type": "post", "child_name": "Ahmad Alshalfan", "service": "SS/HS", "phone": "505287407", "district": "Almalqa", "age": "2020", "diagnosis": "ADHD and GDD", "priority": True},
     {"intake_type": "post", "child_name": "Abdulelah Almuhana", "service": "HS", "phone": "966565544999", "district": "Al-Taawun", "age": "2021", "priority": True},
     {"intake_type": "post", "child_name": "Faisal Alzghaibi", "service": "HS", "phone": "966507479800", "district": "Alyasmeen", "age": "1445", "priority": False},
-    {"intake_type": "post", "child_name": "Sultan Aba Alkheil (سلطان ابا الخيل)", "service": "HS/SS", "district": "Al-Mursalat", "age": "2019", "priority": False},
+    {"intake_type": "post", "child_name": "Sultan Aba Alkheil", "service": "HS/SS", "district": "Al-Mursalat", "age": "2019", "priority": False},
     {"intake_type": "post", "child_name": "Leena Alshahrani", "service": "HS", "phone": "530511175", "district": "Alnarjis", "priority": False},
 ]
 
