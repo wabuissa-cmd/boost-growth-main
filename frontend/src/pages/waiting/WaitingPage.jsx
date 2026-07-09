@@ -32,6 +32,64 @@ function itemCategory(i) {
   return i.list_category || (i.intake_type === "school" ? "school" : "intake");
 }
 
+function englishNamePart(name) {
+  return (name || "").replace(/\([^)]*\)/g, "").trim();
+}
+
+function isDualEnglishName(name) {
+  const parts = englishNamePart(name).split(/\s+/).filter(Boolean);
+  return parts.length >= 2;
+}
+
+function formatDOB(item) {
+  const raw = (item.birth_date || "").trim();
+  if (raw) {
+    const d = new Date(`${raw.slice(0, 10)}T12:00:00`);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+    }
+    return raw.slice(0, 10);
+  }
+  const age = String(item.age || "").trim();
+  if (/^\d{4}$/.test(age)) return age;
+  return "";
+}
+
+function ageFromDOB(item) {
+  const raw = (item.birth_date || "").trim().slice(0, 10);
+  if (!raw) return "";
+  const born = new Date(`${raw}T12:00:00`);
+  if (Number.isNaN(born.getTime())) return "";
+  const today = new Date();
+  let years = today.getFullYear() - born.getFullYear();
+  const m = today.getMonth() - born.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < born.getDate())) years -= 1;
+  return years >= 0 ? String(years) : "";
+}
+
+function serviceMatches(item, filter) {
+  if (!filter) return true;
+  const svc = (item.service || "").toUpperCase();
+  if (filter === "HS") return svc.includes("HS");
+  if (filter === "SS") return svc.includes("SS");
+  return true;
+}
+
+function FilterTh({ active, onClick, children, title }) {
+  return (
+    <th>
+      <button
+        type="button"
+        onClick={onClick}
+        title={title}
+        className={`intake-th-filter${active ? " is-active" : ""}`}
+      >
+        {children}
+      </button>
+    </th>
+  );
+}
+
 export default function WaitingPage({ mode }) {
   const isSchool = mode === "school";
   const { user } = useAuth();
@@ -42,6 +100,7 @@ export default function WaitingPage({ mode }) {
   const [edit, setEdit] = useState(null);
   const [tab, setTab] = useState(() => searchParams.get("tab") === "post" ? "post" : "pre");
   const [priorityOnly, setPriorityOnly] = useState(false);
+  const [filterService, setFilterService] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -144,15 +203,31 @@ export default function WaitingPage({ mode }) {
   }, [isSchool, schoolItems, intakeItems, tab]);
 
   const displayed = useMemo(() => {
-    const list = [...filtered];
+    let list = filtered.filter(i => serviceMatches(i, filterService));
+    if (priorityOnly) list = list.filter(i => i.priority);
+    list = [...list];
     if (priorityOnly) {
-      list.sort((a, b) => {
-        if (a.priority !== b.priority) return a.priority ? -1 : 1;
-        return (a.child_name || "").localeCompare(b.child_name || "");
-      });
+      list.sort((a, b) => (a.child_name || "").localeCompare(b.child_name || ""));
     }
     return list;
-  }, [filtered, priorityOnly]);
+  }, [filtered, priorityOnly, filterService]);
+
+  const nameIssues = useMemo(() => {
+    const byKey = {};
+    for (const i of items) {
+      const key = englishNamePart(i.child_name).toLowerCase();
+      if (!key) continue;
+      if (!byKey[key]) byKey[key] = [];
+      byKey[key].push(i);
+    }
+    const duplicates = Object.values(byKey).filter((group) => group.length > 1);
+    const singleName = items.filter((i) => i.child_name && !isDualEnglishName(i.child_name));
+    return { duplicates, singleName };
+  }, [items]);
+
+  const cycleServiceFilter = () => {
+    setFilterService((prev) => (prev === "" ? "HS" : prev === "HS" ? "SS" : ""));
+  };
 
   const totalPre = intakeItems.filter(i => i.intake_type === "pre").length;
   const totalPost = intakeItems.filter(i => i.intake_type === "post").length;
@@ -363,9 +438,24 @@ export default function WaitingPage({ mode }) {
                 <table className="intake-table">
                   <thead>
                     <tr>
-                      <th style={{ width: 36 }} aria-label="Priority" />
+                      <th style={{ width: 36 }} aria-label="Priority">
+                        <button
+                          type="button"
+                          onClick={() => setPriorityOnly(v => !v)}
+                          title={priorityOnly ? "Show all" : "Show priority only"}
+                          className={`intake-th-filter p-1${priorityOnly ? " is-active" : ""}`}
+                        >
+                          <Star size={14} weight={priorityOnly ? "fill" : "regular"} style={{ color: priorityOnly ? "#D4A64A" : "#8B9E7A" }} />
+                        </button>
+                      </th>
                       <th>Child</th>
-                      <th>Service</th>
+                      <FilterTh
+                        active={!!filterService}
+                        onClick={cycleServiceFilter}
+                        title={filterService ? `Filtered: ${filterService} (click to change)` : "Filter by service: HS / SS"}
+                      >
+                        Service{filterService ? ` · ${filterService}` : ""}
+                      </FilterTh>
                       <th>Status</th>
                       <th>Phone</th>
                       <th>{isSchool ? "District" : "District"}</th>
@@ -379,6 +469,7 @@ export default function WaitingPage({ mode }) {
                       ) : (
                         <th>Language</th>
                       )}
+                      <th>Notes</th>
                       {canManage && <th style={{ width: 140 }}>Actions</th>}
                     </tr>
                   </thead>
@@ -394,7 +485,15 @@ export default function WaitingPage({ mode }) {
                         </td>
                         <td>
                           <div className="font-bold">{i.child_name}</div>
-                          {i.age && <div className="text-[10px]" style={{ color: "#8B9E7A" }}>Age {i.age}</div>}
+                          {formatDOB(i) && (
+                            <div className="text-[10px]" style={{ color: "#8B9E7A" }}>
+                              DOB {formatDOB(i)}
+                              {ageFromDOB(i) ? ` · ${ageFromDOB(i)} yrs` : ""}
+                            </div>
+                          )}
+                          {!isDualEnglishName(i.child_name) && (
+                            <div className="text-[10px] font-semibold" style={{ color: "#B45309" }}>Single name</div>
+                          )}
                         </td>
                         <td><span className="pill text-[10px]">{i.service || "—"}</span></td>
                         <td><span className="pill text-[10px]" style={{ background: `${STATUS_COLORS[i.status]}25`, color: STATUS_COLORS[i.status] }}>{STATUS[i.status] || i.status}</span></td>
@@ -408,6 +507,9 @@ export default function WaitingPage({ mode }) {
                         ) : (
                           <td>{tab === "pre" ? (i.time_pref || "—") : (i.language || "—")}</td>
                         )}
+                        <td className="text-[11px] max-w-[180px]" style={{ color: "#5C6853" }}>
+                          {i.notes ? <span title={i.notes}>{i.notes.length > 80 ? `${i.notes.slice(0, 80)}…` : i.notes}</span> : "—"}
+                        </td>
                         {canManage && (
                           <td>
                             <div className="flex gap-1 flex-wrap">
@@ -462,6 +564,30 @@ export default function WaitingPage({ mode }) {
               </div>
             ))}
           </div>
+
+          {(nameIssues.duplicates.length > 0 || nameIssues.singleName.length > 0) && (
+            <>
+              <div className="req-panel-head border-t border-[#E2DDD4]">
+                <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Name check</h2>
+                <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>
+                  Duplicates: {nameIssues.duplicates.length} · Single names: {nameIssues.singleName.length}
+                </p>
+              </div>
+              <div className="req-panel-list text-xs" style={{ color: "#5C6853" }}>
+                {nameIssues.duplicates.slice(0, 5).map((group) => (
+                  <div key={group[0].id} className="req-item">
+                    <div className="font-semibold" style={{ color: "#B45309" }}>Duplicate: {group[0].child_name}</div>
+                    <div style={{ color: "#8B9E7A" }}>{group.length} records</div>
+                  </div>
+                ))}
+                {nameIssues.singleName.slice(0, 5).map((i) => (
+                  <div key={`single-${i.id}`} className="req-item">
+                    <div className="font-semibold" style={{ color: "#B45309" }}>Not dual: {i.child_name}</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </aside>
       </div>
 
@@ -494,9 +620,6 @@ export default function WaitingPage({ mode }) {
                   value={edit.birth_date || ""}
                   onChange={e => setEdit({ ...edit, birth_date: e.target.value })}
                 />
-              </FormField>
-              <FormField label="Age (text)" hint="Optional if birth date is set">
-                <input className="modal-input" value={edit.age || ""} onChange={e => setEdit({ ...edit, age: e.target.value })} />
               </FormField>
               <FormField label={isSchool ? "School start date" : "Intake date"}>
                 <input
@@ -578,8 +701,14 @@ export default function WaitingPage({ mode }) {
                 <Star size={16} weight="fill" /> Priority client
               </span>
             </label>
-            <FormField label="Additional notes">
-              <textarea className="modal-input" rows={3} value={edit.notes || ""} onChange={e => setEdit({ ...edit, notes: e.target.value })} />
+            <FormField label="Case notes" hint="e.g. schedule not finished, not suitable, waiting for meeting">
+              <textarea
+                className="modal-input"
+                rows={3}
+                placeholder="Write a short note about this child’s status or next step…"
+                value={edit.notes || ""}
+                onChange={e => setEdit({ ...edit, notes: e.target.value })}
+              />
             </FormField>
           </FormSection>
         </ModalBase>

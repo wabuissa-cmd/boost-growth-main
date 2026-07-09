@@ -869,6 +869,31 @@
   border-bottom: 1px solid #E2DDD4;
 }
 
+.intake-th-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.intake-th-filter:hover {
+  color: #4A5D42;
+}
+
+.intake-th-filter.is-active {
+  color: #3D4F35;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .intake-table td {
   padding: 0.65rem 0.85rem;
   border-bottom: 1px solid #F0EDE9;
