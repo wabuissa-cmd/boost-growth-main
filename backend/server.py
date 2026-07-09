@@ -10810,15 +10810,19 @@ def _enrich_request_attachment(req: dict) -> dict:
 async def list_requests(scope: Optional[str] = None, user=Depends(get_current_user)):
     """List requests. Default: caller's own. scope=staff: manager/HR staff queue (not own rows for Jenan)."""
     scope_norm = (scope or "").strip().lower()
-    uid = await _resolve_user_therapist_id(user) or user.get("id")
+    # Some ops-linked logins (e.g. Walaa) historically wrote requests under user.id,
+    # while newer logic uses linked therapist_id. Include both so "My Requests" shows all.
+    uid = user.get("id")
+    tid = await _resolve_user_therapist_id(user)
+    my_ids = [x for x in [uid, tid] if x]
     if scope_norm == "staff":
         if not _can_staff_request_scope(user):
             raise HTTPException(status_code=403, detail="Staff request access required")
         q: dict = {}
         if _is_jenan(user) and not _is_portal_admin(user) and not _is_hr_ops(user):
-            q = {"therapist_id": {"$ne": uid}}
+            q = {"therapist_id": {"$nin": my_ids}}
     else:
-        q = {"therapist_id": uid}
+        q = {"therapist_id": {"$in": my_ids}}
     items = await db.requests.find(q, {"_id": 0, "attachment_file_data": 0}).sort("created_at", -1).to_list(500)
     therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1}).to_list(500)
     t_by_id = {t["id"]: t for t in therapists}
