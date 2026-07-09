@@ -147,6 +147,39 @@ export default function LeaveBalanceTable({ year, onYearChange, showYearSelect =
                     <tr className="border-t border-[#E2DDD4]" style={{ background: "#FAFAF7" }}>
                       <td colSpan={8} className="p-4">
                         <div className="text-xs font-bold mb-2" style={{ color: "#5C6853" }}>Leave history — {r.name}</div>
+                        <div className="req-leave-balance req-leave-balance--inline mb-3">
+                          {r.contract_period_start && (
+                            <div className="text-[10px] opacity-85 mb-2" style={{ color: "#5C6853" }}>
+                              Contract · {fmtDateRange(r.contract_period_start, r.contract_period_end)}
+                            </div>
+                          )}
+                          <div className="req-leave-stat-grid req-leave-stat-grid--six">
+                            <div className="req-leave-stat-box">
+                              <div className="req-leave-stat-val">{r.remaining ?? 0}</div>
+                              <div className="req-leave-stat-lbl">Balance</div>
+                            </div>
+                            <div className="req-leave-stat-box">
+                              <div className="req-leave-stat-val">{r.used_annual ?? 0}</div>
+                              <div className="req-leave-stat-lbl">Annual</div>
+                            </div>
+                            <div className="req-leave-stat-box">
+                              <div className="req-leave-stat-val">{r.permission_count ?? 0}</div>
+                              <div className="req-leave-stat-lbl">Permission</div>
+                            </div>
+                            <div className="req-leave-stat-box">
+                              <div className="req-leave-stat-val">{r.used_unpaid ?? 0}</div>
+                              <div className="req-leave-stat-lbl">Unpaid</div>
+                            </div>
+                            <div className="req-leave-stat-box">
+                              <div className="req-leave-stat-val">{r.used_sick ?? 0}</div>
+                              <div className="req-leave-stat-lbl">Sick</div>
+                            </div>
+                            <div className="req-leave-stat-box">
+                              <div className="req-leave-stat-val">{r.other_requests_count ?? 0}</div>
+                              <div className="req-leave-stat-lbl">Other</div>
+                            </div>
+                          </div>
+                        </div>
                         <div className="overflow-x-auto">
                           <table className="w-full text-xs">
                             <thead>
