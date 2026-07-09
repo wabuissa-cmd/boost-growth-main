@@ -60,6 +60,8 @@ export default function Purchases({ embedded = false }) {
   const canManagerFinalize = canManagerFinalizePurchases(user);
   const canDelete = showSystemAdmin(user);
   const canSyncSheet = isJenan(user) || isWalaaOps(user) || showAdminNav(user);
+  const canPickPurchaser = showSystemAdmin(user) || showAdminNav(user);
+  const ownTherapistId = user?.therapist_id || user?.id || "";
   const [items, setItems] = useState([]);
   const [allItems, setAllItems] = useState([]);
   const [pendingQueue, setPendingQueue] = useState([]);
@@ -79,12 +81,27 @@ export default function Purchases({ embedded = false }) {
   const [sending, setSending] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
+  const openAddPurchase = () => {
+    const base = emptyPurchaseForm();
+    if (!canPickPurchaser && ownTherapistId) {
+      base.therapist_id = ownTherapistId;
+    }
+    setForm(base);
+    setAddOpen(true);
+  };
+
   const therapistOptions = useMemo(() => {
     const arr = Array.isArray(therapists) ? therapists : [];
     return arr
       .map((t) => ({ ...t, id: t.id, label: getTherapistScheduleName(t) }))
       .filter((t) => t.id);
   }, [therapists]);
+
+  const ownPurchaserLabel = useMemo(() => {
+    if (!ownTherapistId) return user?.name || "You";
+    const t = therapistOptions.find((x) => x.id === ownTherapistId);
+    return t ? t.label : (user?.name || "You");
+  }, [ownTherapistId, therapistOptions, user?.name]);
 
   const resolvePurchaserName = (p) => {
     if (!p) return "—";
@@ -257,8 +274,9 @@ export default function Purchases({ embedded = false }) {
   };
 
   const submitPurchase = async () => {
-    if (!form.therapist_id) {
-      alert("Select who made the purchase");
+    const therapistId = canPickPurchaser ? form.therapist_id : ownTherapistId;
+    if (!therapistId) {
+      alert(canPickPurchaser ? "Select who made the purchase" : "Could not resolve your therapist profile");
       return;
     }
     if (!form.item.trim() || !form.category) {
@@ -269,7 +287,7 @@ export default function Purchases({ embedded = false }) {
     try {
       const total = form.total ? parseFloat(String(form.total).replace(/[^\d.]/g, "")) : null;
       await api.post("/purchases", {
-        therapist_id: form.therapist_id,
+        therapist_id: therapistId,
         item: form.item,
         category: form.category,
         description: form.description,
@@ -306,7 +324,7 @@ export default function Purchases({ embedded = false }) {
         toolbar={(
           <div className="flex flex-wrap gap-2">
             {canAccessPurchases(user) && (
-              <button type="button" className="btn btn-primary text-xs min-h-[36px]" onClick={() => setAddOpen(true)}>
+              <button type="button" className="btn btn-primary text-xs min-h-[36px]" onClick={openAddPurchase}>
                 <Plus size={14}/> Log Purchase
               </button>
             )}
@@ -483,7 +501,7 @@ export default function Purchases({ embedded = false }) {
                   <tr>
                     <th>#</th>
                     <th>Purchase</th>
-                    <th>Purchaser</th>
+                    {canPickPurchaser && <th>Purchaser</th>}
                     <th>Date</th>
                     <th>Qty</th>
                     <th>Total</th>
@@ -495,7 +513,7 @@ export default function Purchases({ embedded = false }) {
                 </thead>
                 <tbody>
                   {displayedItems.length === 0 && (
-                    <tr><td colSpan={10} className="text-center py-8" style={{ color: "#8B9E7A" }}>No purchases found</td></tr>
+                    <tr><td colSpan={canPickPurchaser ? 10 : 9} className="text-center py-8" style={{ color: "#8B9E7A" }}>No purchases found</td></tr>
                   )}
                   {displayedItems.map((p, i) => {
                     const st = STATUS_META[p.status] || STATUS_META.pending;
@@ -524,7 +542,7 @@ export default function Purchases({ embedded = false }) {
                             <div className="text-[10px] line-clamp-2" style={{ color: "#8B9E7A" }}>{p.description}</div>
                           )}
                         </td>
-                        <td>{resolvePurchaserName(p)}</td>
+                        {canPickPurchaser && <td>{resolvePurchaserName(p)}</td>}
                         <td className="text-xs whitespace-nowrap">{fmtDate(p.purchase_date)}</td>
                         <td>{p.qty || "—"}</td>
                         <td className="text-xs font-bold" style={{ color: "#6B5218" }}>{fmtMoney(p)}</td>
@@ -643,20 +661,26 @@ export default function Purchases({ embedded = false }) {
           )}
         >
           <FormSection title="Purchase details">
-            <FormField label="Purchaser" required>
-              <select className="modal-input" value={form.therapist_id} onChange={e => setForm({ ...form, therapist_id: e.target.value })}>
-                <option value="">Select therapist…</option>
-                {therapists.map(t => <option key={t.id} value={t.id}>{getTherapistScheduleName(t)}</option>)}
-              </select>
-            </FormField>
-            <FormField label="Item" required>
-              <input className="modal-input" value={form.item} onChange={e => setForm({ ...form, item: e.target.value })} placeholder="e.g. Frames, Flowers…" />
-            </FormField>
+            {canPickPurchaser ? (
+              <FormField label="Purchaser" required>
+                <select className="modal-input" value={form.therapist_id} onChange={e => setForm({ ...form, therapist_id: e.target.value })}>
+                  <option value="">Select therapist…</option>
+                  {therapistOptions.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                </select>
+              </FormField>
+            ) : (
+              <FormField label="Purchaser">
+                <input className="modal-input" readOnly value={ownPurchaserLabel} />
+              </FormField>
+            )}
             <FormField label="Category" required>
               <select className="modal-input" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
                 <option value="">Select category…</option>
                 {categories.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
+            </FormField>
+            <FormField label="Item" required>
+              <input className="modal-input" value={form.item} onChange={e => setForm({ ...form, item: e.target.value })} placeholder="e.g. Frames, Flowers…" />
             </FormField>
             <FormField label="Description">
               <textarea className="modal-input" rows={2} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
