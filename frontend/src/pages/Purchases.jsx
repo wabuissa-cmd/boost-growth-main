@@ -39,6 +39,14 @@ function fmtMoney(p) {
   return "—";
 }
 
+function parseNumberLike(v) {
+  if (v == null) return null;
+  const raw = String(v).trim();
+  if (!raw) return null;
+  const n = parseFloat(raw.replace(/[^\d.]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
 function emptyPurchaseForm() {
   return {
     therapist_id: "",
@@ -50,6 +58,7 @@ function emptyPurchaseForm() {
     total: "",
     purchase_date: new Date().toISOString().slice(0, 10),
     notes: "",
+    line_items: [{ item: "", qty: "1", unit_price: "", total: "" }],
   };
 }
 
@@ -280,23 +289,46 @@ export default function Purchases({ embedded = false }) {
       alert(canPickPurchaser ? "Select who made the purchase" : "Could not resolve your therapist profile");
       return;
     }
-    if (!form.item.trim() || !form.category) {
-      alert("Item and category are required");
+    if (!form.category) {
+      alert("Category is required");
       return;
     }
     setSubmitting(true);
     try {
-      const total = form.total ? parseFloat(String(form.total).replace(/[^\d.]/g, "")) : null;
+      const rawLines = Array.isArray(form.line_items) ? form.line_items : [];
+      const cleanedLines = rawLines
+        .map((li) => ({
+          item: (li?.item || "").trim(),
+          qty: (li?.qty || "1").trim(),
+          unit_price: (li?.unit_price || "").trim(),
+          total: parseNumberLike(li?.total),
+        }))
+        .filter((li) => li.item);
+
+      const linesTotal = cleanedLines.reduce((acc, li) => acc + (li.total || 0), 0);
+      const explicitTotal = parseNumberLike(form.total);
+
+      const derivedItemSummary = cleanedLines.length
+        ? cleanedLines.slice(0, 3).map((x) => x.item).join(" · ") + (cleanedLines.length > 3 ? ` (+${cleanedLines.length - 3} more)` : "")
+        : "";
+
+      const item = (form.item || "").trim() || derivedItemSummary;
+      if (!item) {
+        alert("Item is required (add at least one item)");
+        return;
+      }
+
       await api.post("/purchases", {
         therapist_id: therapistId,
-        item: form.item,
+        item,
         category: form.category,
         description: form.description,
-        qty: form.qty,
-        unit_price: form.unit_price,
-        total: Number.isFinite(total) ? total : null,
+        qty: cleanedLines[0]?.qty || form.qty,
+        unit_price: cleanedLines[0]?.unit_price || form.unit_price,
+        total: explicitTotal ?? (cleanedLines.length ? (linesTotal || null) : null),
         purchase_date: form.purchase_date,
         notes: form.notes,
+        ...(cleanedLines.length ? { line_items: cleanedLines.map((x) => ({ ...x, total: x.total ?? null })) } : {}),
       });
       setAddOpen(false);
       setForm(emptyPurchaseForm());
@@ -733,23 +765,98 @@ export default function Purchases({ embedded = false }) {
                 {categories.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </FormField>
-            <FormField label="Item" required>
-              <input className="modal-input" value={form.item} onChange={e => setForm({ ...form, item: e.target.value })} placeholder="e.g. Frames, Flowers…" />
+            <FormField label="Items" required>
+              <div className="flex flex-col gap-2">
+                {(Array.isArray(form.line_items) ? form.line_items : []).map((li, idx) => (
+                  <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                    <div className="col-span-6">
+                      <input
+                        className="modal-input"
+                        value={li?.item || ""}
+                        onChange={(e) => {
+                          const next = [...(form.line_items || [])];
+                          next[idx] = { ...(next[idx] || {}), item: e.target.value };
+                          setForm({ ...form, line_items: next });
+                        }}
+                        placeholder="Item name…"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <input
+                        className="modal-input"
+                        value={li?.qty || "1"}
+                        onChange={(e) => {
+                          const next = [...(form.line_items || [])];
+                          next[idx] = { ...(next[idx] || {}), qty: e.target.value };
+                          setForm({ ...form, line_items: next });
+                        }}
+                        placeholder="Qty"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <input
+                        className="modal-input"
+                        value={li?.unit_price || ""}
+                        onChange={(e) => {
+                          const next = [...(form.line_items || [])];
+                          next[idx] = { ...(next[idx] || {}), unit_price: e.target.value };
+                          setForm({ ...form, line_items: next });
+                        }}
+                        placeholder="Unit"
+                      />
+                    </div>
+                    <div className="col-span-2 flex items-center gap-2">
+                      <input
+                        className="modal-input"
+                        value={li?.total || ""}
+                        onChange={(e) => {
+                          const next = [...(form.line_items || [])];
+                          next[idx] = { ...(next[idx] || {}), total: e.target.value };
+                          setForm({ ...form, line_items: next });
+                        }}
+                        placeholder="Total"
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-ghost p-2"
+                        title="Remove item"
+                        onClick={() => {
+                          const cur = Array.isArray(form.line_items) ? [...form.line_items] : [];
+                          if (cur.length <= 1) return;
+                          cur.splice(idx, 1);
+                          setForm({ ...form, line_items: cur });
+                        }}
+                        disabled={Array.isArray(form.line_items) && form.line_items.length <= 1}
+                      >
+                        <Trash size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    className="btn btn-outline text-xs"
+                    onClick={() => {
+                      const cur = Array.isArray(form.line_items) ? [...form.line_items] : [];
+                      cur.push({ item: "", qty: "1", unit_price: "", total: "" });
+                      setForm({ ...form, line_items: cur });
+                    }}
+                  >
+                    <Plus size={14} /> Add item
+                  </button>
+                  <div className="text-[11px]" style={{ color: "#8B9E7A" }}>
+                    Tip: add totals per item (or write only one total for the whole purchase below).
+                  </div>
+                </div>
+              </div>
             </FormField>
             <FormField label="Description">
               <textarea className="modal-input" rows={2} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
             </FormField>
             <div className="grid grid-cols-2 gap-3">
-              <FormField label="QTY">
-                <input className="modal-input" value={form.qty} onChange={e => setForm({ ...form, qty: e.target.value })} />
-              </FormField>
-              <FormField label="Unit price">
-                <input className="modal-input" value={form.unit_price} onChange={e => setForm({ ...form, unit_price: e.target.value })} placeholder="e.g. 64 SR" />
-              </FormField>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <FormField label="Total">
-                <input className="modal-input" value={form.total} onChange={e => setForm({ ...form, total: e.target.value })} placeholder="e.g. 380" />
+              <FormField label="Total (optional)">
+                <input className="modal-input" value={form.total} onChange={e => setForm({ ...form, total: e.target.value })} placeholder="If empty, sum of item totals will be used" />
               </FormField>
               <FormField label="Purchase date">
                 <input type="date" className="modal-input" value={form.purchase_date} onChange={e => setForm({ ...form, purchase_date: e.target.value })} />
