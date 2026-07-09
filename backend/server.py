@@ -10834,6 +10834,55 @@ async def _send_staff_request_decision_email(
     return True
 
 
+async def _send_staff_request_manager_email(
+    req: dict,
+    *,
+    manager_decision: str,
+    decided_at: str,
+    manager_note: str = "",
+) -> bool:
+    """Email therapist immediately when the direct manager forwards to HR (approval/rejection/in progress)."""
+    email = await _therapist_email(req.get("therapist_id"))
+    if not email:
+        return False
+    tdoc = await db.therapists.find_one({"id": req.get("therapist_id")}, {"_id": 0, "name": 1})
+    therapist_name = (tdoc or {}).get("name") or req.get("therapist_name") or "Staff member"
+    rtype = _display_request_type(req.get("request_type"))
+    title = (req.get("title") or "Request").strip() or "Request"
+    submitted = (req.get("created_at") or "").strip()
+    portal = _portal_base_url()
+
+    label = {
+        "approved": "Approved by your manager (sent to HR)",
+        "rejected": "Rejected by your manager (sent to HR)",
+        "in_progress": "Marked in progress by your manager (sent to HR)",
+    }.get((manager_decision or "").strip().lower(), f"Updated by your manager (sent to HR): {manager_decision}")
+
+    lines = [
+        f"Dear {therapist_name},",
+        "",
+        "Your direct manager has reviewed your request and sent it to HR for the final decision.",
+        "",
+        "Manager update",
+        f"- Manager status: {label}",
+        f"- Manager update time: {_format_email_timestamp(decided_at)}",
+        "",
+        "Request details",
+        f"- Request type: {rtype}",
+        f"- Title: {title}",
+        f"- Submitted on: {_format_email_timestamp(submitted)}",
+    ]
+    if (manager_note or "").strip():
+        lines += ["", "Manager note", (manager_note or "").strip()]
+    if portal:
+        lines += ["", "Next step", f"- Track your request: {portal}/my-requests"]
+    lines += ["", "Sincerely,", "Boost Growth Portal"]
+
+    subject = f"Request update — sent to HR — {rtype} — {title}"
+    await _send_email_stub(email, subject, "\n".join(lines).strip() + "\n")
+    return True
+
+
 def _schedule_cell_date_iso(cell: dict) -> Optional[str]:
     ws = cell.get("week_start")
     day = cell.get("day")
@@ -12426,6 +12475,17 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
             decision_status=notify_status,
             admin_note=payload.admin_note,
         )
+    # Therapist email when manager forwards to HR (not final decision).
+    if is_jenan_mgr and manager_decision in ("approved", "rejected", "in_progress"):
+        try:
+            await _send_staff_request_manager_email(
+                {**(req or {}), **set_patch},
+                manager_decision=manager_decision,
+                decided_at=updated_at,
+                manager_note=(payload.admin_note or "").strip(),
+            )
+        except Exception:
+            pass
     status_map = {
         "pending": "Pending", "pending_manager": "Pending manager review",
         "pending_hr": "Pending HR review", "in_progress": "In Progress",
