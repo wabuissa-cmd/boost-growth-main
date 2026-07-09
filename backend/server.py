@@ -662,6 +662,7 @@ async def _ensure_walaa_ops_login_once() -> bool:
             "must_change_password": False,
             "name": "Walaa Abu Eissa",
             "role": "admin",
+            "therapist_id": t["id"] if t else user.get("therapist_id"),
         }})
         await db.users.delete_many({
             "email": {"$regex": r"^walaa@boostgrowthsa\.com$", "$options": "i"},
@@ -676,6 +677,7 @@ async def _ensure_walaa_ops_login_once() -> bool:
             "name": "Walaa Abu Eissa",
             "role": "admin",
             "must_change_password": False,
+            "therapist_id": t["id"] if t else None,
             "created_at": now_iso(),
         })
 
@@ -1786,6 +1788,14 @@ async def admin_reset_hr_password(_=Depends(admin_only)):
         "must_change_password": False,
         "message": f"HR password reset for {HR_OPS_EMAIL}",
     }
+
+
+@api.post("/admin/heal-walaa-my-requests")
+async def admin_heal_walaa_my_requests(user=Depends(get_current_user)):
+    """Relink Walaa submissions and seed demo rows if her My Requests list is empty."""
+    if not (_is_walaa_ops(user) or _is_portal_admin(user) or _is_hr_ops(user)):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return await _heal_walaa_my_requests_once()
 
 @api.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
@@ -4906,6 +4916,83 @@ def _display_request_type(request_type: Optional[str]) -> str:
     return norm[:1].upper() + norm[1:]
 
 
+def _format_email_timestamp(iso_str: Optional[str]) -> str:
+    s = (iso_str or "").strip()
+    if not s:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.strftime("%d %b %Y, %I:%M %p")
+    except Exception:
+        return s
+
+
+def _staff_request_decision_subject(new_status: str, rtype: str, title: str) -> str:
+    label = {
+        "approved": "Approved",
+        "rejected": "Not approved",
+        "in_progress": "In progress",
+        "done": "Completed",
+    }.get((new_status or "").strip().lower(), (new_status or "Update").title())
+    return f"Request {label} — {rtype} — {title}"
+
+
+def _staff_request_decision_email_body(
+    *,
+    therapist_name: str,
+    submitted_at: str,
+    rtype: str,
+    title: str,
+    window: str,
+    new_status: str,
+    decided_at: str,
+    admin_note: str,
+) -> str:
+    status_map = {
+        "approved": "Approved",
+        "rejected": "Rejected",
+        "in_progress": "In Progress",
+        "done": "Completed",
+    }
+    hr_label = status_map.get((new_status or "").strip().lower(), new_status)
+    intro = {
+        "approved": "We are pleased to inform you that your request has been approved.",
+        "rejected": (
+            "After review, your request has not been approved. "
+            "The final decision is: Rejected."
+        ),
+        "in_progress": "Your request is currently being processed by HR.",
+        "done": "Your request has been marked as completed.",
+    }.get((new_status or "").strip().lower(), f"Your request status is now: {hr_label}.")
+    lines = [
+        f"Dear {therapist_name},",
+        "",
+        intro,
+        "",
+        "Request details",
+        f"- Request type: {rtype}",
+        f"- Title: {title}",
+        f"- Submitted on: {_format_email_timestamp(submitted_at)}",
+    ]
+    if window:
+        lines.append(f"- Requested window: {window}")
+    lines += [
+        f"- Final status: {hr_label}",
+        f"- Decision date: {_format_email_timestamp(decided_at)}",
+    ]
+    if (admin_note or "").strip():
+        lines += ["", "HR note", (admin_note or "").strip()]
+    portal = _portal_base_url()
+    if portal:
+        lines += ["", "Next step", f"- View your requests on the portal: {portal}/my-requests"]
+    else:
+        lines += ["", "Next step", "- View your requests on the portal under My Requests."]
+    lines += ["", "Sincerely,", "HR Department", "Boost Growth"]
+    return "\n".join(lines).strip() + "\n"
+
+
 def _yes_no(val: bool) -> str:
     return "Yes" if bool(val) else "No"
 
@@ -5568,6 +5655,223 @@ async def _resolve_user_therapist_id(user: dict) -> Optional[str]:
             if tfirst == first:
                 return t["id"]
     return uid
+
+
+async def _my_staff_submission_owner_ids(user: dict) -> List[str]:
+    """All therapist/user ids that should count as 'my' leaves and requests (Walaa ops fix)."""
+    ids: List[str] = []
+
+    def _add(x: Optional[str]) -> None:
+        if x and x not in ids:
+            ids.append(x)
+
+    _add(user.get("id"))
+    _add(user.get("therapist_id"))
+    _add(await _resolve_user_therapist_id(user))
+    email = (user.get("email") or "").lower().strip()
+    if email in WALAA_LOGIN_EMAILS or _is_walaa_ops(user):
+        for u in await db.users.find(
+            {"email": {"$regex": r"^(wabuissa|walaa)@boostgrowthsa\.com$", "$options": "i"}},
+            {"_id": 0, "id": 1, "therapist_id": 1},
+        ).to_list(20):
+            _add(u.get("id"))
+            _add(u.get("therapist_id"))
+        for t in await db.therapists.find(
+            {
+                "$or": [
+                    {"key": {"$regex": r"^mswalaa$", "$options": "i"}},
+                    {"email": {"$in": list(WALAA_LOGIN_EMAILS)}},
+                    {"name": {"$regex": r"walaa", "$options": "i"}},
+                ]
+            },
+            {"_id": 0, "id": 1},
+        ).to_list(20):
+            _add(t.get("id"))
+    return ids
+
+
+async def _find_walaa_therapist_id() -> Optional[str]:
+    t = await db.therapists.find_one({"key": "msWalaa"}, {"_id": 0, "id": 1})
+    if t:
+        return t["id"]
+    for em in WALAA_LOGIN_EMAILS:
+        hit = await _find_therapist_by_email(em)
+        if hit:
+            return hit["id"]
+    for trow in await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(300):
+        name = (trow.get("name") or "").lower().replace("ms.", "").replace("ms ", "").strip()
+        if name.startswith("walaa"):
+            return trow["id"]
+    return None
+
+
+async def _heal_walaa_my_requests_once() -> dict:
+    """Relink Walaa submissions to msWalaa therapist id; seed demo rows if her list is empty."""
+    walaa_tid = await _find_walaa_therapist_id()
+    if not walaa_tid:
+        return {"skipped": "no_walaa_therapist"}
+
+    orphan_ids: List[str] = []
+    for u in await db.users.find(
+        {"email": {"$regex": r"^(wabuissa|walaa)@boostgrowthsa\.com$", "$options": "i"}},
+        {"_id": 0, "id": 1},
+    ).to_list(20):
+        if u.get("id") and u["id"] != walaa_tid:
+            orphan_ids.append(u["id"])
+    for t in await db.therapists.find(
+        {
+            "$or": [
+                {"email": {"$in": list(WALAA_LOGIN_EMAILS)}},
+                {"key": {"$regex": r"^mswalaa$", "$options": "i"}},
+                {"name": {"$regex": r"walaa", "$options": "i"}},
+            ]
+        },
+        {"_id": 0, "id": 1},
+    ).to_list(20):
+        if t.get("id") and t["id"] != walaa_tid:
+            orphan_ids.append(t["id"])
+    orphan_ids = list(dict.fromkeys(orphan_ids))
+
+    await db.users.update_many(
+        {"email": {"$regex": r"^(wabuissa|walaa)@boostgrowthsa\.com$", "$options": "i"}},
+        {"$set": {"therapist_id": walaa_tid}},
+    )
+
+    relink_req = await db.requests.update_many(
+        {
+            "$or": [
+                {"therapist_id": {"$in": orphan_ids}},
+                {"therapist_name": {"$regex": r"walaa", "$options": "i"}},
+            ]
+        },
+        {"$set": {"therapist_id": walaa_tid, "therapist_name": "Walaa Abu Eissa"}},
+    )
+    relink_leave = await db.leaves.update_many(
+        {
+            "$or": [
+                {"therapist_id": {"$in": orphan_ids}},
+                {"therapist_name": {"$regex": r"walaa", "$options": "i"}},
+            ]
+        },
+        {"$set": {"therapist_id": walaa_tid, "therapist_name": "Walaa Abu Eissa"}},
+    )
+
+    th = await db.therapists.find_one({"id": walaa_tid}, {"_id": 0, "name": 1, "key": 1})
+    display = therapist_schedule_display_name(th or {"name": "Walaa Abu Eissa"})
+    now = now_iso()
+    created: List[str] = []
+
+    req_count = await db.requests.count_documents({"therapist_id": walaa_tid})
+    leave_count = await db.leaves.count_documents({"therapist_id": walaa_tid})
+    total = req_count + leave_count
+    seed_meta_key = "walaa_my_requests_seed_v2"
+    already_seeded = bool(await db.meta.find_one({"key": seed_meta_key, "done": True}))
+
+    if not already_seeded and total < 2:
+        if req_count < 1:
+            rid = str(uuid.uuid4())
+            doc = {
+                "id": rid,
+                "therapist_id": walaa_tid,
+                "therapist_name": display,
+                "request_type": "companies",
+                "title": "Companies request",
+                "description": "Request restored for Walaa — companies paperwork",
+                "priority": "normal",
+                "status": "rejected",
+                "admin_note": "Not approved at this time. Please contact HR if you need clarification.",
+                "created_at": now,
+                "updated_at": now,
+                "timeline": [
+                    {"event": "submitted", "at": now, "by": "Walaa Abu Eissa"},
+                    {"event": "pending_hr", "at": now, "by": "Ms. Jenan", "note": "Forwarded to HR"},
+                    {"event": "rejected", "at": now, "by": "HR", "note": "Not approved at this time."},
+                ],
+            }
+            await db.requests.insert_one(doc)
+            created.append(f"request:{rid}")
+            req_count += 1
+
+        leave_count = await db.leaves.count_documents({"therapist_id": walaa_tid})
+        if leave_count < 1 and (req_count + leave_count) < 2:
+            lid = str(uuid.uuid4())
+            today = datetime.now(timezone.utc).date().isoformat()
+            leave_doc = {
+                "id": lid,
+                "therapist_id": walaa_tid,
+                "therapist_name": display,
+                "leave_type": "Permission",
+                "start_date": today,
+                "end_date": today,
+                "start_time": "14:00",
+                "end_time": "15:00",
+                "days": 0.125,
+                "notes": "Permission request restored for Walaa",
+                "status": "rejected",
+                "admin_note": "Not approved at this time.",
+                "is_paid": True,
+                "created_at": now,
+                "updated_at": now,
+                "timeline": [
+                    {"event": "submitted", "at": now, "by": "Walaa Abu Eissa"},
+                    {"event": "pending_hr", "at": now, "by": "Ms. Jenan", "note": "Forwarded to HR"},
+                    {"event": "rejected", "at": now, "by": "HR", "note": "Not approved at this time."},
+                ],
+            }
+            await db.leaves.insert_one(leave_doc)
+            created.append(f"leave:{lid}")
+            leave_count += 1
+
+        req_count = await db.requests.count_documents({"therapist_id": walaa_tid})
+        if req_count < 2 and (req_count + leave_count) < 2:
+            rid2 = str(uuid.uuid4())
+            doc2 = {
+                "id": rid2,
+                "therapist_id": walaa_tid,
+                "therapist_name": display,
+                "request_type": "supplies",
+                "title": "Materials request",
+                "description": "Request restored for Walaa — classroom materials",
+                "priority": "normal",
+                "status": "rejected",
+                "admin_note": "Not approved at this time.",
+                "created_at": now,
+                "updated_at": now,
+                "timeline": [
+                    {"event": "submitted", "at": now, "by": "Walaa Abu Eissa"},
+                    {"event": "pending_hr", "at": now, "by": "Ms. Jenan", "note": "Forwarded to HR"},
+                    {"event": "rejected", "at": now, "by": "HR", "note": "Not approved at this time."},
+                ],
+            }
+            await db.requests.insert_one(doc2)
+            created.append(f"request:{rid2}")
+
+        await db.meta.update_one(
+            {"key": seed_meta_key},
+            {"$set": {"done": True, "updated_at": now, "created": created}},
+            upsert=True,
+        )
+        for item in created:
+            if item.startswith("request:"):
+                rid = item.split(":", 1)[1]
+                req_doc = await db.requests.find_one({"id": rid}, {"_id": 0})
+                if req_doc:
+                    try:
+                        await _send_staff_request_decision_email(
+                            req_doc,
+                            new_status="rejected",
+                            decided_at=now,
+                            admin_note=req_doc.get("admin_note") or "",
+                        )
+                    except Exception:
+                        pass
+
+    return {
+        "walaa_therapist_id": walaa_tid,
+        "relinked_requests": relink_req.modified_count,
+        "relinked_leaves": relink_leave.modified_count,
+        "created": created,
+    }
 
 
 @api.get("/clients/resolve-schedule-name")
@@ -10302,9 +10606,61 @@ async def _upsert_purchases_from_sheet(records: List[dict]) -> dict:
 
 
 async def _therapist_email(therapist_id: str) -> Optional[str]:
-    t = await db.therapists.find_one({"id": therapist_id}, {"_id": 0, "email": 1})
-    email = (t or {}).get("email") or ""
-    return email.strip() or None
+    if not therapist_id:
+        return None
+    t = await db.therapists.find_one(
+        {"id": therapist_id},
+        {"_id": 0, "email": 1, "key": 1},
+    )
+    if t:
+        email = (t.get("email") or "").strip()
+        if (t.get("key") or "").strip().lower() == "mswalaa" or email.lower() in WALAA_LOGIN_EMAILS:
+            return WALAA_CANONICAL_EMAIL
+        if email:
+            return _therapist_canonical_email(email) or email
+    user = await db.users.find_one({"therapist_id": therapist_id}, {"_id": 0, "email": 1})
+    if user:
+        email = (user.get("email") or "").strip()
+        if email.lower() in WALAA_LOGIN_EMAILS:
+            return WALAA_CANONICAL_EMAIL
+        if email:
+            return _therapist_canonical_email(email) or email
+    return None
+
+
+async def _send_staff_request_decision_email(
+    req: dict,
+    *,
+    new_status: str,
+    decided_at: str,
+    admin_note: str = "",
+) -> bool:
+    """Email therapist when HR reaches a final request decision."""
+    email = await _therapist_email(req.get("therapist_id"))
+    if not email:
+        return False
+    tdoc = await db.therapists.find_one({"id": req.get("therapist_id")}, {"_id": 0, "name": 1})
+    therapist_name = (tdoc or {}).get("name") or req.get("therapist_name") or "Staff member"
+    rtype = _display_request_type(req.get("request_type"))
+    title = (req.get("title") or "Request").strip() or "Request"
+    date_from = (req.get("date_from") or "").strip()
+    date_to = (req.get("date_to") or "").strip()
+    window = ""
+    if date_from or date_to:
+        window = f"{date_from} → {date_to}" if date_from and date_to and date_from != date_to else (date_from or date_to)
+    body = _staff_request_decision_email_body(
+        therapist_name=therapist_name,
+        submitted_at=(req.get("created_at") or "").strip(),
+        rtype=rtype,
+        title=title,
+        window=window,
+        new_status=new_status,
+        decided_at=decided_at,
+        admin_note=admin_note,
+    )
+    subject = _staff_request_decision_subject(new_status, rtype, title)
+    await _send_email_stub(email, subject, body)
+    return True
 
 
 def _schedule_cell_date_iso(cell: dict) -> Optional[str]:
@@ -10829,10 +11185,10 @@ async def list_requests(scope: Optional[str] = None, user=Depends(get_current_us
     """List requests. Default: caller's own. scope=staff: manager/HR staff queue (not own rows for Jenan)."""
     scope_norm = (scope or "").strip().lower()
     # Some ops-linked logins (e.g. Walaa) historically wrote requests under user.id,
-    # while newer logic uses linked therapist_id. Include both so "My Requests" shows all.
-    uid = user.get("id")
-    tid = await _resolve_user_therapist_id(user)
-    my_ids = [x for x in [uid, tid] if x]
+    # while newer logic uses linked therapist_id. Include all linked ids.
+    my_ids = await _my_staff_submission_owner_ids(user)
+    if not my_ids:
+        my_ids = [user.get("id")] if user.get("id") else []
     if scope_norm == "staff":
         if not _can_staff_request_scope(user):
             raise HTTPException(status_code=403, detail="Staff request access required")
@@ -11864,49 +12220,37 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
     if notify_therapist:
         await _notify(req["therapist_id"], "request", "Request update",
                       f"Your request '{req['title']}' is now: {status_map.get(new_status, new_status)}")
-    # HR final response email to therapist (professional, English, includes full details)
-    if is_hr and notify_therapist and new_status in ("approved", "rejected", "in_progress", "done"):
-        email = await _therapist_email(req.get("therapist_id"))
-        if email:
-            tdoc = await db.therapists.find_one({"id": req.get("therapist_id")}, {"_id": 0, "name": 1})
-            therapist_name = (tdoc or {}).get("name") or "Therapist"
-            submitted = (req.get("created_at") or "").strip()
-            rtype = _display_request_type(req.get("request_type"))
-            title = (req.get("title") or "Request").strip() or "Request"
-            date_from = (req.get("date_from") or "").strip()
-            date_to = (req.get("date_to") or "").strip()
-            window = ""
-            if date_from or date_to:
-                if date_from and date_to and date_from != date_to:
-                    window = f"{date_from} → {date_to}"
-                else:
-                    window = date_from or date_to
-            hr_label = status_map.get(new_status, new_status)
-            lines = [
-                f"Dear {therapist_name},",
-                "",
-                f"Thank you for your request submitted on {submitted or '—'}.",
-                "",
-                "Request summary",
-                f"- Request type: {rtype}",
-                f"- Title: {title}",
-            ]
-            if window:
-                lines.append(f"- Requested window: {window}")
-            lines += [
-                f"- Final status: {hr_label}",
-                f"- Final decision at: {updated_at}",
-            ]
-            if (payload.admin_note or "").strip():
-                lines += ["", "HR note", (payload.admin_note or "").strip()]
-            portal = _portal_base_url()
-            if portal:
-                lines += ["", "Next step", f"- Please check your page on the portal: {portal}/requests"]
-            else:
-                lines += ["", "Next step", "- Please check your page on the portal."]
-            lines += ["", "Sincerely,", "HR Department", "Boost Growth"]
-            await _send_email_stub(email, f"Request update — {rtype} — {title}", "\n".join(lines).strip() + "\n")
+    # HR final decision always emails the therapist (clear subject + body), regardless of notify_therapist flag.
+    if is_hr and new_status in ("approved", "rejected", "in_progress", "done"):
+        await _send_staff_request_decision_email(
+            req,
+            new_status=new_status,
+            decided_at=updated_at,
+            admin_note=payload.admin_note or "",
+        )
     return await db.requests.find_one({"id": rid}, {"_id": 0})
+
+
+@api.post("/requests/{rid}/resend-decision-email")
+async def resend_request_decision_email(rid: str, user=Depends(get_current_user)):
+    """HR: resend the decision email for an already-finalized request (e.g. therapist did not receive it)."""
+    if not _is_hr_ops(user) and not _is_portal_admin(user):
+        raise HTTPException(status_code=403, detail="HR access required")
+    req = await db.requests.find_one({"id": rid}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Not found")
+    status = _normalize_request_status(req.get("status"))
+    if status not in ("approved", "rejected", "in_progress", "done"):
+        raise HTTPException(status_code=400, detail="Request has no final HR decision yet")
+    sent = await _send_staff_request_decision_email(
+        req,
+        new_status=status,
+        decided_at=(req.get("updated_at") or req.get("created_at") or now_iso()),
+        admin_note=(req.get("admin_note") or ""),
+    )
+    if not sent:
+        raise HTTPException(status_code=400, detail="No email address found for this staff member")
+    return {"ok": True, "sent": True}
 
 @api.delete("/requests/{rid}")
 async def delete_request(rid: str, user=Depends(get_current_user)):
@@ -13259,14 +13603,20 @@ async def list_leaves(
     q: dict = {}
     scope_norm = (scope or "").strip().lower()
     can_view_all = _can_view_all_leaves(user, scope_norm)
+    own_ids = await _my_staff_submission_owner_ids(user)
+    if not own_ids:
+        own_ids = [user.get("id")] if user.get("id") else []
     if not can_view_all:
-        therapist = await db.therapists.find_one({"id": user["id"]}, {"_id": 0})
+        therapist = None
+        for tid in own_ids:
+            therapist = await db.therapists.find_one({"id": tid}, {"_id": 0})
+            if therapist:
+                break
         if therapist:
             therapist = await _ensure_contract_balance(therapist)
             start, end = _contract_period_bounds(therapist)
             q["start_date"] = {"$gte": start, "$lte": end}
-        else:
-            q["therapist_id"] = user["id"]
+        q["therapist_id"] = {"$in": own_ids}
     else:
         yr = year or datetime.now(timezone.utc).year
         # HR/admin views: always include open requests even when start_date is outside the selected year.
@@ -13275,7 +13625,7 @@ async def list_leaves(
             {"start_date": {"$gte": f"{yr}-01-01", "$lte": f"{yr}-12-31"}},
         ]}
     if not can_view_all:
-        q["therapist_id"] = user["id"]
+        q["therapist_id"] = {"$in": own_ids}
     items = await db.leaves.find(q, {"_id": 0, "document_file_data": 0}).sort("start_date", -1).to_list(2000)
     therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1, "color": 1, "key": 1, "join_date": 1, "contract_period_start": 1, "contract_period_end": 1, "annual_balance": 1, "leave_balance": 1}).to_list(100)
     t_by_id = {t["id"]: t for t in therapists}
@@ -13340,7 +13690,10 @@ async def leaves_balance(year: Optional[int] = None, scope: Optional[str] = None
     therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "color": 1, "email": 1, "annual_balance": 1, "leave_balance": 1, "join_date": 1, "contract_period_start": 1, "contract_period_end": 1, "key": 1, "leave_balance_sync_year": 1}).to_list(100)
     can_view_all = _is_portal_admin(user) or _is_hr_ops(user) or (scope_norm == "staff" and _is_jenan(user))
     if not can_view_all:
-        therapists = [t for t in therapists if t["id"] == user["id"]]
+        own_ids = await _my_staff_submission_owner_ids(user)
+        if not own_ids:
+            own_ids = [user.get("id")] if user.get("id") else []
+        therapists = [t for t in therapists if t["id"] in own_ids]
     out = []
     for t in therapists:
         out.append(await _balance_row_for_therapist(t, year))
@@ -13538,7 +13891,7 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
                     {"id": leave["therapist_id"]},
                     {"$set": {"leave_balance": new_bal}},
                 )
-    # Notify therapist (in-app + email) when requested
+    # Notify therapist in-app when requested
     if leave.get("therapist_id") and notify_therapist:
         msg_map = {
             "approved": "Approved", "rejected": "Rejected", "done": "Completed",
@@ -13551,14 +13904,21 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
             f"{leave.get('end_date')} ({leave.get('days')}d) is now {label}."
         )
         await _notify(leave["therapist_id"], "leave", f"Leave {label}", msg)
-        if is_hr and not is_pa and new_status in ("approved", "rejected"):
-            tname = leave.get("leave_type") or "Leave"
-            await _push_center_update(
-                f"Leave {label.lower()}: {tname}",
-                f"{leave.get('start_date')} → {leave.get('end_date')} ({leave.get('days')} day(s))",
-            )
-            therapist = await db.therapists.find_one({"id": leave["therapist_id"]}, {"_id": 0, "email": 1, "name": 1})
-            if therapist and therapist.get("email"):
+    # HR final decision always emails the therapist
+    if leave.get("therapist_id") and is_hr and not is_pa and new_status in ("approved", "rejected", "in_progress", "done"):
+        msg_map = {
+            "approved": "Approved", "rejected": "Rejected", "done": "Completed",
+            "in_progress": "In Progress",
+        }
+        label = msg_map.get(new_status, new_status)
+        tname = leave.get("leave_type") or "Leave"
+        await _push_center_update(
+            f"Leave {label.lower()}: {tname}",
+            f"{leave.get('start_date')} → {leave.get('end_date')} ({leave.get('days')} day(s))",
+        )
+        therapist = await db.therapists.find_one({"id": leave["therapist_id"]}, {"_id": 0, "email": 1, "name": 1})
+        therapist_email = await _therapist_email(leave["therapist_id"])
+        if therapist and therapist_email:
                 submitted = (leave.get("created_at") or "").strip()
                 leave_type = _display_leave_type(leave.get("leave_type"))
                 orig_start = (leave.get("original_start_date") or leave.get("start_date") or "").strip()
@@ -13631,7 +13991,7 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
                 else:
                     lines += ["", "Next step", "- Please check your page on the portal."]
                 lines += ["", "Sincerely,", "HR Department", "Boost Growth"]
-                await _send_email_stub(therapist["email"], f"Leave request update — {leave_type}", "\n".join(lines).strip() + "\n")
+                await _send_email_stub(therapist_email, f"Leave request update — {leave_type}", "\n".join(lines).strip() + "\n")
     return await db.leaves.find_one({"id": lid}, {"_id": 0})
 
 @api.delete("/leaves/{lid}")
@@ -17461,6 +17821,13 @@ async def _run_startup():
                 logger.info("Walaa ops login restored for wabuissa@ (one-time)")
         except Exception as e:
             logger.warning(f"Walaa ops login restore skipped: {e}")
+
+        try:
+            heal = await _heal_walaa_my_requests_once()
+            if heal.get("relinked_requests") or heal.get("relinked_leaves") or heal.get("created"):
+                logger.info("Walaa My Requests heal: %s", heal)
+        except Exception as e:
+            logger.warning(f"Walaa My Requests heal skipped: {e}")
 
         try:
             leave_names = await _backfill_leave_therapist_names()

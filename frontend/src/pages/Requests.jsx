@@ -169,10 +169,10 @@ function fmtShortDate(iso) {
 async function viewProtectedFile(url) {
   try {
     await openAuthenticatedFile(url, {
-      errorMessage: "تعذّر فتح المرفق — اطلبي من المعالجة إعادة رفعه / Could not open attachment",
+      errorMessage: "Could not open attachment. Please ask the therapist to re-upload it.",
     });
   } catch (e) {
-    alert(e?.message || "تعذّر فتح المرفق — اطلبي من المعالجة إعادة رفعه");
+    alert(e?.message || "Could not open attachment. Please ask the therapist to re-upload it.");
   }
 }
 
@@ -334,14 +334,30 @@ export default function Requests({ personal = false, embedded = false, managerVi
     setEdit(null); setStep(1); load();
   };
   const updateStatus = async (req, status, admin_note = null) => {
-    await api.put(`/requests/${req.id}/status`, { status, admin_note: admin_note ?? req.admin_note });
+    const payload = { status, admin_note: admin_note ?? req.admin_note };
+    if (hrReview && !isPortalAdminUser) {
+      payload.notify_therapist = true;
+    }
+    await api.put(`/requests/${req.id}/status`, payload);
     load();
   };
   const updateStatusFromModal = async (overrideStatus) => {
     const status = overrideStatus ?? statusEdit.status;
-    await api.put(`/requests/${statusEdit.id}/status`, { status, admin_note: statusEdit.admin_note });
+    const payload = { status, admin_note: statusEdit.admin_note };
+    if (hrReview && !isPortalAdminUser && !inManagerReviewMode) {
+      payload.notify_therapist = true;
+    }
+    await api.put(`/requests/${statusEdit.id}/status`, payload);
     setStatusEdit(null);
     load();
+  };
+  const resendDecisionEmail = async (req) => {
+    try {
+      await api.post(`/requests/${req.id}/resend-decision-email`);
+      alert("Decision email sent to the staff member.");
+    } catch (e) {
+      alert(e?.response?.data?.detail || "Could not send email.");
+    }
   };
 
   const openManagerReview = (r) => {
@@ -708,6 +724,13 @@ export default function Requests({ personal = false, embedded = false, managerVi
                           </button>
                         </div>
                       )}
+                      {canManageReq && hrReview && !isPortalAdminUser && ["approved", "rejected", "done", "in_progress"].includes(r.status) && (
+                        <div className="mt-2">
+                          <button type="button" onClick={() => resendDecisionEmail(r)} className="btn btn-secondary text-[10px] py-1 px-2">
+                            Resend decision email
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <div className="flex flex-col gap-1 shrink-0">
                       {canManageReq && <button data-testid={`update-status-${r.id}`} onClick={() => setStatusEdit({...r})} className="btn btn-secondary text-[10px] py-1 px-2"><PencilSimple size={12}/></button>}
@@ -896,7 +919,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
             <FormField label="Note">
               <textarea className="modal-input" rows={2} value={leaveModal.notes || ""} onChange={e => setLeaveModal({ ...leaveModal, notes: e.target.value })} />
             </FormField>
-            <FormField label="Document (optional / اختياري)">
+            <FormField label="Document (optional)">
               <input ref={leaveFileRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" className="hidden"
                 onChange={e => setLeaveDoc(e.target.files?.[0] || null)} />
               <button type="button" onClick={() => leaveFileRef.current?.click()} className="btn btn-outline text-sm">
