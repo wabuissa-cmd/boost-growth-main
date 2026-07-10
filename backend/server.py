@@ -4843,7 +4843,11 @@ async def update_schedule_preparation_note(payload: SchedulePreparationNoteIn, u
 
 
 @api.get("/clients/{cid}/prep-history")
-async def list_client_prep_history(cid: str, user=Depends(get_current_user)):
+async def list_client_prep_history(
+    cid: str,
+    repair: bool = False,
+    user=Depends(get_current_user),
+):
     """All preparation log entries for a client — includes records without an invoice sheet."""
     client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0, "id": 1})
     if not client:
@@ -4852,8 +4856,12 @@ async def list_client_prep_history(cid: str, user=Depends(get_current_user)):
         uid = await _resolve_user_therapist_id(user) or user["id"]
         if not await _therapist_assigned_to_client(uid, cid):
             raise HTTPException(status_code=403, detail="Forbidden")
-    await _sync_schedule_preparations_to_prep_history(cid)
-    await _dedupe_prep_history(cid)
+    # Heavy backfill/dedupe is admin-only (repair=true) — never block normal page loads.
+    if repair:
+        if not _can_manage_schedule_prep(user):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        await _sync_schedule_preparations_to_prep_history(cid)
+        await _dedupe_prep_history(cid)
     items = await db.prep_history.find({"client_id": cid}, {"_id": 0}).sort(
         [("session_date", -1), ("prepared_at", -1)]
     ).to_list(500)
@@ -15815,9 +15823,29 @@ async def admin_dedupe_intake(_=Depends(admin_only)):
 
 
 @api.post("/admin/dedupe-prep-history")
-async def admin_dedupe_prep_history(dry_run: bool = False, _=Depends(admin_only)):
+async def admin_dedupe_prep_history(
+    dry_run: bool = False,
+    client_id: Optional[str] = None,
+    _=Depends(admin_only),
+):
     """Remove duplicate prep_history rows (same therapist + client + day)."""
-    return await _dedupe_prep_history(dry_run=dry_run)
+    return await _dedupe_prep_history(client_id=client_id, dry_run=dry_run)
+
+
+@api.post("/admin/sync-prep-history")
+async def admin_sync_prep_history(
+    client_id: Optional[str] = None,
+    _=Depends(admin_only),
+):
+    """Backfill prep_history from legacy schedule_preparations (one-time / repair)."""
+    await _sync_schedule_preparations_to_prep_history(client_id)
+    dedupe = await _dedupe_prep_history(client_id)
+    return {
+        "ok": True,
+        "client_id": client_id,
+        "dedupe": dedupe,
+        "message": "Prep history synced from schedule markers.",
+    }
 
 
 @api.post("/admin/dedupe-sessions")
@@ -18669,18 +18697,26 @@ async def _run_startup():
             logger.warning(f"Therapist identity dedupe skipped: {e}")
 
         try:
-            prep_dedupe = await _dedupe_prep_history()
-            if prep_dedupe.get("removed"):
-                logger.info(f"Prep history dedupe: {prep_dedupe.get('message')}")
+            maint = await db.settings.find_one({"key": "maintenance_v2"}, {"_id": 0}) or {}
+            if not maint.get("prep_session_dedupe_done"):
+                prep_dedupe = await _dedupe_prep_history()
+                if prep_dedupe.get("removed"):
+                    logger.info(f"Prep history dedupe: {prep_dedupe.get('message')}")
+                sess_dedupe = await _dedupe_all_sessions()
+                if sess_dedupe.get("removed"):
+                    logger.info(f"Session dedupe: {sess_dedupe.get('message')}")
+                await db.settings.update_one(
+                    {"key": "maintenance_v2"},
+                    {"$set": {
+                        "prep_session_dedupe_done": True,
+                        "prep_session_dedupe_at": now_iso(),
+                        "prep_removed": prep_dedupe.get("removed", 0),
+                        "sessions_removed": sess_dedupe.get("removed", 0),
+                    }},
+                    upsert=True,
+                )
         except Exception as e:
-            logger.warning(f"Prep history dedupe skipped: {e}")
-
-        try:
-            sess_dedupe = await _dedupe_all_sessions()
-            if sess_dedupe.get("removed"):
-                logger.info(f"Session dedupe: {sess_dedupe.get('message')}")
-        except Exception as e:
-            logger.warning(f"Session dedupe skipped: {e}")
+            logger.warning(f"Prep/session dedupe skipped: {e}")
 
         try:
             order_fix = await _fix_schedule_therapist_order_duplicates()

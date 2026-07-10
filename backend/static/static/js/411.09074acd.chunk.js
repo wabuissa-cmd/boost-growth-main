@@ -1,1 +1,0 @@
-"use strict";(self.webpackChunkfrontend=self.webpackChunkfrontend||[]).push([[411],{7792(t,e,n){n.r(e),n.d(e,{default:()=>c});var a=n(5544),o=n(8256),s=n(4414);function c(){const t=(0,o.ok)(),e="post"===(0,a.A)(t,1)[0].get("tab")?"?tab=post":"";return(0,s.jsx)(o.C5,{to:"/waiting/intake".concat(e),replace:!0})}}}]);
