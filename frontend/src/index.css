@@ -5730,6 +5730,12 @@ textarea.modal-input {
   min-width: 0;
 }
 
+.portal-content-panel .supervision-pane {
+  border-radius: 16px;
+  box-shadow: 0 4px 14px rgba(44, 54, 37, 0.04);
+  background: #fff;
+}
+
 .supervision-pane-head {
   flex-shrink: 0;
   padding: 0.85rem 1rem;

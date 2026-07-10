@@ -14,7 +14,7 @@ export default function AttendancePageHeader({
     <PageBanner
       title="Session Preparation"
       subtitle={subtitle}
-      eyebrow="ATTENDANCE"
+      eyebrow="SESSION PREP"
       badge={(
         <span className="editorial-banner__icon-badge" aria-hidden>
           <ClipboardText size={20} weight="duotone" />
@@ -25,7 +25,7 @@ export default function AttendancePageHeader({
       activeTab={activeTab}
       onTabChange={onTabChange}
       toolbar={toolbar}
-      className={`editorial-banner--attendance ${className}`.trim()}
+      className={`editorial-banner--attendance editorial-banner--compact-mobile ${className}`.trim()}
     />
   );
 }

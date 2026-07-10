@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import api from "../api";
-import { MagnifyingGlass } from "@phosphor-icons/react";
+import { MagnifyingGlass, Eye } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
 import { useAuth, canManuallySetClientStatus } from "../auth";
+
+const SUPERVISION_TABS = [
+  { id: "active", label: "Active" },
+  { id: "inactive", label: "Inactive" },
+];
 
 function serviceBadge(service) {
   if (!service) return null;
@@ -102,7 +107,7 @@ function CompactTable({ rows, canEditStatus, onSetStatus }) {
 
 function SupervisorPane({ label, rows, accent, canEditStatus, onSetStatus }) {
   return (
-    <section className="supervision-pane card p-0 overflow-hidden border border-[#EDE9E3]" style={{ background: "#FAFAF7" }}>
+    <section className="supervision-pane portal-surface p-0 overflow-hidden">
       <div className="supervision-pane-head" style={{ borderLeft: `4px solid ${accent}` }}>
         <div>
           <h2 className="text-sm font-bold m-0" style={{ color: "#2C3625" }}>{label}</h2>
@@ -213,37 +218,28 @@ export default function SupervisionCaseload() {
   };
 
   return (
-    <div>
+    <div className="portal-page-shell page-enter" dir="ltr">
       <PageBanner
         title="Supervision"
         subtitle="Ms. Fahda and Ms. Maha caseloads side by side — scroll inside each panel"
+        eyebrow="CLINICAL"
+        badge={(
+          <span className="editorial-banner__icon-badge" aria-hidden>
+            <Eye size={20} weight="duotone" />
+          </span>
+        )}
+        tabs={SUPERVISION_TABS}
+        activeTab={tab}
+        onTabChange={setTab}
         stats={[
-          { label: "Total", n: counts.all ?? "—", color: "#6B7568" },
+          { label: "Total", n: counts.all ?? "—", color: "#2C3625" },
           { label: "Active", n: counts.active ?? "—", color: "#3D5A40" },
           { label: "Inactive", n: counts.inactive ?? "—", color: "#6B7280" },
         ]}
+        className="editorial-banner--compact-mobile"
         toolbar={(
           <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex rounded-xl border border-[#EDE9E3] bg-white overflow-hidden">
-              <button
-                type="button"
-                className={`px-4 py-2 text-sm font-semibold ${tab === "active" ? "bg-[#E8F0E4]" : "bg-white"}`}
-                style={{ color: tab === "active" ? "#2C3625" : "#6B7568" }}
-                onClick={() => setTab("active")}
-              >
-                Active
-              </button>
-              <button
-                type="button"
-                className={`px-4 py-2 text-sm font-semibold ${tab === "inactive" ? "bg-[#F3F4F6]" : "bg-white"}`}
-                style={{ color: tab === "inactive" ? "#2C3625" : "#6B7568" }}
-                onClick={() => setTab("inactive")}
-              >
-                Inactive
-              </button>
-            </div>
-
-            <div className="relative max-w-md">
+            <div className="relative flex-1 min-w-[200px] max-w-md">
               <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#8B9E7A" }} />
               <input
                 data-testid="supervision-search"
@@ -253,7 +249,6 @@ export default function SupervisionCaseload() {
                 onChange={e => setSearch(e.target.value)}
               />
             </div>
-
             {savingId && (
               <div className="text-xs" style={{ color: "#8B9E7A" }}>
                 Saving…
@@ -263,8 +258,9 @@ export default function SupervisionCaseload() {
         )}
       />
 
+      <section className="portal-content-panel portal-page-body">
       {loading ? (
-        <div className="card p-16 text-center" style={{ color: "#8B9E7A" }}>
+        <div className="p-16 text-center" style={{ color: "#8B9E7A" }}>
           <div className="spinner mx-auto mb-3" />
           Loading supervision caseload…
         </div>
@@ -303,12 +299,13 @@ export default function SupervisionCaseload() {
           )}
 
           {fahdaRows.length === 0 && mahaRows.length === 0 && otherGroups.length === 0 && (
-            <div className="card p-12 text-center text-sm" style={{ color: "#8B9E7A" }}>
+            <div className="p-12 text-center text-sm" style={{ color: "#8B9E7A" }}>
               No clients found.
             </div>
           )}
         </div>
       )}
+      </section>
     </div>
   );
 }

@@ -364,7 +364,7 @@ export default function Attendance() {
         <div className="card attendance-page-error" role="alert">{attendanceError}</div>
       )}
 
-      <section className="card portal-content-panel attendance-page-panel">
+      <section className="portal-content-panel attendance-page-panel">
         <div className="attendance-page-panel-head">
           <ClipboardText size={22} weight="duotone" />
           <div>
