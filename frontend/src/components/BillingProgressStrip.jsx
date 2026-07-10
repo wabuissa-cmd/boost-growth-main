@@ -11,7 +11,7 @@ export default function BillingProgressStrip({ summary, items = [] }) {
 
   return (
     <div className="billing-progress-strip rounded-xl overflow-hidden border border-[#E2DDD4]">
-      <div className="px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-1 ui-text-sm" style={{ background: "#EDF4E8", color: "#3D4F35" }}>
+      <div className="px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-1 ui-text-sm" style={{ background: "var(--bg-warm)", color: "var(--brand-dark)" }}>
         <span><strong>{open}</strong> open invoices</span>
         <span style={{ color: "#8A3F27" }}><strong>{unpaid}</strong> unpaid</span>
         <span style={{ color: "#6B5218" }}><strong>{partial}</strong> partial</span>

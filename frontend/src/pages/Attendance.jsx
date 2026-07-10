@@ -761,8 +761,8 @@ export function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, 
         </button>
         )}
 
-        <div className={`flex items-center gap-2 px-3 py-1.5 border-b border-[#C4D4B8] no-print shrink-0${embedded ? "" : " pr-10"}`} style={{ background: embedded ? "#EDF4E8" : undefined }}>
-          <div className="font-bold text-sm truncate min-w-0 flex-1" style={{ color: "#2C5035" }}>
+        <div className={`flex items-center gap-2 px-3 py-1.5 border-b no-print shrink-0${embedded ? "" : " pr-10"}`} style={{ background: embedded ? "var(--bg-warm)" : undefined, borderColor: "var(--border-default)" }}>
+          <div className="font-bold text-sm truncate min-w-0 flex-1" style={{ color: "var(--brand-dark)" }}>
             {embedded ? "Invoice sheet & session history" : `History · ${client.name}`}
           </div>
           {tabState.showToggle && (

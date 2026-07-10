@@ -646,7 +646,10 @@ function MarkAbsenceModal({ therapists, onClose, onDone }) {
 function HistoryTab({ leaves, therapists, isAdmin, onRefresh }) {
   const [filterTherapist, setFilterTherapist] = useState("");
   const [filterType, setFilterType] = useState("");
-  const [filterMonth, setFilterMonth] = useState("");
+  const [filterMonth, setFilterMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
   const [search, setSearch] = useState("");
   const [impactId, setImpactId] = useState(null);
 
@@ -855,7 +858,10 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
   const [statusFilter, setStatusFilter] = useState("");
   const [filterTherapist, setFilterTherapist] = useState("");
   const [filterType, setFilterType] = useState("");
-  const [filterMonth, setFilterMonth] = useState("");
+  const [filterMonth, setFilterMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState(null);
   const currentYear = new Date().getFullYear();

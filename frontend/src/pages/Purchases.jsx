@@ -9,7 +9,7 @@ import {
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
 import { getTherapistScheduleName } from "../scheduleConstants";
-import { yearMonthTabs, formatMonthValue, purchaseMonthKey, resolvePurchaseYear } from "../monthTabs";
+import { yearMonthTabs, formatMonthValue, purchaseMonthKey, resolvePurchaseYear, currentYearMonth, purchaseMonthsFromJune } from "../monthTabs";
 import { canAccessPurchases, canManagePurchaseStatus, canSupervisorReviewPurchases, canManagerFinalizePurchases, isJenan, isWalaaOps, showAdminNav, showSystemAdmin, useAuth } from "../auth";
 import "../clientInfoLayout.css";
 
@@ -81,7 +81,7 @@ export default function Purchases({ embedded = false }) {
   const [form, setForm] = useState(emptyPurchaseForm);
   const [submitting, setSubmitting] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
-  const [filterMonth, setFilterMonth] = useState("");
+  const [filterMonth, setFilterMonth] = useState(() => currentYearMonth());
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
   const [filterTherapist, setFilterTherapist] = useState("");
@@ -341,7 +341,7 @@ export default function Purchases({ embedded = false }) {
   };
 
   const purchaseYear = useMemo(() => resolvePurchaseYear(allItems), [allItems]);
-  const monthTabs = useMemo(() => yearMonthTabs(purchaseYear), [purchaseYear]);
+  const monthTabs = useMemo(() => purchaseMonthsFromJune(purchaseYear), [purchaseYear]);
   const selected = useMemo(
     () => items.find(p => p.id === selectedId) || pendingQueue.find(p => p.id === selectedId) || null,
     [items, pendingQueue, selectedId]
@@ -409,6 +409,12 @@ export default function Purchases({ embedded = false }) {
         title="Employees' Purchases"
         subtitle="Payment requests from therapists & supervisors · review & reimburse"
         className="editorial-banner--compact-mobile"
+        tabs={[
+          { id: "purchases", label: "Purchases", icon: <ShoppingBag size={14} weight="duotone" /> },
+          { id: "reports", label: "Reports", icon: <ChartBar size={14} weight="duotone" /> },
+        ]}
+        activeTab={pageTab}
+        onTabChange={setPageTab}
         toolbar={(
           <div className="flex flex-wrap gap-2">
             {canAccessPurchases(user) && (
@@ -428,23 +434,6 @@ export default function Purchases({ embedded = false }) {
       )}
 
       <div className="purchases-workspace">
-        <div className="editorial-pill-row">
-          <button
-            type="button"
-            className={`editorial-pill${pageTab === "purchases" ? " is-active" : ""}`}
-            onClick={() => setPageTab("purchases")}
-          >
-            <ShoppingBag size={14} weight="duotone" /> Purchases
-          </button>
-          <button
-            type="button"
-            className={`editorial-pill${pageTab === "reports" ? " is-active" : ""}`}
-            onClick={() => setPageTab("reports")}
-          >
-            <ChartBar size={14} weight="duotone" /> Reports
-          </button>
-        </div>
-
         {pageTab === "purchases" && (
           <>
             {canManageStatus && pendingQueue.length > 0 && (
@@ -566,14 +555,6 @@ export default function Purchases({ embedded = false }) {
                 <div className="purchases-sidebar-section">
                   <div className="text-[10px] font-bold tracking-wider mb-1.5" style={{ color: "#8B9E7A" }}>MONTH</div>
                   <div className="purchases-month-grid">
-                    <button
-                      type="button"
-                      className={`purchases-month-btn${!filterMonth ? " is-active" : ""}`}
-                      onClick={() => setFilterMonth("")}
-                    >
-                      <div className="font-bold">All</div>
-                      <div style={{ color: "#8B9E7A" }}>{allItems.length}</div>
-                    </button>
                     {monthTabs.map((m) => {
                       const count = allItems.filter((p) => purchaseMonthKey(p) === m.value).length;
                       return (

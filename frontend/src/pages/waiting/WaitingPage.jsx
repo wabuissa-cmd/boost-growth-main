@@ -103,6 +103,34 @@ function FilterTh({ active, onClick, children, title }) {
   );
 }
 
+function WaitingNameTicker({ items }) {
+  const duration = Math.max(28, items.length * 3.5);
+  const loop = useMemo(() => [...items, ...items], [items]);
+  if (!items.length) return null;
+  return (
+    <div className="waiting-name-ticker" aria-label={`All ${items.length} names in queue`}>
+      <div className="waiting-name-ticker-label">
+        <span className="font-bold text-xs" style={{ color: "var(--brand-dark)" }}>{items.length} names</span>
+        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>scrolls horizontally</span>
+      </div>
+      <div className="waiting-name-ticker-viewport">
+        <div className="waiting-name-ticker-track" style={{ animationDuration: `${duration}s` }}>
+          {loop.map((i, idx) => (
+            <span
+              key={`ticker-${i.id}-${idx}`}
+              className={`waiting-name-chip${i.priority ? " is-priority" : ""}`}
+              title={[i.service, i.diagnosis, ageFromDOB(i) ? `${ageFromDOB(i)} yrs` : null].filter(Boolean).join(" · ")}
+            >
+              {i.priority && <Star size={11} weight="fill" className="inline mr-0.5" style={{ verticalAlign: -1 }} />}
+              {i.child_name}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function WaitingPage({ mode }) {
   const isSchool = mode === "school";
   const { user } = useAuth();
@@ -596,6 +624,7 @@ export default function WaitingPage({ mode }) {
               No records in this queue
             </div>
           ) : (
+            <>
             <div className="px-3 pb-4 waiting-table-area">
               <div className="intake-table-wrap waiting-table-wrap">
                 <table className="intake-table">
@@ -692,6 +721,8 @@ export default function WaitingPage({ mode }) {
                 </table>
               </div>
             </div>
+            <WaitingNameTicker items={displayed} />
+            </>
           )}
         </section>
 
@@ -755,31 +786,6 @@ export default function WaitingPage({ mode }) {
           )}
         </aside>
       </div>
-
-      {displayed.length > 0 && (
-        <section className="waiting-name-roster card mt-4" aria-label="All names in this queue">
-          <div className="waiting-name-roster-head">
-            <span className="font-bold text-sm" style={{ color: "#2C3625" }}>
-              All names ({displayed.length})
-            </span>
-            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-              Full list — no scroll bar · use the filter icon above to narrow
-            </span>
-          </div>
-          <div className="waiting-name-roster-grid">
-            {displayed.map((i) => (
-              <span
-                key={`roster-${i.id}`}
-                className={`waiting-name-chip${i.priority ? " is-priority" : ""}`}
-                title={[i.service, i.diagnosis, ageFromDOB(i) ? `${ageFromDOB(i)} yrs` : null].filter(Boolean).join(" · ")}
-              >
-                {i.priority && <Star size={11} weight="fill" className="inline mr-0.5" style={{ verticalAlign: -1 }} />}
-                {i.child_name}
-              </span>
-            ))}
-          </div>
-        </section>
-      )}
 
       {edit && (
         <ModalBase

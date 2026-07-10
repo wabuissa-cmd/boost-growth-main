@@ -11,10 +11,10 @@ import InvoiceCalendarTab from "../components/InvoiceCalendarTab";
 import "../clientInfoLayout.css";
 import { formatMoney, effectivePaymentStatus, paymentStatusLabel, paymentStatusStyle } from "../billingUtils";
 import { formatServiceTypeDisplay } from "../attendanceUtils";
-import { formatPkgBadge, formatPkgUsedRemaining } from "../packageStatusUtils";
+import { formatPkgBadge, formatPkgUsedRemaining, pkgStatusStyle, PKG_SORT_ORDER } from "../packageStatusUtils";
 import {
   Receipt, CheckCircle, EnvelopeSimple, ClipboardText, Warning,
-  MagnifyingGlass, CaretRight, Leaf,
+  MagnifyingGlass, CaretRight, Leaf, CalendarBlank,
 } from "@phosphor-icons/react";
 
 function invoiceToRow(inv, client, today) {
@@ -223,6 +223,18 @@ export default function Billing() {
     return items.filter((r) => r.payment_status === "pending" || r.payment_status === "partial");
   }, [data]);
 
+  const pkgEndingSoon = useMemo(
+    () => [...pkgRows]
+      .filter((r) => r.status === "critical" || r.status === "low")
+      .sort((a, b) => (PKG_SORT_ORDER[a.status] ?? 9) - (PKG_SORT_ORDER[b.status] ?? 9)),
+    [pkgRows]
+  );
+
+  const pkgHealthy = useMemo(
+    () => pkgRows.filter((r) => r.status === "good").length,
+    [pkgRows]
+  );
+
   const summary = data?.summary || { unpaid: 0, partial: 0, reminders_soon: 0 };
 
   const sendReminders = async () => {
@@ -368,6 +380,12 @@ export default function Billing() {
         title="Billing & Payments"
         subtitle="Payment alerts first · then browse clients & invoices"
         className="editorial-banner--compact-mobile"
+        tabs={[
+          { id: "overview", label: "Client Invoices", icon: <Receipt size={14} weight="duotone" /> },
+          { id: "calendar", label: "Invoice Calendar", icon: <CalendarBlank size={14} weight="duotone" /> },
+        ]}
+        activeTab={activeTab}
+        onTabChange={setTab}
         stats={[
           { label: "Unpaid", n: summary.unpaid, color: "#8A3F27" },
           { label: "Partial", n: summary.partial, color: "#6B5218" },
@@ -375,7 +393,11 @@ export default function Billing() {
         ]}
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4 p-3 rounded-xl border" style={{ background: "#FAFAF7", borderColor: "#E2DDD4" }}>
+      {activeTab === "calendar" ? (
+        <InvoiceCalendarTab />
+      ) : (
+        <>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4 p-3 rounded-xl border" style={{ background: "var(--bg-surface)", borderColor: "var(--border-default)" }}>
         <p className="ui-caption m-0 flex-1 min-w-[200px]">
           Open <strong>Invoice Sheet</strong> for full billing details. Reminder emails go to admin and Walaa <strong>1–2 days before</strong> the next payment date.
         </p>
@@ -383,7 +405,7 @@ export default function Billing() {
           type="button"
           onClick={sendReminders}
           disabled={sending}
-          className="inline-flex items-center gap-1.5 pill px-3 py-2 text-xs font-bold bg-[#E5EBE1] text-[#3D4F35] border border-[#B8C8A8] hover:bg-[#D8E4D0] transition shrink-0 min-h-[40px]"
+          className="btn btn-outline text-xs shrink-0 min-h-[40px]"
         >
           <EnvelopeSimple size={14} /> {sending ? "Sending…" : "Send reminders"}
         </button>
@@ -393,32 +415,72 @@ export default function Billing() {
         <BillingProgressStrip summary={summary} items={data.items || []} />
       </div>
 
+      <div className="mb-4 grid gap-3 md:grid-cols-2">
+        <div className="card p-3 border" style={{ borderColor: "var(--border-default)" }}>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <h3 className="text-sm font-bold m-0 flex items-center gap-1.5" style={{ color: "var(--brand-dark)" }}>
+              <Warning size={16} weight="duotone" /> Package ending soon
+            </h3>
+            <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>{pkgEndingSoon.length} families</span>
+          </div>
+          {pkgEndingSoon.length === 0 ? (
+            <p className="text-xs m-0" style={{ color: "var(--text-muted)" }}>No critical or low packages right now.</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+              {pkgEndingSoon.map((row) => {
+                const st = pkgStatusStyle(row.status);
+                return (
+                  <button
+                    key={`${row.client_id}-${row.service_type}`}
+                    type="button"
+                    onClick={() => onClientChange(row.client_id)}
+                    className="text-left px-2 py-1 rounded-lg border text-[10px]"
+                    style={{ background: st.bg, color: st.color, borderColor: st.border }}
+                  >
+                    <span className="font-semibold block">{row.client_name || "Client"}</span>
+                    <span>{formatPkgBadge(row)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="card p-3 border" style={{ borderColor: "var(--border-default)" }}>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <h3 className="text-sm font-bold m-0 flex items-center gap-1.5" style={{ color: "var(--brand-dark)" }}>
+              <Receipt size={16} weight="duotone" /> Needs payment follow-up
+            </h3>
+            <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>{attentionItems.length} open</span>
+          </div>
+          {attentionItems.length === 0 ? (
+            <p className="text-xs m-0" style={{ color: "var(--text-muted)" }}>All open invoices are on track ({pkgHealthy} packages healthy).</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+              {attentionItems.slice(0, 16).map((row) => {
+                const st = paymentStatusStyle(row.payment_status);
+                return (
+                  <button
+                    key={row.invoice_id}
+                    type="button"
+                    onClick={() => openSheet(row)}
+                    className="text-left px-2 py-1 rounded-lg border text-[10px]"
+                    style={{ background: st.bg, color: st.color, borderColor: st.border }}
+                  >
+                    <span className="font-semibold block">{row.client_name}</span>
+                    <span>{row.invoice_number} · {paymentStatusLabel(row.payment_status)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="mb-4">
         {attentionPanel}
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setTab("overview")}
-          className={`btn ${activeTab === "overview" ? "btn-primary" : "btn-secondary"} text-xs`}
-          data-testid="billing-tab-overview"
-        >
-          Client Invoices
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("calendar")}
-          className={`btn ${activeTab === "calendar" ? "btn-primary" : "btn-secondary"} text-xs`}
-          data-testid="billing-tab-calendar"
-        >
-          Invoice Calendar
-        </button>
-      </div>
-
-      {activeTab === "calendar" ? (
-        <InvoiceCalendarTab />
-      ) : (
         <div className="ci-naturora">
           <div className="ci-canvas">
             {clientListPane}
@@ -608,6 +670,7 @@ export default function Billing() {
             </div>
           </div>
         </div>
+        </>
       )}
 
       {editRow && (

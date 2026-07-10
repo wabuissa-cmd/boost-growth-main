@@ -52,3 +52,14 @@ export function formatMonthValue(value) {
   if (tab && y) return `${tab.label} ${y}`;
   return value;
 }
+
+/** Current calendar month as YYYY-MM */
+export function currentYearMonth(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Purchase month tabs from June onward (current ops period). */
+export function purchaseMonthsFromJune(year = new Date().getFullYear()) {
+  const floor = `${year}-06`;
+  return yearMonthTabs(year).filter((m) => m.value >= floor);
+}

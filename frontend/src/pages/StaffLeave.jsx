@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
+import { Airplane, CalendarBlank, Package } from "@phosphor-icons/react";
 import { useAuth, canEditStaffRequests, canManageLeaves, canHrReviewLeaves, isJenan, showAdminNav } from "../auth";
 import PageBanner from "../components/PageBanner";
 import Requests from "./Requests";
@@ -8,9 +9,9 @@ import LeaveBalance from "./LeaveBalance";
 import { VACATION_LEAVE_TYPES, LEAVE_TAB_TYPES } from "../leaveUtils";
 
 const TABS = [
-  { id: "vacation", label: "Vacation applications", testid: "tab-vacation" },
-  { id: "leave", label: "Leave", testid: "tab-leave" },
-  { id: "other", label: "Other applications", testid: "tab-other" },
+  { id: "vacation", label: "Vacation", testid: "tab-vacation", icon: <Airplane size={14} weight="duotone" /> },
+  { id: "leave", label: "Leave", testid: "tab-leave", icon: <CalendarBlank size={14} weight="duotone" /> },
+  { id: "other", label: "Other requests", testid: "tab-other", icon: <Package size={14} weight="duotone" /> },
 ];
 
 const TAB_ALIASES = {
@@ -61,21 +62,10 @@ export default function StaffLeave() {
       <PageBanner
         title="Staff & Leave"
         subtitle="Vacation · leave · materials & HR requests"
+        tabs={availableTabs.map((t) => ({ id: t.id, label: t.label, testId: t.testid, icon: t.icon }))}
+        activeTab={activeTab}
+        onTabChange={setTab}
       />
-
-      <div className="intake-tabs mb-4">
-        {availableTabs.map(t => (
-          <button
-            key={t.id}
-            type="button"
-            data-testid={t.testid}
-            onClick={() => setTab(t.id)}
-            className={`intake-tab${activeTab === t.id ? " active" : ""}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
 
       {activeTab === "vacation" && showLeave && (
         <>

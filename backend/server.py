@@ -17839,6 +17839,65 @@ async def _purge_clients_by_file_nos(file_nos: set) -> dict:
     return {"purged": purged, "count": len(purged)}
 
 
+PURCHASE_OPS_FLOOR_MONTH = "2026-06"
+SUNDAY_PORTAL_UPDATE_KEY = "portal-update-2026-07-10-sunday"
+
+
+async def _purge_staff_purchases_before_month(floor_month: str = PURCHASE_OPS_FLOOR_MONTH) -> dict:
+    """Drop purchase rows from months before the current ops period (June 2026+)."""
+    q = {
+        "$or": [
+            {"purchase_month": {"$lt": floor_month}},
+            {"purchase_month": {"$in": [None, ""]}, "purchase_date": {"$lt": f"{floor_month}-01"}},
+        ]
+    }
+    preview = await db.staff_purchases.find(
+        q, {"_id": 0, "id": 1, "item": 1, "therapist_name": 1, "purchase_month": 1}
+    ).to_list(100)
+    if not preview:
+        return {"deleted": 0}
+    res = await db.staff_purchases.delete_many(q)
+    return {"deleted": res.deleted_count, "sample": preview[:10]}
+
+
+async def _ensure_sunday_portal_update() -> dict:
+    """Idempotent portal announcement for Sunday session start (Home → Platform Updates)."""
+    title = "Portal refresh — sessions start Sunday"
+    body = (
+        "We've updated Client Info, Waiting List, Schedule, Preparation, Attendance sheets, and Billing.\n\n"
+        "Before Sunday please:\n"
+        "• Review your caseload and case summaries\n"
+        "• Confirm intake & waiting entries\n"
+        "• Complete session preparation logs\n"
+        "• Check invoice sheets and package hours\n\n"
+        "Acknowledge once you've reviewed your section."
+    )
+    existing = await db.center_updates.find_one({"seed_key": SUNDAY_PORTAL_UPDATE_KEY}, {"_id": 0})
+    fields = {
+        "title": title,
+        "body": body,
+        "date": "2026-07-10",
+        "is_important": True,
+        "requires_ack": True,
+        "send_to_specialists": True,
+        "seed_key": SUNDAY_PORTAL_UPDATE_KEY,
+        "updated_at": now_iso(),
+    }
+    if existing:
+        await db.center_updates.update_one({"seed_key": SUNDAY_PORTAL_UPDATE_KEY}, {"$set": fields})
+        return {"action": "updated", "id": existing.get("id")}
+    doc = {
+        "id": str(uuid.uuid4()),
+        "created_at": now_iso(),
+        "acknowledged_by": [],
+        **fields,
+    }
+    await db.center_updates.insert_one(doc)
+    doc.pop("_id", None)
+    await _broadcast_important_center_update(doc)
+    return {"action": "created", "id": doc["id"]}
+
+
 async def _sync_client_seed_fields(file_nos: set) -> dict:
     """Apply full CLIENT_SEED profile fields (locations, color, name_ar) for given file numbers."""
     therapists_map = {
@@ -18211,6 +18270,19 @@ async def _run_startup():
                 logger.info(f"Purged mistaken clients 082-084: {purge.get('purged')}")
         except Exception as e:
             logger.warning(f"Purge mistaken clients 082-084 skipped: {e}")
+
+        try:
+            purged_purchases = await _purge_staff_purchases_before_month()
+            if purged_purchases.get("deleted"):
+                logger.info(f"Purged pre-June purchases: {purged_purchases.get('deleted')}")
+        except Exception as e:
+            logger.warning(f"Purge pre-June purchases skipped: {e}")
+
+        try:
+            portal_upd = await _ensure_sunday_portal_update()
+            logger.info(f"Sunday portal update: {portal_upd.get('action')} ({portal_upd.get('id')})")
+        except Exception as e:
+            logger.warning(f"Sunday portal update skipped: {e}")
 
         try:
             boot = await _seed_master_data_impl({"081", "076"})

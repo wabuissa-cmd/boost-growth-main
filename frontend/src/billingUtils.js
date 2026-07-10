@@ -19,7 +19,7 @@ export function paymentStatusLabel(status) {
 export function paymentStatusStyle(status) {
   const s = (status || "pending").toLowerCase();
   if (s === "complete" || s === "paid") {
-    return { bg: "#E5EBE1", color: "#3D4F35", border: "#B8C8A8" };
+    return { bg: "var(--bg-warm, #F4EFE6)", color: "var(--brand-dark, #2F4A35)", border: "var(--border-default, #D4C8B8)" };
   }
   if (s === "partial") {
     return { bg: "#FAF0D1", color: "#6B5218", border: "#E5C387" };

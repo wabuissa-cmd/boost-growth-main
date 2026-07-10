@@ -221,6 +221,9 @@ export function isManagerReviewableLeave(leave) {
 
 export function isActiveLeave(l) {
   const st = l.status;
+  const opsFloor = "2026-06-01";
+  const leaveEnd = (l.end_date || l.start_date || "").slice(0, 10);
+  if (leaveEnd && leaveEnd < opsFloor && !isPendingLeaveStatus(st)) return false;
   if (isPendingLeaveStatus(st)) return true;
   if (st === "approved" || st === "rejected") {
     const decided = l.decided_at || l.created_at || l.end_date;
