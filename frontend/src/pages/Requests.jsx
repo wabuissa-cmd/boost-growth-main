@@ -557,8 +557,8 @@ export default function Requests({ personal = false, embedded = false, managerVi
 
       <div className={managerView ? "" : "req-split"}>
         <section className={managerView
-          ? (hubEmbedded ? "mgr-hub-req-panel overflow-hidden" : "card requests-page-panel overflow-hidden")
-          : "req-panel-left card requests-page-panel"}>
+          ? (hubEmbedded ? "mgr-hub-req-panel overflow-hidden" : "card portal-content-panel requests-page-panel overflow-hidden")
+          : "req-panel-left card portal-content-panel requests-page-panel"}>
           {!embedded && (
             <div className="requests-page-panel-head px-3 pt-3 sm:px-4">
               <ListChecks size={22} weight="duotone" className="shrink-0" />

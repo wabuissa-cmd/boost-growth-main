@@ -5,12 +5,12 @@
 .ci-canvas {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border-default, #D4C8B8);
-  border-radius: var(--radius-card, 20px);
+  border: 1px solid rgba(44, 54, 37, 0.1);
+  border-radius: 18px;
   overflow: hidden;
-  background: var(--bg-surface, #fff);
+  background: linear-gradient(180deg, #FFFFFF 0%, #FAF7F2 100%);
   min-height: 520px;
-  box-shadow: 0 4px 20px rgba(47, 74, 53, 0.05);
+  box-shadow: 0 10px 36px rgba(44, 54, 37, 0.07);
 }
 
 .ci-pane-left {

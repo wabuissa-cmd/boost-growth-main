@@ -187,7 +187,7 @@ export default function Resources() {
         <div className="card resources-page-error" role="alert">{pageError}</div>
       )}
 
-      <section className="card resources-page-panel">
+      <section className="card portal-content-panel resources-page-panel">
         <div className="resources-page-panel-head">
           <Books size={22} weight="duotone" className="shrink-0" />
           <div>

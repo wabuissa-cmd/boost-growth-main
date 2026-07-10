@@ -842,12 +842,12 @@ export default function ManagerHub() {
 
       <div className="mgr-hub-content">
         {activeTab === "staff" && (
-          <section className="card mgr-hub-panel">
+          <section className="card portal-content-panel mgr-hub-panel">
             <Requests embedded managerView hubEmbedded />
           </section>
         )}
         {activeTab === "balance" && (
-          <section className="card mgr-hub-panel">
+          <section className="card portal-content-panel mgr-hub-panel">
             <LeaveBalance embedded staffScope hubEmbedded />
           </section>
         )}

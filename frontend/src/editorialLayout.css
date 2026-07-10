@@ -440,3 +440,54 @@
   box-shadow: 0 4px 16px rgba(47, 74, 53, 0.06);
   overflow: visible;
 }
+
+/* Unified content window below editorial banner */
+.portal-content-panel {
+  border-radius: 20px;
+  border: 1px solid rgba(44, 54, 37, 0.1);
+  box-shadow: 0 10px 36px rgba(44, 54, 37, 0.07);
+  background: linear-gradient(180deg, #FFFFFF 0%, #FAF7F2 100%);
+  overflow: hidden;
+}
+
+.portal-content-panel > [class$="-panel-head"],
+.portal-content-panel > .attendance-page-panel-head,
+.portal-content-panel > .clients-page-panel-head,
+.portal-content-panel > .directory-page-panel-head,
+.portal-content-panel > .resources-page-panel-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem 1.15rem 0.85rem;
+  border-bottom: 1px solid rgba(44, 54, 37, 0.08);
+  background: linear-gradient(180deg, rgba(250, 247, 242, 0.95) 0%, rgba(255, 255, 255, 0.6) 100%);
+}
+
+.portal-content-panel > [class$="-panel-head"] h2,
+.portal-content-panel > .attendance-page-panel-head h2,
+.portal-content-panel > .clients-page-panel-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-primary, #2C3625);
+}
+
+.portal-content-panel > [class$="-panel-head"] p,
+.portal-content-panel > .attendance-page-panel-head p {
+  margin: 0.15rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.portal-content-panel .stagger,
+.portal-content-panel .ci-naturora,
+.portal-content-panel > .grid,
+.portal-content-panel > div:not([class$="-panel-head"]) {
+  padding: 1rem 1.15rem 1.15rem;
+}
+
+.editorial-banner--attendance .editorial-banner__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(4.5rem, 1fr));
+}

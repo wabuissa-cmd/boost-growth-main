@@ -85,7 +85,7 @@ export default function Directory() {
         <div className="card directory-page-error" role="alert">{pageError}</div>
       )}
 
-      <section className="card directory-page-panel">
+      <section className="card portal-content-panel directory-page-panel">
         <div className="directory-page-panel-head">
           <IdentificationCard size={22} weight="duotone" className="shrink-0" />
           <div>

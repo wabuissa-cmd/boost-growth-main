@@ -4,13 +4,19 @@
   gap: 0.85rem;
 }
 .prep-stat-card {
-  background: var(--bg-surface, #fff);
-  border: 1px solid var(--border-default, #E2DDD4);
-  border-radius: 20px;
+  background: linear-gradient(145deg, #FFFFFF 0%, #F7F2EA 100%);
+  border: 1px solid rgba(44, 54, 37, 0.1);
+  border-radius: 18px;
   padding: 1rem 1.1rem;
   display: flex;
   align-items: center;
   gap: 0.85rem;
+  box-shadow: 0 6px 20px rgba(44, 54, 37, 0.05);
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+.prep-stat-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 28px rgba(44, 54, 37, 0.08);
 }
 .prep-stat-icon {
   width: 44px;
@@ -38,21 +44,26 @@
 }
 
 .prep-client-card {
-  background: var(--bg-surface, #fff);
-  border: 1px solid var(--border-default, #E2DDD4);
-  border-radius: 18px;
+  background: linear-gradient(145deg, #FFFFFF 0%, #FCFAF6 100%);
+  border: 1px solid rgba(44, 54, 37, 0.1);
+  border-radius: 16px;
   padding: 0.9rem 1rem;
   display: grid;
   grid-template-columns: auto 1fr auto auto;
   align-items: center;
   gap: 0.85rem;
   cursor: pointer;
-  transition: border-color 160ms ease, box-shadow 160ms ease;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
   text-align: left;
   width: 100%;
   font: inherit;
+  box-shadow: 0 4px 14px rgba(44, 54, 37, 0.04);
 }
-.prep-client-card:hover { border-color: var(--brand, #6B8F71); }
+.prep-client-card:hover {
+  border-color: var(--brand, #6B8F71);
+  box-shadow: 0 8px 22px rgba(44, 54, 37, 0.08);
+  transform: translateY(-1px);
+}
 .prep-client-card.selected {
   border-color: var(--brand, #6B8F71);
   box-shadow: 0 0 0 1px var(--brand, #6B8F71);
@@ -94,15 +105,17 @@
 .prep-card-btn:hover { background: var(--brand-hover, #5A7D60); }
 
 .prep-detail {
-  background: var(--brand-sidebar, linear-gradient(180deg, #6B8F71 0%, #5A7D60 52%, #2F4A35 100%));
+  background: linear-gradient(165deg, #5C6B52 0%, #4A5842 38%, #2C3625 100%);
   color: #fff;
-  border-radius: 24px;
+  border-radius: 20px;
   padding: 1.25rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
   position: sticky;
   top: 5.5rem;
+  box-shadow: 0 14px 40px rgba(44, 54, 37, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 .prep-detail-head { font-size: 1.1rem; font-weight: 700; }
 .prep-detail-sub { font-size: 0.75rem; opacity: 0.75; margin-top: 0.15rem; }

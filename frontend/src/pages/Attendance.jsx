@@ -28,7 +28,7 @@ import {
 } from "../attendanceUtils";
 import { PackageAlertBanner } from "../components/PackageStatusBadge";
 import PreparationPrepLayout from "../components/PreparationPrepLayout";
-import AttendancePageHeader from "../components/AttendancePageHeader";
+import AttendancePageHeader, { ATTENDANCE_FILTER_TABS } from "../components/AttendancePageHeader";
 import LogSessionModal from "../components/LogSessionModal";
 import SsWeekStatusRow, { SsWeekLegend } from "../components/SsWeekStatusRow";
 import ExportColumnsModal, { buildInvoiceSheetColumns, EXPORT_COLUMN_DEFS, EXPORT_EXTRA_COLUMN_DEFS } from "../components/ExportColumnsModal";
@@ -300,35 +300,11 @@ export default function Attendance() {
 
   const findT = id => therapists.find(t => t.id === id);
 
-  const filterOpts = [
-    { id: "all", label: "All" },
-    { id: "urgent", label: "Urgent", dot: "#C97B5C" },
-    { id: "warning", label: "Warning", dot: "#D4A64A" },
-    { id: "ok", label: "Safe", dot: "var(--brand-sage)" },
-  ];
-
   const showPrepStats = isAdmin;
 
   const prepToolbar = (
     <div className="flex flex-wrap items-center gap-2">
-      {showPrepStats && (
-        <div className="flex gap-1.5 flex-wrap">
-          {filterOpts.map(f => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => setFilter(f.id)}
-              className={`filter-chip ${filter === f.id ? "active" : ""}`}
-            >
-              {f.dot && filter !== f.id && (
-                <span className="inline-block w-2 h-2 rounded-full align-middle" style={{ background: f.dot }} />
-              )}
-              {f.label}
-            </button>
-          ))}
-        </div>
-      )}
-      <div className="search-pill-wrap">
+      <div className="search-pill-wrap flex-1 min-w-[140px] max-w-xs">
         <MagnifyingGlass size={16} className="search-pill-icon" />
         <input
           data-testid="att-search"
@@ -348,6 +324,14 @@ export default function Attendance() {
       )}
     </div>
   );
+
+  const attendanceFilterTabs = showPrepStats
+    ? ATTENDANCE_FILTER_TABS.map((t) => ({
+        ...t,
+        count: counts[t.id] ?? null,
+        testId: `att-filter-${t.id}`,
+      }))
+    : [];
 
   if (attendanceLoading && clients.length === 0 && !attendanceError) {
     return (
@@ -370,6 +354,9 @@ export default function Attendance() {
           { label: "Clients", n: counts.all, color: "#2C3625" },
           { label: "On track", n: counts.ok, color: "var(--brand-dark)" },
         ]}
+        tabs={attendanceFilterTabs}
+        activeTab={showPrepStats ? filter : undefined}
+        onTabChange={showPrepStats ? setFilter : undefined}
         toolbar={prepToolbar}
       />
 
@@ -377,7 +364,7 @@ export default function Attendance() {
         <div className="card attendance-page-error" role="alert">{attendanceError}</div>
       )}
 
-      <section className="card attendance-page-panel">
+      <section className="card portal-content-panel attendance-page-panel">
         <div className="attendance-page-panel-head">
           <ClipboardText size={22} weight="duotone" />
           <div>

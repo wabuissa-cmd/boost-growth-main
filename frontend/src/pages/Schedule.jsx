@@ -2226,7 +2226,7 @@ export default function Schedule() {
         </div>
       )}
 
-      <section className="card schedule-page-panel no-print">
+      <section className="card portal-content-panel schedule-page-panel no-print">
         <div className="schedule-page-panel-head">
           <div className="schedule-page-hero-icon" style={{ width: 40, height: 40, borderRadius: 10 }}>
             {view === "sheet" ? <Table size={22} weight="duotone" /> : <GridFour size={22} weight="duotone" />}

@@ -545,7 +545,7 @@ export default function TherapistRequests() {
           </aside>
         )}
 
-        <section className="req-my-requests-right card requests-page-panel" aria-label="Requests">
+        <section className="req-my-requests-right card portal-content-panel requests-page-panel" aria-label="Requests">
           <div className="requests-page-panel-head px-3 pt-3 sm:px-4">
             <ListChecks size={20} weight="duotone" className="shrink-0" />
             <div className="min-w-0 flex-1">

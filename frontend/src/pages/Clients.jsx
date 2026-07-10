@@ -212,13 +212,14 @@ export default function Clients() {
         activeTab={statusTab}
         onTabChange={setStatusTab}
         toolbar={clientsToolbar}
+        className="editorial-banner--clients-toolbar editorial-banner--clients-compact"
       />
 
       {pageError && (
         <div className="card clients-page-error" role="alert">{pageError}</div>
       )}
 
-      <section className="card clients-page-panel">
+      <section className="card portal-content-panel clients-page-panel">
         <div className="clients-page-panel-head">
           <UsersThree size={22} weight="duotone" className="shrink-0" />
           <div>
