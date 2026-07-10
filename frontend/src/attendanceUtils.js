@@ -277,11 +277,15 @@ export function computeHsInvoiceTotals(sessions, packageSize) {
 /** Keep one prep log per therapist + calendar day (prefer row with time slot). */
 export function dedupePrepHistoryRows(rows) {
   const best = new Map();
+  const therapistKey = (p) => {
+    const name = (p.therapist_name || "").trim().toLowerCase();
+    if (name) return name;
+    return `id:${p.therapist_id || ""}`;
+  };
   for (const p of rows || []) {
     const date = (p.session_date || "").slice(0, 10);
     if (!date) continue;
-    const tid = p.therapist_id || "";
-    const key = `${date}|${tid}`;
+    const key = `${date}|${therapistKey(p)}`;
     const prev = best.get(key);
     const score = (row) => {
       let s = 0;

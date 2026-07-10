@@ -3167,14 +3167,49 @@ def _prep_history_richness_score(s: dict) -> int:
     return score
 
 
+def _prep_therapist_bucket_key(
+    row: dict,
+    alias_map: Dict[str, List[str]],
+    therapists_by_id: Optional[dict] = None,
+) -> str:
+    """Group prep rows by the same real therapist (name + alias ids), not raw row id only."""
+    tid = (row.get("therapist_id") or "").strip()
+    name = (row.get("therapist_name") or "").strip().lower()
+    if not name and tid and therapists_by_id:
+        t = therapists_by_id.get(tid)
+        if t:
+            name = therapist_schedule_display_name(t).strip().lower()
+    if name:
+        return f"name:{name}"
+    if tid:
+        ids = sorted(set(alias_map.get(tid, [tid])))
+        return f"ids:{'|'.join(ids)}"
+    return "unknown"
+
+
 async def _prep_history_siblings(therapist_id: str, client_id: str, session_date: str) -> List[dict]:
     sd = _session_date_iso(session_date)
-    if not therapist_id or not client_id or not sd:
+    if not client_id or not sd:
         return []
-    return await db.prep_history.find(
-        {"therapist_id": therapist_id, "client_id": client_id, **_session_date_query(sd)},
+    alias_map = await _build_therapist_id_alias_map()
+    therapists_by_id = {
+        t["id"]: t
+        async for t in db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1, "email": 1})
+    }
+    probe = {"therapist_id": therapist_id, "client_id": client_id, "session_date": sd}
+    if therapist_id:
+        t = therapists_by_id.get(therapist_id)
+        if t:
+            probe["therapist_name"] = therapist_schedule_display_name(t)
+    target = _prep_therapist_bucket_key(probe, alias_map, therapists_by_id)
+    all_rows = await db.prep_history.find(
+        {"client_id": client_id, **_session_date_query(sd)},
         {"_id": 0},
-    ).to_list(50)
+    ).to_list(100)
+    return [
+        r for r in all_rows
+        if _prep_therapist_bucket_key(r, alias_map, therapists_by_id) == target
+    ]
 
 
 async def _dedupe_prep_history(client_id: Optional[str] = None, dry_run: bool = False) -> dict:
@@ -3183,12 +3218,18 @@ async def _dedupe_prep_history(client_id: Optional[str] = None, dry_run: bool = 
     if client_id:
         q["client_id"] = client_id
     rows = await db.prep_history.find(q, {"_id": 0}).to_list(100000)
+    alias_map = await _build_therapist_id_alias_map()
+    therapists_by_id = {
+        t["id"]: t
+        async for t in db.therapists.find({}, {"_id": 0, "id": 1, "name": 1, "key": 1, "email": 1})
+    }
     groups: dict = {}
     for row in rows:
         sd = _session_date_iso(row.get("session_date"))
         if not sd:
             continue
-        key = (row.get("therapist_id") or "", row.get("client_id") or "", sd)
+        bucket = _prep_therapist_bucket_key(row, alias_map, therapists_by_id)
+        key = (row.get("client_id") or "", sd, bucket)
         groups.setdefault(key, []).append(row)
 
     removed = 0
@@ -3206,17 +3247,21 @@ async def _dedupe_prep_history(client_id: Optional[str] = None, dry_run: bool = 
                 merged_slot = slot
                 break
         if not dry_run:
-            patch = {"session_date": key[2]}
+            patch = {"session_date": key[1]}
             if merged_slot:
                 patch["time_slot"] = merged_slot
+            if winner.get("therapist_id"):
+                patch["therapist_id"] = winner["therapist_id"]
+            if winner.get("therapist_name"):
+                patch["therapist_name"] = winner["therapist_name"]
             await db.prep_history.update_one({"id": winner["id"]}, {"$set": patch})
         for loser in group:
             if loser["id"] == winner["id"]:
                 continue
             samples.append({
-                "client_id": key[1],
-                "therapist_id": key[0],
-                "date": key[2],
+                "client_id": key[0],
+                "therapist": key[2],
+                "date": key[1],
                 "kept": winner["id"],
                 "removed": loser["id"],
             })
@@ -18622,6 +18667,20 @@ async def _run_startup():
                 logger.info(f"Therapist identity dedupe: removed {id_dedupe['removed']} duplicate(s)")
         except Exception as e:
             logger.warning(f"Therapist identity dedupe skipped: {e}")
+
+        try:
+            prep_dedupe = await _dedupe_prep_history()
+            if prep_dedupe.get("removed"):
+                logger.info(f"Prep history dedupe: {prep_dedupe.get('message')}")
+        except Exception as e:
+            logger.warning(f"Prep history dedupe skipped: {e}")
+
+        try:
+            sess_dedupe = await _dedupe_all_sessions()
+            if sess_dedupe.get("removed"):
+                logger.info(f"Session dedupe: {sess_dedupe.get('message')}")
+        except Exception as e:
+            logger.warning(f"Session dedupe skipped: {e}")
 
         try:
             order_fix = await _fix_schedule_therapist_order_duplicates()
