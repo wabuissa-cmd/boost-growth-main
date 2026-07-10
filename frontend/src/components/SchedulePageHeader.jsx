@@ -30,7 +30,7 @@ export function ScheduleLegendStrip({ className = "" }) {
         ))}
       </div>
       <p className="schedule-page-legend-hint">
-        Session cells match shift band colors above (8–12 / 12–4 / 4–8) · Tap a session to log · Long-press for menu
+        Tap a session to log preparation · Long-press for menu · Times shown per hour slot
       </p>
     </div>
   );

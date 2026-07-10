@@ -145,7 +145,7 @@ export default function CenterTest() {
       <header className="center-test-header">
         <div className="center-test-header-inner">
           <div className="center-test-brand-lockup">
-            <img src={LOGO_SRC} alt="Boost Growth — تعزيز النمو" className="center-test-logo-full" />
+            <img src={LOGO_SRC} alt="Boost Growth" className="center-test-logo-full" />
           </div>
           <div className="center-test-header-tag">Training Portal</div>
           {fromPortal && (

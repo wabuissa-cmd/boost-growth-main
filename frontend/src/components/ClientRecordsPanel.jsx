@@ -18,6 +18,7 @@ export default function ClientRecordsPanel({
   onClose,
   onSaved,
   onRefresh,
+  inline = false,
 }) {
   const [driveLinks, setDriveLinks] = useState(
     (client.drive_links || []).filter((l) => l.url && !/attendance/i.test(l.title || ""))
@@ -106,30 +107,27 @@ export default function ClientRecordsPanel({
     .filter(({ link }) => link.group !== "photos");
   const photoLinks = driveLinks.filter((l) => l.group === "photos");
 
-  return (
+  const panelBody = (
     <>
-      <div className="fixed inset-0 z-40 bg-black/20 no-print" onClick={onClose} aria-hidden />
-      <aside
-        className="client-records-panel fixed top-0 right-0 z-50 h-[100dvh] w-full max-w-[440px] flex flex-col shadow-2xl no-print"
-        style={{ background: "#FFFFFF", borderLeft: "1px solid #EDE9E3" }}
-      >
-        <div className="px-5 pt-5 pb-4 border-b flex-shrink-0" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <h2 className="font-bold text-lg leading-tight" style={{ color: "#1C2617" }}>
-                Records &amp; Files
-              </h2>
-              <p className="text-xs mt-1" style={{ color: "#8B9E7A" }}>
-                {client.name} · File #{client.file_no || "—"}
-              </p>
-            </div>
+      <div className={`${inline ? "ci-records-head" : "px-5 pt-5 pb-4 border-b flex-shrink-0"}`} style={inline ? undefined : { borderColor: "#EDE9E3", background: "#F3FAF0" }}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="font-bold text-lg leading-tight" style={{ color: "#1E3328" }}>
+              Records &amp; Files
+            </h2>
+            <p className="text-xs mt-1" style={{ color: "#4A7C59" }}>
+              {client.name}{client.name_ar ? ` · ${client.name_ar}` : ""} · File #{client.file_no || "—"}
+            </p>
+          </div>
+          {!inline && onClose && (
             <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-white transition" style={{ color: "#9CA3AF" }}>
               <X size={22} weight="bold" />
             </button>
-          </div>
+          )}
         </div>
+      </div>
 
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0">
+      <div className={`flex-1 overflow-y-auto space-y-3 min-h-0${inline ? " ci-records-body" : " px-4 py-4"}`}>
           {docLinks.length > 0 && (
             <div className="log-session-card">
               <div className="log-session-label">Key documents</div>
@@ -262,15 +260,17 @@ export default function ClientRecordsPanel({
                   disabled={uploading}
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  <UploadSimple size={14} /> {uploading ? "Uploading…" : "Upload session file"}
+                  <UploadSimple size={14} /> {uploading ? "Uploading…" : "Upload file (Word, PDF, …)"}
                 </button>
               </div>
             )}
           </div>
         </div>
 
-        <div className="px-4 py-4 border-t flex gap-2 flex-shrink-0 flex-wrap" style={{ borderColor: "#EDE9E3", background: "#FAFAF7" }}>
-          <ModalBtnSecondary type="button" className="flex-1 log-session-btn-secondary" onClick={onClose}>Close</ModalBtnSecondary>
+      <div className={`flex gap-2 flex-wrap flex-shrink-0${inline ? " ci-records-footer" : " px-4 py-4 border-t"}`} style={inline ? undefined : { borderColor: "#EDE9E3", background: "#F3FAF0" }}>
+          {!inline && onClose && (
+            <ModalBtnSecondary type="button" className="flex-1 log-session-btn-secondary" onClick={onClose}>Close</ModalBtnSecondary>
+          )}
           {canSyncDrive && (
             <ModalBtnSecondary type="button" className="flex-1" onClick={syncFromDrive} disabled={syncing}>
               {syncing ? "Syncing…" : "Sync Drive"}
@@ -283,6 +283,25 @@ export default function ClientRecordsPanel({
             </ModalBtnPrimary>
           )}
         </div>
+    </>
+  );
+
+  if (inline) {
+    return (
+      <div className="ci-records-inline flex flex-col">
+        {panelBody}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/20 no-print" onClick={onClose} aria-hidden />
+      <aside
+        className="client-records-panel fixed top-0 right-0 z-50 h-[100dvh] w-full max-w-[440px] flex flex-col shadow-2xl no-print"
+        style={{ background: "#FFFFFF", borderLeft: "1px solid #C4D4B8" }}
+      >
+        {panelBody}
       </aside>
     </>
   );

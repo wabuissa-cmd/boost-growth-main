@@ -5,6 +5,8 @@ import { cachedGet, peekCache } from "../dataCache";
 import { useAuth, showAdminNav, hasOpsAccess, hasFullClientAccess, isJenan } from "../auth";
 import { Plus, MagnifyingGlass, Trash, PencilSimple, UsersThree, EnvelopeSimple } from "@phosphor-icons/react";
 import ClientInfoLayout from "../components/ClientInfoLayout";
+import ClientRecordsPanel from "../components/ClientRecordsPanel";
+import { clientDisplayName } from "../clientDisplayUtils";
 import ClientPickerSheet from "../components/ClientPickerSheet";
 import "../clientInfoLayout.css";
 import { enrichClientForCardView, formatClientStatus, computeAgeFromBirthDate } from "../attendanceUtils";
@@ -27,12 +29,10 @@ export default function Clients() {
   const [search, setSearch] = useState("");
   const [statusTab, setStatusTab] = useState("active");
   const [selectedClientId, setSelectedClientId] = useState(null);
-  const [panelClient, setPanelClient] = useState(null); // { client, section }
   const [pkgByClient, setPkgByClient] = useState({});
+  const [clientSessions, setClientSessions] = useState([]);
   const [pageReady, setPageReady] = useState(false);
   const [pageError, setPageError] = useState(null);
-
-  const closePanel = () => setPanelClient(null);
 
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
 
@@ -47,11 +47,6 @@ export default function Clients() {
       const clients = Array.isArray(c) ? c : [];
       setItems(clients);
       setTherapists(Array.isArray(t) ? t : []);
-      setPanelClient((pc) => {
-        if (!pc?.client?.id) return pc;
-        const fresh = clients.find((x) => x.id === pc.client.id);
-        return fresh ? { ...pc, client: fresh } : pc;
-      });
     } catch (err) {
       const stale = peekCache("/clients");
       if (Array.isArray(stale) && stale.length) {
@@ -127,7 +122,9 @@ export default function Clients() {
   const filteredRaw = useMemo(() => {
     const q = search.toLowerCase();
     return items.filter(c => {
-    const matchSearch = (c.name || "").toLowerCase().includes(q) || (c.file_no || "").includes(search);
+    const matchSearch = (c.name || "").toLowerCase().includes(q)
+      || (c.name_ar || "").includes(search)
+      || (c.file_no || "").includes(search);
       const isActive = (c.status || "Active") !== "Inactive";
       const matchTab = statusTab === "active" ? isActive : !isActive;
       return matchSearch && matchTab;
@@ -141,22 +138,23 @@ export default function Clients() {
 
   const filtered = enrichedClients;
 
-  const attentionCount = useMemo(() => items.filter(c => {
-    const rows = pkgByClient[c.id] || [];
-    return rows.some(r => ["critical", "low"].includes(r.status));
-  }).length, [items, pkgByClient]);
-
-  const layoutCounts = {
-    all: items.length,
-    active: activeCount,
-    attention: attentionCount,
-  };
-
   const selectedClient = filtered.find(c => c.id === selectedClientId) || null;
 
-  const openSection = (section) => {
-    if (!selectedClient) return;
-    setPanelClient({ client: selectedClient, section });
+  useEffect(() => {
+    if (!selectedClientId) {
+      setClientSessions([]);
+      return;
+    }
+    api.get("/sessions", { params: { client_id: selectedClientId } })
+      .then((r) => setClientSessions(r.data || []))
+      .catch(() => setClientSessions([]));
+  }, [selectedClientId]);
+
+  const refreshClientSessions = async () => {
+    if (!selectedClientId) return;
+    const r = await api.get("/sessions", { params: { client_id: selectedClientId } }).catch(() => ({ data: [] }));
+    setClientSessions(r.data || []);
+    load({ background: true });
   };
 
   if (!pageReady && !items.length && !pageError) {
@@ -185,7 +183,7 @@ export default function Clients() {
         className="btn btn-outline text-sm"
         onClick={() => setClientPickerOpen(true)}
       >
-        <UsersThree size={16} weight="duotone" /> {selectedClient ? selectedClient.name : "All Clients"}
+        <UsersThree size={16} weight="duotone" /> {selectedClient ? clientDisplayName(selectedClient) : "All Clients"}
       </button>
       <div className="search-pill-wrap flex-1 min-w-[160px] max-w-xs">
         <MagnifyingGlass size={16} className="search-pill-icon" />
@@ -207,11 +205,6 @@ export default function Clients() {
         title="Client Portfolios"
         subtitle="Profiles, packages, locations, and progress — select a child to view details"
         icon={UsersThree}
-        stats={[
-          { label: "Total", n: items.length, color: "#2C3625" },
-          { label: "Active", n: activeCount, color: "#3D4F35" },
-          { label: "Attention", n: attentionCount, color: "#8A3F27" },
-        ]}
         tabs={[
           { id: "active", label: "Active", count: activeCount },
           { id: "inactive", label: "Inactive", count: items.length - activeCount },
@@ -240,11 +233,20 @@ export default function Clients() {
         onSelect={setSelectedClientId}
         pkgByClient={pkgByClient}
         findTherapist={findT}
-        counts={layoutCounts}
         isAdmin={isAdmin}
         hasOps={hasOps}
         canDeleteClient={canDeleteClient}
-        onOpenSection={openSection}
+        user={user}
+        therapists={therapists}
+        sessions={clientSessions}
+        onRefreshSessions={refreshClientSessions}
+        canEditRecords={selectedClient && (isAdmin || hasFullClientAccess(user) || (
+          (user?.therapist_id || therapists.find((t) => (t.email || "").toLowerCase() === (user?.email || "").toLowerCase())?.id)
+          && (selectedClient.main_therapist_id === (user?.therapist_id || user?.id)
+            || (selectedClient.co_therapist_ids || []).includes(user?.therapist_id || user?.id))
+        ))}
+        canSyncDrive={hasFullClientAccess(user)}
+        onClientRefresh={load}
         onEdit={(c) => setEdit({ ...c, co_therapist_ids: c.co_therapist_ids || [], locations: c.locations || [] })}
         onRemove={remove}
         onBilling={() => selectedClient && navigate(`/billing?client=${selectedClient.id}`)}
@@ -252,6 +254,8 @@ export default function Clients() {
           await api.put(`/clients/${client.id}`, { ...client, parent_phone: phone || null });
           await load();
         }}
+        CaseSummaryPanel={CaseDetailsPanelModal}
+        RecordsPanel={ClientRecordsPanel}
       />
       </section>
 
@@ -263,30 +267,6 @@ export default function Clients() {
         onSelect={setSelectedClientId}
         findTherapist={findT}
       />
-
-      {panelClient?.section === "attachments" && (() => {
-        const pc = panelClient.client;
-        const userTid = user?.therapist_id || therapists.find(
-          (t) => (t.email || "").toLowerCase() === (user?.email || "").toLowerCase()
-        )?.id;
-        const canEditRecords = isAdmin || hasFullClientAccess(user) || (
-          userTid && (pc.main_therapist_id === userTid || (pc.co_therapist_ids || []).includes(userTid))
-        );
-        return (
-          <ClientRecordsPanel
-            client={pc}
-            canEdit={!!canEditRecords}
-            canSyncDrive={hasFullClientAccess(user)}
-            onClose={closePanel}
-            onRefresh={load}
-            onSaved={() => { closePanel(); load(); }}
-          />
-        );
-      })()}
-      {panelClient?.section === "details" && (
-        <CaseDetailsPanelModal client={panelClient.client} therapists={therapists} user={user} isAdmin={isAdmin}
-          onClose={closePanel} onSaved={() => { closePanel(); load(); }} />
-      )}
 
       {edit && (
         <ModalBase
@@ -756,7 +736,6 @@ function CaseSummaryView({ sections, clientName, fileNo }) {
     ...(sec.tables || []).flat(2),
   ]).join(" ");
   const rtl = isMostlyArabic(allText);
-  const rows = buildCaseSummaryRows(sections, clientName, fileNo);
 
   return (
     <div className={`case-summary-sheet${rtl ? " case-summary-sheet--rtl" : ""}`} dir={rtl ? "rtl" : "ltr"}>
@@ -779,58 +758,60 @@ function CaseSummaryView({ sections, clientName, fileNo }) {
           </div>
         </div>
       </div>
-      <div className="case-summary-sheet__table-wrap">
-        <table className="case-summary-sheet__table case-summary-sheet__table--kv">
-          <tbody>
-            {rows.map((item, i) => {
-              if (item.kind === "section" || item.kind === "heading") {
-                return (
-                  <tr key={item.key || `sec-${i}`} className="case-summary-sheet__subhead">
-                    <td colSpan={2}>{item.text}</td>
-                  </tr>
-                );
-              }
-              if (item.kind === "para") {
-                const colon = String(item.text || "").split(/[:：]\s*/, 2);
-                if (colon.length === 2 && colon[0].length < 56 && !isLongParagraph(colon[1])) {
-                  const pair = resolveLabelValuePair(colon[0], colon[1], { clientName, fileNo });
-                  return (
-                    <tr key={item.key || `p-${i}`}>
-                      <th scope="row" className="case-summary-sheet__label">{pair.label}</th>
-                      <td className="case-summary-sheet__value">
-                        <CaseSummarySheetValue value={pair.value} />
-                      </td>
-                    </tr>
-                  );
-                }
-                return (
-                  <tr key={item.key || `p-${i}`} className="case-summary-sheet__para-row">
-                    <td colSpan={2}>{item.text}</td>
-                  </tr>
-                );
-              }
-              if (item.kind === "kv") {
-                return (
-                  <tr key={item.key || `kv-${i}`}>
-                    <th scope="row" className="case-summary-sheet__label">
-                      {item.label && item.label !== "•" ? item.label : ""}
-                    </th>
-                    <td className="case-summary-sheet__value">
-                      <CaseSummarySheetValue value={item.value} bullets={item.bullets} />
-                    </td>
-                  </tr>
-                );
-              }
-              return null;
+      {sections.map((sec, si) => (
+        <div key={`sec-${si}`} className="case-summary-sheet__section">
+          {sec.heading && (
+            <div className="case-summary-sheet__section-title">{sec.heading}</div>
+          )}
+          <div className="case-summary-sheet__section-body">
+            {normalizeSectionTables(sec.tables).map((table, ti) => (
+              <div key={`tbl-${si}-${ti}`} className="case-summary-sheet__table-wrap">
+                <table className="case-summary-sheet__table case-summary-sheet__table--faithful">
+                  <tbody>
+                    {(table || []).map((row, ri) => {
+                      const cells = (Array.isArray(row) ? row : [row]).map((c) => String(c ?? "").trim());
+                      if (!cells.some(Boolean)) return null;
+                      const colCount = Math.max(cells.length, 1);
+                      return (
+                        <tr key={`r-${ri}`}>
+                          {cells.map((cell, ci) => (
+                            <td key={ci} colSpan={cells.length === 1 ? colCount : 1}>
+                              {cell || "—"}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+            {(sec.paragraphs || []).map((p, pi) => {
+              const text = String(p || "").trim();
+              if (!text) return null;
+              return (
+                <div key={`p-${pi}`} className="case-summary-sheet__para-block">{text}</div>
+              );
             })}
-          </tbody>
-        </table>
-      </div>
+            {(sec.bullets || []).length > 0 && (
+              <ul className="case-summary-sheet__bullet-list case-summary-sheet__bullet-list--block">
+                {(sec.bullets || []).map((b, bi) => {
+                  const text = String(b || "").trim();
+                  if (!text) return null;
+                  return (
+                    <li key={`b-${bi}`}><span className="case-summary-sheet__bullet">•</span>{text}</li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
 
-function CaseDetailsPanelModal({ client, therapists, user, isAdmin, onClose, onSaved }) {
+function CaseDetailsPanelModal({ client, therapists, user, isAdmin, onClose, onSaved, inline = false }) {
   const userTid = user?.therapist_id || therapists.find(
     (t) => (t.email || "").toLowerCase() === (user?.email || "").toLowerCase()
   )?.id;
@@ -892,82 +873,99 @@ function CaseDetailsPanelModal({ client, therapists, user, isAdmin, onClose, onS
     } finally { setReminding(false); }
   };
 
-  return (
-    <ModalBase title="Case Summary" subtitle={`${client.name} · File #${client.file_no || "—"}`} onClose={onClose} size="lg"
-      footer={
-        editing ? (
-          <>
-            <ModalBtnSecondary type="button" onClick={() => { setEditing(false); }}>Cancel</ModalBtnSecondary>
-            <ModalBtnPrimary type="button" onClick={saveSummary} disabled={saving}>{saving ? "Saving…" : "Save summary"}</ModalBtnPrimary>
-          </>
-        ) : (
-          <>
-            <ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>
-            {canRemind && !showRemindForm && (
-              <ModalBtnSecondary type="button" onClick={() => setShowRemindForm(true)} disabled={reminding}>
-                <EnvelopeSimple size={14} className="inline mr-1" /> Remind therapist
-              </ModalBtnSecondary>
-            )}
-            {canEdit && (
-              <ModalBtnPrimary type="button" onClick={() => {
-                setSummaryText(sectionsToEditableText(summary.sections));
-                setEditing(true);
-              }}>
-                <PencilSimple size={14} className="inline mr-1" /> Edit summary
-              </ModalBtnPrimary>
-            )}
-          </>
-        )
-      }>
-      {!editing ? (
-        summaryLoading ? (
-          <div className="text-sm italic py-8 text-center" style={{ color: "#8B9E7A" }}>Loading case summary…</div>
-        ) : (
-          <>
-            {showRemindForm && canRemind && (
-              <div className="mb-4 p-3 rounded-xl border space-y-2" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
-                <div className="text-xs font-semibold" style={{ color: "#5C6853" }}>
-                  Message to main therapist (optional)
-                </div>
-                <textarea
-                  className="modal-input text-sm"
-                  rows={3}
-                  placeholder={`Please update the case summary for ${client.name}…`}
-                  value={remindMessage}
-                  onChange={(e) => setRemindMessage(e.target.value)}
-                />
-                <div className="flex gap-2 justify-end">
-                  <ModalBtnSecondary type="button" onClick={() => { setShowRemindForm(false); setRemindMessage(""); }}>
-                    Cancel
-                  </ModalBtnSecondary>
-                  <ModalBtnPrimary type="button" onClick={sendReminder} disabled={reminding}>
-                    {reminding ? "Sending…" : "Send reminder"}
-                  </ModalBtnPrimary>
-                </div>
-              </div>
-            )}
-            <CaseSummaryView
-              sections={summary.sections}
-              clientName={client.name}
-              fileNo={client.file_no}
-            />
-          </>
-        )
-      ) : (
-        <div className="space-y-3">
-          <p className="text-xs m-0" style={{ color: "#5C6853" }}>
-            Edit the case summary directly here. Use headings (e.g. <strong>Diagnosis:</strong>), bullet lines starting with <strong>•</strong>, or tab-separated columns for tables — same layout as the Excel sheet.
-          </p>
-          <textarea
-            className="modal-input font-sans text-sm leading-relaxed"
-            rows={16}
-            value={summaryText}
-            onChange={e => setSummaryText(e.target.value)}
-            placeholder={"Diagnosis:\nAutism Spectrum Disorder\n\nGoals:\n• Improve communication\n• Reduce challenging behavior"}
-            style={{ direction: "rtl" }}
-          />
-        </div>
+  const toolbarEditing = (
+    <>
+      <ModalBtnSecondary type="button" onClick={() => { setEditing(false); }}>Cancel</ModalBtnSecondary>
+      <ModalBtnPrimary type="button" onClick={saveSummary} disabled={saving}>{saving ? "Saving…" : "Save summary"}</ModalBtnPrimary>
+    </>
+  );
+
+  const toolbarView = (
+    <>
+      {!inline && <ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>}
+      {canRemind && !showRemindForm && (
+        <ModalBtnSecondary type="button" onClick={() => setShowRemindForm(true)} disabled={reminding}>
+          <EnvelopeSimple size={14} className="inline mr-1" /> Remind therapist
+        </ModalBtnSecondary>
       )}
+      {canEdit && (
+        <ModalBtnPrimary type="button" onClick={() => {
+          setSummaryText(sectionsToEditableText(summary.sections));
+          setEditing(true);
+        }}>
+          <PencilSimple size={14} className="inline mr-1" /> Edit summary
+        </ModalBtnPrimary>
+      )}
+    </>
+  );
+
+  const bodyContent = !editing ? (
+    summaryLoading ? (
+      <div className="text-sm italic py-8 text-center" style={{ color: "#5C8A47" }}>Loading case summary…</div>
+    ) : (
+      <>
+        {showRemindForm && canRemind && (
+          <div className="mb-4 p-3 rounded-xl border space-y-2" style={{ borderColor: "#C4D4B8", background: "#F3FAF0" }}>
+            <div className="text-xs font-semibold" style={{ color: "#3D5C44" }}>
+              Message to main therapist (optional)
+            </div>
+            <textarea
+              className="modal-input text-sm"
+              rows={3}
+              placeholder={`Please update the case summary for ${clientDisplayName(client)}…`}
+              value={remindMessage}
+              onChange={(e) => setRemindMessage(e.target.value)}
+            />
+            <div className="flex gap-2 justify-end">
+              <ModalBtnSecondary type="button" onClick={() => { setShowRemindForm(false); setRemindMessage(""); }}>
+                Cancel
+              </ModalBtnSecondary>
+              <ModalBtnPrimary type="button" onClick={sendReminder} disabled={reminding}>
+                {reminding ? "Sending…" : "Send reminder"}
+              </ModalBtnPrimary>
+            </div>
+          </div>
+        )}
+        <CaseSummaryView
+          sections={summary.sections}
+          clientName={clientDisplayName(client)}
+          fileNo={client.file_no}
+        />
+      </>
+    )
+  ) : (
+    <div className="space-y-3">
+      <p className="text-xs m-0" style={{ color: "#4A6B42" }}>
+        Edit the case summary directly here. Use headings (e.g. <strong>Diagnosis:</strong>), bullet lines starting with <strong>•</strong>, or tab-separated columns for tables — same layout as the Excel sheet.
+      </p>
+      <textarea
+        className="modal-input font-sans text-sm leading-relaxed"
+        rows={16}
+        value={summaryText}
+        onChange={e => setSummaryText(e.target.value)}
+        placeholder={"Diagnosis:\nAutism Spectrum Disorder\n\nGoals:\n• Improve communication\n• Reduce challenging behavior"}
+        style={{ direction: "rtl" }}
+      />
+    </div>
+  );
+
+  if (inline) {
+    return (
+      <div className="ci-summary-panel">
+        <div className="ci-panel-toolbar">
+          <div className="ci-panel-toolbar-actions">
+            {editing ? toolbarEditing : toolbarView}
+          </div>
+        </div>
+        {bodyContent}
+      </div>
+    );
+  }
+
+  return (
+    <ModalBase title="Case Summary" subtitle={`${clientDisplayName(client)} · File #${client.file_no || "—"}`} onClose={onClose} size="lg"
+      footer={editing ? toolbarEditing : toolbarView}>
+      {bodyContent}
     </ModalBase>
   );
 }

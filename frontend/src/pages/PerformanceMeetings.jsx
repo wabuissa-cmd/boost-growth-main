@@ -33,7 +33,7 @@ export default function PerformanceMeetings() {
   if (!data) {
     return (
       <div className="page-enter">
-        <PageBanner title="الأداء والاجتماعات" subtitle="Performance & Meetings"/>
+        <PageBanner title="Performance & Meetings" subtitle="Manager check-ins and evaluations"/>
         <div className="card p-8 text-center text-sm" style={{ color: "#8B9E7A" }}>Could not load your performance record.</div>
       </div>
     );
@@ -49,7 +49,7 @@ export default function PerformanceMeetings() {
   return (
     <div className="page-enter">
       <PageBanner
-        title="الأداء والاجتماعات"
+        title="Performance & Meetings"
         subtitle="Performance & Meetings · manager check-ins and evaluations"
       />
 

@@ -10,7 +10,6 @@ import {
   resolveScheduleCellClient,
   canSpecialistLogScheduleCell, isScheduleCancelState,
   recentCompletedSessionDates, dayIndicesForDates, weekStartISOForDate,
-  SHIFT_BANDS, SHIFT_SESSION_STYLES, shiftTimeHeaderStyle,
 } from "../scheduleUtils";
 import { MAX_SCHEDULE_MERGE_SLOTS } from "../scheduleConstants";
 import { useAuth, showAdminNav, isClientLead, canParentCancellationOps, hasFullClientAccess, hasOpsAccess } from "../auth";
@@ -46,32 +45,12 @@ function formatSlotHeader(ts) {
   return ts.replace(" AM", "a").replace(" PM", "p").replace(" - ", "–");
 }
 
-function ShiftBandHeaderRow({ headClass = "sheet-th" }) {
-  return (
-    <tr className="sheet-shift-bands no-print">
-      <th className={`${headClass} sheet-idx`} aria-hidden />
-      <th className={`${headClass} sheet-therapist`} aria-hidden />
-      <th className={`${headClass} sheet-day`} aria-hidden />
-      {SHIFT_BANDS.map((band) => {
-        const s = SHIFT_SESSION_STYLES[band.shift];
-        return (
-          <th
-            key={band.shift}
-            colSpan={band.slotCount}
-            className={`${headClass} sheet-shift-band`}
-            style={{
-              background: s.background,
-              borderColor: s.borderColor,
-              color: "#2C3625",
-              borderLeft: band.shift > 1 ? `2px solid ${s.borderColor}` : undefined,
-            }}
-          >
-            {band.label}
-          </th>
-        );
-      })}
-    </tr>
-  );
+function timeHeaderStyle() {
+  return {
+    background: "#F5F7F2",
+    borderColor: "#D8E0D0",
+    color: "#2C3625",
+  };
 }
 
 function getSheetCellStyle(cell, clients) {
@@ -148,7 +127,7 @@ function CellContent({ cell, sc }) {
         {label}
       </div>
       {showCover && (
-        <div className="schedule-cell-cover-tag" title={`Cover at / تغطية عند ${coverName}`}>
+        <div className="schedule-cell-cover-tag" title={`Cover at ${coverName}`}>
           ↪ {coverName}
         </div>
       )}
@@ -679,7 +658,7 @@ export default function Schedule() {
     const m = {};
     const weekDates = [0, 1, 2, 3, 4].map(d => toISODate(addDays(weekStart, d)));
     leaves.forEach(l => {
-      if (!["approved", "done", "pending"].includes(l.status)) return;
+      if (!["approved", "done"].includes(l.status)) return;
       // Backend normally stores yyyy-mm-dd, but be resilient to full ISO timestamps.
       const start = String(l.start_date || "").slice(0, 10);
       const end = String(l.end_date || "").slice(0, 10);
@@ -850,7 +829,7 @@ export default function Schedule() {
 
       {mobileDayCells.length === 0 ? (
         <div className="card p-4 text-sm" style={{ color: "var(--text-muted)" }}>
-          لا توجد جلسات لهذا اليوم.
+          No sessions scheduled for this day.
         </div>
       ) : (
         <div className="space-y-2">
@@ -1103,7 +1082,7 @@ export default function Schedule() {
     const sessionDate = toISODate(addDays(weekStart, day));
     const today = toISODate(new Date());
     if (!hasFullClientAccess(user) && sessionDate !== today) {
-      alert("Preparation is only allowed on the session day until 11:59 PM.\nالتحضير مسموح فقط في يوم الجلسة حتى 11:59 مساءً.");
+      alert("Preparation is only allowed on the session day until 11:59 PM.");
       return;
     }
     let { client, childName, ambiguous, options } = resolveScheduleCellClient(cell, clients);
@@ -1681,17 +1660,16 @@ export default function Schedule() {
                 <th className="sheet-th sheet-idx" style={{ minWidth: 32, width: 32 }} aria-hidden />
                 <th className="sheet-th sheet-therapist" style={{ minWidth: 96 }} aria-hidden />
                 <th className="sheet-th sheet-day" style={{ minWidth: 58 }}>Day</th>
-                {TIME_SLOTS.map((ts, si) => (
+                {TIME_SLOTS.map((ts) => (
                   <th
                     key={ts}
                     className="sheet-th sheet-time"
-                    style={{ minWidth: 68, ...shiftTimeHeaderStyle(ts, si) }}
+                    style={{ minWidth: 68, ...timeHeaderStyle() }}
                   >
                     {formatSlotHeader(ts)}
                   </th>
                 ))}
               </tr>
-              <ShiftBandHeaderRow />
             {DAYS_EN.map((d, di) => {
                 const leaveInfo = leaveByTherapistDay[`${t.id}_${di}`];
                 const dayISO = toISODate(addDays(weekStart, di));
@@ -1802,14 +1780,13 @@ export default function Schedule() {
       <div className="schedule-blocks-fit">
         <table className="w-full text-xs border-collapse sched-blocks-table">
           <thead>
-            <ShiftBandHeaderRow headClass="schedule-blocks-head" />
             <tr>
               <th className="schedule-blocks-head schedule-blocks-day-head">Day</th>
-              {TIME_SLOTS.map((ts, si) => (
+              {TIME_SLOTS.map((ts) => (
                 <th
                   key={ts}
                   className="schedule-blocks-head"
-                  style={shiftTimeHeaderStyle(ts, si)}
+                  style={timeHeaderStyle()}
                 >
                   {ts.replace(' AM', 'a').replace(' PM', 'p')}
                 </th>
@@ -1941,7 +1918,7 @@ export default function Schedule() {
           { n: view === "blocks" ? "My schedule" : "Team schedule", label: "View", color: "var(--text-secondary)" },
           { n: visibleTherapists.length, label: "Therapists", color: "#6B5218" },
           { n: clients.length, label: "Clients", color: "var(--brand-dark)" },
-          ...(buildInfo?.build ? [{
+          ...(isAdmin && buildInfo?.build ? [{
             n: buildMismatch ? `${buildInfo.build} ⚠` : buildInfo.build,
             label: `Build${buildInfo.js ? ` · srv ${buildInfo.js}` : ""}${loadedJsHash ? ` · you ${loadedJsHash}` : ""}`,
             color: buildMismatch ? "#B45309" : "var(--brand-sage)",
@@ -2094,7 +2071,7 @@ export default function Schedule() {
         )}
       />
 
-      {buildMismatch && (
+      {isAdmin && buildMismatch && (
         <div
           className="no-print mb-3 p-3 rounded-xl border-2 text-sm font-semibold"
           style={{ borderColor: "#E8A317", background: "#FEF3C7", color: "#78350F" }}
@@ -2105,7 +2082,7 @@ export default function Schedule() {
         </div>
       )}
 
-      {canManagePrep && buildInfo?.build && !buildMismatch && (
+      {isAdmin && buildInfo?.build && !buildMismatch && (
         <div className="no-print mb-2 text-[10px] font-medium" style={{ color: "var(--brand-sage)" }} data-testid="schedule-build-ok">
           Portal build {buildInfo.build} · JS {loadedJsHash || buildInfo.js}
           {prepSyncMessage ? ` · ${prepSyncMessage}` : prepLookup.size > 0 ? ` · ${prepLookup.size} session badge(s)` : " · no session badges yet"}
@@ -2174,8 +2151,8 @@ export default function Schedule() {
 
       {!scheduleLoading && weekStatus === "draft" && !isAdmin && cells.length === 0 && (
         <div className="card schedule-recent-activity-banner no-print" role="status">
-          <strong>مسودة / Draft week</strong>
-          <span> — الجدول غير منشور بعد. اطلبي من الإدارة نشر الأسبوع.</span>
+          <strong>Draft week</strong>
+          <span> — the schedule has not been published yet. Please ask admin to publish the week.</span>
         </div>
       )}
 
@@ -2414,7 +2391,7 @@ export default function Schedule() {
                     onMouseDown={(e) => e.stopPropagation()}
                   >
                     <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "var(--brand-sage)" }}>
-                      Cover / تغطية
+                      Cover
                     </div>
                     {(ctxMenu.cell.cover_child_name || "").trim() ? (
                       <p className="text-[11px] mb-1.5 m-0" style={{ color: "var(--text-secondary)" }}>

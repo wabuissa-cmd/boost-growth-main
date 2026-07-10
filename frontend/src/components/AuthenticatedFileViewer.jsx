@@ -148,7 +148,7 @@ export default function AuthenticatedFileViewer() {
           <WarningCircle size={40} weight="duotone" style={{ color: "#B45309" }} />
           <p className="text-sm font-medium" style={{ color: "#2C3625" }}>{error}</p>
           <p className="text-xs" style={{ color: "#8B9E7A" }}>
-            اطلبي من المعالجة إعادة رفع الملف إذا استمرت المشكلة
+            If the issue persists, please ask the therapist to re-upload the file.
           </p>
         </div>
       )}

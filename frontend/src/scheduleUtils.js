@@ -76,26 +76,25 @@ export function scheduleCoveredSlotKeys(cell) {
 /** Session types that share one calm cell background (not per-child rainbow). */
 export const CLIENT_SESSION_CODES = new Set(["SS", "HS", "OS"]);
 
-/** Beige/olive tints per shift band — same family, clearly distinguishable. */
+/** Neutral session cell background — time-only grid (no shift bands). */
+const SESSION_CELL_STYLE = { background: "#F5F7F2", borderColor: "#D8E0D0", color: "#2C3625" };
+
+/** Legacy shift band styles — kept for imports; all map to neutral session tint. */
 export const SHIFT_SESSION_STYLES = {
-  1: { background: "#EEF2EA", borderColor: "#B8C5AB", color: "#2C3625" },
-  2: { background: "#DCE5D4", borderColor: "#A8B89A", color: "#2C3625" },
-  3: { background: "#C8D4BC", borderColor: "#95A888", color: "#2C3625" },
+  1: { ...SESSION_CELL_STYLE },
+  2: { ...SESSION_CELL_STYLE },
+  3: { ...SESSION_CELL_STYLE },
 };
 
-/** Column band metadata for schedule headers (matches TIME_SLOTS: 4 + 4 + 2). */
-export const SHIFT_BANDS = [
-  { shift: 1, label: "1 · 8–12", slotCount: 4 },
-  { shift: 2, label: "2 · 12–4", slotCount: 4 },
-  { shift: 3, label: "3 · 4–8", slotCount: 2 },
-];
+/** @deprecated Shift band headers removed from UI — kept for compatibility. */
+export const SHIFT_BANDS = [];
 
 /** Legend colors — must match .evt-* in index.css */
 export const SERVICE_CELL_COLORS = {
   // Sessions (SS/HS/OS): shift 1 default; grid uses SHIFT_SESSION_STYLES by time_slot.
-  SS: { ...SHIFT_SESSION_STYLES[1] },
-  HS: { ...SHIFT_SESSION_STYLES[1] },
-  OS: { ...SHIFT_SESSION_STYLES[1] },
+  SS: { ...SESSION_CELL_STYLE },
+  HS: { ...SESSION_CELL_STYLE },
+  OS: { ...SESSION_CELL_STYLE },
   MEETING: { background: "#F1ECF7", borderColor: "#C9B8DE", color: "#4E3F70" },
   // Supervision: warm brown-beige — harmonizes with shift olive tints.
   SUPERVISION: { background: "#D8CFC0", borderColor: "#A89880", color: "#5C4A35" },
@@ -160,20 +159,13 @@ export function shiftForTimeSlot(timeSlot) {
   return 3;
 }
 
-export function shiftSessionStyle(timeSlot) {
-  return SHIFT_SESSION_STYLES[shiftForTimeSlot(timeSlot)] || SHIFT_SESSION_STYLES[1];
+export function shiftSessionStyle(_timeSlot) {
+  return SESSION_CELL_STYLE;
 }
 
-/** Time-column header tint + optional left divider at band boundaries. */
-export function shiftTimeHeaderStyle(timeSlot, slotIndex = -1) {
-  const s = shiftSessionStyle(timeSlot);
-  const bandStart = slotIndex === 4 || slotIndex === 8;
-  return {
-    background: s.background,
-    borderColor: s.borderColor,
-    color: "#2C3625",
-    ...(bandStart ? { borderLeft: `2px solid ${s.borderColor}` } : {}),
-  };
+/** Time-column header — uniform (no shift band dividers). */
+export function shiftTimeHeaderStyle(_timeSlot, _slotIndex = -1) {
+  return SESSION_CELL_STYLE;
 }
 
 /** Subtle per-child accent (beige/olive palette only) — not stored client rainbow colors. */

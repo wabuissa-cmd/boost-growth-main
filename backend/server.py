@@ -1251,6 +1251,7 @@ class LocationIn(BaseModel):
 
 class ClientIn(BaseModel):
     name: str
+    name_ar: Optional[str] = None
     file_no: Optional[str] = None
     birth_date: Optional[str] = None  # ISO yyyy-mm-dd
     age: Optional[str] = None
@@ -2396,8 +2397,14 @@ MASTER_CLIENTS = [
     ("079", "Fahad Suliman",         "msFahda",    ["msFahda"],                40, "msFahda", "HS",    "Al-Sahafa"),
     ("053", "Ahmad Alshalfan",       "msHajer",    ["msFahda"],                24, "msFahda", "HS/SS", "Almalqa"),
     ("080", "Faisal Alzughaibi",     "msFatimah",  [],                         24, "msFahda", "HS",    "Alyasmeen"),
-    ("081", "Abdulmohsen", "msFahda",  [],                         24, "msFahda", "SS/HS", "TBD"),
+    ("081", "Abdulmohsen Al-Abikan", "msFahda",  [],                         24, "msFahda", "SS/HS", "TBD"),
 ]
+
+# Bilingual display names (English in `name`, Arabic in `name_ar`)
+CLIENT_NAME_AR = {
+    "076": "سلطان أبا الخيل",
+    "081": "عبدالمحسن العبيكان",
+}
 
 async def _resolve_therapist_id(key_to_id: dict, key: str) -> Optional[str]:
     return key_to_id.get(key)
@@ -2475,6 +2482,8 @@ async def _seed_master_data_impl(file_nos: Optional[set] = None) -> dict:
             update["co_therapist_ids"] = co_ids
         if sup_name:
             update["supervisor"] = sup_name
+        if file_no in CLIENT_NAME_AR:
+            update["name_ar"] = CLIENT_NAME_AR[file_no]
         if file_no in INACTIVE_CLIENT_FILE_NOS:
             update["status"] = "Inactive"
         if match:
@@ -13743,6 +13752,116 @@ def _iter_dates_in_range(start_iso: str, end_iso: str):
         d += timedelta(days=1)
 
 
+def _slots_overlapping_time_range(start_time: str, end_time: str) -> List[str]:
+    """Return schedule slot strings overlapping HH:MM–HH:MM (Permission windows)."""
+    parts_start = (start_time or "").strip()[:5]
+    parts_end = (end_time or "").strip()[:5]
+    if not parts_start or not parts_end:
+        return []
+    st_min = _parse_hm_to_minutes(parts_start, "AM")
+    et_min = _parse_hm_to_minutes(parts_end, "PM")
+    if st_min is None or et_min is None:
+        return []
+    if et_min <= st_min:
+        et_min += 12 * 60
+    out: List[str] = []
+    for slot in SCHEDULE_TIME_SLOTS:
+        s, e = _slot_bounds_minutes(slot)
+        if s is None or e is None:
+            continue
+        if s < et_min and e > st_min:
+            out.append(slot)
+    return out
+
+
+async def _apply_approved_leave_to_schedule(leave: dict) -> List[str]:
+    """Write LEAVE blocks on the weekly schedule when HR approves a leave request."""
+    therapist_id = leave.get("therapist_id")
+    if not therapist_id:
+        return []
+    start = str(leave.get("start_date") or "")[:10]
+    end = str(leave.get("end_date") or "")[:10]
+    if not start or not end:
+        return []
+    leave_type = leave.get("leave_type") or "Leave"
+    note = f"{leave_type} (approved)"
+    full_span = float(len(SCHEDULE_TIME_SLOTS))
+    leave_color = "#D6E8F0"
+    is_permission = _display_leave_type(leave_type) == "Permission"
+    st = (leave.get("start_time") or "").strip()
+    et = (leave.get("end_time") or "").strip()
+    created_ids: List[str] = []
+
+    for date_iso, d in _iter_dates_in_range(start, end):
+        day_idx = _schedule_day_index(d)
+        if day_idx > 4:
+            continue
+        week_start = _week_start_sunday(date_iso)
+
+        partial_slots: List[str] = []
+        if is_permission and st and et and start == end == date_iso:
+            partial_slots = _slots_overlapping_time_range(st, et)
+
+        if partial_slots:
+            for slot in partial_slots:
+                await _clear_schedule_span(therapist_id, day_idx, slot, 1.0, week_start)
+                cid = str(uuid.uuid4())
+                doc = {
+                    "id": cid,
+                    "therapist_id": therapist_id,
+                    "day": day_idx,
+                    "time_slot": slot,
+                    "duration": 1.0,
+                    "week_start": week_start,
+                    "service_code": "LEAVE",
+                    "note": note,
+                    "state": "normal",
+                    "color": leave_color,
+                    "child_name": None,
+                    "created_at": now_iso(),
+                }
+                await db.schedule_cells.insert_one(doc)
+                created_ids.append(cid)
+            continue
+
+        existing = await db.schedule_cells.find_one(
+            {
+                "therapist_id": therapist_id,
+                "week_start": week_start,
+                "day": day_idx,
+                "service_code": "LEAVE",
+            },
+            {"_id": 0, "id": 1, "duration": 1},
+        )
+        if existing and float(existing.get("duration") or 0) >= full_span:
+            continue
+
+        await db.schedule_cells.delete_many({
+            "therapist_id": therapist_id,
+            "week_start": week_start,
+            "day": day_idx,
+        })
+        cid = str(uuid.uuid4())
+        doc = {
+            "id": cid,
+            "therapist_id": therapist_id,
+            "day": day_idx,
+            "time_slot": SCHEDULE_TIME_SLOTS[0],
+            "duration": full_span,
+            "week_start": week_start,
+            "service_code": "LEAVE",
+            "note": note,
+            "state": "normal",
+            "color": leave_color,
+            "child_name": None,
+            "created_at": now_iso(),
+        }
+        await db.schedule_cells.insert_one(doc)
+        created_ids.append(cid)
+
+    return created_ids
+
+
 async def _cancel_schedule_for_therapist(therapist_id: str, start_date: str, end_date: str) -> list:
     """Mark matching schedule cells as cancel_therapist; return impact list."""
     impacted = []
@@ -14185,6 +14304,17 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
                 set_patch["end_time"] = payload.adjusted_end_time
                 leave["end_time"] = set_patch["end_time"]
     await db.leaves.update_one({"id": lid}, {"$set": set_patch})
+    if new_status == "approved" and prev_status != "approved" and leave.get("therapist_id"):
+        merged_leave = {**leave, **set_patch}
+        try:
+            schedule_cell_ids = await _apply_approved_leave_to_schedule(merged_leave)
+            if schedule_cell_ids:
+                await db.leaves.update_one(
+                    {"id": lid},
+                    {"$set": {"schedule_applied": True, "schedule_cell_ids": schedule_cell_ids}},
+                )
+        except Exception:
+            logger.exception("Auto apply approved leave to schedule failed for leave %s", lid)
     if is_jenan_mgr and effective_prev in MANAGER_FORWARD_HR_LEAVE_SOURCES and new_status != effective_prev:
         notify_status = "manager_rejected" if manager_decision == "rejected" else (manager_decision or new_status)
         tname = leave.get("leave_type") or "Leave"
@@ -17667,8 +17797,8 @@ CLIENT_SEED = [
     {"file_no":"068","name":"Abdulrahman Alshawi","main":"Ms. Razan","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#C9DAF8","locs":[{"service":"HS","address":"AR Rayan - Home no 32"}]},
     {"file_no":"070","name":"Abdulelah Almuhana","main":"Ms. Abeer","co":["Ms. Maha"],"pkg":32,"sup":"Ms. Maha","color":"#CFE2F3","locs":[{"service":"HS","address":"Al-Manziliyah"}]},
     {"file_no":"072","name":"Khalid Bin Shuael","main":"Ms. Shatha","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#EAD1DC","locs":[{"service":"HS","address":"AlMursalat"}]},
-    {"file_no":"076","name":"Sultan Aba Alkheil","main":"Ms. Shatha","co":[],"pkg":24,"sup":"Ms. Maha","color":"#D0E0E3","locs":[{"service":"HS","address":"Al-Mursalat"},{"service":"SS","address":"Al-Mursalat"}]},
-    {"file_no":"081","name":"Abdulmohsen","main":"Ms. Fahda","co":[],"pkg":24,"sup":"Ms. Fahda","color":"#EAD1DC","locs":[{"service":"SS","address":"TBD"}]},
+    {"file_no":"076","name":"Sultan Aba Alkheil","name_ar":"سلطان أبا الخيل","main":"Ms. Shatha","co":[],"pkg":24,"sup":"Ms. Maha","color":"#D0E0E3","locs":[{"service":"HS","address":"Al-Mursalat"},{"service":"SS","address":"Al-Mursalat"}]},
+    {"file_no":"081","name":"Abdulmohsen Al-Abikan","name_ar":"عبدالمحسن العبيكان","main":"Ms. Fahda","co":[],"pkg":24,"sup":"Ms. Fahda","color":"#EAD1DC","locs":[{"service":"SS","address":"TBD"}]},
 ]
 
 CLIENT_ATTENDANCE_SHEETS = {
@@ -17676,6 +17806,39 @@ CLIENT_ATTENDANCE_SHEETS = {
 }
 
 OFFICIAL_CLIENT_FILE_NOS = frozenset(c["file_no"] for c in CLIENT_SEED)
+
+
+async def _sync_client_seed_fields(file_nos: set) -> dict:
+    """Apply full CLIENT_SEED profile fields (locations, color, name_ar) for given file numbers."""
+    therapists_map = {
+        t["name"]: t["id"]
+        async for t in db.therapists.find({}, {"_id": 0, "name": 1, "id": 1})
+    }
+    seed_by_fn = {c["file_no"]: c for c in CLIENT_SEED}
+    updated = []
+    for fn in file_nos:
+        seed = seed_by_fn.get(fn)
+        if not seed:
+            continue
+        match = await db.clients.find_one({"file_no": fn}, {"_id": 0, "id": 1, "deleted": 1})
+        if not match or match.get("deleted"):
+            continue
+        fields = {
+            "name": seed["name"],
+            "package_hours": seed["pkg"],
+            "supervisor": seed["sup"],
+            "color": seed["color"],
+            "locations": seed["locs"],
+            "main_therapist_id": therapists_map.get(seed["main"]),
+            "co_therapist_ids": [therapists_map[n] for n in seed["co"] if n in therapists_map],
+        }
+        if seed.get("name_ar"):
+            fields["name_ar"] = seed["name_ar"]
+        elif fn in CLIENT_NAME_AR:
+            fields["name_ar"] = CLIENT_NAME_AR[fn]
+        await db.clients.update_one({"file_no": fn}, {"$set": fields})
+        updated.append(fn)
+    return {"updated": updated}
 
 
 class RestoreClientsIn(BaseModel):
@@ -17718,6 +17881,8 @@ async def restore_official_clients(body: RestoreClientsIn, _=Depends(admin_only)
             "locations": seed["locs"],
             "billing_mode": "hours",
         }
+        if seed.get("name_ar"):
+            fields["name_ar"] = seed["name_ar"]
         if seed["file_no"] in CLIENT_ATTENDANCE_SHEETS:
             fields["attendance_sheet_url"] = CLIENT_ATTENDANCE_SHEETS[seed["file_no"]]
         if seed["file_no"] in INACTIVE_CLIENT_FILE_NOS:
@@ -18011,10 +18176,11 @@ async def _run_startup():
 
         try:
             boot = await _seed_master_data_impl({"081", "076"})
+            extra = await _sync_client_seed_fields({"081", "076"})
             n_new = len(boot.get("clients", {}).get("created") or [])
             n_up = len(boot.get("clients", {}).get("updated") or [])
-            if n_new or n_up:
-                logger.info(f"Master clients 081/076 sync: {n_new} created, {n_up} updated")
+            if n_new or n_up or extra.get("updated"):
+                logger.info(f"Master clients 081/076 sync: {n_new} created, {n_up} updated, seed fields {extra.get('updated')}")
         except Exception as e:
             logger.warning(f"Master clients 081/076 sync skipped: {e}")
 

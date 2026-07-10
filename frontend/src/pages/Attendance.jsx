@@ -487,7 +487,7 @@ function PrepOnlyRow({ rec, findT, bordered = false, canRemove = false, onRemove
       <td className={`${cell} font-bold`}>{fmtDate(rec.session_date)}</td>
       <td className={cell}>
         <span className="pill text-[10px] uppercase" style={{ background: "#E5EBE1", color: "var(--brand-dark)" }}>
-          Preparation logged · تم تسجيل التحضير
+          Preparation logged
         </span>
       </td>
       <td className={cell}>{rec.time_slot || "—"}</td>
@@ -515,7 +515,7 @@ function PrepOnlyRow({ rec, findT, bordered = false, canRemove = false, onRemove
   );
 }
 
-function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, currentUserId, onClose, onEdit, onRefresh }) {
+export function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, currentUserId, onClose, onEdit, onRefresh, embedded = false }) {
   const findT = id => therapists.find(t => t.id === id);
   const [allInvoices, setAllInvoices] = useState([]);
   const [prepHistory, setPrepHistory] = useState([]);
@@ -745,9 +745,12 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
 
   const hsRowAnchor = cycleAnchor || selectedInvoice?.start_date || monthSessions[0]?.session_date;
 
-  return (
-    <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-2 z-50" onClick={onClose}>
-      <div className="card p-0 relative w-full max-w-3xl modal-card max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+  const panelShell = (
+    <div
+      className={`card p-0 relative w-full flex flex-col${embedded ? " ci-billing-embed max-h-none" : " max-w-3xl modal-card max-h-[80vh]"}`}
+      onClick={embedded ? undefined : (e => e.stopPropagation())}
+    >
+        {!embedded && onClose && (
         <button
           type="button"
           onClick={onClose}
@@ -756,10 +759,11 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
         >
           <X size={18}/>
         </button>
+        )}
 
-        <div className="flex items-center gap-2 px-3 py-1.5 pr-10 border-b border-[#E2DDD4] no-print shrink-0">
-          <div className="font-bold text-sm truncate min-w-0 flex-1" style={{ color: "#2C3625" }}>
-            History · {client.name}
+        <div className={`flex items-center gap-2 px-3 py-1.5 border-b border-[#C4D4B8] no-print shrink-0${embedded ? "" : " pr-10"}`} style={{ background: embedded ? "#EDF4E8" : undefined }}>
+          <div className="font-bold text-sm truncate min-w-0 flex-1" style={{ color: "#2C5035" }}>
+            {embedded ? "Invoice sheet & session history" : `History · ${client.name}`}
           </div>
           {tabState.showToggle && (
             <ServiceTypeToggle value={serviceTypeFilter} onChange={setServiceTypeFilter} tabState={tabState} />
@@ -990,6 +994,13 @@ function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, user, c
           )}
         </div>
       </div>
+  );
+
+  if (embedded) return panelShell;
+
+  return (
+    <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-2 z-50" onClick={onClose}>
+      {panelShell}
     </div>
   );
 }

@@ -601,7 +601,7 @@ export default function Billing() {
                 <div className="p-12 text-center">
                   <Receipt size={44} weight="duotone" className="mx-auto mb-3" style={{ color: "#7A8A6A" }} />
                   <p className="text-sm m-0" style={{ color: "#5C6853" }}>
-                    اختر عميل من القائمة اليسار لعرض الفواتير، موعد الدفعة القادمة، والملخص المالي.
+                    Select a client from the left to view invoices, the next payment due date, and the financial summary.
                   </p>
                 </div>
               )}

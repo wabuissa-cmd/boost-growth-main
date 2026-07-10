@@ -1,13 +1,10 @@
 import { TIME_SLOTS } from "./api";
 import { META_SERVICE_CODES, findClientForScheduleCell } from "./scheduleUtils";
 
-export const DAYS_AR = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس"];
-const GREETINGS = ["مساءكم خير 🌿", "مساءكم نور ✨", "مساءكم بركة 🤍"];
+// Kept export name for compatibility with existing imports.
+export const DAYS_AR = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"];
+const GREETINGS = ["Good evening", "Hello", "Wishing you a great day"];
 const SESSION_CODES = new Set(["SS", "HS", "OS"]);
-
-function toArabicDigits(str) {
-  return String(str).replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[Number(d)]);
-}
 
 function slotToTime24(slot) {
   if (!slot) return "08:00";
@@ -34,9 +31,8 @@ export function formatTimeArabic(time24) {
   const isPM = h >= 12;
   let h12 = h % 12;
   if (h12 === 0) h12 = 12;
-  const suffix = isPM ? "م" : "ص";
-  const timeStr = `${h12}:${String(m).padStart(2, "0")}`;
-  return `${toArabicDigits(timeStr)}${suffix}`;
+  const suffix = isPM ? "PM" : "AM";
+  return `${h12}:${String(m).padStart(2, "0")} ${suffix}`;
 }
 
 export function normalizeWhatsAppPhone(phone) {
@@ -106,36 +102,36 @@ function formatScheduleLines(sessions) {
   const lines = [];
   for (const [timeLabel, daysSet] of byTime) {
     const days = [...daysSet].sort((a, b) => a - b);
-    const timePart = `من الساعة ${timeLabel}`;
+    const timePart = `at ${timeLabel}`;
 
     if (days.length === 5) {
-      lines.push(`• يومياً ${timePart}`);
+      lines.push(`• Daily ${timePart}`);
     } else if (days.length === 1) {
-      lines.push(`• يوم ${DAYS_AR[days[0]]} ${timePart}`);
+      lines.push(`• ${DAYS_AR[days[0]]} ${timePart}`);
     } else {
-      const dayNames = days.map((d) => DAYS_AR[d]).join(" و");
+      const dayNames = days.map((d) => DAYS_AR[d]).join(" and ");
       lines.push(`• ${dayNames} ${timePart}`);
     }
   }
   return lines;
 }
 
-/** Arabic WhatsApp message when a therapist cancels a session. */
+/** WhatsApp message when a therapist cancels a session. */
 export function buildTherapistCancellationMessage(cell, client, weekStart, therapistName) {
   const childName = (cell?.child_name || client?.name || "").trim();
   const childFirstName = childName.split(/\s+/)[0] || childName;
   const dayIdx = cell?.day ?? 0;
-  const dayAr = cell?.day_ar || DAYS_AR[dayIdx] || DAYS_AR[0];
-  const timeAr = sessionTimeLabel(cell);
+  const dayLabel = DAYS_AR[dayIdx] || DAYS_AR[0];
+  const timeLabel = sessionTimeLabel(cell);
   return [
-    "السلام عليكم ورحمة الله",
+    "Hello,",
     "",
-    `نعتذر عن إلغاء جلسة ${childFirstName} اليوم بسبب ظرف طارئ للأخصائية.`,
-    `موعد الجلسة: ${dayAr} — ${timeAr}`,
+    `We apologize — ${childFirstName}'s session has been cancelled today due to an emergency.`,
+    `Session time: ${dayLabel} — ${timeLabel}`,
     "",
-    "نعتذر على الإزعاج ونتمنى لكم دوام الصحة والعافية.",
+    "Thank you for your understanding.",
     "",
-    "مع تحيات فريق تعزيز النمو",
+    "Boost Growth Team",
   ].join("\n");
 }
 
@@ -186,13 +182,13 @@ export function buildParentMessages(cells, clients = []) {
     const scheduleLines = formatScheduleLines(entry.sessions);
     const greeting = greetingForClient(entry.client?.id || entry.childName);
     const message = [
-      "السلام عليكم ورحمة الله",
+      "Hello,",
       greeting,
       "",
-      `جدول مواعيد الأسبوع القادم للابن (${firstName}):`,
+      `Next week's schedule for (${firstName}):`,
       ...scheduleLines,
       "",
-      "مع تحيات فريق تعزيز النمو",
+      "Boost Growth Team",
     ].join("\n");
 
     results.push({
@@ -205,5 +201,5 @@ export function buildParentMessages(cells, clients = []) {
     });
   }
 
-  return results.sort((a, b) => a.childName.localeCompare(b.childName, "ar"));
+  return results.sort((a, b) => a.childName.localeCompare(b.childName, "en"));
 }

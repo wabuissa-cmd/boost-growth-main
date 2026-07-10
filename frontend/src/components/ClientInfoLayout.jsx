@@ -1,15 +1,24 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import {
-  Paperclip, ClipboardText, MapPin,
-  Leaf, PencilSimple, Trash, CaretRight, UsersThree,
+  MapPin, Leaf, Trash, CaretRight, UsersThree,
+  House, Receipt, ClipboardText, Paperclip,
 } from "@phosphor-icons/react";
 import LocationLink from "./LocationLink";
 import { formatLocationLabel, getMapsHref } from "../mapsUtils";
 import { getChildColor, readable } from "../childColors";
+import { clientDisplayName } from "../clientDisplayUtils";
 import { prepTrackMeta, cardStatusMeta, formatClientStatus, computeAgeFromBirthDate, formatBirthDateDisplay } from "../attendanceUtils";
 import { getTherapistScheduleName } from "../scheduleConstants";
-import { formatPkgBadge, pkgStatusStyle, formatPkgUsedRemaining } from "../packageStatusUtils";
+import { formatPkgUsedRemaining } from "../packageStatusUtils";
+import { AttendanceHistoryModal } from "../pages/Attendance";
 import "../clientInfoLayout.css";
+
+const DETAIL_TABS = [
+  { id: "overview", label: "Overview", icon: House },
+  { id: "billing", label: "Billing & History", icon: Receipt },
+  { id: "summary", label: "Case Summary", icon: ClipboardText },
+  { id: "records", label: "Records", icon: Paperclip },
+];
 
 function worstPkgRow(rows) {
   if (!rows?.length) return null;
@@ -20,7 +29,8 @@ function worstPkgRow(rows) {
 function pkgAlertDot(rows) {
   const w = worstPkgRow(rows);
   if (!w || ["none", "good", "ok"].includes(w.status)) return null;
-  return pkgStatusStyle(w.status).color;
+  const colors = { critical: "#B91C1C", expired: "#8A3F27", low: "#B45309" };
+  return colors[w.status] || "#6B8F71";
 }
 
 function MiniPkgBar({ row }) {
@@ -31,78 +41,58 @@ function MiniPkgBar({ row }) {
   const ur = formatPkgUsedRemaining(row);
   return (
     <div className="ci-pkg-mini">
-      <span style={{ fontWeight: 700, color: "#606E52" }}>{row.service_type}</span>
+      <span style={{ fontWeight: 700, color: "#3D5C44" }}>{row.service_type}</span>
       <div className="ci-pkg-mini-track">
         <div className="ci-pkg-mini-fill" style={{ width: `${pct}%` }} />
       </div>
-      <span style={{ fontSize: "0.65rem", color: "#5C6853" }}>{ur.remaining} left</span>
+      <span style={{ fontSize: "0.65rem", color: "#4A6B42" }}>{ur.remaining} left</span>
     </div>
   );
 }
 
-const RECORD_SECTIONS = [
-  { id: "attachments", icon: Paperclip, title: "Records & files", desc: "Drive links, intake & case documents" },
-  { id: "details", icon: ClipboardText, title: "Case summary", desc: "Diagnosis, goals & clinical notes" },
-];
-
-function LocationSectionCard({ locations = [] }) {
+function LocationList({ locations = [] }) {
   const items = locations.filter(l => (l.address || "").trim());
-  const primary = items[0];
-  const label = primary ? (formatLocationLabel(primary.address) || primary.address) : "";
-  const desc = items.length === 0
-    ? "No locations on file"
-    : items.length === 1
-      ? (primary.service ? `${primary.service} · ${label}` : label)
-      : `${items.length} saved addresses`;
-
-  const inner = (
-    <>
-      <span className="ci-section-card-icon"><MapPin size={16} weight="duotone" /></span>
-      <div className="ci-section-card-body">
-        <h3>Location</h3>
-        <p>{desc}</p>
-        {items.length > 0 && (
-          items.length === 1 ? (
-            <span className="ci-section-card-maps">
-              <MapPin size={12} weight="duotone" />
-              Open in Maps
-            </span>
-          ) : (
-            <div className="ci-section-card-maps-list">
-              {items.map((l, i) => {
-                const addrLabel = formatLocationLabel(l.address) || l.address;
-                return (
-                  <LocationLink key={`${l.service || "loc"}-${i}`} address={l.address} className="ci-section-card-maps">
-                    <MapPin size={12} weight="duotone" />
-                    {l.service ? `${l.service} · ` : ""}{addrLabel}
-                  </LocationLink>
-                );
-              })}
-            </div>
-          )
-        )}
-      </div>
-    </>
-  );
-
-  if (items.length === 1 && getMapsHref(primary.address)) {
-    return (
-      <LocationLink address={primary.address} className="ci-section-card">
-        {inner}
-      </LocationLink>
-    );
+  if (!items.length) {
+    return <p className="ci-loc-empty">No locations on file</p>;
   }
-
   return (
-    <div className="ci-section-card ci-section-card--static">
-      {inner}
+    <div className="location-list">
+      {items.map((l, i) => {
+        const addrLabel = formatLocationLabel(l.address) || l.address;
+        return (
+          <div key={`${l.service || "loc"}-${i}`} className="location-item">
+            <MapPin size={18} weight="duotone" style={{ color: "#5C8A47", flexShrink: 0, marginTop: 2 }} />
+            <div className="location-item-body">
+              {l.service && (
+                <span className="ci-loc-service">{l.service}</span>
+              )}
+              {getMapsHref(l.address) ? (
+                <LocationLink address={l.address} className="location-item-address">
+                  {addrLabel}
+                </LocationLink>
+              ) : (
+                <span className="location-item-address" style={{ textDecoration: "none" }}>{addrLabel}</span>
+              )}
+              {getMapsHref(l.address) && (
+                <LocationLink address={l.address} className="location-maps-btn">
+                  <MapPin size={14} weight="duotone" /> Open in Maps
+                </LocationLink>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
 export default function ClientInfoLayout({
-  clients, selectedId, onSelect, pkgByClient, findTherapist, counts,
-  isAdmin, hasOps, canDeleteClient, onOpenSection, onEdit, onRemove, onBilling, onPhoneSave,
+  clients, selectedId, onSelect, pkgByClient, findTherapist,
+  isAdmin, hasOps, canDeleteClient,
+  user, therapists, sessions, onRefreshSessions,
+  canEditRecords, canSyncDrive, onClientRefresh,
+  onEdit, onRemove, onBilling, onPhoneSave,
+  CaseSummaryPanel, RecordsPanel,
 }) {
   const selected = useMemo(
     () => clients.find(c => c.id === selectedId) || null,
@@ -110,6 +100,11 @@ export default function ClientInfoLayout({
   );
 
   const detailRef = useRef(null);
+  const [activeTab, setActiveTab] = useState("overview");
+
+  useEffect(() => {
+    setActiveTab("overview");
+  }, [selected?.id]);
 
   const handleSelect = useCallback((id) => {
     onSelect(id);
@@ -126,8 +121,7 @@ export default function ClientInfoLayout({
   const therapistName = selected
     ? getTherapistScheduleName(findTherapist(selected.main_therapist_id))
     : "";
-  const driveLinkCount = selected ? (selected.drive_links?.length || 0) : 0;
-  const avatarBg = selected ? (getChildColor(selected.name) || selected.color || "#E5EBE1") : "#E5EBE1";
+  const avatarBg = selected ? (getChildColor(selected.name) || selected.color || "#E8F3E4") : "#E8F3E4";
   const canEditPhone = isAdmin || hasOps || Boolean(onPhoneSave);
   const [phoneDraft, setPhoneDraft] = useState("");
   const [phoneEditing, setPhoneEditing] = useState(false);
@@ -159,6 +153,8 @@ export default function ClientInfoLayout({
     );
   }
 
+  const displayName = selected ? clientDisplayName(selected) : "";
+
   return (
     <div className="ci-naturora">
       <div className="ci-canvas">
@@ -170,8 +166,8 @@ export default function ClientInfoLayout({
             {clients.map(c => {
               const dot = pkgAlertDot(pkgByClient[c.id]);
               const tName = getTherapistScheduleName(findTherapist(c.main_therapist_id));
-              const bg = getChildColor(c.name) || c.color || "#E5EBE1";
-              const avatarColor = getChildColor(c.name) || c.color ? readable(bg) : "#606E52";
+              const bg = getChildColor(c.name) || c.color || "#E8F3E4";
+              const avatarColor = getChildColor(c.name) || c.color ? readable(bg) : "#3D5C44";
               const isSelected = selected?.id === c.id;
               return (
                 <button key={c.id} type="button" className={`ci-client-card${isSelected ? " selected" : ""}`} onClick={() => handleSelect(c.id)}>
@@ -181,7 +177,7 @@ export default function ClientInfoLayout({
                     </div>
                     <div className="ci-client-card-body">
                       <div className="ci-client-card-top">
-                        <div className="ci-client-card-name">{c.name}</div>
+                        <div className="ci-client-card-name">{clientDisplayName(c)}</div>
                         {dot && <span className="ci-client-card-alert" style={{ background: dot }} title="Package alert" />}
                       </div>
                       <div className="ci-client-card-meta">File #{c.file_no || "—"}</div>
@@ -198,12 +194,15 @@ export default function ClientInfoLayout({
         <div className="ci-pane-right" ref={detailRef}>
           {selected ? (
             <div className="ci-profile-body">
-              <div className="ci-profile-card">
+              <div className="ci-profile-card ci-profile-card--hero">
                 <div className="ci-profile-avatar" style={{ background: avatarBg, color: readable(avatarBg) }}>
                   {selected.initials || selected.name?.charAt(0)}
                 </div>
                 <div className="ci-profile-info">
-                  <h1>{selected.name}</h1>
+                  <h1>{displayName}</h1>
+                  {selected.name_ar && selected.name_ar !== selected.name && (
+                    <p className="ci-profile-name-ar">{selected.name_ar}</p>
+                  )}
                   <dl className="ci-profile-grid">
                     <dt>File</dt><dd>#{selected.file_no || "—"}</dd>
                     <dt>Status</dt><dd>{formatClientStatus(selected.status)}</dd>
@@ -214,21 +213,21 @@ export default function ClientInfoLayout({
                         <span className="flex items-center gap-1 flex-wrap">
                           <input
                             className="text-xs border rounded-lg px-2 py-1 min-w-[120px]"
-                            style={{ borderColor: "#C4D4B8" }}
+                            style={{ borderColor: "#8FBC8F" }}
                             value={phoneDraft}
                             onChange={e => setPhoneDraft(e.target.value)}
                             placeholder="05xxxxxxxx"
                           />
-                          <button type="button" className="text-[10px] font-bold px-2 py-0.5 rounded" style={{ background: "#7A8A6A", color: "#fff" }} onClick={savePhone} disabled={phoneSaving}>
+                          <button type="button" className="ci-btn-green-sm" onClick={savePhone} disabled={phoneSaving}>
                             {phoneSaving ? "…" : "Save"}
                           </button>
-                          <button type="button" className="text-[10px] underline" style={{ color: "#8B9E7A" }} onClick={() => { setPhoneEditing(false); setPhoneDraft(selected.parent_phone || ""); }}>Cancel</button>
+                          <button type="button" className="text-[10px] underline" style={{ color: "#4A7C59" }} onClick={() => { setPhoneEditing(false); setPhoneDraft(selected.parent_phone || ""); }}>Cancel</button>
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1">
                           {selected.parent_phone || "—"}
                           {canEditPhone && onPhoneSave && (
-                            <button type="button" className="text-[10px] underline" style={{ color: "#5C8A47" }} onClick={() => setPhoneEditing(true)}>
+                            <button type="button" className="text-[10px] underline" style={{ color: "#3D7A47" }} onClick={() => setPhoneEditing(true)}>
                               {selected.parent_phone ? "Edit" : "Add"}
                             </button>
                           )}
@@ -261,38 +260,80 @@ export default function ClientInfoLayout({
                 </div>
               </div>
 
-              {selectedPkg.length > 0 && (
-                <div className="ci-pkg-box">
-                  <div className="ci-timeline-title" style={{ margin: 0 }}>Packages</div>
-                  {track?.label && <div className="text-xs mt-1" style={{ color: "#5C6853" }}>{track.label}</div>}
-                  {selectedPkg.map(row => <MiniPkgBar key={row.service_type} row={row} />)}
-                </div>
-              )}
+              <nav className="ci-detail-tabs" aria-label="Client sections">
+                {DETAIL_TABS.map(({ id, label, icon: Icon }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={`ci-detail-tab${activeTab === id ? " is-active" : ""}`}
+                    onClick={() => setActiveTab(id)}
+                  >
+                    <Icon size={15} weight="duotone" />
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </nav>
 
-              <div className="ci-timeline">
-                <p className="ci-timeline-title">Client records</p>
-                <div className="ci-section-grid">
-                  <LocationSectionCard locations={selected.locations || []} />
-                  {RECORD_SECTIONS.map((s) => {
-                    const Icon = s.icon;
-                    const desc = s.id === "attachments" && driveLinkCount > 0
-                      ? `${driveLinkCount} file${driveLinkCount !== 1 ? "s" : ""}`
-                      : s.desc;
-                    return (
-                      <button key={s.id} type="button" className="ci-section-card" onClick={() => onOpenSection(s.id)}>
-                        <span className="ci-section-card-icon"><Icon size={16} weight="duotone" /></span>
-                        <div className="ci-section-card-body">
-                          <h3>{s.title}</h3>
-                          <p>{desc}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+              <div className="ci-tab-panel">
+                {activeTab === "overview" && (
+                  <>
+                    {selectedPkg.length > 0 && (
+                      <div className="ci-pkg-box">
+                        <div className="ci-panel-title">Packages</div>
+                        {track?.label && <div className="text-xs mt-1" style={{ color: "#4A6B42" }}>{track.label}</div>}
+                        {selectedPkg.map(row => <MiniPkgBar key={row.service_type} row={row} />)}
+                      </div>
+                    )}
+                    <div className="ci-locations-box">
+                      <div className="ci-panel-title">Locations</div>
+                      <LocationList locations={selected.locations || []} />
+                    </div>
+                  </>
+                )}
+
+                {activeTab === "billing" && (
+                  <div className="ci-billing-panel">
+                    <AttendanceHistoryModal
+                      embedded
+                      client={selected}
+                      sessions={sessions}
+                      therapists={therapists}
+                      isAdmin={isAdmin}
+                      user={user}
+                      currentUserId={user?.therapist_id || user?.id}
+                      onRefresh={onRefreshSessions}
+                    />
+                  </div>
+                )}
+
+                {activeTab === "summary" && CaseSummaryPanel && (
+                  <CaseSummaryPanel
+                    inline
+                    client={selected}
+                    therapists={therapists}
+                    user={user}
+                    isAdmin={isAdmin}
+                    onSaved={onClientRefresh}
+                  />
+                )}
+
+                {activeTab === "records" && RecordsPanel && (
+                  <RecordsPanel
+                    inline
+                    client={selected}
+                    canEdit={!!canEditRecords}
+                    canSyncDrive={!!canSyncDrive}
+                    onRefresh={onClientRefresh}
+                    onSaved={onClientRefresh}
+                  />
+                )}
               </div>
             </div>
           ) : (
-            <div className="p-12 text-center text-sm" style={{ color: "#8B9E7A" }}>Select a client</div>
+            <div className="ci-empty-select">
+              <Leaf size={32} weight="duotone" />
+              <p>Select a client from the directory</p>
+            </div>
           )}
         </div>
       </div>
