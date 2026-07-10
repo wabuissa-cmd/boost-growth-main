@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import api from "../api";
 import { MagnifyingGlass } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
@@ -24,11 +24,18 @@ function normalizeSupervisorLabel(s) {
   return raw;
 }
 
+function supervisorKey(label) {
+  const l = (label || "").toLowerCase();
+  if (l.includes("fahda")) return "fahda";
+  if (l.includes("maha")) return "maha";
+  return "other";
+}
+
 function CompactTable({ rows, canEditStatus, onSetStatus }) {
   return (
     <div className="overflow-x-auto border border-[#EDE9E3] rounded-xl bg-white">
       <table className="min-w-full text-sm">
-        <thead className="bg-[#FAFAF7]">
+        <thead className="bg-[#FAFAF7] sticky top-0 z-[1]">
           <tr className="text-left" style={{ color: "#6B7568" }}>
             <th className="px-3 py-2 font-semibold whitespace-nowrap">File</th>
             <th className="px-3 py-2 font-semibold">Client</th>
@@ -42,7 +49,7 @@ function CompactTable({ rows, canEditStatus, onSetStatus }) {
             const svc = serviceBadge(r.service);
             const inactive = (r.status || "Active") === "Inactive";
             return (
-              <tr key={r.id || r.file_no} className={inactive ? "bg-white" : "bg-white"}>
+              <tr key={r.id || r.file_no}>
                 <td className="px-3 py-2 whitespace-nowrap font-mono text-xs" style={{ color: "#2C3625" }}>
                   #{r.file_no || "—"}
                 </td>
@@ -93,6 +100,24 @@ function CompactTable({ rows, canEditStatus, onSetStatus }) {
   );
 }
 
+function SupervisorPane({ label, rows, accent, canEditStatus, onSetStatus }) {
+  return (
+    <section className="supervision-pane card p-0 overflow-hidden border border-[#EDE9E3]" style={{ background: "#FAFAF7" }}>
+      <div className="supervision-pane-head" style={{ borderLeft: `4px solid ${accent}` }}>
+        <div>
+          <h2 className="text-sm font-bold m-0" style={{ color: "#2C3625" }}>{label}</h2>
+          <p className="text-xs m-0 mt-0.5" style={{ color: "#6B7568" }}>
+            {rows.length} client{rows.length === 1 ? "" : "s"}
+          </p>
+        </div>
+      </div>
+      <div className="supervision-pane-scroll">
+        <CompactTable rows={rows} canEditStatus={canEditStatus} onSetStatus={onSetStatus} />
+      </div>
+    </section>
+  );
+}
+
 export default function SupervisionCaseload() {
   const { user } = useAuth();
   const [data, setData] = useState(null);
@@ -110,6 +135,20 @@ export default function SupervisionCaseload() {
 
   const canEditStatus = canManuallySetClientStatus(user);
 
+  const filterRow = useCallback((r) => {
+    const q = search.trim().toLowerCase();
+    const wantInactive = tab === "inactive";
+    const isInactive = (r.status || "Active") === "Inactive";
+    if (wantInactive !== isInactive) return false;
+    if (!q) return true;
+    return (
+      (r.name || "").toLowerCase().includes(q)
+      || (r.file_no || "").includes(q)
+      || (r.main_therapist || "").toLowerCase().includes(q)
+      || (r.supervisor || "").toLowerCase().includes(q)
+    );
+  }, [search, tab]);
+
   const allRows = useMemo(() => {
     const d = data || {};
     return [
@@ -119,37 +158,37 @@ export default function SupervisionCaseload() {
     ];
   }, [data]);
 
-  const filteredRows = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const wantInactive = tab === "inactive";
-    return allRows
-      .filter(r => {
-        const isInactive = (r.status || "Active") === "Inactive";
-        if (wantInactive !== isInactive) return false;
-        if (!q) return true;
-        return (
-          (r.name || "").toLowerCase().includes(q)
-          || (r.file_no || "").includes(q)
-          || (r.main_therapist || "").toLowerCase().includes(q)
-          || (r.supervisor || "").toLowerCase().includes(q)
-        );
-      });
-  }, [allRows, search, tab]);
+  const filteredRows = useMemo(() => allRows.filter(filterRow), [allRows, filterRow]);
 
-  const grouped = useMemo(() => {
+  const fahdaRows = useMemo(
+    () => filteredRows
+      .filter((r) => supervisorKey(normalizeSupervisorLabel(r.supervisor)) === "fahda")
+      .sort((a, b) => String(a.file_no || "").localeCompare(String(b.file_no || ""))),
+    [filteredRows],
+  );
+
+  const mahaRows = useMemo(
+    () => filteredRows
+      .filter((r) => supervisorKey(normalizeSupervisorLabel(r.supervisor)) === "maha")
+      .sort((a, b) => String(a.file_no || "").localeCompare(String(b.file_no || ""))),
+    [filteredRows],
+  );
+
+  const otherGroups = useMemo(() => {
     const map = new Map();
     for (const r of filteredRows) {
+      const key = supervisorKey(normalizeSupervisorLabel(r.supervisor));
+      if (key === "fahda" || key === "maha") continue;
       const label = normalizeSupervisorLabel(r.supervisor);
       if (!map.has(label)) map.set(label, []);
       map.get(label).push(r);
     }
-    const entries = Array.from(map.entries())
+    return Array.from(map.entries())
       .map(([label, rows]) => ({
         label,
         rows: rows.slice().sort((a, b) => String(a.file_no || "").localeCompare(String(b.file_no || ""))),
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
-    return entries;
   }, [filteredRows]);
 
   const counts = useMemo(() => {
@@ -166,8 +205,7 @@ export default function SupervisionCaseload() {
       setData((prev) => {
         if (!prev) return prev;
         const patchList = (xs) => (xs || []).map((x) => (x.id === row.id ? { ...x, status } : x));
-        const next = { ...prev, fahda: patchList(prev.fahda), maha: patchList(prev.maha), other: patchList(prev.other) };
-        return next;
+        return { ...prev, fahda: patchList(prev.fahda), maha: patchList(prev.maha), other: patchList(prev.other) };
       });
     } finally {
       setSavingId(null);
@@ -178,7 +216,7 @@ export default function SupervisionCaseload() {
     <div>
       <PageBanner
         title="Supervision"
-        subtitle="Active / Inactive caseload grouped by supervisor"
+        subtitle="Ms. Fahda and Ms. Maha caseloads side by side — scroll inside each panel"
         stats={[
           { label: "Total", n: counts.all ?? "—", color: "#6B7568" },
           { label: "Active", n: counts.active ?? "—", color: "#3D5A40" },
@@ -231,27 +269,43 @@ export default function SupervisionCaseload() {
           Loading supervision caseload…
         </div>
       ) : (
-        <div className="space-y-5">
-          {grouped.length === 0 ? (
+        <div className="space-y-4">
+          <div className="supervision-split">
+            <SupervisorPane
+              label="Ms. Fahda"
+              rows={fahdaRows}
+              accent="#A2C4C9"
+              canEditStatus={canEditStatus}
+              onSetStatus={setStatus}
+            />
+            <SupervisorPane
+              label="Ms. Maha"
+              rows={mahaRows}
+              accent="#B6D7A8"
+              canEditStatus={canEditStatus}
+              onSetStatus={setStatus}
+            />
+          </div>
+
+          {otherGroups.length > 0 && (
+            <div className="space-y-4">
+              {otherGroups.map((g) => (
+                <SupervisorPane
+                  key={g.label}
+                  label={g.label}
+                  rows={g.rows}
+                  accent="#C9C0A8"
+                  canEditStatus={canEditStatus}
+                  onSetStatus={setStatus}
+                />
+              ))}
+            </div>
+          )}
+
+          {fahdaRows.length === 0 && mahaRows.length === 0 && otherGroups.length === 0 && (
             <div className="card p-12 text-center text-sm" style={{ color: "#8B9E7A" }}>
               No clients found.
             </div>
-          ) : (
-            grouped.map((g) => (
-              <section key={g.label} className="card p-4 border border-[#EDE9E3]" style={{ background: "#FAFAF7" }}>
-                <div className="flex items-center justify-between gap-3 mb-3">
-                  <div>
-                    <div className="text-sm font-semibold" style={{ color: "#2C3625" }}>
-                      {g.label}
-                    </div>
-                    <div className="text-xs" style={{ color: "#6B7568" }}>
-                      {g.rows.length} client{g.rows.length === 1 ? "" : "s"}
-                    </div>
-                  </div>
-                </div>
-                <CompactTable rows={g.rows} canEditStatus={canEditStatus} onSetStatus={setStatus} />
-              </section>
-            ))
           )}
         </div>
       )}

@@ -67,6 +67,19 @@ function ageFromDOB(item) {
   return years >= 0 ? String(years) : "";
 }
 
+function sortableAge(item) {
+  const fromDob = ageFromDOB(item);
+  if (fromDob !== "") return parseInt(fromDob, 10);
+  const age = String(item.age || "").trim();
+  if (/^\d{1,2}$/.test(age)) return parseInt(age, 10);
+  if (/^\d{4}$/.test(age)) return new Date().getFullYear() - parseInt(age, 10);
+  return 999;
+}
+
+function diagnosisKey(item) {
+  return (item.diagnosis || "").trim().toLowerCase() || "—";
+}
+
 function serviceMatches(item, filter) {
   if (!filter) return true;
   const svc = (item.service || "").toUpperCase();
@@ -101,6 +114,8 @@ export default function WaitingPage({ mode }) {
   const [tab, setTab] = useState(() => searchParams.get("tab") === "post" ? "post" : "pre");
   const [priorityOnly, setPriorityOnly] = useState(false);
   const [filterService, setFilterService] = useState("");
+  const [sortBy, setSortBy] = useState("name");
+  const [filterDiagnosis, setFilterDiagnosis] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -205,12 +220,30 @@ export default function WaitingPage({ mode }) {
   const displayed = useMemo(() => {
     let list = filtered.filter(i => serviceMatches(i, filterService));
     if (priorityOnly) list = list.filter(i => i.priority);
+    if (filterDiagnosis) {
+      list = list.filter(i => diagnosisKey(i) === filterDiagnosis.toLowerCase());
+    }
     list = [...list];
-    if (priorityOnly) {
+    if (sortBy === "age_asc") {
+      list.sort((a, b) => sortableAge(a) - sortableAge(b) || (a.child_name || "").localeCompare(b.child_name || ""));
+    } else if (sortBy === "age_desc") {
+      list.sort((a, b) => sortableAge(b) - sortableAge(a) || (a.child_name || "").localeCompare(b.child_name || ""));
+    } else if (sortBy === "diagnosis") {
+      list.sort((a, b) => diagnosisKey(a).localeCompare(diagnosisKey(b)) || (a.child_name || "").localeCompare(b.child_name || ""));
+    } else {
       list.sort((a, b) => (a.child_name || "").localeCompare(b.child_name || ""));
     }
     return list;
-  }, [filtered, priorityOnly, filterService]);
+  }, [filtered, priorityOnly, filterService, sortBy, filterDiagnosis]);
+
+  const diagnosisOptions = useMemo(() => {
+    const keys = new Set();
+    for (const i of filtered) {
+      const k = diagnosisKey(i);
+      if (k && k !== "—") keys.add(k);
+    }
+    return Array.from(keys).sort((a, b) => a.localeCompare(b));
+  }, [filtered]);
 
   const nameIssues = useMemo(() => {
     const byKey = {};
@@ -416,8 +449,80 @@ export default function WaitingPage({ mode }) {
         </div>
       )}
 
-      <div className="req-split">
-        <section className="req-panel-left">
+      <div className="waiting-filter-bar editorial-pill-row mb-3">
+        <button
+          type="button"
+          className={`editorial-pill${priorityOnly ? " is-active" : ""}`}
+          onClick={() => setPriorityOnly(v => !v)}
+        >
+          <Star size={14} weight={priorityOnly ? "fill" : "regular"} /> Priority only
+        </button>
+        <button
+          type="button"
+          className={`editorial-pill${filterService === "HS" ? " is-active" : ""}`}
+          onClick={() => setFilterService(v => v === "HS" ? "" : "HS")}
+        >
+          HS
+        </button>
+        <button
+          type="button"
+          className={`editorial-pill${filterService === "SS" ? " is-active" : ""}`}
+          onClick={() => setFilterService(v => v === "SS" ? "" : "SS")}
+        >
+          SS
+        </button>
+        <button
+          type="button"
+          className={`editorial-pill${sortBy === "age_asc" ? " is-active" : ""}`}
+          onClick={() => setSortBy(v => v === "age_asc" ? "name" : "age_asc")}
+        >
+          Age ↑ youngest
+        </button>
+        <button
+          type="button"
+          className={`editorial-pill${sortBy === "age_desc" ? " is-active" : ""}`}
+          onClick={() => setSortBy(v => v === "age_desc" ? "name" : "age_desc")}
+        >
+          Age ↓ oldest
+        </button>
+        <button
+          type="button"
+          className={`editorial-pill${sortBy === "diagnosis" ? " is-active" : ""}`}
+          onClick={() => setSortBy(v => v === "diagnosis" ? "name" : "diagnosis")}
+        >
+          By diagnosis
+        </button>
+        {diagnosisOptions.length > 0 && (
+          <select
+            className="input text-xs py-1.5 h-8 max-w-[180px] rounded-full border-[#DED4C0]"
+            value={filterDiagnosis}
+            onChange={e => setFilterDiagnosis(e.target.value)}
+            aria-label="Filter by diagnosis"
+          >
+            <option value="">All diagnoses</option>
+            {diagnosisOptions.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        )}
+        {(priorityOnly || filterService || filterDiagnosis || sortBy !== "name") && (
+          <button
+            type="button"
+            className="editorial-pill text-[11px]"
+            onClick={() => {
+              setPriorityOnly(false);
+              setFilterService("");
+              setFilterDiagnosis("");
+              setSortBy("name");
+            }}
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
+
+      <div className="req-split waiting-page-split">
+        <section className="req-panel-left waiting-panel-main">
           <div className="req-panel-head">
             <h2 className="font-bold text-sm m-0 flex items-center gap-1.5" style={{ color: "#2C3625" }}>
               {isSchool ? <Buildings size={16} weight="duotone" /> : <ClipboardText size={16} weight="duotone" />}
@@ -433,8 +538,8 @@ export default function WaitingPage({ mode }) {
               No records in this queue
             </div>
           ) : (
-            <div className="px-3 pb-4 overflow-x-auto">
-              <div className="intake-table-wrap">
+            <div className="px-3 pb-4 waiting-table-area">
+              <div className="intake-table-wrap waiting-table-wrap">
                 <table className="intake-table">
                   <thead>
                     <tr>
@@ -456,6 +561,7 @@ export default function WaitingPage({ mode }) {
                       >
                         Service{filterService ? ` · ${filterService}` : ""}
                       </FilterTh>
+                      <th>Diagnosis</th>
                       <th>Status</th>
                       <th>Phone</th>
                       <th>{isSchool ? "District" : "District"}</th>
@@ -496,6 +602,7 @@ export default function WaitingPage({ mode }) {
                           )}
                         </td>
                         <td><span className="pill text-[10px]">{i.service || "—"}</span></td>
+                        <td className="text-[11px]" style={{ color: "#5C6853" }}>{i.diagnosis || "—"}</td>
                         <td><span className="pill text-[10px]" style={{ background: `${STATUS_COLORS[i.status]}25`, color: STATUS_COLORS[i.status] }}>{STATUS[i.status] || i.status}</span></td>
                         <td>{i.phone ? <a href={`tel:${i.phone}`} className="hover:text-[#7A8A6A]">{i.phone}</a> : "—"}</td>
                         <td>{i.district || "—"}</td>
@@ -590,6 +697,31 @@ export default function WaitingPage({ mode }) {
           )}
         </aside>
       </div>
+
+      {displayed.length > 0 && (
+        <section className="waiting-name-roster card mt-4" aria-label="All names in this queue">
+          <div className="waiting-name-roster-head">
+            <span className="font-bold text-sm" style={{ color: "#2C3625" }}>
+              All names ({displayed.length})
+            </span>
+            <span className="text-xs" style={{ color: "#8B9E7A" }}>
+              Full list — no scroll bar · use filters above to narrow
+            </span>
+          </div>
+          <div className="waiting-name-roster-grid">
+            {displayed.map((i) => (
+              <span
+                key={`roster-${i.id}`}
+                className={`waiting-name-chip${i.priority ? " is-priority" : ""}`}
+                title={[i.service, i.diagnosis, ageFromDOB(i) ? `${ageFromDOB(i)} yrs` : null].filter(Boolean).join(" · ")}
+              >
+                {i.priority && <Star size={11} weight="fill" className="inline mr-0.5" style={{ verticalAlign: -1 }} />}
+                {i.child_name}
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
 
       {edit && (
         <ModalBase
