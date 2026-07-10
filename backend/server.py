@@ -4665,8 +4665,12 @@ async def list_schedule_preparations(
         await _sync_schedule_preparations_for_week(start, end)
     alias_map = await _build_therapist_id_alias_map()
     db_items = await db.schedule_preparations.find(q, {"_id": 0}).to_list(2000)
-    computed = await _computed_schedule_preparation_markers(start, end, tid)
-    no_show_markers = await _computed_schedule_no_show_markers(start, end, tid)
+    # Full-grid admin view: skip expensive per-session cell scans — frontend builds badges from week sessions.
+    computed: list = []
+    no_show_markers: list = []
+    if tid or sync:
+        computed = await _computed_schedule_preparation_markers(start, end, tid)
+        no_show_markers = await _computed_schedule_no_show_markers(start, end, tid)
     suppressions = await _list_prep_suppressions(start, end, tid)
     # Only session-backed rows from DB (internal notes metadata); badges come from sessions.
     db_session_backed = [it for it in db_items if it.get("session_id")]
@@ -18695,28 +18699,6 @@ async def _run_startup():
                 logger.info(f"Therapist identity dedupe: removed {id_dedupe['removed']} duplicate(s)")
         except Exception as e:
             logger.warning(f"Therapist identity dedupe skipped: {e}")
-
-        try:
-            maint = await db.settings.find_one({"key": "maintenance_v2"}, {"_id": 0}) or {}
-            if not maint.get("prep_session_dedupe_done"):
-                prep_dedupe = await _dedupe_prep_history()
-                if prep_dedupe.get("removed"):
-                    logger.info(f"Prep history dedupe: {prep_dedupe.get('message')}")
-                sess_dedupe = await _dedupe_all_sessions()
-                if sess_dedupe.get("removed"):
-                    logger.info(f"Session dedupe: {sess_dedupe.get('message')}")
-                await db.settings.update_one(
-                    {"key": "maintenance_v2"},
-                    {"$set": {
-                        "prep_session_dedupe_done": True,
-                        "prep_session_dedupe_at": now_iso(),
-                        "prep_removed": prep_dedupe.get("removed", 0),
-                        "sessions_removed": sess_dedupe.get("removed", 0),
-                    }},
-                    upsert=True,
-                )
-        except Exception as e:
-            logger.warning(f"Prep/session dedupe skipped: {e}")
 
         try:
             order_fix = await _fix_schedule_therapist_order_duplicates()

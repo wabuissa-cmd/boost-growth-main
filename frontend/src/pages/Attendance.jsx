@@ -26,6 +26,7 @@ import {
   resolveServiceTabState, hasOpenInvoice, countSsWeeksDone, nextWeekOverride,
   sessionEditableByUser, rowBgForSession,
   dedupePrepHistoryRows,
+  clientSessionsSignature,
 } from "../attendanceUtils";
 import { PackageAlertBanner } from "../components/PackageStatusBadge";
 import PreparationPrepLayout from "../components/PreparationPrepLayout";
@@ -525,6 +526,10 @@ export function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, 
   const invoiceLocked = !!selectedInvoice?.is_closed;
   const cycleWeeks = selectedInvoice?.ss_week_count || 4;
   const canManagePrep = hasOpsAccess(user) || hasFullClientAccess(user);
+  const clientSessionSig = useMemo(
+    () => clientSessionsSignature(sessions, client.id),
+    [sessions, client.id],
+  );
 
   const fetchSessionsForInvoice = useCallback(async (invoiceId) => {
     const params = { client_id: client.id };
@@ -607,7 +612,7 @@ export function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, 
   useEffect(() => {
     if (loading) return;
     reloadSessions();
-  }, [sessions]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [clientSessionSig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cycleSessions = useMemo(() => {
     if (selectedInvoice) {
@@ -1015,6 +1020,10 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
   const invoicesInitialized = useRef(false);
   const prevServiceFilter = useRef(serviceTypeFilter);
   const autoNewInvDone = useRef(false);
+  const clientSessionSig = useMemo(
+    () => clientSessionsSignature(sessions, client.id),
+    [sessions, client.id],
+  );
 
   useEffect(() => {
     if (initialService && (initialService === "HS" || initialService === "SS")) {
@@ -1143,12 +1152,12 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
     }
   }, [allInvoices, serviceTypeFilter, tabState.showToggle]);
 
-  // Re-fetch sessions when invoice filter changes
+  // Re-fetch sessions when invoice filter changes or this client's sessions update
   useEffect(() => {
     const params = { client_id: client.id };
     if (selectedInvoiceId) params.invoice_id = selectedInvoiceId;
     api.get("/sessions", { params }).then(r => setLocalSessions(r.data || [])).catch(() => setLocalSessions([]));
-  }, [client.id, selectedInvoiceId, sessions]);
+  }, [client.id, selectedInvoiceId, clientSessionSig]);
 
   // When user picks an invoice from the dropdown, populate the form fields with that invoice's data
   useEffect(() => {

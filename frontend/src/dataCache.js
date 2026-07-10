@@ -8,6 +8,7 @@ const TTL_MS = {
   "/clients": 2 * 60 * 1000,
   "/therapists": 5 * 60 * 1000,
   "/sessions": 90 * 1000,
+  "/billing/dashboard": 60 * 1000,
   "/invoices": 90 * 1000,
   "/clients/package-status": 90 * 1000,
   "/leaves": 3 * 60 * 1000,
@@ -17,6 +18,13 @@ const TTL_MS = {
 };
 
 const DEFAULT_TIMEOUT_MS = 20000;
+const SLOW_TIMEOUT_MS = 45000;
+
+function timeoutFor(url) {
+  const p = pathOf(url);
+  if (p === "/sessions" || p === "/billing/dashboard") return SLOW_TIMEOUT_MS;
+  return DEFAULT_TIMEOUT_MS;
+}
 
 function pathOf(url) {
   return String(url || "").split("?")[0];
@@ -69,7 +77,7 @@ export async function cachedGet(url, { params, force = false, staleOk = true } =
 
   if (inflight.has(key)) return inflight.get(key);
 
-  const req = withTimeout(api.get(url, { params }), DEFAULT_TIMEOUT_MS)
+  const req = withTimeout(api.get(url, { params }), timeoutFor(url))
     .then(res => {
       store.set(key, { data: res.data, at: Date.now() });
       inflight.delete(key);

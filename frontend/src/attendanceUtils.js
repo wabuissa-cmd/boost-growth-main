@@ -274,6 +274,17 @@ export function computeHsInvoiceTotals(sessions, packageSize) {
   };
 }
 
+/** Stable signature when a client's sessions change — avoids refetch storms on unrelated parent updates. */
+export function clientSessionsSignature(sessions, clientId) {
+  const mine = (sessions || []).filter((s) => s.client_id === clientId);
+  if (!mine.length) return "0";
+  let latest = mine[0];
+  for (const s of mine) {
+    if (sessionDateSortKey(s) > sessionDateSortKey(latest)) latest = s;
+  }
+  return `${mine.length}:${latest.id || ""}:${latest.session_date || ""}:${latest.updated_at || ""}`;
+}
+
 /** Keep one prep log per therapist + calendar day (prefer row with time slot). */
 export function dedupePrepHistoryRows(rows) {
   const best = new Map();
