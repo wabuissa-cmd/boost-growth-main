@@ -81,9 +81,9 @@ const SESSION_CELL_STYLE = { background: "#F5F7F2", borderColor: "#D8E0D0", colo
 
 /** Legacy shift band styles — kept for imports; all map to neutral session tint. */
 export const SHIFT_SESSION_STYLES = {
-  1: { ...SESSION_CELL_STYLE },
-  2: { ...SESSION_CELL_STYLE },
-  3: { ...SESSION_CELL_STYLE },
+  1: { background: "#E8F2E4", borderColor: "#C5D8BC", color: "#2C3625" },
+  2: { background: "#5C6B52", borderColor: "#4A5842", color: "#FFFFFF" },
+  3: { background: "#A8B89A", borderColor: "#8A9A7A", color: "#2C3625" },
 };
 
 /** @deprecated Shift band headers removed from UI — kept for compatibility. */
@@ -159,8 +159,9 @@ export function shiftForTimeSlot(timeSlot) {
   return 3;
 }
 
-export function shiftSessionStyle(_timeSlot) {
-  return SESSION_CELL_STYLE;
+export function shiftSessionStyle(timeSlot) {
+  const sh = shiftForTimeSlot(timeSlot);
+  return SHIFT_SESSION_STYLES[sh] || SHIFT_SESSION_STYLES[1];
 }
 
 /** Time-column header — uniform (no shift band dividers). */

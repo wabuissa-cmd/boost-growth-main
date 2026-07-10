@@ -6,7 +6,7 @@ import {
 import LocationLink from "./LocationLink";
 import { formatLocationLabel, getMapsHref } from "../mapsUtils";
 import { getChildColor, readable } from "../childColors";
-import { clientDisplayName } from "../clientDisplayUtils";
+import { clientDisplayName, formatSupervisorDisplayName } from "../clientDisplayUtils";
 import { prepTrackMeta, cardStatusMeta, formatClientStatus, computeAgeFromBirthDate, formatBirthDateDisplay } from "../attendanceUtils";
 import { getTherapistScheduleName } from "../scheduleConstants";
 import { formatPkgUsedRemaining } from "../packageStatusUtils";
@@ -236,7 +236,7 @@ export default function ClientInfoLayout({
                     </dd>
                     <dt>Birth date</dt><dd>{formatBirthDateDisplay(selected.birth_date)}</dd>
                     <dt>Age</dt><dd>{computeAgeFromBirthDate(selected.birth_date) || selected.age || "—"}</dd>
-                    <dt>Supervisor</dt><dd>{selected.supervisor || "—"}</dd>
+                    <dt>Supervisor</dt><dd>{formatSupervisorDisplayName(selected.supervisor)}</dd>
                     {(selected.family_prep_url || (hasOps || isAdmin)) && (
                       <>
                         <dt>Family prep link</dt>

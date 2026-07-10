@@ -1,26 +1,11 @@
 import { CalendarBlank, Table, GridFour } from "@phosphor-icons/react";
+import PageBanner from "./PageBanner";
 import { SCHEDULE_LEGEND_ITEMS } from "../scheduleConstants";
 
-function ViewStepPill({ label, icon: Icon, active, onClick, testId }) {
+export function ScheduleLegendStrip({ className = "", compact = false }) {
   return (
-    <button
-      type="button"
-      data-testid={testId}
-      className={`center-test-step schedule-page-view-step${active ? " active" : ""}`}
-      onClick={onClick}
-    >
-      <span className="center-test-step-num">
-        <Icon size={14} weight={active ? "fill" : "duotone"} />
-      </span>
-      <span className="center-test-step-label">{label}</span>
-    </button>
-  );
-}
-
-export function ScheduleLegendStrip({ className = "" }) {
-  return (
-    <div className={`schedule-page-legend no-print ${className}`.trim()}>
-      <div className="schedule-page-section-label">Legend</div>
+    <div className={`schedule-legend-strip no-print ${className}`.trim()}>
+      {!compact && <div className="schedule-page-section-label">Legend</div>}
       <div className="schedule-page-legend-items">
         {SCHEDULE_LEGEND_ITEMS.map((it) => (
           <span key={it.label} className="schedule-page-legend-item">
@@ -29,9 +14,11 @@ export function ScheduleLegendStrip({ className = "" }) {
           </span>
         ))}
       </div>
-      <p className="schedule-page-legend-hint">
-        Tap a session to log preparation · Long-press for menu · Times shown per hour slot
-      </p>
+      {!compact && (
+        <p className="schedule-page-legend-hint">
+          Tap a session to log preparation · Long-press for menu · Times shown per hour slot
+        </p>
+      )}
     </div>
   );
 }
@@ -48,65 +35,36 @@ export default function SchedulePageHeader({
   canSwitchView = true,
 }) {
   const stackedToolbar = toolbarPlacement === "outside";
+  const tabs = canSwitchView && onViewChange
+    ? [
+        { id: "sheet", label: "Team schedule", icon: <Table size={14} weight="duotone" />, testId: "view-sheet-btn" },
+        { id: "blocks", label: "My schedule", icon: <GridFour size={14} weight="duotone" />, testId: "view-blocks-btn" },
+      ]
+    : [];
 
   return (
     <header className={`schedule-page-header no-print ${className}`.trim()}>
-      <div className="schedule-page-top-bar">
-        <div className="schedule-page-badge">WEEKLY SCHEDULE</div>
-        {badge && <div className="schedule-page-status-badge">{badge}</div>}
-      </div>
-
-      <div className="schedule-page-hero card">
-        <div className="schedule-page-hero-row">
-          <div className="schedule-page-hero-icon">
-            <CalendarBlank size={28} weight="duotone" />
-          </div>
-          <div className="schedule-page-hero-copy min-w-0 flex-1">
-            <h1 className="schedule-page-title">Weekly Schedule</h1>
-            {subtitle && <p className="schedule-page-subtitle">{subtitle}</p>}
-            {stats.length > 0 && (
-              <div className="schedule-page-stats">
-                {stats.map((s) => (
-                  <div key={s.label} className="schedule-page-stat">
-                    <span className="schedule-page-stat-val" style={{ color: s.color }}>{s.n}</span>
-                    <span className="schedule-page-stat-lbl">{s.label}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {canSwitchView && onViewChange && (
-          <div className="center-test-steps-bar schedule-page-steps schedule-page-steps--in-hero">
-            <ViewStepPill
-              label="Team schedule"
-              icon={Table}
-              active={view === "sheet"}
-              onClick={() => onViewChange("sheet")}
-              testId="view-sheet-btn"
-            />
-            <div className="center-test-step-line" />
-            <ViewStepPill
-              label="My schedule"
-              icon={GridFour}
-              active={view === "blocks"}
-              onClick={() => onViewChange("blocks")}
-              testId="view-blocks-btn"
-            />
-          </div>
+      <PageBanner
+        title="Weekly Schedule"
+        subtitle={subtitle}
+        badge={badge || (
+          <span className="editorial-banner__icon-badge" aria-hidden>
+            <CalendarBlank size={20} weight="duotone" />
+          </span>
         )}
-
-        {toolbar && !stackedToolbar && (
-          <div className="schedule-page-toolbar">{toolbar}</div>
-        )}
-      </div>
+        stats={stats}
+        tabs={tabs}
+        activeTab={view}
+        onTabChange={onViewChange}
+        toolbar={!stackedToolbar ? toolbar : undefined}
+        className="editorial-banner--schedule-mobile"
+      >
+        <ScheduleLegendStrip compact />
+      </PageBanner>
 
       {toolbar && stackedToolbar && (
-        <div className="schedule-page-toolbar-card card">{toolbar}</div>
+        <div className="schedule-toolbar-mobile-card card">{toolbar}</div>
       )}
-
-      <ScheduleLegendStrip />
     </header>
   );
 }

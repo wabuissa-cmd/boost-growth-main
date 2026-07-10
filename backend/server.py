@@ -17894,8 +17894,8 @@ async def _ensure_sunday_portal_update() -> dict:
     }
     await db.center_updates.insert_one(doc)
     doc.pop("_id", None)
-    await _broadcast_important_center_update(doc)
-    return {"action": "created", "id": doc["id"]}
+    # In-app only — never auto-email on server boot (admin posts manually when ready).
+    return {"action": "created", "id": doc["id"], "emailed": False}
 
 
 async def _sync_client_seed_fields(file_nos: set) -> dict:

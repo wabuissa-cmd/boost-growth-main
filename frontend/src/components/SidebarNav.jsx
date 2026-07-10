@@ -3,7 +3,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { CaretDown, CaretRight } from "@phosphor-icons/react";
 
 function SidebarSection({ title, items, loc, defaultOpen = true, onItemHover, collapsed }) {
-  const isActive = items.some(it => loc.pathname.startsWith(it.to));
+  const isActive = items.some((it) => loc.pathname.startsWith(it.to));
   const [open, setOpen] = useState(defaultOpen || isActive);
 
   useEffect(() => {
@@ -15,7 +15,7 @@ function SidebarSection({ title, items, loc, defaultOpen = true, onItemHover, co
   if (collapsed) {
     return (
       <div className="sidebar-section-items">
-        {items.map(it => (
+        {items.map((it) => (
           <NavLink
             key={it.to}
             to={it.to}
@@ -38,7 +38,7 @@ function SidebarSection({ title, items, loc, defaultOpen = true, onItemHover, co
         <button
           type="button"
           className="sidebar-section-head"
-          onClick={() => setOpen(o => !o)}
+          onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
         >
           <span>{title}</span>
@@ -47,7 +47,7 @@ function SidebarSection({ title, items, loc, defaultOpen = true, onItemHover, co
       ) : null}
       {(open || !title) && (
         <div className="sidebar-section-items">
-          {items.map(it => (
+          {items.map((it) => (
             <NavLink
               key={it.to}
               to={it.to}
@@ -66,35 +66,16 @@ function SidebarSection({ title, items, loc, defaultOpen = true, onItemHover, co
   );
 }
 
-function StandaloneLinks({ items, renderLink }) {
-  if (!items.length) return null;
-  return (
-    <>
-      {items.map(it => (
-        <div key={it.to} className="sidebar-section-items px-2 mb-0.5">
-          {renderLink(it)}
-        </div>
-      ))}
-    </>
-  );
-}
-
 export default function SidebarNav({
   homeLink,
-  standaloneItems = [],
-  clientWorkItems,
   clinicalItems = [],
-  peopleItems = [],
-  personalItems,
-  financeItems = [],
-  adminItems,
-  therapistOnly,
+  clientItems = [],
+  employeeItems = [],
+  adminItems = [],
   loc,
   onItemHover,
   collapsed = false,
 }) {
-  const flatOps = therapistOnly;
-
   const renderLink = (it, end = false) => (
     <NavLink
       key={it.to}
@@ -118,71 +99,38 @@ export default function SidebarNav({
         </div>
       )}
 
-      <StandaloneLinks items={standaloneItems} renderLink={renderLink} />
-
-      {flatOps ? (
-        <>
-          <div className="sidebar-section">
-            {!collapsed && <div className="sidebar-section-label">Clients</div>}
-            <div className="sidebar-section-items">
-              {clientWorkItems.map(it => renderLink(it))}
-            </div>
-          </div>
-          {clinicalItems.length > 0 && (
-            <div className="sidebar-section">
-              {!collapsed && <div className="sidebar-section-label">Clinical</div>}
-              <div className="sidebar-section-items">
-                {clinicalItems.map(it => renderLink(it))}
-              </div>
-            </div>
-          )}
-          {peopleItems.length > 0 && (
-            <div className="sidebar-section">
-              {!collapsed && <div className="sidebar-section-label">People</div>}
-              <div className="sidebar-section-items">
-                {peopleItems.map(it => renderLink(it))}
-              </div>
-            </div>
-          )}
-        </>
-      ) : (
-        <>
-          <SidebarSection
-            title="Clients"
-            items={clientWorkItems}
-            loc={loc}
-            defaultOpen
-            onItemHover={onItemHover}
-            collapsed={collapsed}
-          />
-          <SidebarSection
-            title="Clinical"
-            items={clinicalItems}
-            loc={loc}
-            defaultOpen
-            onItemHover={onItemHover}
-            collapsed={collapsed}
-          />
-        </>
-      )}
-
-      {peopleItems.length > 0 && !flatOps && (
-        <SidebarSection title="People" items={peopleItems} loc={loc} defaultOpen onItemHover={onItemHover} collapsed={collapsed} />
-      )}
-
-      {personalItems.length > 0 && (
-        <SidebarSection
-          title="Personal"
-          items={personalItems}
-          loc={loc}
-          defaultOpen={therapistOnly}
-          onItemHover={onItemHover}
-          collapsed={collapsed}
-        />
-      )}
-
-      <SidebarSection title="Finance" items={financeItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
-      <SidebarSection title="Administration" items={adminItems} loc={loc} onItemHover={onItemHover} collapsed={collapsed} />
+      <SidebarSection
+        title="Clinical"
+        items={clinicalItems}
+        loc={loc}
+        defaultOpen
+        onItemHover={onItemHover}
+        collapsed={collapsed}
+      />
+      <SidebarSection
+        title="Client"
+        items={clientItems}
+        loc={loc}
+        defaultOpen
+        onItemHover={onItemHover}
+        collapsed={collapsed}
+      />
+      <SidebarSection
+        title="Employee"
+        items={employeeItems}
+        loc={loc}
+        defaultOpen
+        onItemHover={onItemHover}
+        collapsed={collapsed}
+      />
+      <SidebarSection
+        title="Administration"
+        items={adminItems}
+        loc={loc}
+        defaultOpen={false}
+        onItemHover={onItemHover}
+        collapsed={collapsed}
+      />
     </nav>
   );
 }

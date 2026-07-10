@@ -59,6 +59,32 @@ function getSheetCellStyle(cell, clients) {
   return { ...base, height: 38, minHeight: 38, padding: "2px 1px", fontSize: 10 };
 }
 
+function LeaveBannerCell({ leaveInfo, className, canEdit, therapist_id, day, onCtx, onTouchStart, onTouchMove, onTouchEnd }) {
+  const label = leaveInfo?.type === "Absence" ? "ABSENT" : "LEAVE";
+  const leaveStyle = SERVICE_CELL_COLORS.LEAVE;
+  return (
+    <td
+      colSpan={TIME_SLOTS.length}
+      className={className}
+      style={{
+        background: leaveStyle.background,
+        borderColor: leaveStyle.borderColor,
+        color: leaveStyle.color,
+        height: 38,
+        minHeight: 38,
+        textAlign: "center",
+        verticalAlign: "middle",
+      }}
+      onContextMenu={canEdit ? (e) => onCtx(e, null, therapist_id, day, TIME_SLOTS[0]) : undefined}
+      onTouchStart={canEdit ? (e) => onTouchStart(e, null, therapist_id, day, TIME_SLOTS[0]) : undefined}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
+      <span className="font-bold text-[12px] sm:text-[13px] tracking-wide">{label}</span>
+    </td>
+  );
+}
+
 function ClosureBannerCell({ label, className, canEdit, therapist_id, day, onCtx, onTouchStart, onTouchMove, onTouchEnd }) {
   return (
     <td
@@ -1696,19 +1722,26 @@ export default function Schedule() {
                       </td>
                     </>
                   )}
-                  <td className={`sheet-td sheet-day font-bold text-center${recentActiveDayIndices.has(di) ? " schedule-day-recent" : ""}`} style={leaveInfo && !closureLabel ? { background: "#FEF9C3" } : {}}>
+                  <td className={`sheet-td sheet-day font-bold text-center${recentActiveDayIndices.has(di) ? " schedule-day-recent" : ""}`}>
                     <div className="text-[11px] tracking-wider" style={{ color: "#2C3625" }}>{DAYS_SHORT[di].toUpperCase()}</div>
                     <div className="text-[9px] font-normal" style={{ color: "var(--brand-sage)" }}>{addDays(weekStart, di).getDate()}/{addDays(weekStart, di).getMonth() + 1}</div>
-                    {leaveInfo && !closureLabel && (
-                      <div className="text-[8px] font-bold mt-0.5" style={{ color: "#8B6918" }}>
-                        {leaveInfo.type === "Absence" ? "ABSENT" : "ON LEAVE"}
-                      </div>
-                    )}
                   </td>
                   {closureLabel ? (
                     <ClosureBannerCell
                       label={closureLabel}
                       className="sheet-td sheet-slot schedule-closure-cell"
+                      canEdit={canEditRow(t.id)}
+                      therapist_id={t.id}
+                      day={di}
+                      onCtx={onCtx}
+                      onTouchStart={onCellTouchStart}
+                      onTouchMove={onCellTouchMove}
+                      onTouchEnd={onCellTouchEnd}
+                    />
+                  ) : leaveInfo ? (
+                    <LeaveBannerCell
+                      leaveInfo={leaveInfo}
+                      className="sheet-td sheet-slot schedule-leave-banner"
                       canEdit={canEditRow(t.id)}
                       therapist_id={t.id}
                       day={di}
@@ -1731,7 +1764,7 @@ export default function Schedule() {
                         key={ts}
                         colSpan={colSpan}
                         data-testid={`sheet-cell-${t.id}-${di}-${ts}`}
-                        className={cellClassName(cell, canEditRow(t.id), leaveInfo, isSelected(t.id, di, ts), isCopied(t.id, di, ts), !!statusBadge)}
+                        className={cellClassName(cell, canEditRow(t.id), null, isSelected(t.id, di, ts), isCopied(t.id, di, ts), !!statusBadge)}
                         style={cellStyle}
                         onClick={(e) => handleCellClick(e, t.id, di, ts, cell)}
                         onContextMenu={canNotifySchedule ? (e) => onCtx(e, cell, t.id, di, ts) : undefined}
@@ -1802,20 +1835,26 @@ export default function Schedule() {
               <tr key={di} className={leaveInfo ? "schedule-leave-row" : ""}>
                 <td
                   className={`schedule-blocks-day${recentActiveDayIndices.has(di) ? " schedule-day-recent" : ""}`}
-                  style={{ background: leaveInfo && !closureLabel ? "#FEF9C3" : undefined, position: "relative" }}
                 >
                   <div className="text-[11px] tracking-wider">{DAYS_SHORT[di].toUpperCase()}</div>
                   <div className="text-[10px] font-normal" style={{ color: "var(--brand-sage)" }}>{addDays(weekStart, di).getDate()}/{addDays(weekStart, di).getMonth() + 1}</div>
-                  {leaveInfo && !closureLabel && (
-                    <div className="text-[9px] font-bold mt-0.5" style={{ color: "#8B6918" }}>
-                      {leaveInfo.type === "Absence" ? "ABSENT" : "ON LEAVE"}
-                    </div>
-                  )}
                 </td>
                 {closureLabel ? (
                   <ClosureBannerCell
                     label={closureLabel}
                     className="cell-base schedule-closure-cell"
+                    canEdit={canEditRow(therapist.id)}
+                    therapist_id={therapist.id}
+                    day={di}
+                    onCtx={onCtx}
+                    onTouchStart={onCellTouchStart}
+                    onTouchMove={onCellTouchMove}
+                    onTouchEnd={onCellTouchEnd}
+                  />
+                ) : leaveInfo ? (
+                  <LeaveBannerCell
+                    leaveInfo={leaveInfo}
+                    className="cell-base schedule-leave-banner"
                     canEdit={canEditRow(therapist.id)}
                     therapist_id={therapist.id}
                     day={di}
@@ -1834,7 +1873,7 @@ export default function Schedule() {
                   const cellStyle = { ...baseStyle, height: 38, minHeight: 38 };
                   const statusBadge = cellStatusBadge(cell, therapist.id, di);
                   return (
-                    <td key={ts} className={cellClassNameBlock(cell, canEditRow(therapist.id), leaveInfo, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts), (canQuickLog || canQuickLogOwnRow) && therapist.id === selfTherapist?.id, statusBadge)}
+                    <td key={ts} className={cellClassNameBlock(cell, canEditRow(therapist.id), null, isSelected(therapist.id, di, ts), isCopied(therapist.id, di, ts), (canQuickLog || canQuickLogOwnRow) && therapist.id === selfTherapist?.id, statusBadge)}
                       colSpan={colSpan}
                       style={cellStyle}
                       data-testid={`cell-${therapist.id}-${di}-${ts}`}
@@ -2156,7 +2195,7 @@ export default function Schedule() {
         </div>
       )}
 
-      {!scheduleLoading && recentActiveHint && (
+      {isAdmin && !scheduleLoading && recentActiveHint && (
         <div className="card schedule-recent-activity-banner no-print" role="status">
           <CheckCircle size={16} weight="fill" className="shrink-0" style={{ color: "var(--brand)" }} />
           <div className="flex-1 min-w-0">

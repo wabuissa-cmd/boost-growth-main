@@ -6,11 +6,12 @@ import { prefetch, cachedGet } from "../dataCache";
 import { getPortalDisplayName } from "../scheduleConstants";
 import {
   House, CalendarBlank,   ClipboardText, UsersThree, Receipt,
-  Bell, SignOut,   ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, CaretDown, Folder, UserCircle, EnvelopeSimple,
-  SidebarSimple, Rows, ShoppingBag, FileText, Buildings, Hourglass, Eye, GraduationCap,
+  Bell, SignOut, ListChecks, Gear, UserList, List, X, ChartBar, UploadSimple, CaretDown, EnvelopeSimple,
+  SidebarSimple, Rows, ShoppingBag, FileText, Hourglass, Eye, GraduationCap,
 } from "@phosphor-icons/react";
 
 import SidebarNav from "../components/SidebarNav";
+import { notificationMeta } from "../notificationUi";
 
 const NAV_LAYOUT_KEY = "bg_nav_layout";
 const SIDEBAR_COLLAPSED_KEY = "bg_sidebar_collapsed";
@@ -81,7 +82,6 @@ export default function Shell() {
   const showMyReports = showMyReportsNav(user);
   const showMyLearning = showAcademicPortfolioNav(user);
   const showBilling = canViewBilling(user);
-  const therapistOnly = Boolean(user && !portalAdmin && !hrOps && !walaaOps);
   const profileRole = profileRoleLabel(user);
 
   const loadNotifs = async () => {
@@ -108,62 +108,63 @@ export default function Shell() {
 
   const unread = notifs.filter(n => !n.read).length;
 
-  // ── Grouped navigation
-  const clientWorkItems = [
-    { to: "/clients", label: "Client Info", testid: "nav-clients", icon: <UsersThree size={18} weight="duotone"/> },
-    { to: "/schedule", label: "Schedule", testid: "nav-schedule", icon: <CalendarBlank size={18} weight="duotone"/> },
-    { to: "/attendance", label: "Session Preparation", testid: "nav-attendance", icon: <ClipboardText size={18} weight="duotone"/> },
-  ];
-
-  const clinicalItems = [
-    ...(intakeAccess
-      ? [
-          { to: "/waiting", label: "Waiting", testid: "nav-waiting", icon: <Hourglass size={17} weight="duotone"/> },
-        ]
-      : []),
-    ...(canViewSupervisionCaseload(user)
-      ? [{ to: "/supervision", label: "Supervision", testid: "nav-supervision", icon: <Eye size={18} weight="duotone"/> }]
-      : []),
-  ];
-
-  const peopleItems = [
-    ...(!jenanManager && (staffRequestsAccess || leaveManager || hrLeaveReview)
-      ? [{ to: "/staff-leave", label: "Staff & Leave", testid: "nav-staff-leave", icon: <ListChecks size={17} weight="duotone"/> }]
-      : []),
-  ];
-
-  const standaloneItems = [
-    ...(jenanManager
-      ? [{ to: "/manager", label: "Manager Hub", testid: "nav-manager-hub", icon: <ListChecks size={17} weight="duotone"/> }]
-      : []),
-    ...(canAccessManagerHub(user) && showSystemAdmin(user) && !jenanManager
-      ? [{ to: "/manager", label: "Manager Hub (Jenan view)", testid: "nav-manager-hub-preview", icon: <ListChecks size={17} weight="duotone"/> }]
-      : []),
-    ...(showTrainingTestsNav(user)
-      ? [{ to: "/admin/center-tests", label: "Training Tests", testid: "nav-center-tests", icon: <FileText size={17} weight="duotone"/> }]
-      : []),
-  ];
-
-  const financeItems = [
-    ...(showBilling
-      ? [{ to: "/billing", label: "Client Invoices", testid: "nav-billing", icon: <Receipt size={18} weight="duotone"/> }]
-      : []),
-    ...(canAccessPurchases(user)
-      ? [{ to: "/purchases", label: purchasesNavLabel(user), testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> }]
-      : []),
-  ];
-
   const baseLinks = [
     { to: "/home", icon: <House size={18} weight="duotone"/>, label: "Home", testid: "nav-home" },
   ];
 
-  // Personal portal dropdown (therapists + ops team; hidden for admin login)
   const myPortalItems = showMyPortal ? [
     { to: "/my-requests", label: jenanManager ? "My Requests" : "Request", testid: "nav-my-requests" },
     { to: "/my-performance", label: "Performance", testid: "nav-my-performance" },
     ...(showMyReports ? [{ to: "/my-reports", label: "My Report", testid: "nav-my-reports" }] : []),
     ...(showMyLearning ? [{ to: "/my-learning", label: "My Learning", testid: "nav-my-learning" }] : []),
   ] : [];
+
+  const personalNavItems = myPortalItems.map(it => ({
+    ...it,
+    icon: it.to === "/my-reports"
+      ? <FileText size={17} weight="duotone"/>
+      : it.to === "/my-learning"
+        ? <GraduationCap size={17} weight="duotone"/>
+        : <ListChecks size={17} weight="duotone"/>,
+  }));
+
+  // ── Sidebar: Clinical · Client · Employee
+  const clinicalItems = [
+    { to: "/schedule", label: "Schedule", testid: "nav-schedule", icon: <CalendarBlank size={18} weight="duotone"/> },
+    { to: "/attendance", label: "Session Preparation", testid: "nav-attendance", icon: <ClipboardText size={18} weight="duotone"/> },
+    ...(canViewSupervisionCaseload(user)
+      ? [{ to: "/supervision", label: "Supervision", testid: "nav-supervision", icon: <Eye size={18} weight="duotone"/> }]
+      : []),
+    ...(intakeAccess
+      ? [{ to: "/waiting", label: "Waiting", testid: "nav-waiting", icon: <Hourglass size={17} weight="duotone"/> }]
+      : []),
+  ];
+
+  const clientItems = [
+    { to: "/clients", label: "Client Info", testid: "nav-clients", icon: <UsersThree size={18} weight="duotone"/> },
+    ...(showBilling
+      ? [{ to: "/billing", label: "Client Invoices", testid: "nav-billing", icon: <Receipt size={18} weight="duotone"/> }]
+      : []),
+  ];
+
+  const employeeItems = [
+    ...(jenanManager
+      ? [{ to: "/manager", label: "Manager Hub", testid: "nav-manager-hub", icon: <ListChecks size={17} weight="duotone"/> }]
+      : []),
+    ...(canAccessManagerHub(user) && showSystemAdmin(user) && !jenanManager
+      ? [{ to: "/manager", label: "Manager Hub (Jenan view)", testid: "nav-manager-hub-preview", icon: <ListChecks size={17} weight="duotone"/> }]
+      : []),
+    ...(!jenanManager && (staffRequestsAccess || leaveManager || hrLeaveReview)
+      ? [{ to: "/staff-leave", label: "Staff & Leave", testid: "nav-staff-leave", icon: <ListChecks size={17} weight="duotone"/> }]
+      : []),
+    ...(canAccessPurchases(user)
+      ? [{ to: "/purchases", label: purchasesNavLabel(user), testid: "nav-purchases", icon: <ShoppingBag size={17} weight="duotone"/> }]
+      : []),
+    ...(showTrainingTestsNav(user)
+      ? [{ to: "/admin/center-tests", label: "Training Tests", testid: "nav-center-tests", icon: <FileText size={17} weight="duotone"/> }]
+      : []),
+    ...personalNavItems,
+  ];
 
   const adminTools = [
     ...(canImportData(user)
@@ -186,15 +187,6 @@ export default function Shell() {
 
   const homeLink = baseLinks[0];
 
-  const personalNavItems = myPortalItems.map(it => ({
-    ...it,
-    icon: it.to === "/my-reports"
-      ? <FileText size={17} weight="duotone"/>
-      : it.to === "/my-learning"
-        ? <GraduationCap size={17} weight="duotone"/>
-        : <ListChecks size={17} weight="duotone"/>,
-  }));
-
   const toggleNavLayout = () => {
     const next = navLayout === "sidebar" ? "top" : "sidebar";
     try { localStorage.setItem(NAV_LAYOUT_KEY, next); } catch { /* ignore */ }
@@ -212,6 +204,16 @@ export default function Shell() {
   const useSidebar = navLayout === "sidebar";
 
   const [notifyingTherapist, setNotifyingTherapist] = useState(null);
+  const notifRef = useRef(null);
+  useEffect(() => {
+    if (!showNotif) return;
+    const onDoc = (e) => {
+      if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotif(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [showNotif]);
+
   const markAllRead = async () => { await api.post("/notifications/read-all"); loadNotifs(); };
   const notifyTherapistFromAlert = async (nid, e) => {
     e?.stopPropagation();
@@ -271,14 +273,10 @@ export default function Shell() {
           <div className="flex-1 overflow-y-auto px-1">
             <SidebarNav
               homeLink={{ ...homeLink, icon: <House size={17} weight="duotone"/> }}
-              standaloneItems={standaloneItems}
-              clientWorkItems={clientWorkItems}
               clinicalItems={clinicalItems}
-              peopleItems={peopleItems}
-              personalItems={personalNavItems}
-              financeItems={financeItems}
+              clientItems={clientItems}
+              employeeItems={employeeItems}
               adminItems={adminTools}
-              therapistOnly={therapistOnly}
               loc={loc}
               onItemHover={warmRoute}
               collapsed={sidebarCollapsed}
@@ -344,51 +342,13 @@ export default function Shell() {
                   {l.icon}<span>{l.label}</span>
                 </NavLink>
               ))}
-              {standaloneItems.map(l => (
-                <NavLink key={l.to} to={l.to} data-testid={l.testid}
-                         onMouseEnter={() => warmRoute(l.to)}
-                         className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
-                  {l.icon}<span>{l.label}</span>
-                </NavLink>
-              ))}
-              {therapistOnly ? (
-                <>
-                  {clientWorkItems.map(l => (
-                    <NavLink key={l.to} to={l.to} data-testid={l.testid}
-                             onMouseEnter={() => warmRoute(l.to)}
-                             className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
-                      {l.icon}<span>{l.label}</span>
-                    </NavLink>
-                  ))}
-                  {clinicalItems.map(l => (
-                    <NavLink key={l.to} to={l.to} data-testid={l.testid}
-                             onMouseEnter={() => warmRoute(l.to)}
-                             className={({isActive}) => `nav-link ${isActive ? "active" : ""}`}>
-                      {l.icon}<span>{l.label}</span>
-                    </NavLink>
-                  ))}
-                </>
-              ) : (
-                <>
-                  <NavDropdown testid="nav-clients" label="Clients" icon={<UsersThree size={18} weight="duotone"/>}
-                               items={clientWorkItems} loc={loc} onItemHover={warmRoute}/>
-                  {clinicalItems.length > 0 && (
-                    <NavDropdown testid="nav-clinical" label="Clinical" icon={<Hourglass size={18} weight="duotone"/>}
-                                 items={clinicalItems} loc={loc} onItemHover={warmRoute}/>
-                  )}
-                </>
-              )}
-              {peopleItems.length > 0 && (
-                <NavDropdown testid="nav-people" label="People" icon={<UsersThree size={18} weight="duotone"/>}
-                             items={peopleItems} loc={loc} onItemHover={warmRoute}/>
-              )}
-              {financeItems.length > 0 && (
-                <NavDropdown testid="nav-finance" label="Finance" icon={<Receipt size={18} weight="duotone"/>}
-                             items={financeItems} loc={loc} onItemHover={warmRoute}/>
-              )}
-              {myPortalItems.length > 0 && (
-                <NavDropdown testid="nav-my-portal" label="Personal" icon={<UserCircle size={18} weight="duotone"/>}
-                             items={myPortalItems} loc={loc} onItemHover={warmRoute}/>
+              <NavDropdown testid="nav-clinical" label="Clinical" icon={<ClipboardText size={18} weight="duotone"/>}
+                           items={clinicalItems} loc={loc} onItemHover={warmRoute}/>
+              <NavDropdown testid="nav-client" label="Client" icon={<UsersThree size={18} weight="duotone"/>}
+                           items={clientItems} loc={loc} onItemHover={warmRoute}/>
+              {employeeItems.length > 0 && (
+                <NavDropdown testid="nav-employee" label="Employee" icon={<UserList size={18} weight="duotone"/>}
+                             items={employeeItems} loc={loc} onItemHover={warmRoute}/>
               )}
               {adminTools.length > 0 && (
                 <NavDropdown testid="nav-admin-tools" label="Administration" icon={<Gear size={18} weight="duotone"/>}
@@ -410,59 +370,94 @@ export default function Shell() {
             </button>
 
             {/* Notifications */}
-            <div className="relative">
-              <button data-testid="notif-bell" onClick={() => setShowNotif(s => !s)}
-                      className="relative w-10 h-10 rounded-xl bg-[#F0E9D8] hover:bg-[#E5EBE1] flex items-center justify-center transition active:scale-95">
-                <Bell size={20} weight="duotone" color="#606E52"/>
-                {unread > 0 && <span className="absolute -top-1 -right-1 bg-[#C97B5C] text-white text-[10px] font-bold rounded-full min-w-[20px] h-5 flex items-center justify-center px-1">{unread}</span>}
+            <div className="relative" ref={notifRef}>
+              <button
+                type="button"
+                data-testid="notif-bell"
+                onClick={() => setShowNotif((s) => !s)}
+                className={`notif-bell-btn${showNotif ? " is-open" : ""}`}
+                aria-expanded={showNotif}
+                aria-haspopup="true"
+              >
+                <Bell size={20} weight="duotone" className="notif-bell-icon" />
+                {unread > 0 && (
+                  <span className="notif-bell-badge">{unread > 99 ? "99+" : unread}</span>
+                )}
               </button>
               {showNotif && (
-                <div className="absolute right-0 mt-2 w-96 max-w-[calc(100vw-2rem)] card p-0 z-50">
-                  <div className="flex items-center justify-between p-3 border-b border-[#E2DDD4]">
-                    <div className="font-bold">Notifications</div>
-                    {unread > 0 && <button onClick={markAllRead} className="text-xs hover:underline" style={{color: "#7A8A6A"}}>Mark all read</button>}
+                <div className="notif-panel" role="dialog" aria-label="Notifications">
+                  <div className="notif-panel-head">
+                    <div className="font-bold text-sm" style={{ color: "var(--brand-dark)" }}>Notifications</div>
+                    {unread > 0 && (
+                      <button type="button" onClick={markAllRead} className="notif-panel-mark-read">
+                        Mark all read
+                      </button>
+                    )}
                   </div>
-                  <div className="max-h-[28rem] overflow-y-auto">
-                    {notifs.length === 0 && <div className="p-8 text-center text-sm" style={{color: "#8B9E7A"}}>No notifications yet</div>}
-                    {notifs.map(n => (
-                      <button
-                        key={n.id}
-                        type="button"
-                        onClick={() => openNotification(n)}
-                        className={`w-full text-left p-3 border-b border-[#F0EDE9] text-sm transition hover:bg-[#F7F3EB] ${!n.read ? "bg-[#E5EBE1]/40" : ""}`}
-                      >
-                        <div className="font-bold" style={{color: "#2C3625"}}>{n.title}</div>
-                        {n.actor_name && (
-                          <div className="text-[10px] font-semibold mt-0.5" style={{color: "#7A8A6A"}}>From {n.actor_name}</div>
-                        )}
-                        <div className="text-xs mt-0.5" style={{color: "#5C6853"}}>{n.message}</div>
-                        <div className="text-[10px] mt-1" style={{color: "#8B9E7A"}}>{new Date(n.created_at).toLocaleString('en-US')}</div>
-                        {n.type === "unprepared_session" && n.therapist_id && (portalAdmin || walaaOps || clientLead) && (
+                  <div className="notif-panel-list">
+                    {notifs.length === 0 && (
+                      <div className="notif-panel-empty">
+                        <Bell size={28} weight="duotone" className="notif-panel-empty-icon" />
+                        <p>No notifications yet</p>
+                      </div>
+                    )}
+                    {notifs.map((n) => {
+                      const meta = notificationMeta(n.type);
+                      const MetaIcon = meta.Icon;
+                      return (
+                        <div
+                          key={n.id}
+                          className={`notif-item${!n.read ? " is-unread" : ""}`}
+                        >
                           <button
                             type="button"
-                            onClick={(e) => notifyTherapistFromAlert(n.id, e)}
-                            disabled={notifyingTherapist === n.id || !!n.therapist_notified_at}
-                            className="btn btn-outline text-[10px] mt-2 py-1 px-2"
+                            className="notif-item-main"
+                            onClick={() => openNotification(n)}
                           >
-                            {n.therapist_notified_at ? "Therapist notified" : notifyingTherapist === n.id ? "Sending…" : "Notify therapist"}
+                            <span className="notif-item-icon" style={{ background: meta.bg, color: meta.color }}>
+                              <MetaIcon size={18} weight="duotone" />
+                            </span>
+                            <span className="notif-item-body">
+                              <span className="notif-item-title">{n.title}</span>
+                              {n.actor_name && (
+                                <span className="notif-item-actor">From {n.actor_name}</span>
+                              )}
+                              <span className="notif-item-message">{n.message}</span>
+                              <span className="notif-item-time">
+                                {new Date(n.created_at).toLocaleString("en-US")}
+                              </span>
+                            </span>
                           </button>
-                        )}
-                        {n.requires_ack && !n.acknowledged && (
-                          <span
-                            role="button"
-                            tabIndex={0}
-                            onClick={(e) => { e.stopPropagation(); acknowledge(n.id); }}
-                            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); acknowledge(n.id); } }}
-                            className="btn btn-outline text-[10px] mt-2 py-1 px-2 inline-block"
-                          >
-                            ✓ Received & Read
-                          </span>
-                        )}
-                        {n.acknowledged && (
-                          <div className="text-[10px] mt-1 font-bold" style={{color: "#3D4F35"}}>✓ Acknowledged</div>
-                        )}
-                      </button>
-                    ))}
+                          {(n.type === "unprepared_session" && n.therapist_id && (portalAdmin || walaaOps || clientLead))
+                            || (n.requires_ack && !n.acknowledged) ? (
+                            <div className="notif-item-actions">
+                              {n.type === "unprepared_session" && n.therapist_id && (portalAdmin || walaaOps || clientLead) && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => notifyTherapistFromAlert(n.id, e)}
+                                  disabled={notifyingTherapist === n.id || !!n.therapist_notified_at}
+                                  className="btn btn-outline text-[10px] py-1 px-2"
+                                >
+                                  {n.therapist_notified_at ? "Therapist notified" : notifyingTherapist === n.id ? "Sending…" : "Notify therapist"}
+                                </button>
+                              )}
+                              {n.requires_ack && !n.acknowledged && (
+                                <button
+                                  type="button"
+                                  onClick={() => acknowledge(n.id)}
+                                  className="btn btn-outline text-[10px] py-1 px-2"
+                                >
+                                  Received & Read
+                                </button>
+                              )}
+                            </div>
+                          ) : null}
+                          {n.acknowledged && (
+                            <div className="notif-item-acked">Acknowledged</div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -511,14 +506,10 @@ export default function Shell() {
             <div className="p-2">
               <SidebarNav
                 homeLink={{ ...homeLink, icon: <House size={17} weight="duotone"/> }}
-                standaloneItems={standaloneItems}
-                clientWorkItems={clientWorkItems}
                 clinicalItems={clinicalItems}
-                peopleItems={peopleItems}
-                personalItems={personalNavItems}
-                financeItems={financeItems}
+                clientItems={clientItems}
+                employeeItems={employeeItems}
                 adminItems={adminTools}
-                therapistOnly={therapistOnly}
                 loc={loc}
                 onItemHover={warmRoute}
               />
@@ -566,6 +557,7 @@ function NavDropdown({ testid, label, icon, items, loc, onItemHover }) {
                      style={{ display: "flex" }}
                      onMouseEnter={() => onItemHover?.(it.to)}
                      onClick={() => setOpen(false)}>
+              {it.icon}
               <span>{it.label}</span>
             </NavLink>
           ))}

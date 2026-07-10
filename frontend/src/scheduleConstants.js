@@ -210,14 +210,12 @@ export function scheduleOwnBlockOnly(user) {
 /** Unified schedule legend — cell states + service codes + cancellations. */
 export const SCHEDULE_LEGEND_ITEMS = [
   { bg: "#FFFFFF", border: "#DDD8D0", label: "Available" },
-  { bg: "#FFF4C4", border: "#E8C572", label: "Therapist Cancel" },
-  { bg: "#FCE0E8", border: "#E8A4BD", label: "Client Cancel" },
-  { bg: "#D6E8F0", border: "#8BB8CC", label: "Leave" },
-  { bg: "#F5F7F2", border: "#D8E0D0", label: "Session" },
-  { bg: "#F1ECF7", border: "#C9B8DE", label: "Meeting" },
+  { bg: "#E8F2E4", border: "#C5D8BC", label: "Shift 1 (AM)" },
+  { bg: "#5C6B52", border: "#4A5842", label: "Shift 2 (PM)" },
   { bg: "#D8CFC0", border: "#A89880", label: "Supervision" },
-  { bg: "#FFEAE0", border: "#F0B89F", label: "AVC" },
-  { bg: "#FFF8D6", border: "#E6C96A", label: "Holiday" },
+  { bg: "#FCE0E8", border: "#E8A4BD", label: "Client cancel" },
+  { bg: "#FFF4C4", border: "#E8C572", label: "Therapist cancel" },
+  { bg: "#D6E8F0", border: "#8BB8CC", label: "Leave" },
   { bg: "#5C8A47", border: "#FFFFFF", label: "Prepared ✓", dot: true },
 ];
 

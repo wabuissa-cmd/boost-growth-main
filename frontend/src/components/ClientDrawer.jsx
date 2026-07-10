@@ -5,6 +5,7 @@ import { PackageStatusBadge } from "./PackageStatusBadge";
 import { useNavigate } from "react-router-dom";
 import { useAuth, hasOpsAccess } from "../auth";
 import { formatClientStatus } from "../attendanceUtils";
+import { formatSupervisorDisplayName } from "../clientDisplayUtils";
 
 export default function ClientDrawer({
   client,
@@ -62,7 +63,7 @@ export default function ClientDrawer({
 
           <div className="space-y-2 ui-text-sm" style={{ color: "#5C6853" }}>
             {client.parent_phone && <div>Phone · {client.parent_phone}</div>}
-            {client.supervisor && <div>Supervisor · {client.supervisor}</div>}
+            {client.supervisor && <div>Supervisor · {formatSupervisorDisplayName(client.supervisor)}</div>}
             {client.locations?.[0] && (
               <div className="flex gap-1.5">
                 <MapPin size={14} className="shrink-0 mt-0.5" style={{ color: "#8B9E7A" }} />
