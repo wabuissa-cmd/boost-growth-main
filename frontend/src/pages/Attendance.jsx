@@ -33,7 +33,7 @@ import LogSessionModal from "../components/LogSessionModal";
 import SsWeekStatusRow, { SsWeekLegend } from "../components/SsWeekStatusRow";
 import ExportColumnsModal, { buildInvoiceSheetColumns, EXPORT_COLUMN_DEFS, EXPORT_EXTRA_COLUMN_DEFS } from "../components/ExportColumnsModal";
 import InvoiceEditModal from "../components/InvoiceEditModal";
-import { effectivePaymentStatus, paymentStatusLabel } from "../billingUtils";
+import { effectivePaymentStatus, paymentStatusLabel, formatMoney } from "../billingUtils";
 import { getTherapistScheduleName } from "../scheduleConstants";
 import { cachedGet, peekCache } from "../dataCache";
 
@@ -335,14 +335,14 @@ export default function Attendance() {
 
   if (attendanceLoading && clients.length === 0 && !attendanceError) {
     return (
-      <div className="attendance-page" dir="ltr">
+      <div className="portal-page-shell attendance-page" dir="ltr">
         <div className="attendance-page-loading"><div className="spinner" /></div>
       </div>
     );
   }
 
   return (
-    <div className="attendance-page" dir="ltr">
+    <div className="portal-page-shell attendance-page" dir="ltr">
       <AttendancePageHeader
         subtitle="Log sessions, track package progress, and open invoice sheets"
         stats={showPrepStats ? [
@@ -1989,6 +1989,60 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
                     />
                   </div>
                 </>
+              )}
+            </FormSection>
+
+            <FormSection title="Payment">
+              <FormField label="Payment status">
+                <input
+                  className="modal-input"
+                  readOnly
+                  value={paymentStatusLabel(selectedPaymentStatus)}
+                />
+              </FormField>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <FormField label="Invoice total (SAR)">
+                  <input
+                    className="modal-input"
+                    readOnly
+                    value={selectedInvoice.amount != null ? formatMoney(selectedInvoice.amount) : "—"}
+                  />
+                </FormField>
+                <FormField label="Amount paid (SAR)">
+                  <input
+                    className="modal-input"
+                    readOnly
+                    value={selectedInvoice.amount_paid != null ? formatMoney(selectedInvoice.amount_paid) : "—"}
+                  />
+                </FormField>
+                <FormField label="Balance (SAR)">
+                  <input
+                    className="modal-input"
+                    readOnly
+                    value={(() => {
+                      const amount = parseFloat(selectedInvoice.amount);
+                      const paid = parseFloat(selectedInvoice.amount_paid);
+                      if (!Number.isFinite(amount)) return "—";
+                      const bal = Math.max(0, amount - (Number.isFinite(paid) ? paid : 0));
+                      return formatMoney(bal);
+                    })()}
+                  />
+                </FormField>
+              </div>
+              {selectedInvoice.installment_percent != null && (
+                <FormField label="Installment">
+                  <input className="modal-input" readOnly value={`${selectedInvoice.installment_percent}%`} />
+                </FormField>
+              )}
+              {selectedInvoice.next_payment_reminder_at && (
+                <FormField label="Next payment reminder">
+                  <input className="modal-input" readOnly value={fmtDateLocal(selectedInvoice.next_payment_reminder_at)} />
+                </FormField>
+              )}
+              {selectedInvoice.payment_notes && (
+                <FormField label="Payment notes">
+                  <textarea className="modal-input" rows={2} readOnly value={selectedInvoice.payment_notes} />
+                </FormField>
               )}
             </FormSection>
 

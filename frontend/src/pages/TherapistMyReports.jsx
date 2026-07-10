@@ -129,11 +129,12 @@ export default function TherapistMyReports() {
   ).length;
 
   return (
-    <div className="page-enter">
+    <div className="portal-page-shell page-enter">
       <PageBanner
         title="My Report"
         subtitle="Your caseload, alerts & hours by period"
       />
+      <section className="portal-content-panel portal-page-body">
       <div className="dash-stat-row mb-4">
         <DashboardStatCard value={mine.length} label="My clients" icon={<UsersThree size={20} weight="fill" />} />
         <DashboardStatCard variant="gold" value={alerts} label="Need attention" icon={<Warning size={20} weight="fill" />} />
@@ -141,7 +142,7 @@ export default function TherapistMyReports() {
         <DashboardStatCard variant="dark" value={`${Math.round(hoursInPeriod * 10) / 10}h`} label={`Hours (${PERIOD_TABS.find(t => t.id === period)?.label})`} icon={<Clock size={20} weight="fill" />} />
       </div>
 
-      <div className="card p-4 rounded-[20px] mb-4">
+      <div className="mb-4 p-4 rounded-[16px] border" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
         <div className="flex flex-wrap gap-2 mb-3">
           {PERIOD_TABS.map(t => (
             <button
@@ -206,6 +207,7 @@ export default function TherapistMyReports() {
           </table>
         </div>
       </div>
+      </section>
     </div>
   );
 }

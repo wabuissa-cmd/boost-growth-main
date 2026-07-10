@@ -7263,6 +7263,9 @@ async def billing_invoice_calendar(month: str = Query(..., description="YYYY-MM"
             "hours_used": round(used, 2),
             "hours_remaining": round(remaining, 2),
             "weekly_hours": round(weekly, 2) if weekly else None,
+            "amount": inv.get("amount"),
+            "amount_paid": inv.get("amount_paid"),
+            "payment_status": inv.get("payment_status"),
         })
 
     events.sort(key=lambda e: ((e.get("date") or ""), (e.get("client_name") or ""), (e.get("title") or "")))

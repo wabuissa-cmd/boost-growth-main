@@ -522,7 +522,7 @@ export default function TherapistRequests() {
   }
 
   return (
-    <div className="requests-page" dir="ltr">
+    <div className="portal-page-shell requests-page" dir="ltr">
       <RequestsPageHeader
         badge="MY REQUESTS"
         title="My Requests"

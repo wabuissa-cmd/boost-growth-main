@@ -52,14 +52,14 @@ export default function Directory() {
 
   if (loading && items.length === 0 && !pageError) {
     return (
-      <div className="page-enter directory-page" dir="ltr">
+      <div className="portal-page-shell page-enter directory-page" dir="ltr">
         <div className="directory-page-loading"><div className="spinner" /></div>
       </div>
     );
   }
 
   return (
-    <div className="page-enter directory-page" dir="ltr">
+    <div className="portal-page-shell page-enter directory-page" dir="ltr">
       <PortalPageHeader
         prefix="directory"
         badge="DIRECTORY"

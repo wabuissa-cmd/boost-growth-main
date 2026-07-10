@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import api from "../api";
 import { ModalBase, FormSection, FormField, ModalBtnPrimary, ModalBtnSecondary } from "./Modal";
 import { fmtDate } from "../attendanceUtils";
+import { formatMoney, paymentStatusLabel } from "../billingUtils";
 
 function isoMonth(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -60,6 +61,61 @@ function EventPill({ e, onEdit }) {
     >
       {label}
     </button>
+  );
+}
+
+function ForecastDetailModal({ event, onClose }) {
+  const balance = (() => {
+    const amount = parseFloat(event?.amount);
+    const paid = parseFloat(event?.amount_paid);
+    if (!Number.isFinite(amount)) return null;
+    return Math.max(0, amount - (Number.isFinite(paid) ? paid : 0));
+  })();
+
+  return (
+    <ModalBase
+      title={`${event?.client_name || "Client"} · ${event?.invoice_number || "Invoice"}`}
+      subtitle={`Forecast due ${fmtDate(event?.date)}`}
+      onClose={onClose}
+      size="sm"
+      elevated
+      footer={<ModalBtnSecondary type="button" onClick={onClose}>Close</ModalBtnSecondary>}
+    >
+      <FormSection title="Package">
+        <FormField label="Package size">
+          <input className="modal-input" readOnly value={event?.package_size != null ? `${event.package_size}h` : "—"} />
+        </FormField>
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Hours used">
+            <input className="modal-input" readOnly value={event?.hours_used != null ? `${Number(event.hours_used).toFixed(1)}h` : "—"} />
+          </FormField>
+          <FormField label="Hours remaining">
+            <input className="modal-input" readOnly value={event?.hours_remaining != null ? `${Number(event.hours_remaining).toFixed(1)}h` : "—"} />
+          </FormField>
+        </div>
+        {event?.weekly_hours != null && (
+          <FormField label="Est. weekly hours">
+            <input className="modal-input" readOnly value={`${Number(event.weekly_hours).toFixed(1)}h`} />
+          </FormField>
+        )}
+      </FormSection>
+      <FormSection title="Account">
+        <FormField label="Payment status">
+          <input className="modal-input" readOnly value={paymentStatusLabel(event?.payment_status)} />
+        </FormField>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <FormField label="Invoice total">
+            <input className="modal-input" readOnly value={formatMoney(event?.amount)} />
+          </FormField>
+          <FormField label="Paid">
+            <input className="modal-input" readOnly value={formatMoney(event?.amount_paid)} />
+          </FormField>
+          <FormField label="Balance">
+            <input className="modal-input" readOnly value={formatMoney(balance)} />
+          </FormField>
+        </div>
+      </FormSection>
+    </ModalBase>
   );
 }
 
@@ -140,7 +196,7 @@ function ManualModal({ initial, month, onClose, onSaved }) {
   );
 }
 
-export default function InvoiceCalendarTab() {
+export default function InvoiceCalendarTab({ embedded = false }) {
   const [month, setMonth] = useState(() => isoMonth(new Date()));
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -184,7 +240,7 @@ export default function InvoiceCalendarTab() {
   const dow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   return (
-    <div className="card p-4">
+    <div className={embedded ? "" : "portal-content-panel portal-page-body"}>
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <div>
           <div className="font-display text-lg font-semibold" style={{ color: "#2C3625" }}>Invoice Calendar</div>
@@ -258,6 +314,7 @@ export default function InvoiceCalendarTab() {
                         e={e}
                         onEdit={(ev) => {
                           if (ev.kind === "manual") setModal({ kind: "manual", initial: ev });
+                          else if (ev.kind === "forecast") setModal({ kind: "forecast", initial: ev });
                         }}
                       />
                     ))}
@@ -296,9 +353,13 @@ export default function InvoiceCalendarTab() {
                         <div className="text-xs mt-1" style={{ color: "#5C6853" }}>{e.notes}</div>
                       )}
                     </div>
-                    {e.kind === "manual" && (
+                    {e.kind === "manual" ? (
                       <button type="button" className="btn btn-secondary text-xs shrink-0" onClick={() => setModal({ kind: "manual", initial: e })}>
                         Edit
+                      </button>
+                    ) : (
+                      <button type="button" className="btn btn-secondary text-xs shrink-0" onClick={() => setModal({ kind: "forecast", initial: e })}>
+                        Details
                       </button>
                     )}
                   </div>
@@ -316,6 +377,9 @@ export default function InvoiceCalendarTab() {
           onClose={() => setModal(null)}
           onSaved={load}
         />
+      )}
+      {modal?.kind === "forecast" && (
+        <ForecastDetailModal event={modal.initial} onClose={() => setModal(null)} />
       )}
     </div>
   );

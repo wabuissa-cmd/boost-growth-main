@@ -136,7 +136,7 @@ export default function Resources() {
 
   if (loading && items.length === 0 && !pageError) {
     return (
-      <div className="page-enter resources-page" dir="ltr">
+      <div className="portal-page-shell page-enter resources-page" dir="ltr">
         <div className="resources-page-loading"><div className="spinner" /></div>
       </div>
     );
@@ -166,7 +166,7 @@ export default function Resources() {
   );
 
   return (
-    <div className="page-enter resources-page" dir="ltr">
+    <div className="portal-page-shell page-enter resources-page" dir="ltr">
       <PortalPageHeader
         prefix="resources"
         badge="RESOURCES"

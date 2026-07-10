@@ -416,7 +416,7 @@ export default function Purchases({ embedded = false }) {
   }, [reportSource]);
 
   return (
-    <div className="page-enter">
+    <div className="page-enter portal-page-shell">
       {!embedded && (
       <PageBanner
         title="Employees' Purchases"
@@ -446,6 +446,7 @@ export default function Purchases({ embedded = false }) {
       />
       )}
 
+      <section className="portal-content-panel portal-page-body">
       <div className="purchases-workspace">
         {pageTab === "purchases" && (
           <>
@@ -744,6 +745,7 @@ export default function Purchases({ embedded = false }) {
           </div>
         )}
       </div>
+      </section>
 
       {addOpen && (
         <ModalBase

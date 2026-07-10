@@ -53,7 +53,7 @@ export default function Reports({ embedded = false }) {
   ];
 
   return (
-    <div className="page-enter">
+    <div className="portal-page-shell page-enter">
       {!embedded && (
       <PageBanner
         title="Reports & Analytics"
@@ -74,6 +74,7 @@ export default function Reports({ embedded = false }) {
       />
       )}
 
+      <section className="portal-content-panel portal-page-body">
       <div className="reports-stat-grid stagger">
         {tiles.map(x => (
           <DashboardStatCard
@@ -170,6 +171,7 @@ export default function Reports({ embedded = false }) {
           </div>
         </CreativeSection>
       </div>
+      </section>
     </div>
   );
 }

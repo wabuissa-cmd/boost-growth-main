@@ -159,7 +159,7 @@ export default function Clients() {
 
   if (!pageReady && !items.length && !pageError) {
     return (
-      <div className="page-enter clients-page" dir="ltr">
+      <div className="portal-page-shell page-enter clients-page" dir="ltr">
         <div className="clients-page-loading"><div className="spinner" /></div>
       </div>
     );
@@ -198,7 +198,7 @@ export default function Clients() {
   );
 
   return (
-    <div className="page-enter clients-page" dir="ltr">
+    <div className="portal-page-shell page-enter clients-page" dir="ltr">
       <PortalPageHeader
         prefix="clients"
         badge="CLIENTS"

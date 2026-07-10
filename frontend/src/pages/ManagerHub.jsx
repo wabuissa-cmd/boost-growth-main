@@ -815,7 +815,7 @@ export default function ManagerHub() {
         : [{ label: "This year", n: hubStats.evaluations, color: "#2C3625" }];
 
   return (
-    <div className="page-enter manager-hub-page" dir="ltr">
+    <div className="portal-page-shell page-enter manager-hub-page" dir="ltr">
       <PortalPageHeader
         prefix="mgr-hub"
         badge="MANAGER HUB"

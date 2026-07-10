@@ -1906,7 +1906,7 @@ export default function Schedule() {
 
   if (scheduleLoading && therapists.length === 0 && !scheduleError) {
     return (
-      <div className="schedule-page" dir="ltr">
+      <div className="portal-page-shell schedule-page" dir="ltr">
         <div className="schedule-page-loading"><div className="spinner" /></div>
       </div>
     );
@@ -1918,7 +1918,7 @@ export default function Schedule() {
     : "Sessions grouped by therapist — tap any cell to log or edit";
 
   return (
-    <div className="schedule-page" dir="ltr">
+    <div className="portal-page-shell schedule-page" dir="ltr">
       <div className={`relative transition-all ${panelOpen && isAdmin ? "lg:mr-[420px]" : ""}`}>
       <SchedulePageHeader
         className="no-print"

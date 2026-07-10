@@ -2619,9 +2619,10 @@ textarea.modal-input {
 
 /* My Learning portfolio */
 .my-learning-page {
-    padding: 0 1.25rem 2rem;
-    max-width: 1200px;
-    margin: 0 auto;
+    padding: 0 0 2rem;
+    max-width: none;
+    margin: 0;
+    width: 100%;
 }
 .my-learning-top-bar {
     max-width: 720px;
@@ -2847,8 +2848,9 @@ textarea.modal-input {
 /* Manager Hub — therapist profiles (portal shell) */
 .mgr-profile-page {
     padding: 0 0 1.5rem;
-    max-width: 1200px;
-    margin: 0 auto;
+    max-width: none;
+    margin: 0;
+    width: 100%;
 }
 .mgr-profile-page-top-bar,
 .mgr-profile-page-badge,
@@ -3408,8 +3410,9 @@ textarea.modal-input {
 /* Manager Hub — evaluation calendar */
 .mgr-cal-page {
     padding: 0 0 1.5rem;
-    max-width: 1200px;
-    margin: 0 auto;
+    max-width: none;
+    margin: 0;
+    width: 100%;
 }
 .mgr-cal-page-top-bar {
     display: flex;
@@ -3741,9 +3744,10 @@ textarea.modal-input {
 
 /* Schedule page — My Learning shell pattern */
 .schedule-page {
-    padding: 0 1.5rem 2rem;
-    max-width: 1440px;
-    margin: 0 auto;
+    padding: 0 0 2rem;
+    max-width: none;
+    margin: 0;
+    width: 100%;
 }
 .schedule-page-loading {
     display: flex;
@@ -4060,9 +4064,10 @@ textarea.modal-input {
 
 /* Attendance page — My Learning shell pattern */
 .attendance-page {
-    padding: 0 1.25rem 2rem;
-    max-width: 1200px;
-    margin: 0 auto;
+    padding: 0 0 2rem;
+    max-width: none;
+    margin: 0;
+    width: 100%;
 }
 .attendance-page-loading {
     display: flex;
@@ -4233,9 +4238,10 @@ textarea.modal-input {
 
 /* Requests page — My Learning shell pattern */
 .requests-page {
-    padding: 0 1.25rem 2rem;
-    max-width: 1200px;
-    margin: 0 auto;
+    padding: 0 0 2rem;
+    max-width: none;
+    margin: 0;
+    width: 100%;
 }
 .requests-page-loading {
     display: flex;
@@ -4736,9 +4742,10 @@ textarea.modal-input {
 
 /* Home page — therapist sections */
 .home-page {
-    padding: 0 1.25rem 2rem;
-    max-width: 1200px;
-    margin: 0 auto;
+    padding: 0 0 2rem;
+    max-width: none;
+    margin: 0;
+    width: 100%;
 }
 .home-page-panel {
     padding: 1.15rem 1.25rem;
@@ -4783,7 +4790,7 @@ textarea.modal-input {
 @media (max-width: 900px) {
     .requests-page,
     .home-page {
-        padding: 0 0.85rem 1.5rem;
+        padding: 0 0 1.5rem;
     }
     .requests-page-hero-row {
         flex-direction: column;
@@ -4826,7 +4833,12 @@ textarea.modal-input {
     .attendance-page,
     .requests-page,
     .home-page,
-    .my-learning-page {
+    .my-learning-page,
+    .clients-page,
+    .directory-page,
+    .resources-page,
+    .manager-hub-page,
+    .portal-page-shell {
         padding-left: 0;
         padding-right: 0;
         max-width: 100%;
@@ -4977,14 +4989,17 @@ textarea.modal-input {
     }
 }
 
-/* Clients, Directory, Resources — portal page shell */
+/* Portal pages — one width; Shell provides outer max-width + horizontal padding */
+.portal-page-shell,
 .clients-page,
 .directory-page,
 .resources-page,
 .manager-hub-page {
-    padding: 0 1.25rem 2rem;
-    max-width: 1200px;
-    margin: 0 auto;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 0 0 2rem;
+    min-width: 0;
 }
 .clients-page-loading,
 .directory-page-loading,
@@ -5143,6 +5158,11 @@ textarea.modal-input {
     padding: 1.15rem 1.25rem;
     margin-bottom: 1rem;
 }
+.clients-page-panel.portal-content-panel,
+.directory-page-panel.portal-content-panel,
+.resources-page-panel.portal-content-panel {
+    padding: 0;
+}
 .clients-page-panel-head,
 .directory-page-panel-head,
 .resources-page-panel-head {
@@ -5224,8 +5244,10 @@ textarea.modal-input {
 @media (max-width: 900px) {
     .clients-page,
     .directory-page,
-    .resources-page {
-        padding: 0 0.85rem 1.5rem;
+    .resources-page,
+    .manager-hub-page,
+    .portal-page-shell {
+        padding: 0 0 1.5rem;
     }
     .clients-page-hero-row,
     .directory-page-hero-row,

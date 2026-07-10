@@ -437,7 +437,7 @@ export default function WaitingPage({ mode }) {
       : "After intake, awaiting placement";
 
   return (
-    <div className="page-enter">
+    <div className="page-enter portal-page-shell">
       {canManage && (
         <div className="waiting-actions-bar flex justify-end mb-2 relative">
           {adminBadge}
@@ -524,6 +524,7 @@ export default function WaitingPage({ mode }) {
         </div>
       )}
 
+      <section className="portal-content-panel portal-page-body">
       <div className="waiting-filter-toolbar mb-3" ref={filtersRef}>
         <button
           type="button"
@@ -809,6 +810,7 @@ export default function WaitingPage({ mode }) {
           )}
         </aside>
       </div>
+      </section>
 
       {edit && (
         <ModalBase

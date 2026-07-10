@@ -375,7 +375,7 @@ export default function Billing() {
   );
 
   return (
-    <div>
+    <div className="portal-page-shell">
       <PageBanner
         title="Billing & Payments"
         subtitle="Payment alerts first · then browse clients & invoices"
@@ -394,8 +394,11 @@ export default function Billing() {
       />
 
       {activeTab === "calendar" ? (
-        <InvoiceCalendarTab />
+        <section className="portal-content-panel portal-page-body">
+          <InvoiceCalendarTab embedded />
+        </section>
       ) : (
+        <section className="portal-content-panel portal-page-body">
         <>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4 p-3 rounded-xl border" style={{ background: "var(--bg-surface)", borderColor: "var(--border-default)" }}>
         <p className="ui-caption m-0 flex-1 min-w-[200px]">
@@ -613,9 +616,18 @@ export default function Billing() {
                     const row = clientInvoices.find(r => r.invoice_id === selectedInvoiceId);
                     if (!row) return null;
                     const st = paymentStatusStyle(row.payment_status);
+                    const isSchool = (row.service_type || "").toUpperCase() === "SS";
+                    const pkgLabel = row.package_size != null
+                      ? (isSchool ? `${row.package_size} weeks` : `${row.package_size}h`)
+                      : null;
+                    const balance = row.amount_remaining ?? (
+                      row.amount != null && row.amount_paid != null
+                        ? Math.max(0, row.amount - row.amount_paid)
+                        : null
+                    );
                     return (
                       <div className="card p-3 text-xs">
-                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                        <div className="flex flex-wrap items-center gap-2 mb-3">
                           <span className="font-bold">{row.invoice_number}</span>
                           <span className="pill text-[10px] font-bold px-2 py-0.5" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>
                             {paymentStatusLabel(row.payment_status)}
@@ -627,13 +639,30 @@ export default function Billing() {
                           }}>
                             {row.is_closed ? "Closed" : "Open"}
                           </span>
+                          <span style={{ color: "#8B9E7A" }}>{formatServiceTypeDisplay(row.service_type) || row.service_type}</span>
                         </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                          <div className="p-2.5 rounded-xl border" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+                            <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>INVOICE TOTAL</div>
+                            <div className="text-sm font-bold mt-0.5" style={{ color: "#2C3625" }}>{formatMoney(row.amount)}</div>
+                          </div>
+                          <div className="p-2.5 rounded-xl border" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+                            <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>PAID</div>
+                            <div className="text-sm font-bold mt-0.5" style={{ color: "#2C3625" }}>{formatMoney(row.amount_paid)}</div>
+                          </div>
+                          <div className="p-2.5 rounded-xl border" style={{ borderColor: (balance ?? 0) > 0 ? "#E8C4A8" : "#E2DDD4", background: (balance ?? 0) > 0 ? "#FDF8F3" : "#FAFAF7" }}>
+                            <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>BALANCE</div>
+                            <div className="text-sm font-bold mt-0.5" style={{ color: (balance ?? 0) > 0 ? "#8A3F27" : "#2C3625" }}>{formatMoney(balance)}</div>
+                          </div>
+                          <div className="p-2.5 rounded-xl border" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+                            <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>{isSchool ? "PACKAGE" : "HOURS PKG"}</div>
+                            <div className="text-sm font-bold mt-0.5" style={{ color: "#2C3625" }}>{pkgLabel || "—"}</div>
+                          </div>
+                        </div>
+
                         <div className="flex flex-wrap gap-x-4 gap-y-1" style={{ color: "#5C6853" }}>
-                          <span>{formatServiceTypeDisplay(row.service_type) || row.service_type}</span>
-                          {row.amount != null && <span>{formatMoney(row.amount)}</span>}
-                          {row.payment_status === "partial" && row.amount_remaining != null && (
-                            <span>{formatMoney(row.amount_remaining)} remaining</span>
-                          )}
+                          {row.start_date && <span>Start: {row.start_date}</span>}
                           {row.payment_status === "pending" && row.days_unpaid > 0 && (
                             <span className="font-bold" style={{ color: "#8A3F27" }}>{row.days_unpaid}d unpaid</span>
                           )}
@@ -641,6 +670,9 @@ export default function Billing() {
                             <span className="pill text-[10px] font-bold px-2 py-0.5" style={{ background: "#F0E9D8", color: "#5C6853", border: "1px solid #E2DDD4" }}>
                               Next: {(row.next_payment_reminder_at || "").slice(0, 10)}
                             </span>
+                          )}
+                          {row.payment_notes && (
+                            <span className="italic">Note: {row.payment_notes}</span>
                           )}
                         </div>
                         {canEditInvoice && (
@@ -671,6 +703,7 @@ export default function Billing() {
           </div>
         </div>
         </>
+        </section>
       )}
 
       {editRow && (

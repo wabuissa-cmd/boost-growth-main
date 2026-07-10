@@ -838,7 +838,7 @@ export default function Admin() {
     : "Not set";
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="portal-page-shell">
       <PageBanner
         title="Admin Panel"
         subtitle="Choose a section from the menu below"
@@ -849,7 +849,7 @@ export default function Admin() {
         )}
       />
 
-      {/* Health & Recovery — one-click tools */}
+      <section className="portal-content-panel portal-page-body">
       <AdminSection
         id="health"
         title="صحة البيانات والاستعادة"
@@ -1628,6 +1628,7 @@ export default function Admin() {
           <a href="https://app.brevo.com/senders/list" target="_blank" rel="noreferrer" className="btn btn-outline justify-start text-sm">📧 Brevo Senders</a>
         </div>
       </AdminSection>
+      </section>
 
       {/* Modals */}
       {edit && (

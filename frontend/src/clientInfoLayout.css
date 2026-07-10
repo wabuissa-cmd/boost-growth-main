@@ -3,6 +3,7 @@
 .ci-naturora { margin: 0; }
 
 .ci-canvas {
+  width: 100%;
   display: grid;
   grid-template-columns: minmax(280px, 340px) 1fr;
   border: 1px solid rgba(44, 54, 37, 0.1);
@@ -914,6 +915,7 @@
 
 /* Requests split — leave (wide) + general (sidebar) */
 .req-split {
+  width: 100%;
   display: grid;
   grid-template-columns: 1fr 300px;
   gap: 1rem;
@@ -935,10 +937,6 @@
 }
 
 .req-unified-window {
-  border: 1px solid #E2DDD4;
-  border-radius: 20px;
-  overflow: hidden;
-  background: #fff;
   min-height: 520px;
 }
 
@@ -1180,20 +1178,12 @@
 }
 
 .req-panel-left {
-  background: #fff;
-  border: 1px solid #E2DDD4;
-  border-radius: 20px;
-  overflow: hidden;
   min-height: 520px;
   display: flex;
   flex-direction: column;
 }
 
 .req-panel-sidebar {
-  background: #fff;
-  border: 1px solid #E2DDD4;
-  border-radius: 20px;
-  overflow: hidden;
   min-height: 280px;
   display: flex;
   flex-direction: column;
@@ -1208,10 +1198,6 @@
 }
 
 .req-panel-purchases {
-  background: #fff;
-  border: 1px solid #E2DDD4;
-  border-radius: 20px;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -1309,6 +1295,7 @@
 
 /* Employees' Purchases — main list left, filters right, scroll inside panels */
 .purchases-workspace {
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -1331,9 +1318,6 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  border: 1px solid #E2DDD4;
-  border-radius: 16px;
-  background: #fff;
   overflow: hidden;
 }
 
@@ -1369,9 +1353,6 @@
   max-height: 100%;
   overflow-y: auto;
   overscroll-behavior: contain;
-  border: 1px solid #E2DDD4;
-  border-radius: 16px;
-  background: #fff;
 }
 
 .purchases-sidebar-section {

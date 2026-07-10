@@ -24,17 +24,17 @@ export default function PerformanceMeetings() {
 
   if (loading) {
     return (
-      <div className="page-enter">
-        <div className="card p-12 text-center"><div className="spinner mx-auto"/></div>
+      <div className="portal-page-shell page-enter">
+        <div className="portal-content-panel portal-page-body p-12 text-center"><div className="spinner mx-auto"/></div>
       </div>
     );
   }
 
   if (!data) {
     return (
-      <div className="page-enter">
+      <div className="portal-page-shell page-enter">
         <PageBanner title="Performance & Meetings" subtitle="Manager check-ins and evaluations"/>
-        <div className="card p-8 text-center text-sm" style={{ color: "#8B9E7A" }}>Could not load your performance record.</div>
+        <section className="portal-content-panel portal-page-body p-8 text-center text-sm" style={{ color: "#8B9E7A" }}>Could not load your performance record.</section>
       </div>
     );
   }
@@ -47,26 +47,27 @@ export default function PerformanceMeetings() {
   const evalUrl = (evalId) => `${API}/hr/therapist/${tid}/evaluations/${evalId}/file`;
 
   return (
-    <div className="page-enter">
+    <div className="portal-page-shell page-enter">
       <PageBanner
         title="Performance & Meetings"
         subtitle="Performance & Meetings · manager check-ins and evaluations"
       />
 
+      <section className="portal-content-panel portal-page-body">
       <div className="grid sm:grid-cols-3 gap-3 mb-4">
         {[
           { label: "Contract start", val: data.contract_start?.slice(0, 10) || "—" },
           { label: "Trial period end", val: data.probation_end?.slice(0, 10) || "—" },
           { label: "Annual contract end", val: data.annual_contract_end?.slice(0, 10) || "—" },
         ].map(x => (
-          <div key={x.label} className="card p-4 rounded-[16px] text-center">
+          <div key={x.label} className="p-4 rounded-[16px] text-center border" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
             <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#8B9E7A" }}>{x.label}</div>
             <div className="font-bold text-sm" style={{ color: "#2C3625" }}>{x.val}</div>
           </div>
         ))}
       </div>
 
-      <div className="card p-4 rounded-[20px] mb-4">
+      <div className="mb-4">
         <div className="flex items-center gap-2 mb-3">
           <UsersThree size={20} weight="duotone" style={{ color: "#7A8A6A" }}/>
           <h3 className="font-bold m-0 text-base" style={{ color: "#2C3625" }}>Manager meetings</h3>
@@ -89,7 +90,7 @@ export default function PerformanceMeetings() {
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
-        <div className="card p-4 rounded-[20px]">
+        <div className="p-4 rounded-[16px] border" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
           <div className="flex items-center gap-2 mb-3">
             <FileText size={20} weight="duotone" style={{ color: "#7A8A6A" }}/>
             <h3 className="font-bold m-0 text-base" style={{ color: "#2C3625" }}>Trial period evaluations</h3>
@@ -110,7 +111,7 @@ export default function PerformanceMeetings() {
           )}
         </div>
 
-        <div className="card p-4 rounded-[20px]">
+        <div className="p-4 rounded-[16px] border" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
           <div className="flex items-center gap-2 mb-3">
             <FileText size={20} weight="duotone" style={{ color: "#C28E6A" }}/>
             <h3 className="font-bold m-0 text-base" style={{ color: "#2C3625" }}>Annual evaluations</h3>
@@ -131,6 +132,7 @@ export default function PerformanceMeetings() {
           )}
         </div>
       </div>
+      </section>
     </div>
   );
 }
