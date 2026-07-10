@@ -111,7 +111,7 @@ function WaitingNameTicker({ items }) {
     <div className="waiting-name-ticker" aria-label={`All ${items.length} names in queue`}>
       <div className="waiting-name-ticker-label">
         <span className="font-bold text-xs" style={{ color: "var(--brand-dark)" }}>{items.length} names</span>
-        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>scrolls horizontally</span>
+        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>marquee</span>
       </div>
       <div className="waiting-name-ticker-viewport">
         <div className="waiting-name-ticker-track" style={{ animationDuration: `${duration}s` }}>
@@ -474,6 +474,26 @@ export default function WaitingPage({ mode }) {
               <button type="button" className="btn btn-primary text-[10px] px-2 py-1 min-h-0" onClick={saveLastUpdated} disabled={savingDate}>
                 {savingDate ? "Saving…" : "Save"}
               </button>
+              <button
+                type="button"
+                className="btn btn-outline text-[10px] px-2 py-1 min-h-0"
+                onClick={async () => {
+                  setDateDraft("");
+                  setSavingDate(true);
+                  try {
+                    const { data } = await api.put("/intake/meta", { last_updated: null });
+                    setListMeta(data);
+                    setEditingDate(false);
+                  } catch (e) {
+                    alert(e.response?.data?.detail || e.message);
+                  } finally {
+                    setSavingDate(false);
+                  }
+                }}
+                disabled={savingDate}
+              >
+                Leave blank
+              </button>
               <button type="button" className="btn btn-secondary text-[10px] px-2 py-1 min-h-0" onClick={() => setEditingDate(false)}>Cancel</button>
             </>
           ) : (
@@ -619,6 +639,10 @@ export default function WaitingPage({ mode }) {
             </p>
           </div>
 
+          {displayed.length > 0 && (
+            <WaitingNameTicker items={displayed} />
+          )}
+
           {displayed.length === 0 ? (
             <div className="p-12 text-center text-sm m-3 rounded-xl border border-dashed" style={{ color: "var(--text-muted)", borderColor: "var(--border-light)" }}>
               No records in this queue
@@ -721,7 +745,6 @@ export default function WaitingPage({ mode }) {
                 </table>
               </div>
             </div>
-            <WaitingNameTicker items={displayed} />
             </>
           )}
         </section>

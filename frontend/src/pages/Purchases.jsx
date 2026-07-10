@@ -9,7 +9,7 @@ import {
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
 import { getTherapistScheduleName } from "../scheduleConstants";
-import { yearMonthTabs, formatMonthValue, purchaseMonthKey, resolvePurchaseYear, currentYearMonth, purchaseMonthsFromJune } from "../monthTabs";
+import { yearMonthTabs, formatMonthValue, purchaseMonthKey, resolvePurchaseYear } from "../monthTabs";
 import { canAccessPurchases, canManagePurchaseStatus, canSupervisorReviewPurchases, canManagerFinalizePurchases, isJenan, isWalaaOps, showAdminNav, showSystemAdmin, useAuth } from "../auth";
 import "../clientInfoLayout.css";
 
@@ -81,7 +81,7 @@ export default function Purchases({ embedded = false }) {
   const [form, setForm] = useState(emptyPurchaseForm);
   const [submitting, setSubmitting] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
-  const [filterMonth, setFilterMonth] = useState(() => currentYearMonth());
+  const [filterMonth, setFilterMonth] = useState("");
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
   const [filterTherapist, setFilterTherapist] = useState("");
@@ -341,7 +341,20 @@ export default function Purchases({ embedded = false }) {
   };
 
   const purchaseYear = useMemo(() => resolvePurchaseYear(allItems), [allItems]);
-  const monthTabs = useMemo(() => purchaseMonthsFromJune(purchaseYear), [purchaseYear]);
+  const monthTabs = useMemo(() => yearMonthTabs(purchaseYear), [purchaseYear]);
+
+  const shiftMonth = (delta) => {
+    const tabs = monthTabs;
+    if (!tabs.length) return;
+    if (!filterMonth) {
+      setFilterMonth(tabs[Math.max(0, tabs.length - 1)].value);
+      return;
+    }
+    const idx = tabs.findIndex((m) => m.value === filterMonth);
+    if (idx < 0) return;
+    const next = tabs[idx + delta];
+    if (next) setFilterMonth(next.value);
+  };
   const selected = useMemo(
     () => items.find(p => p.id === selectedId) || pendingQueue.find(p => p.id === selectedId) || null,
     [items, pendingQueue, selectedId]
@@ -488,9 +501,13 @@ export default function Purchases({ embedded = false }) {
                       {displayedItems.length} shown · {totals.sum.toLocaleString()} SR
                     </div>
                   </div>
-                  {filterMonth && (
+                  {filterMonth ? (
                     <span className="pill text-[10px] bg-[#E5EBE1]" style={{ color: "#3D4F35" }}>
                       {formatMonthValue(filterMonth)}
+                    </span>
+                  ) : (
+                    <span className="pill text-[10px] bg-[#FAFAF7]" style={{ color: "#5C6853" }}>
+                      All months
                     </span>
                   )}
                 </div>
@@ -553,8 +570,24 @@ export default function Purchases({ embedded = false }) {
 
               <aside className="purchases-sidebar">
                 <div className="purchases-sidebar-section">
-                  <div className="text-[10px] font-bold tracking-wider mb-1.5" style={{ color: "#8B9E7A" }}>MONTH</div>
+                  <div className="flex items-center justify-between gap-1 mb-1.5">
+                    <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>MONTH</div>
+                    {filterMonth && (
+                      <div className="flex items-center gap-0.5">
+                        <button type="button" className="purchases-month-nav" onClick={() => shiftMonth(-1)} aria-label="Previous month">‹</button>
+                        <button type="button" className="purchases-month-nav" onClick={() => shiftMonth(1)} aria-label="Next month">›</button>
+                      </div>
+                    )}
+                  </div>
                   <div className="purchases-month-grid">
+                    <button
+                      type="button"
+                      className={`purchases-month-btn purchases-month-btn--all${!filterMonth ? " is-active" : ""}`}
+                      onClick={() => setFilterMonth("")}
+                    >
+                      <div className="font-bold">All</div>
+                      <div style={{ color: "#8B9E7A" }}>{allItems.length}</div>
+                    </button>
                     {monthTabs.map((m) => {
                       const count = allItems.filter((p) => purchaseMonthKey(p) === m.value).length;
                       return (
@@ -565,7 +598,7 @@ export default function Purchases({ embedded = false }) {
                           onClick={() => setFilterMonth(m.value)}
                         >
                           <div className="font-bold">{m.short}</div>
-                          <div style={{ color: "#8B9E7A" }}>{count}</div>
+                          <div style={{ color: "#8B9E7A" }}>{count > 0 ? count : "—"}</div>
                         </button>
                       );
                     })}

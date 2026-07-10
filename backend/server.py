@@ -18272,11 +18272,10 @@ async def _run_startup():
             logger.warning(f"Purge mistaken clients 082-084 skipped: {e}")
 
         try:
-            purged_purchases = await _purge_staff_purchases_before_month()
-            if purged_purchases.get("deleted"):
-                logger.info(f"Purged pre-June purchases: {purged_purchases.get('deleted')}")
+            purged_purchases = {"deleted": 0, "skipped": True}
+            # Do not purge historical purchase months on boot — ops can manage data via sheet sync.
         except Exception as e:
-            logger.warning(f"Purge pre-June purchases skipped: {e}")
+            logger.warning(f"Purchase purge check skipped: {e}")
 
         try:
             portal_upd = await _ensure_sunday_portal_update()

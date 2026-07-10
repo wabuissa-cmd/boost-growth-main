@@ -5613,8 +5613,8 @@ textarea.modal-input {
 }
 
 .waiting-name-ticker {
-  margin: 0 0.75rem 0.75rem;
-  padding: 0.55rem 0.65rem;
+  margin: 0 0.75rem 0.5rem;
+  padding: 0.45rem 0.55rem;
   border-radius: 12px;
   border: 1px solid var(--border-light, #E8E0D2);
   background: linear-gradient(180deg, var(--bg-surface) 0%, var(--bg-warm) 100%);
@@ -5640,7 +5640,7 @@ textarea.modal-input {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.28rem;
   width: max-content;
   animation: waiting-name-marquee linear infinite;
 }
@@ -5676,14 +5676,14 @@ textarea.modal-input {
 .waiting-name-chip {
   display: inline-flex;
   align-items: center;
-  padding: 0.28rem 0.55rem;
+  padding: 0.2rem 0.45rem;
   border-radius: 999px;
   border: 1px solid #D4DEC8;
   background: #fff;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 600;
   color: #2C3625;
-  line-height: 1.25;
+  line-height: 1.2;
 }
 
 .waiting-name-chip.is-priority {
