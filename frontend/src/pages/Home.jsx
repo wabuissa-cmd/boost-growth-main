@@ -449,7 +449,7 @@ export default function Home() {
           )}
 
           {jenan && (
-            <section className="card home-page-panel mb-4" data-testid="jenan-request-updates">
+            <section className="card portal-content-panel home-page-panel mb-4" data-testid="jenan-request-updates">
               <div className="home-page-panel-head">
                 <ListChecks size={22} weight="duotone" className="shrink-0" />
                 <div className="min-w-0 flex-1">
@@ -496,7 +496,7 @@ export default function Home() {
             </div>
           )}
 
-          <section className="card home-page-panel mb-4">
+          <section className="card portal-content-panel home-page-panel mb-4">
             <div className="home-page-panel-head">
               <CheckCircle size={22} weight="duotone" className="shrink-0" />
               <div>
@@ -514,7 +514,7 @@ export default function Home() {
 
           <div className="grid lg:grid-cols-[1fr_260px] gap-4 mb-4">
             <PlatformUpdates items={updates} canPost={false} onPosted={loadUpdates} therapistMode />
-            <section className="card home-page-panel p-0 overflow-hidden">
+            <section className="card portal-content-panel home-page-panel p-0 overflow-hidden">
               <div className="home-page-panel-head px-3 pt-3 sm:px-4">
                 <CalendarBlank size={22} weight="duotone" className="shrink-0" />
                 <div>
@@ -543,7 +543,7 @@ export default function Home() {
 
       {!showOpsHome && (
         <div className="grid md:grid-cols-2 gap-4 home-page-grid">
-          <section className="card home-page-panel">
+          <section className="card portal-content-panel home-page-panel">
             <div className="home-page-panel-head">
               <ArrowRight size={22} weight="duotone" className="shrink-0" />
               <div>
@@ -562,7 +562,7 @@ export default function Home() {
               <ClipboardText size={18} weight="duotone"/> Log a session
             </Link>
           </section>
-          <section className="card home-page-panel relative overflow-hidden" data-testid="daily-quote">
+          <section className="card portal-content-panel home-page-panel relative overflow-hidden" data-testid="daily-quote">
             <div className="absolute -top-3 -right-3 opacity-10"><Plant size={130} weight="duotone"/></div>
             <div className="home-page-panel-head relative">
               <Plant size={22} weight="duotone" className="shrink-0" />

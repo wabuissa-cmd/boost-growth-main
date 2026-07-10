@@ -82,7 +82,7 @@ const SESSION_CELL_STYLE = { background: "#F5F7F2", borderColor: "#D8E0D0", colo
 /** Legacy shift band styles — kept for imports; all map to neutral session tint. */
 export const SHIFT_SESSION_STYLES = {
   1: { background: "#E8F2E4", borderColor: "#C5D8BC", color: "#2C3625" },
-  2: { background: "#5C6B52", borderColor: "#4A5842", color: "#FFFFFF" },
+  2: { background: "#C5D8BC", borderColor: "#A8C49A", color: "#2C3625" },
   3: { background: "#A8B89A", borderColor: "#8A9A7A", color: "#2C3625" },
 };
 

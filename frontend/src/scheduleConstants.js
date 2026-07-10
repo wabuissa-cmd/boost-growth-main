@@ -211,7 +211,7 @@ export function scheduleOwnBlockOnly(user) {
 export const SCHEDULE_LEGEND_ITEMS = [
   { bg: "#FFFFFF", border: "#DDD8D0", label: "Available" },
   { bg: "#E8F2E4", border: "#C5D8BC", label: "Shift 1 (AM)" },
-  { bg: "#5C6B52", border: "#4A5842", label: "Shift 2 (PM)" },
+  { bg: "#C5D8BC", border: "#A8C49A", label: "Shift 2 (PM)" },
   { bg: "#D8CFC0", border: "#A89880", label: "Supervision" },
   { bg: "#FCE0E8", border: "#E8A4BD", label: "Client cancel" },
   { bg: "#FFF4C4", border: "#E8C572", label: "Therapist cancel" },

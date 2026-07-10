@@ -2730,12 +2730,9 @@ textarea.modal-input {
 }
 .my-learning-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     gap: 1rem;
     align-items: start;
-}
-@media (max-width: 900px) {
-    .my-learning-grid { grid-template-columns: 1fr; }
 }
 .my-learning-panel {
     padding: 1.15rem 1.25rem;

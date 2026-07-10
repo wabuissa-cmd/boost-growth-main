@@ -481,7 +481,7 @@ export default function Billing() {
         {attentionPanel}
       </div>
 
-        <div className="ci-naturora">
+        <div className="ci-naturora portal-content-panel-wrap">
           <div className="ci-canvas">
             {clientListPane}
             <div className="ci-pane-right">

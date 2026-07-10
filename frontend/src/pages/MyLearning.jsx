@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api, { formatErr, openAuthenticatedFile } from "../api";
+import PageBanner from "../components/PageBanner";
 import {
   GraduationCap, Certificate, ClipboardText, CheckCircle, XCircle,
   CaretDown, CaretUp, ArrowRight, Sparkle, LockKey,
@@ -15,15 +16,6 @@ function fmtDate(iso) {
   } catch {
     return iso;
   }
-}
-
-function StepPill({ n, label, active, done }) {
-  return (
-    <div className={`center-test-step${active ? " active" : ""}${done ? " done" : ""}`}>
-      <span className="center-test-step-num">{done ? "✓" : n}</span>
-      <span className="center-test-step-label">{label}</span>
-    </div>
-  );
 }
 
 function AttemptCard({ attempt }) {
@@ -88,6 +80,7 @@ export default function MyLearning() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState("assessments");
 
   const load = async () => {
     setError("");
@@ -126,32 +119,32 @@ export default function MyLearning() {
 
   return (
     <div className="page-enter my-learning-page" dir="ltr">
-      <div className="my-learning-top-bar">
-        <div className="my-learning-badge">TRAINING PORTFOLIO</div>
-      </div>
-
-      <div className="center-test-steps-bar my-learning-steps">
-        <StepPill n="1" label="Assessments" active done />
-        <div className="center-test-step-line" />
-        <StepPill n="2" label="My Certificates" active={false} done={certificates.length > 0} />
-      </div>
-
-      <div className="my-learning-hero card">
-        <div className="flex items-start gap-3">
-          <div className="my-learning-hero-icon">
-            <GraduationCap size={28} weight="duotone" />
-          </div>
-          <div>
-            <h1 className="my-learning-title">My Learning</h1>
-            <p className="my-learning-subtitle">
-              Your assessments, course progress, and certificates — all in one place.
-            </p>
-          </div>
-        </div>
-      </div>
+      <PageBanner
+        title="My Learning"
+        subtitle="Your assessments, course progress, and certificates — all in one place."
+        eyebrow="TRAINING PORTFOLIO"
+        badge={(
+          <span className="editorial-banner__icon-badge" aria-hidden>
+            <GraduationCap size={20} weight="duotone" />
+          </span>
+        )}
+        stats={[
+          { label: "Attempts", n: attempts.length, color: "#2C3625" },
+          { label: "Available", n: catalog.length, color: "#3D4F35" },
+          { label: "Certificates", n: certificates.length, color: "#6B5218" },
+        ]}
+        tabs={[
+          { id: "assessments", label: "Assessments", icon: <ClipboardText size={14} weight="duotone" />, testId: "my-learning-tab-assessments" },
+          { id: "certificates", label: "Certificates", icon: <Certificate size={14} weight="duotone" />, count: certificates.length, testId: "my-learning-tab-certificates" },
+        ]}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        className="editorial-banner--compact-mobile"
+      />
 
       <div className="my-learning-grid">
-        <section className="my-learning-panel card">
+        {activeTab === "assessments" ? (
+        <section className="portal-content-panel my-learning-panel card">
           <div className="my-learning-panel-head">
             <ClipboardText size={22} weight="duotone" />
             <div>
@@ -198,8 +191,8 @@ export default function MyLearning() {
             </div>
           )}
         </section>
-
-        <section className="my-learning-panel card">
+        ) : (
+        <section className="portal-content-panel my-learning-panel card">
           <div className="my-learning-panel-head">
             <Certificate size={22} weight="duotone" />
             <div>
@@ -240,6 +233,7 @@ export default function MyLearning() {
             </div>
           )}
         </section>
+        )}
       </div>
     </div>
   );

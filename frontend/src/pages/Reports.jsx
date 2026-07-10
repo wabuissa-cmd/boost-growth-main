@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../api";
 import { ChartBar, Users, Clock, CheckCircle, Warning, Trophy, TrendUp } from "@phosphor-icons/react";
+import PageBanner from "../components/PageBanner";
 import DashboardStatCard from "../components/DashboardStatCard";
 import CreativeSection from "../components/CreativeSection";
 import { DonutChart, BarChart } from "../components/SimpleChart";
@@ -54,15 +55,23 @@ export default function Reports({ embedded = false }) {
   return (
     <div className="page-enter">
       {!embedded && (
-      <header className="reports-hero">
-        <div className="reports-hero-inner">
-          <div className="flex items-center gap-2 text-xs font-bold tracking-widest uppercase opacity-70 mb-1">
-            <TrendUp size={14} weight="fill" /> Operations Dashboard
-          </div>
-          <h1 className="reports-hero-title">Reports & Analytics</h1>
-          <p className="reports-hero-sub">Real-time overview of your center&apos;s performance and package health</p>
-        </div>
-      </header>
+      <PageBanner
+        title="Reports & Analytics"
+        subtitle="Real-time overview of your center's performance and package health"
+        eyebrow="OPERATIONS DASHBOARD"
+        badge={(
+          <span className="editorial-banner__icon-badge" aria-hidden>
+            <TrendUp size={20} weight="duotone" />
+          </span>
+        )}
+        stats={[
+          { label: "Therapists", n: t.therapists, color: "#2C3625" },
+          { label: "Clients", n: t.clients, color: "#3D4F35" },
+          { label: "Hours", n: `${t.total_hours}h`, color: "#6B5218" },
+          { label: "Urgent", n: t.urgent_clients, color: "#8A3F27" },
+        ]}
+        className="editorial-banner--compact-mobile"
+      />
       )}
 
       <div className="reports-stat-grid stagger">
