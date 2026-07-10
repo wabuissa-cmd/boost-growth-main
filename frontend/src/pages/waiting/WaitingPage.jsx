@@ -1,8 +1,8 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "../../api";
 import { useAuth, canEditIntake } from "../../auth";
-import { Plus, Trash, PencilSimple, Star, Phone, MapPin, ArrowsClockwise, Buildings, ClipboardText, CaretDown, CalendarBlank } from "@phosphor-icons/react";
+import { Plus, Trash, PencilSimple, Star, Phone, MapPin, ArrowsClockwise, Buildings, ClipboardText, CaretDown, CalendarBlank, Funnel, X } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -116,6 +116,8 @@ export default function WaitingPage({ mode }) {
   const [filterService, setFilterService] = useState("");
   const [sortBy, setSortBy] = useState("name");
   const [filterDiagnosis, setFilterDiagnosis] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtersRef = useRef(null);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -139,6 +141,31 @@ export default function WaitingPage({ mode }) {
     }
   };
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const onDoc = (e) => {
+      if (filtersRef.current && !filtersRef.current.contains(e.target)) setFiltersOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [filtersOpen]);
+
+  const activeFilterCount = useMemo(() => {
+    let n = 0;
+    if (priorityOnly) n += 1;
+    if (filterService) n += 1;
+    if (filterDiagnosis) n += 1;
+    if (sortBy !== "name") n += 1;
+    return n;
+  }, [priorityOnly, filterService, filterDiagnosis, sortBy]);
+
+  const clearFilters = () => {
+    setPriorityOnly(false);
+    setFilterService("");
+    setFilterDiagnosis("");
+    setSortBy("name");
+  };
 
   useEffect(() => {
     if (isSchool) return;
@@ -406,7 +433,7 @@ export default function WaitingPage({ mode }) {
 
       {canManage && (
         <div className="flex flex-wrap items-center gap-2 mb-3 text-xs px-1">
-          <CalendarBlank size={14} style={{ color: "#8B9E7A" }} />
+          <CalendarBlank size={14} style={{ color: "var(--text-muted)" }} />
           <span style={{ color: "#5C6853" }}>Last updated:</span>
           {editingDate ? (
             <>
@@ -424,7 +451,7 @@ export default function WaitingPage({ mode }) {
           ) : (
             <>
               <strong style={{ color: "#2C3625" }}>{listMeta.last_updated || "—"}</strong>
-              {listMeta.updated_by && <span style={{ color: "#8B9E7A" }}>by {listMeta.updated_by}</span>}
+              {listMeta.updated_by && <span style={{ color: "var(--text-muted)" }}>by {listMeta.updated_by}</span>}
               <button
                 type="button"
                 className="text-[10px] underline"
@@ -449,92 +476,123 @@ export default function WaitingPage({ mode }) {
         </div>
       )}
 
-      <div className="waiting-filter-bar editorial-pill-row mb-3">
+      <div className="waiting-filter-toolbar mb-3" ref={filtersRef}>
         <button
           type="button"
-          className={`editorial-pill${priorityOnly ? " is-active" : ""}`}
-          onClick={() => setPriorityOnly(v => !v)}
+          className={`waiting-filter-trigger${filtersOpen ? " is-open" : ""}${activeFilterCount ? " has-active" : ""}`}
+          onClick={() => setFiltersOpen((v) => !v)}
+          aria-expanded={filtersOpen}
+          aria-haspopup="dialog"
         >
-          <Star size={14} weight={priorityOnly ? "fill" : "regular"} /> Priority only
+          <Funnel size={16} weight={activeFilterCount ? "fill" : "regular"} />
+          <span>Filters</span>
+          {activeFilterCount > 0 && <span className="waiting-filter-badge">{activeFilterCount}</span>}
         </button>
-        <button
-          type="button"
-          className={`editorial-pill${filterService === "HS" ? " is-active" : ""}`}
-          onClick={() => setFilterService(v => v === "HS" ? "" : "HS")}
-        >
-          HS
-        </button>
-        <button
-          type="button"
-          className={`editorial-pill${filterService === "SS" ? " is-active" : ""}`}
-          onClick={() => setFilterService(v => v === "SS" ? "" : "SS")}
-        >
-          SS
-        </button>
-        <button
-          type="button"
-          className={`editorial-pill${sortBy === "age_asc" ? " is-active" : ""}`}
-          onClick={() => setSortBy(v => v === "age_asc" ? "name" : "age_asc")}
-        >
-          Age ↑ youngest
-        </button>
-        <button
-          type="button"
-          className={`editorial-pill${sortBy === "age_desc" ? " is-active" : ""}`}
-          onClick={() => setSortBy(v => v === "age_desc" ? "name" : "age_desc")}
-        >
-          Age ↓ oldest
-        </button>
-        <button
-          type="button"
-          className={`editorial-pill${sortBy === "diagnosis" ? " is-active" : ""}`}
-          onClick={() => setSortBy(v => v === "diagnosis" ? "name" : "diagnosis")}
-        >
-          By diagnosis
-        </button>
-        {diagnosisOptions.length > 0 && (
-          <select
-            className="input text-xs py-1.5 h-8 max-w-[180px] rounded-full border-[#DED4C0]"
-            value={filterDiagnosis}
-            onChange={e => setFilterDiagnosis(e.target.value)}
-            aria-label="Filter by diagnosis"
-          >
-            <option value="">All diagnoses</option>
-            {diagnosisOptions.map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
-        )}
-        {(priorityOnly || filterService || filterDiagnosis || sortBy !== "name") && (
-          <button
-            type="button"
-            className="editorial-pill text-[11px]"
-            onClick={() => {
-              setPriorityOnly(false);
-              setFilterService("");
-              setFilterDiagnosis("");
-              setSortBy("name");
-            }}
-          >
-            Clear filters
+
+        {activeFilterCount > 0 && (
+          <button type="button" className="waiting-filter-clear" onClick={clearFilters}>
+            <X size={14} /> Clear
           </button>
+        )}
+
+        {filtersOpen && (
+          <div className="waiting-filter-panel" role="dialog" aria-label="Waiting list filters">
+            <div className="waiting-filter-panel-head">
+              <span className="font-semibold text-sm" style={{ color: "var(--brand-dark)" }}>Filter & sort</span>
+              <button type="button" className="waiting-filter-panel-close" onClick={() => setFiltersOpen(false)} aria-label="Close filters">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="waiting-filter-section">
+              <div className="waiting-filter-label">Priority</div>
+              <label className="waiting-filter-option">
+                <input type="checkbox" checked={priorityOnly} onChange={() => setPriorityOnly((v) => !v)} />
+                <Star size={14} weight={priorityOnly ? "fill" : "regular"} />
+                Priority cases only
+              </label>
+            </div>
+
+            <div className="waiting-filter-section">
+              <div className="waiting-filter-label">Service</div>
+              <div className="waiting-filter-chips">
+                {["", "HS", "SS"].map((svc) => (
+                  <button
+                    key={svc || "all"}
+                    type="button"
+                    className={`waiting-filter-chip${filterService === svc ? " is-active" : ""}`}
+                    onClick={() => setFilterService(svc)}
+                  >
+                    {svc || "All"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="waiting-filter-section">
+              <div className="waiting-filter-label">Sort by</div>
+              <div className="waiting-filter-chips">
+                {[
+                  { id: "name", label: "Name" },
+                  { id: "age_asc", label: "Age ↑" },
+                  { id: "age_desc", label: "Age ↓" },
+                  { id: "diagnosis", label: "Diagnosis" },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    className={`waiting-filter-chip${sortBy === opt.id ? " is-active" : ""}`}
+                    onClick={() => setSortBy(opt.id)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {diagnosisOptions.length > 0 && (
+              <div className="waiting-filter-section">
+                <div className="waiting-filter-label">Diagnosis</div>
+                <select
+                  className="input text-xs py-2 h-9 w-full rounded-lg"
+                  value={filterDiagnosis}
+                  onChange={(e) => setFilterDiagnosis(e.target.value)}
+                  aria-label="Filter by diagnosis"
+                >
+                  <option value="">All diagnoses</option>
+                  {diagnosisOptions.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="waiting-filter-panel-foot">
+              <button type="button" className="btn btn-outline text-xs py-1.5 px-3" onClick={clearFilters}>
+                Reset all
+              </button>
+              <button type="button" className="btn btn-primary text-xs py-1.5 px-3" onClick={() => setFiltersOpen(false)}>
+                Apply
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
       <div className="req-split waiting-page-split">
         <section className="req-panel-left waiting-panel-main">
           <div className="req-panel-head">
-            <h2 className="font-bold text-sm m-0 flex items-center gap-1.5" style={{ color: "#2C3625" }}>
+            <h2 className="font-bold text-sm m-0 flex items-center gap-1.5" style={{ color: "var(--brand-dark)" }}>
               {isSchool ? <Buildings size={16} weight="duotone" /> : <ClipboardText size={16} weight="duotone" />}
               {isSchool ? "School Waiting Queue" : tab === "pre" ? "Pre-Intake Queue" : "Post-Intake Queue"}
             </h2>
-            <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>
+            <p className="text-xs mt-1 mb-0" style={{ color: "var(--text-muted)" }}>
               {displayed.length} case{displayed.length !== 1 ? "s" : ""} · {queueLabel}
             </p>
           </div>
 
           {displayed.length === 0 ? (
-            <div className="p-12 text-center text-sm m-3 rounded-xl border border-dashed border-[#E2DDD4]" style={{ color: "#8B9E7A" }}>
+            <div className="p-12 text-center text-sm m-3 rounded-xl border border-dashed" style={{ color: "var(--text-muted)", borderColor: "var(--border-light)" }}>
               No records in this queue
             </div>
           ) : (
@@ -592,7 +650,7 @@ export default function WaitingPage({ mode }) {
                         <td>
                           <div className="font-bold">{i.child_name}</div>
                           {formatDOB(i) && (
-                            <div className="text-[10px]" style={{ color: "#8B9E7A" }}>
+                            <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>
                               DOB {formatDOB(i)}
                               {ageFromDOB(i) ? ` · ${ageFromDOB(i)} yrs` : ""}
                             </div>
@@ -640,7 +698,7 @@ export default function WaitingPage({ mode }) {
         <aside className="req-panel-sidebar">
           <div className="req-panel-head">
             <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Pipeline Overview</h2>
-            <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>Status breakdown for this queue</p>
+            <p className="text-xs mt-1 mb-0" style={{ color: "var(--text-muted)" }}>Status breakdown for this queue</p>
           </div>
           <div className="req-panel-list">
             {Object.entries(STATUS).map(([k, label]) => (
@@ -655,15 +713,15 @@ export default function WaitingPage({ mode }) {
             <h2 className="font-bold text-sm m-0 flex items-center gap-1" style={{ color: "#2C3625" }}>
               <Star size={14} weight="fill" style={{ color: "#D4A64A" }} /> Priority Cases
             </h2>
-            <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>Flagged for urgent follow-up</p>
+            <p className="text-xs mt-1 mb-0" style={{ color: "var(--text-muted)" }}>Flagged for urgent follow-up</p>
           </div>
           <div className="req-panel-list">
             {priorityList.length === 0 ? (
-              <div className="p-6 text-center text-xs" style={{ color: "#8B9E7A" }}>No priority cases</div>
+              <div className="p-6 text-center text-xs" style={{ color: "var(--text-muted)" }}>No priority cases</div>
             ) : priorityList.map(i => (
               <div key={i.id} className="req-item">
                 <div className="font-bold text-sm" style={{ color: "#2C3625" }}>{i.child_name}</div>
-                <div className="text-[10px] mt-0.5 flex flex-wrap gap-2" style={{ color: "#8B9E7A" }}>
+                <div className="text-[10px] mt-0.5 flex flex-wrap gap-2" style={{ color: "var(--text-muted)" }}>
                   <span>{i.service || "—"}</span>
                   {i.district && <span className="flex items-center gap-0.5"><MapPin size={10} /> {i.district}</span>}
                   {i.phone && <span className="flex items-center gap-0.5"><Phone size={10} /> {i.phone}</span>}
@@ -676,7 +734,7 @@ export default function WaitingPage({ mode }) {
             <>
               <div className="req-panel-head border-t border-[#E2DDD4]">
                 <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>Name check</h2>
-                <p className="text-xs mt-1 mb-0" style={{ color: "#8B9E7A" }}>
+                <p className="text-xs mt-1 mb-0" style={{ color: "var(--text-muted)" }}>
                   Duplicates: {nameIssues.duplicates.length} · Single names: {nameIssues.singleName.length}
                 </p>
               </div>
@@ -684,7 +742,7 @@ export default function WaitingPage({ mode }) {
                 {nameIssues.duplicates.slice(0, 5).map((group) => (
                   <div key={group[0].id} className="req-item">
                     <div className="font-semibold" style={{ color: "#B45309" }}>Duplicate: {group[0].child_name}</div>
-                    <div style={{ color: "#8B9E7A" }}>{group.length} records</div>
+                    <div style={{ color: "var(--text-muted)" }}>{group.length} records</div>
                   </div>
                 ))}
                 {nameIssues.singleName.slice(0, 5).map((i) => (
@@ -704,8 +762,8 @@ export default function WaitingPage({ mode }) {
             <span className="font-bold text-sm" style={{ color: "#2C3625" }}>
               All names ({displayed.length})
             </span>
-            <span className="text-xs" style={{ color: "#8B9E7A" }}>
-              Full list — no scroll bar · use filters above to narrow
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Full list — no scroll bar · use the filter icon above to narrow
             </span>
           </div>
           <div className="waiting-name-roster-grid">
@@ -736,7 +794,7 @@ export default function WaitingPage({ mode }) {
             </>
           }
         >
-          <p className="text-xs -mt-2 mb-2 font-semibold" style={{ color: "#8B9E7A" }}>
+          <p className="text-xs -mt-2 mb-2 font-semibold" style={{ color: "var(--text-muted)" }}>
             {edit.intake_type === "school" ? "School Waiting" : edit.intake_type === "pre" ? "Pre-Intake" : "Post-Intake"}
           </p>
 

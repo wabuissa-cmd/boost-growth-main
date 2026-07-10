@@ -376,6 +376,14 @@ export default function Clients() {
             <FormField label="Notes">
               <textarea className="modal-input" rows={2} value={edit.notes || ""} onChange={e => setEdit({ ...edit, notes: e.target.value })} />
             </FormField>
+            <FormField label="Family prep link" hint="Published Google Sheet link for parents to track session preparation (goals tab optional)">
+              <input
+                className="modal-input"
+                value={edit.family_prep_url || ""}
+                onChange={e => setEdit({ ...edit, family_prep_url: e.target.value })}
+                placeholder="https://docs.google.com/spreadsheets/d/…"
+              />
+            </FormField>
           </FormSection>
 
           <FormSection title="Team Assignment">
@@ -901,12 +909,12 @@ function CaseDetailsPanelModal({ client, therapists, user, isAdmin, onClose, onS
 
   const bodyContent = !editing ? (
     summaryLoading ? (
-      <div className="text-sm italic py-8 text-center" style={{ color: "#5C8A47" }}>Loading case summary…</div>
+      <div className="text-sm italic py-8 text-center" style={{ color: "var(--text-muted)" }}>Loading case summary…</div>
     ) : (
       <>
         {showRemindForm && canRemind && (
-          <div className="mb-4 p-3 rounded-xl border space-y-2" style={{ borderColor: "#C4D4B8", background: "#F3FAF0" }}>
-            <div className="text-xs font-semibold" style={{ color: "#3D5C44" }}>
+          <div className="mb-4 p-3 rounded-xl border space-y-2" style={{ borderColor: "var(--border-default)", background: "var(--bg-warm)" }}>
+            <div className="text-xs font-semibold" style={{ color: "var(--brand-dark)" }}>
               Message to main therapist (optional)
             </div>
             <textarea
@@ -935,7 +943,7 @@ function CaseDetailsPanelModal({ client, therapists, user, isAdmin, onClose, onS
     )
   ) : (
     <div className="space-y-3">
-      <p className="text-xs m-0" style={{ color: "#4A6B42" }}>
+      <p className="text-xs m-0" style={{ color: "var(--text-muted)" }}>
         Edit the case summary directly here. Use headings (e.g. <strong>Diagnosis:</strong>), bullet lines starting with <strong>•</strong>, or tab-separated columns for tables — same layout as the Excel sheet.
       </p>
       <textarea

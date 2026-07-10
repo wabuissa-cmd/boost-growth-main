@@ -1278,6 +1278,7 @@ class ClientIn(BaseModel):
     address: Optional[str] = None                     # general address (also via locations)
     intake_file_url: Optional[str] = None
     attendance_sheet_url: Optional[str] = None
+    family_prep_url: Optional[str] = None  # published link for parents to track session prep
     progress_reports_url: Optional[str] = None
     case_summary_url: Optional[str] = None
     drive_folder_id: Optional[str] = None
@@ -2405,6 +2406,9 @@ CLIENT_NAME_AR = {
     "076": "سلطان أبا الخيل",
     "081": "عبدالمحسن العبيكان",
 }
+
+# Mistaken test clients (another worker's children) — purged on startup, never re-seeded.
+REMOVED_CLIENT_FILE_NOS = frozenset({"082", "083", "084"})
 
 async def _resolve_therapist_id(key_to_id: dict, key: str) -> Optional[str]:
     return key_to_id.get(key)
@@ -17808,6 +17812,33 @@ CLIENT_ATTENDANCE_SHEETS = {
 OFFICIAL_CLIENT_FILE_NOS = frozenset(c["file_no"] for c in CLIENT_SEED)
 
 
+async def _purge_clients_by_file_nos(file_nos: set) -> dict:
+    """Hard-delete clients and all portal records (sessions, invoices, prep, etc.)."""
+    purged = []
+    for fn in file_nos:
+        client = await db.clients.find_one({"file_no": fn}, {"_id": 0, "id": 1, "name": 1, "record_files": 1})
+        if not client:
+            continue
+        cid = client["id"]
+        await db.sessions.delete_many({"client_id": cid})
+        await db.invoices.delete_many({"client_id": cid})
+        await db.progress_reports.delete_many({"client_id": cid})
+        await db.prep_history.delete_many({"client_id": cid})
+        await db.schedule_preparations.delete_many({"client_id": cid})
+        for rf in client.get("record_files") or []:
+            fid = (rf or {}).get("id")
+            if fid:
+                path = UPLOAD_DIR / f"client_{cid}_{fid}"
+                if path.exists():
+                    try:
+                        path.unlink()
+                    except OSError:
+                        pass
+        await db.clients.delete_one({"id": cid})
+        purged.append({"file_no": fn, "name": client.get("name"), "id": cid})
+    return {"purged": purged, "count": len(purged)}
+
+
 async def _sync_client_seed_fields(file_nos: set) -> dict:
     """Apply full CLIENT_SEED profile fields (locations, color, name_ar) for given file numbers."""
     therapists_map = {
@@ -18175,14 +18206,21 @@ async def _run_startup():
             logger.warning(f"Permission pending_attachment heal skipped: {e}")
 
         try:
+            purge = await _purge_clients_by_file_nos(REMOVED_CLIENT_FILE_NOS)
+            if purge.get("count"):
+                logger.info(f"Purged mistaken clients 082-084: {purge.get('purged')}")
+        except Exception as e:
+            logger.warning(f"Purge mistaken clients 082-084 skipped: {e}")
+
+        try:
             boot = await _seed_master_data_impl({"081", "076"})
             extra = await _sync_client_seed_fields({"081", "076"})
             n_new = len(boot.get("clients", {}).get("created") or [])
             n_up = len(boot.get("clients", {}).get("updated") or [])
             if n_new or n_up or extra.get("updated"):
-                logger.info(f"Master clients 081/076 sync: {n_new} created, {n_up} updated, seed fields {extra.get('updated')}")
+                logger.info(f"Master clients 076/081 sync: {n_new} created, {n_up} updated, seed fields {extra.get('updated')}")
         except Exception as e:
-            logger.warning(f"Master clients 081/076 sync skipped: {e}")
+            logger.warning(f"Master clients 076/081 sync skipped: {e}")
 
         try:
             n = await _backfill_schedule_cell_colors_for_week("2026-06-28")

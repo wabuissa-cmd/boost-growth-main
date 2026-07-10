@@ -41,11 +41,11 @@ function MiniPkgBar({ row }) {
   const ur = formatPkgUsedRemaining(row);
   return (
     <div className="ci-pkg-mini">
-      <span style={{ fontWeight: 700, color: "#3D5C44" }}>{row.service_type}</span>
+      <span style={{ fontWeight: 700, color: "var(--text-secondary)" }}>{row.service_type}</span>
       <div className="ci-pkg-mini-track">
         <div className="ci-pkg-mini-fill" style={{ width: `${pct}%` }} />
       </div>
-      <span style={{ fontSize: "0.65rem", color: "#4A6B42" }}>{ur.remaining} left</span>
+      <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>{ur.remaining} left</span>
     </div>
   );
 }
@@ -121,7 +121,7 @@ export default function ClientInfoLayout({
   const therapistName = selected
     ? getTherapistScheduleName(findTherapist(selected.main_therapist_id))
     : "";
-  const avatarBg = selected ? (getChildColor(selected.name) || selected.color || "#E8F3E4") : "#E8F3E4";
+  const avatarBg = selected ? (getChildColor(selected.name) || selected.color || "var(--bg-warm, #E9E2D6)") : "var(--bg-warm, #E9E2D6)";
   const canEditPhone = isAdmin || hasOps || Boolean(onPhoneSave);
   const [phoneDraft, setPhoneDraft] = useState("");
   const [phoneEditing, setPhoneEditing] = useState(false);
@@ -166,8 +166,8 @@ export default function ClientInfoLayout({
             {clients.map(c => {
               const dot = pkgAlertDot(pkgByClient[c.id]);
               const tName = getTherapistScheduleName(findTherapist(c.main_therapist_id));
-              const bg = getChildColor(c.name) || c.color || "#E8F3E4";
-              const avatarColor = getChildColor(c.name) || c.color ? readable(bg) : "#3D5C44";
+              const bg = getChildColor(c.name) || c.color || "var(--bg-warm, #E9E2D6)";
+              const avatarColor = getChildColor(c.name) || c.color ? readable(bg) : "var(--text-secondary)";
               const isSelected = selected?.id === c.id;
               return (
                 <button key={c.id} type="button" className={`ci-client-card${isSelected ? " selected" : ""}`} onClick={() => handleSelect(c.id)}>
@@ -213,7 +213,7 @@ export default function ClientInfoLayout({
                         <span className="flex items-center gap-1 flex-wrap">
                           <input
                             className="text-xs border rounded-lg px-2 py-1 min-w-[120px]"
-                            style={{ borderColor: "#8FBC8F" }}
+                            style={{ borderColor: "var(--border-default)" }}
                             value={phoneDraft}
                             onChange={e => setPhoneDraft(e.target.value)}
                             placeholder="05xxxxxxxx"
@@ -221,13 +221,13 @@ export default function ClientInfoLayout({
                           <button type="button" className="ci-btn-green-sm" onClick={savePhone} disabled={phoneSaving}>
                             {phoneSaving ? "…" : "Save"}
                           </button>
-                          <button type="button" className="text-[10px] underline" style={{ color: "#4A7C59" }} onClick={() => { setPhoneEditing(false); setPhoneDraft(selected.parent_phone || ""); }}>Cancel</button>
+                            <button type="button" className="text-[10px] underline" style={{ color: "var(--brand-sage)" }} onClick={() => { setPhoneEditing(false); setPhoneDraft(selected.parent_phone || ""); }}>Cancel</button>
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1">
                           {selected.parent_phone || "—"}
                           {canEditPhone && onPhoneSave && (
-                            <button type="button" className="text-[10px] underline" style={{ color: "#3D7A47" }} onClick={() => setPhoneEditing(true)}>
+                            <button type="button" className="text-[10px] underline" style={{ color: "var(--brand)" }} onClick={() => setPhoneEditing(true)}>
                               {selected.parent_phone ? "Edit" : "Add"}
                             </button>
                           )}
@@ -237,6 +237,20 @@ export default function ClientInfoLayout({
                     <dt>Birth date</dt><dd>{formatBirthDateDisplay(selected.birth_date)}</dd>
                     <dt>Age</dt><dd>{computeAgeFromBirthDate(selected.birth_date) || selected.age || "—"}</dd>
                     <dt>Supervisor</dt><dd>{selected.supervisor || "—"}</dd>
+                    {(selected.family_prep_url || (hasOps || isAdmin)) && (
+                      <>
+                        <dt>Family prep link</dt>
+                        <dd>
+                          {selected.family_prep_url ? (
+                            <a href={selected.family_prep_url} target="_blank" rel="noreferrer" className="underline text-xs break-all" style={{ color: "var(--brand)" }}>
+                              {selected.family_prep_url}
+                            </a>
+                          ) : (
+                            <span className="text-xs" style={{ color: "#9CA3AF" }}>Add in Edit client (published sheet for parents)</span>
+                          )}
+                        </dd>
+                      </>
+                    )}
                   </dl>
                   {isAdmin && selected.cardStatus && selected.cardStatus !== "ok" && statusMeta && (
                     <span className="inline-block mt-2 text-[10px] font-bold px-2 py-0.5 rounded-md" style={{ background: statusMeta.bg, color: statusMeta.color }}>{statusMeta.label}</span>
@@ -280,7 +294,7 @@ export default function ClientInfoLayout({
                     {selectedPkg.length > 0 && (
                       <div className="ci-pkg-box">
                         <div className="ci-panel-title">Packages</div>
-                        {track?.label && <div className="text-xs mt-1" style={{ color: "#4A6B42" }}>{track.label}</div>}
+                        {track?.label && <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>{track.label}</div>}
                         {selectedPkg.map(row => <MiniPkgBar key={row.service_type} row={row} />)}
                       </div>
                     )}
