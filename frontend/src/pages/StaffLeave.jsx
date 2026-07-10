@@ -58,7 +58,7 @@ export default function StaffLeave() {
   };
 
   return (
-    <div>
+    <div className="portal-page-shell page-enter">
       <PageBanner
         title="Staff & Leave"
         subtitle="Vacation · leave · materials & HR requests"
@@ -67,6 +67,7 @@ export default function StaffLeave() {
         onTabChange={setTab}
       />
 
+      <section className="portal-content-panel portal-page-body">
       {activeTab === "vacation" && showLeave && (
         <>
           {showLeaveManager && <LeaveBalance embedded staffScope />}
@@ -77,6 +78,7 @@ export default function StaffLeave() {
         <LeaveRequests embedded grievanceTypes={LEAVE_TAB_TYPES} />
       )}
       {activeTab === "other" && showStaff && <Requests embedded />}
+      </section>
     </div>
   );
 }

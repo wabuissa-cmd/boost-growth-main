@@ -25,7 +25,7 @@ export default function AttendancePageHeader({
       activeTab={activeTab}
       onTabChange={onTabChange}
       toolbar={toolbar}
-      className={`editorial-banner--attendance editorial-banner--compact-mobile ${className}`.trim()}
+      className={`editorial-banner--attendance ${className}`.trim()}
     />
   );
 }

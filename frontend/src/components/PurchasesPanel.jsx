@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api, { formatErr } from "../api";
 import { Plus, ShoppingBag, CheckCircle, Hourglass, Clock, Trash } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "./Modal";
+import { computePurchaseTotal, formatPurchaseTotal, parsePurchaseNumber, sumLineItems } from "../purchaseUtils";
 
 const STATUS_META = {
   pending: { label: "Pending", cls: "bg-[#FAF0D1] text-[#6B5218] border-[#E6C983]", icon: <Hourglass size={12} weight="duotone"/> },
@@ -41,6 +42,44 @@ function fmtDate(iso) {
   return d.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
 }
 
+function PurchaseTotalGrid({ purchase }) {
+  const total = computePurchaseTotal(purchase);
+  const lines = purchase?.line_items || [];
+  const linesSum = sumLineItems(lines);
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <div className="p-2.5 rounded-xl border col-span-2" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+        <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>TOTAL</div>
+        <div className="text-base font-bold" style={{ color: "#2C3625" }}>{formatPurchaseTotal(purchase)}</div>
+      </div>
+      {lines.length > 0 && (
+        <div className="p-2 rounded-xl border" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+          <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>LINE ITEMS</div>
+          <div className="text-sm font-bold" style={{ color: "#2C3625" }}>{lines.length}</div>
+        </div>
+      )}
+      {linesSum != null && lines.length > 1 && (
+        <div className="p-2 rounded-xl border" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+          <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>ITEMS SUM</div>
+          <div className="text-sm font-bold" style={{ color: "#2C3625" }}>{linesSum.toLocaleString()} SR</div>
+        </div>
+      )}
+      {purchase?.qty && (
+        <div className="p-2 rounded-xl border" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+          <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>QTY</div>
+          <div className="text-sm font-bold" style={{ color: "#2C3625" }}>{purchase.qty}</div>
+        </div>
+      )}
+      {total != null && purchase?.unit_price && (
+        <div className="p-2 rounded-xl border" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+          <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>UNIT</div>
+          <div className="text-sm font-bold" style={{ color: "#2C3625" }}>{purchase.unit_price} SR</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function PurchasesPanel({ compact = true, onSubmitted }) {
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -48,6 +87,7 @@ export default function PurchasesPanel({ compact = true, onSubmitted }) {
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
   const [expanded, setExpanded] = useState(true);
+  const [selectedId, setSelectedId] = useState(null);
 
   const load = async () => {
     const [p, c] = await Promise.all([
@@ -59,6 +99,17 @@ export default function PurchasesPanel({ compact = true, onSubmitted }) {
   };
 
   useEffect(() => { load(); }, []);
+
+  const selected = useMemo(
+    () => items.find(p => p.id === selectedId) || null,
+    [items, selectedId]
+  );
+
+  const formLiveTotal = useMemo(() => {
+    const manual = parsePurchaseNumber(form.total);
+    if (manual != null) return manual;
+    return sumLineItems(form.line_items);
+  }, [form.total, form.line_items]);
 
   const updateLineItem = (idx, patch) => {
     setForm(f => {
@@ -97,7 +148,7 @@ export default function PurchasesPanel({ compact = true, onSubmitted }) {
       }));
       const total = form.total
         ? parseFloat(String(form.total).replace(/[^\d.]/g, ""))
-        : linePayload.reduce((acc, li) => acc + (Number(li.total) || 0), 0) || null;
+        : linePayload.reduce((acc, li) => acc + (Number(li.total) || 0), 0) || formLiveTotal || null;
       const { data: created } = await api.post("/purchases", {
         item: primaryItem,
         category: form.category,
@@ -163,8 +214,14 @@ export default function PurchasesPanel({ compact = true, onSubmitted }) {
           )}
           {items.map(p => {
             const st = STATUS_META[p.status] || STATUS_META.pending;
+            const active = selectedId === p.id;
             return (
-              <div key={p.id} className="req-item req-item--compact">
+              <div
+                key={p.id}
+                className={`req-item req-item--compact${active ? " ring-1 ring-[#7A8A6A]" : ""}`}
+                onClick={() => setSelectedId(active ? null : p.id)}
+                style={{ cursor: "pointer" }}
+              >
                 <div className="flex items-center gap-1.5 flex-wrap mb-1">
                   <span className={`pill border text-[10px] ${st.cls}`}>{st.icon} {st.label}</span>
                   <span className="pill text-[10px] bg-[#F3EFE8]" style={{ color: "#606E52" }}>{p.category}</span>
@@ -183,14 +240,31 @@ export default function PurchasesPanel({ compact = true, onSubmitted }) {
                 )}
                 <div className="text-[10px] mt-1 flex flex-wrap gap-x-2" style={{ color: "#8B9E7A" }}>
                   {p.qty && <span>Qty {p.qty}</span>}
-                  {(p.total_display || p.total != null) && (
-                    <span>{p.total_display || `${p.total} SR`}</span>
-                  )}
+                  <span className="font-bold" style={{ color: "#6B5218" }}>{formatPurchaseTotal(p)}</span>
                   {p.purchase_date && <span>{fmtDate(p.purchase_date)}</span>}
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {expanded && selected && (
+        <div className="req-panel-detail mx-2 mb-2 p-3 rounded-xl border" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+          <div className="font-bold text-xs mb-2" style={{ color: "#2C3625" }}>{selected.item}</div>
+          <PurchaseTotalGrid purchase={selected} />
+          {(selected.line_items || []).length > 0 && (
+            <div className="mt-2 space-y-1">
+              {(selected.line_items || []).map((li, idx) => (
+                <div key={idx} className="flex justify-between text-[10px]" style={{ color: "#5C6853" }}>
+                  <span className="truncate pr-2">{li.item || `Item ${idx + 1}`}</span>
+                  <span className="font-semibold shrink-0" style={{ color: "#6B5218" }}>
+                    {li.total != null ? `${li.total} SR` : (li.unit_price ? `${li.qty || 1} × ${li.unit_price}` : "—")}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -255,6 +329,11 @@ export default function PurchasesPanel({ compact = true, onSubmitted }) {
               </FormField>
               <FormField label="Total (optional)">
                 <input className="modal-input" value={form.total} onChange={e => setForm({ ...form, total: e.target.value })} placeholder="Auto-sum from items" />
+                {formLiveTotal != null && !form.total && (
+                  <div className="text-[10px] mt-1 font-bold" style={{ color: "#6B5218" }}>
+                    Computed: {formLiveTotal.toLocaleString()} SR
+                  </div>
+                )}
               </FormField>
             </div>
             <FormField label="Notes">

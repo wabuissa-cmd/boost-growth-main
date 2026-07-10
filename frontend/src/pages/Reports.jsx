@@ -70,7 +70,7 @@ export default function Reports({ embedded = false }) {
           { label: "Hours", n: `${t.total_hours}h`, color: "#6B5218" },
           { label: "Urgent", n: t.urgent_clients, color: "#8A3F27" },
         ]}
-        className="editorial-banner--compact-mobile"
+        className=""
       />
       )}
 

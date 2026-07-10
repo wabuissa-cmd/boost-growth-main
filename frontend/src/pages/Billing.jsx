@@ -379,7 +379,7 @@ export default function Billing() {
       <PageBanner
         title="Billing & Payments"
         subtitle="Payment alerts first · then browse clients & invoices"
-        className="editorial-banner--compact-mobile"
+        className=""
         tabs={[
           { id: "overview", label: "Client Invoices", icon: <Receipt size={14} weight="duotone" /> },
           { id: "calendar", label: "Invoice Calendar", icon: <CalendarBlank size={14} weight="duotone" /> },

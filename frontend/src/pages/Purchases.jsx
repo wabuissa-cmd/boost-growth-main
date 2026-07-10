@@ -10,6 +10,7 @@ import {
 } from "../components/Modal";
 import { getTherapistScheduleName } from "../scheduleConstants";
 import { yearMonthTabs, formatMonthValue, purchaseMonthKey, resolvePurchaseYear } from "../monthTabs";
+import { computePurchaseTotal, formatPurchaseTotal } from "../purchaseUtils";
 import { canAccessPurchases, canManagePurchaseStatus, canSupervisorReviewPurchases, canManagerFinalizePurchases, isJenan, isWalaaOps, showAdminNav, showSystemAdmin, useAuth } from "../auth";
 import "../clientInfoLayout.css";
 
@@ -34,9 +35,7 @@ function fmtDate(iso) {
 }
 
 function fmtMoney(p) {
-  if (p.total_display) return p.total_display;
-  if (p.total != null) return `${p.total} SR`;
-  return "—";
+  return formatPurchaseTotal(p);
 }
 
 function parseNumberLike(v) {
@@ -187,7 +186,7 @@ export default function Purchases({ embedded = false }) {
   }, []);
 
   const totals = useMemo(() => {
-    const sum = items.reduce((acc, p) => acc + (parseFloat(p.total) || 0), 0);
+    const sum = items.reduce((acc, p) => acc + (computePurchaseTotal(p) || 0), 0);
     const byStatus = { pending: 0, approved: 0, reimbursed: 0 };
     items.forEach(p => { if (byStatus[p.status] != null) byStatus[p.status]++; });
     return { sum, byStatus, count: items.length };
@@ -381,7 +380,7 @@ export default function Purchases({ embedded = false }) {
       const itemKey = (p.item || "").trim();
       if (itemKey) itemCounts[itemKey] = (itemCounts[itemKey] || 0) + 1;
       const cat = p.category || "Uncategorized";
-      const amt = parseFloat(p.total) || 0;
+      const amt = computePurchaseTotal(p) || 0;
       sum += amt;
       categoryTotals[cat] = (categoryTotals[cat] || 0) + amt;
       const mk = purchaseMonthKey(p) || "—";
@@ -421,7 +420,7 @@ export default function Purchases({ embedded = false }) {
       <PageBanner
         title="Employees' Purchases"
         subtitle="Payment requests from therapists & supervisors · review & reimburse"
-        className="editorial-banner--compact-mobile"
+        className=""
         tabs={[
           { id: "purchases", label: "Purchases", icon: <ShoppingBag size={14} weight="duotone" /> },
           { id: "reports", label: "Reports", icon: <ChartBar size={14} weight="duotone" /> },
@@ -641,6 +640,49 @@ export default function Purchases({ embedded = false }) {
                       Clear
                     </button>
                   </div>
+                </div>
+
+                <div className="purchases-sidebar-section">
+                  <div className="text-[10px] font-bold tracking-wider mb-1.5" style={{ color: "#8B9E7A" }}>SELECTED</div>
+                  {!selected ? (
+                    <div className="text-[10px]" style={{ color: "#8B9E7A" }}>Click a purchase to view full amount & line items</div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="font-bold text-xs" style={{ color: "#2C3625" }}>{selected.item}</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="p-2.5 rounded-xl border col-span-2" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+                          <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>TOTAL</div>
+                          <div className="text-base font-bold" style={{ color: "#2C3625" }}>{fmtMoney(selected)}</div>
+                        </div>
+                        <div className="p-2 rounded-xl border" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+                          <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>STATUS</div>
+                          <div className="text-[10px] font-bold mt-0.5" style={{ color: "#5C6853" }}>
+                            {(STATUS_META[selected.status] || STATUS_META.pending).label}
+                          </div>
+                        </div>
+                        <div className="p-2 rounded-xl border" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+                          <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>DATE</div>
+                          <div className="text-[10px] font-bold mt-0.5" style={{ color: "#5C6853" }}>{fmtDate(selected.purchase_date)}</div>
+                        </div>
+                      </div>
+                      {(selected.line_items || []).length > 0 && (
+                        <div className="space-y-1 pt-1 border-t" style={{ borderColor: "#EDE9E3" }}>
+                          <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>LINE ITEMS</div>
+                          {(selected.line_items || []).map((li, idx) => (
+                            <div key={idx} className="flex justify-between text-[10px]" style={{ color: "#5C6853" }}>
+                              <span className="truncate pr-2">{li.item || `Item ${idx + 1}`}</span>
+                              <span className="font-semibold shrink-0" style={{ color: "#6B5218" }}>
+                                {li.total != null ? `${li.total} SR` : "—"}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {selected.description && selected.description !== "-" && (
+                        <p className="text-[10px] m-0" style={{ color: "#8B9E7A" }}>{selected.description}</p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="purchases-sidebar-section">

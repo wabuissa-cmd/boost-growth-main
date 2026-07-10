@@ -118,7 +118,7 @@ export default function MyLearning() {
   const takenTestIds = new Set(attempts.map((a) => a.test_id));
 
   return (
-    <div className="page-enter my-learning-page" dir="ltr">
+    <div className="page-enter portal-page-shell my-learning-page" dir="ltr">
       <PageBanner
         title="My Learning"
         subtitle="Your assessments, course progress, and certificates — all in one place."
@@ -139,7 +139,7 @@ export default function MyLearning() {
         ]}
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        className="editorial-banner--compact-mobile"
+        className=""
       />
 
       <div className="my-learning-grid">

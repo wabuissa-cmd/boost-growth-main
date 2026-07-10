@@ -95,7 +95,7 @@ export default function Leaves() {
   const myBalance = !isAdmin ? balances.find(b => b.therapist_id === user?.id) : null;
 
   return (
-    <div>
+    <div className="portal-page-shell page-enter">
       <PageBanner
         title={isAdmin ? "Leaves & Vacations" : "My Leaves"}
         subtitle={isAdmin ? "Track team vacations · approve requests · monitor balances" : "Your leave requests, balance, and approval status"}

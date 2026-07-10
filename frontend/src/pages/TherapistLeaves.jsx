@@ -12,7 +12,7 @@ export default function TherapistLeaves() {
   if (!isAdmin) return <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>Admin only</div>;
 
   return (
-    <div>
+    <div className="portal-page-shell page-enter">
       <PageBanner
         title="Therapist Leaves"
         subtitle="Annual leave balances & usage per therapist"

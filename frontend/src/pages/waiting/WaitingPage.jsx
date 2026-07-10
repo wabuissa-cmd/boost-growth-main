@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "../../api";
 import { useAuth, canEditIntake } from "../../auth";
-import { Plus, Trash, PencilSimple, Star, Phone, MapPin, ArrowsClockwise, Buildings, ClipboardText, CaretDown, CalendarBlank, Funnel, X } from "@phosphor-icons/react";
+import { Plus, Trash, PencilSimple, Star, Phone, MapPin, ArrowsClockwise, Buildings, ClipboardText, CaretDown, CalendarBlank, Funnel, X, Hourglass } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -111,7 +111,7 @@ function WaitingNameTicker({ items }) {
     <div className="waiting-name-ticker" aria-label={`All ${items.length} names in queue`}>
       <div className="waiting-name-ticker-label">
         <span className="font-bold text-xs" style={{ color: "var(--brand-dark)" }}>{items.length} names</span>
-        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>marquee</span>
+        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>scrolling</span>
       </div>
       <div className="waiting-name-ticker-viewport">
         <div className="waiting-name-ticker-track" style={{ animationDuration: `${duration}s` }}>
@@ -446,7 +446,12 @@ export default function WaitingPage({ mode }) {
       <PageBanner
         title={title}
         subtitle={subtitle}
-        className="editorial-banner--compact-mobile"
+        eyebrow="WAITING LIST"
+        badge={(
+          <span className="editorial-banner__icon-badge" aria-hidden>
+            <Hourglass size={20} weight="duotone" />
+          </span>
+        )}
         tabs={bannerTabs}
         activeTab={bannerActiveTab}
         onTabChange={handleBannerTab}

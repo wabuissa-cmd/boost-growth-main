@@ -291,8 +291,15 @@
     margin: 0 0.35rem 0.35rem;
     padding: 0.4rem 0.45rem;
   }
-  .editorial-banner--schedule-mobile .editorial-banner__eyebrow {
-    display: none;
+  .editorial-banner--portal.editorial-banner--schedule-mobile .editorial-banner__eyebrow {
+    display: block;
+  }
+  .editorial-banner--portal.editorial-banner--schedule-mobile .editorial-banner__stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(4rem, 1fr));
+  }
+  .editorial-banner--portal.editorial-banner--schedule-mobile .editorial-banner__subtitle {
+    display: block;
   }
   .editorial-banner--schedule-mobile .editorial-banner__head {
     flex-direction: row;
@@ -501,6 +508,55 @@
 .editorial-banner--attendance .editorial-banner__stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(4.5rem, 1fr));
+}
+
+/* Enlarged portal banner — default on all staff pages */
+.editorial-banner--portal .editorial-banner__title {
+  font-size: clamp(1.45rem, 2.5vw, 1.95rem);
+}
+
+.editorial-banner--portal .editorial-banner__head {
+  padding: 0.8rem 1.15rem 0.7rem;
+}
+
+.editorial-banner--portal .editorial-banner__nav {
+  padding: 0.6rem 1rem;
+}
+
+.editorial-banner--portal .editorial-pill {
+  padding: 0.42rem 0.95rem;
+  font-size: 0.76rem;
+}
+
+.editorial-banner--portal .editorial-banner__panel {
+  margin: 0 0.8rem 0.8rem;
+  padding: 0.7rem 0.9rem;
+}
+
+.editorial-banner--portal .editorial-stat {
+  padding: 0.42rem 0.7rem;
+  min-width: 5rem;
+}
+
+.editorial-banner--portal .editorial-stat__value {
+  font-size: 1.08rem;
+}
+
+@media (max-width: 768px) {
+  .editorial-banner--portal .editorial-banner__title {
+    font-size: 1.2rem;
+  }
+  .editorial-banner--portal .editorial-banner__subtitle {
+    display: block;
+    -webkit-line-clamp: 3;
+  }
+  .editorial-banner--portal .editorial-banner__stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(4rem, 1fr));
+  }
+  .editorial-banner--portal .editorial-banner__eyebrow {
+    display: block;
+  }
 }
 
 /* ── Unified portal page stack: banner + one content window ── */

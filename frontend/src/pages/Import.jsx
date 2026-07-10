@@ -261,7 +261,7 @@ export default function ImportPage() {
   };
 
   return (
-    <div>
+    <div className="portal-page-shell page-enter">
       <PageBanner
         title="Import Data"
         subtitle="Bulk-import clients, intake records, or historical schedules"

@@ -236,7 +236,7 @@ export default function SupervisionCaseload() {
           { label: "Active", n: counts.active ?? "—", color: "#3D5A40" },
           { label: "Inactive", n: counts.inactive ?? "—", color: "#6B7280" },
         ]}
-        className="editorial-banner--compact-mobile"
+        className=""
         toolbar={(
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative flex-1 min-w-[200px] max-w-md">

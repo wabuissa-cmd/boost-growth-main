@@ -212,7 +212,7 @@ export default function Clients() {
         activeTab={statusTab}
         onTabChange={setStatusTab}
         toolbar={clientsToolbar}
-        className="editorial-banner--clients-toolbar editorial-banner--clients-compact"
+        className="editorial-banner--clients-toolbar"
       />
 
       {pageError && (

@@ -54,7 +54,7 @@ export default function PageBanner({
   }
 
   return (
-    <section className={`editorial-banner${image ? " has-image" : ""} ${className}`.trim()}>
+    <section className={`editorial-banner editorial-banner--portal${image ? " has-image" : ""} ${className}`.trim()}>
       {image && (
         <>
           <div className="editorial-banner__bg" style={{ backgroundImage: `url(${image})` }} aria-hidden />
