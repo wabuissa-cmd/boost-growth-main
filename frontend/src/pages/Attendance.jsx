@@ -25,6 +25,7 @@ import {
   pickLatestOpenInvoice, computeSsTotals, ssSessionDayValue,
   resolveServiceTabState, hasOpenInvoice, countSsWeeksDone, nextWeekOverride,
   sessionEditableByUser, rowBgForSession,
+  dedupePrepHistoryRows,
 } from "../attendanceUtils";
 import { PackageAlertBanner } from "../components/PackageStatusBadge";
 import PreparationPrepLayout from "../components/PreparationPrepLayout";
@@ -617,12 +618,13 @@ export function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, 
 
   const prepOnlyRows = useMemo(() => {
     const linkedSessionIds = new Set(cycleSessions.map(s => s.id));
-    return (prepHistory || []).filter(p => {
+    const filtered = (prepHistory || []).filter(p => {
       if (p.session_id && linkedSessionIds.has(p.session_id)) return false;
       if (p.session_id) return false;
       const sameDaySession = cycleSessions.some(s => (s.session_date || "").slice(0, 10) === (p.session_date || "").slice(0, 10));
       return !sameDaySession;
     });
+    return dedupePrepHistoryRows(filtered);
   }, [prepHistory, cycleSessions]);
   const cycleAnchor = useMemo(
     () => (selectedInvoice ? resolveCycleAnchor(client, selectedInvoice, cycleSessions) : null),

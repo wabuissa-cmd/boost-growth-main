@@ -3141,6 +3141,100 @@ def _prep_history_key(therapist_id: str, client_id: str, session_date: str, time
     }
 
 
+def _prep_history_identity(therapist_id: str, client_id: str, session_date: str) -> dict:
+    """One prep log per therapist + client + calendar day (time_slot is not part of identity)."""
+    return {
+        "therapist_id": therapist_id,
+        "client_id": client_id,
+        "session_date": _session_date_iso(session_date) or (session_date or "")[:10],
+    }
+
+
+def _prep_history_richness_score(s: dict) -> int:
+    score = 0
+    if (s.get("time_slot") or "").strip():
+        score += 8
+    if (s.get("notes") or "").strip():
+        score += 6
+    if s.get("session_id"):
+        score += 5
+    if s.get("invoice_id"):
+        score += 4
+    if s.get("schedule_cell_id"):
+        score += 3
+    if s.get("internal_note"):
+        score += 2
+    return score
+
+
+async def _prep_history_siblings(therapist_id: str, client_id: str, session_date: str) -> List[dict]:
+    sd = _session_date_iso(session_date)
+    if not therapist_id or not client_id or not sd:
+        return []
+    return await db.prep_history.find(
+        {"therapist_id": therapist_id, "client_id": client_id, **_session_date_query(sd)},
+        {"_id": 0},
+    ).to_list(50)
+
+
+async def _dedupe_prep_history(client_id: Optional[str] = None, dry_run: bool = False) -> dict:
+    """Collapse duplicate prep_history rows (same therapist + client + day)."""
+    q: dict = {}
+    if client_id:
+        q["client_id"] = client_id
+    rows = await db.prep_history.find(q, {"_id": 0}).to_list(100000)
+    groups: dict = {}
+    for row in rows:
+        sd = _session_date_iso(row.get("session_date"))
+        if not sd:
+            continue
+        key = (row.get("therapist_id") or "", row.get("client_id") or "", sd)
+        groups.setdefault(key, []).append(row)
+
+    removed = 0
+    duplicate_groups = 0
+    samples = []
+    for key, group in groups.items():
+        if len(group) < 2:
+            continue
+        duplicate_groups += 1
+        winner = max(group, key=lambda s: (_prep_history_richness_score(s), s.get("prepared_at") or ""))
+        merged_slot = ""
+        for s in group:
+            slot = (s.get("time_slot") or "").strip()
+            if slot:
+                merged_slot = slot
+                break
+        if not dry_run:
+            patch = {"session_date": key[2]}
+            if merged_slot:
+                patch["time_slot"] = merged_slot
+            await db.prep_history.update_one({"id": winner["id"]}, {"$set": patch})
+        for loser in group:
+            if loser["id"] == winner["id"]:
+                continue
+            samples.append({
+                "client_id": key[1],
+                "therapist_id": key[0],
+                "date": key[2],
+                "kept": winner["id"],
+                "removed": loser["id"],
+            })
+            if not dry_run:
+                await db.prep_history.delete_one({"id": loser["id"]})
+            removed += 1
+
+    verb = "Would remove" if dry_run else "Removed"
+    return {
+        "ok": True,
+        "removed": removed,
+        "duplicate_groups": duplicate_groups,
+        "samples": samples[:40],
+        "dry_run": dry_run,
+        "message": f"{verb} {removed} duplicate prep row(s) across {duplicate_groups} therapist/day group(s).",
+    }
+
+
 async def _upsert_prep_history(
     *,
     therapist_id: str,
@@ -3157,21 +3251,35 @@ async def _upsert_prep_history(
     source: str = "schedule",
 ) -> dict:
     """Persistent preparation log — visible in Preparation history even without an invoice."""
-    session_date = (session_date or "")[:10]
-    q = _prep_history_key(therapist_id, client_id, session_date, time_slot)
+    session_date = _session_date_iso(session_date) or (session_date or "")[:10]
+    time_slot = (time_slot or "").strip()
     if not client_name:
         client = await db.clients.find_one({"id": client_id}, {"_id": 0, "name": 1})
         client_name = (client or {}).get("name") or ""
-    existing = await db.prep_history.find_one(q, {"_id": 0})
+    siblings = await _prep_history_siblings(therapist_id, client_id, session_date)
+    existing = None
+    if siblings:
+        existing = max(siblings, key=lambda s: (_prep_history_richness_score(s), s.get("prepared_at") or ""))
+    merged_slot = time_slot
+    if not merged_slot:
+        for s in siblings:
+            slot = (s.get("time_slot") or "").strip()
+            if slot:
+                merged_slot = slot
+                break
+    if not merged_slot and existing:
+        merged_slot = (existing.get("time_slot") or "").strip()
     therapist = await db.therapists.find_one({"id": therapist_id}, {"_id": 0, "name": 1, "key": 1})
     therapist_name = therapist_schedule_display_name(therapist) if therapist else ""
+    identity = _prep_history_identity(therapist_id, client_id, session_date)
     doc = {
-        **q,
+        **identity,
+        "time_slot": merged_slot,
         "client_name": client_name,
         "therapist_name": therapist_name,
         "prepared_by": prepared_by,
         "prepared_at": now_iso(),
-        "notes": notes or "",
+        "notes": notes or (existing or {}).get("notes") or "",
         "source": source,
     }
     if internal_note is not None:
@@ -3180,8 +3288,12 @@ async def _upsert_prep_history(
         doc["internal_note"] = existing["internal_note"]
     if schedule_cell_id:
         doc["schedule_cell_id"] = schedule_cell_id
+    elif existing and existing.get("schedule_cell_id"):
+        doc["schedule_cell_id"] = existing["schedule_cell_id"]
     if session_id:
         doc["session_id"] = session_id
+    elif existing and existing.get("session_id"):
+        doc["session_id"] = existing["session_id"]
     if invoice_id:
         doc["invoice_id"] = invoice_id
     elif existing and existing.get("invoice_id"):
@@ -3189,6 +3301,9 @@ async def _upsert_prep_history(
     if existing:
         await db.prep_history.update_one({"id": existing["id"]}, {"$set": doc})
         doc["id"] = existing["id"]
+        for s in siblings:
+            if s["id"] != existing["id"]:
+                await db.prep_history.delete_one({"id": s["id"]})
     else:
         doc["id"] = str(uuid.uuid4())
         await db.prep_history.insert_one(doc)
@@ -3233,25 +3348,17 @@ async def _sync_schedule_preparations_to_prep_history(client_id: Optional[str] =
         cid = rec.get("client_id")
         if not tid or not cid:
             continue
-        key = _prep_history_key(tid, cid, rec.get("session_date", ""), rec.get("time_slot"))
-        hit = await db.prep_history.find_one(key, {"_id": 0, "id": 1})
-        if hit:
-            continue
         client = await db.clients.find_one({"id": cid}, {"_id": 0, "name": 1})
-        doc = {
-            **key,
-            "id": str(uuid.uuid4()),
-            "client_name": (client or {}).get("name") or "",
-            "therapist_name": therapist_schedule_display_name(
-                await db.therapists.find_one({"id": tid}, {"_id": 0, "name": 1, "key": 1})
-            ),
-            "prepared_by": rec.get("prepared_by") or "",
-            "prepared_at": rec.get("prepared_at") or now_iso(),
-            "notes": "",
-            "source": "schedule",
-            "schedule_cell_id": rec.get("schedule_cell_id"),
-        }
-        await db.prep_history.insert_one(doc)
+        await _upsert_prep_history(
+            therapist_id=tid,
+            client_id=cid,
+            session_date=rec.get("session_date", ""),
+            prepared_by=rec.get("prepared_by") or "",
+            time_slot=rec.get("time_slot") or "",
+            client_name=(client or {}).get("name") or "",
+            schedule_cell_id=rec.get("schedule_cell_id"),
+            source="schedule",
+        )
 
 
 async def _upsert_schedule_preparation(
@@ -4701,6 +4808,7 @@ async def list_client_prep_history(cid: str, user=Depends(get_current_user)):
         if not await _therapist_assigned_to_client(uid, cid):
             raise HTTPException(status_code=403, detail="Forbidden")
     await _sync_schedule_preparations_to_prep_history(cid)
+    await _dedupe_prep_history(cid)
     items = await db.prep_history.find({"client_id": cid}, {"_id": 0}).sort(
         [("session_date", -1), ("prepared_at", -1)]
     ).to_list(500)
@@ -15659,6 +15767,12 @@ async def admin_dedupe_intake(_=Depends(admin_only)):
     removed = await _dedupe_intake_records()
     total = await db.intake.count_documents({})
     return {"ok": True, "removed": removed, "total": total, "message": f"Removed {removed} duplicate(s). {total} intake records remain."}
+
+
+@api.post("/admin/dedupe-prep-history")
+async def admin_dedupe_prep_history(dry_run: bool = False, _=Depends(admin_only)):
+    """Remove duplicate prep_history rows (same therapist + client + day)."""
+    return await _dedupe_prep_history(dry_run=dry_run)
 
 
 @api.post("/admin/dedupe-sessions")

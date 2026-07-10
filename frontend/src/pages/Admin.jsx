@@ -92,6 +92,8 @@ export default function Admin() {
   const [repairingSessions, setRepairingSessions] = useState(false);
   const [dedupeSessionsResult, setDedupeSessionsResult] = useState(null);
   const [dedupingSessions, setDedupingSessions] = useState(false);
+  const [dedupePrepResult, setDedupePrepResult] = useState(null);
+  const [dedupingPrep, setDedupingPrep] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
   const [storedBackups, setStoredBackups] = useState([]);
   const [backupMeta, setBackupMeta] = useState(null);
@@ -543,6 +545,21 @@ export default function Admin() {
       alert("Failed: " + (e.response?.data?.detail || e.message));
     } finally {
       setDedupingSessions(false);
+    }
+  };
+
+  const dedupePrepHistory = async () => {
+    if (!window.confirm("Remove duplicate preparation rows (same therapist + child + day)?")) return;
+    setDedupingPrep(true);
+    setDedupePrepResult(null);
+    try {
+      const { data } = await api.post("/admin/dedupe-prep-history");
+      setDedupePrepResult(data);
+      invalidateCache("/sessions");
+    } catch (e) {
+      alert("Failed: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setDedupingPrep(false);
     }
   };
 
@@ -1605,6 +1622,17 @@ export default function Admin() {
               {dedupeSessionsResult.samples?.length > 0 && (
                 <div className="mt-1 opacity-80">{dedupeSessionsResult.samples.length} sample(s) logged</div>
               )}
+            </div>
+          )}
+
+          <ToolRow title="Remove Duplicate Preparation Rows" desc="One prep log per therapist + child + day (fixes double rows with/without time).">
+            <button onClick={dedupePrepHistory} disabled={dedupingPrep} className="btn btn-secondary text-sm">
+              {dedupingPrep ? <span className="spinner" /> : "Dedupe Prep"}
+            </button>
+          </ToolRow>
+          {dedupePrepResult && (
+            <div className="text-xs p-2 rounded-lg mb-3" style={{ background: "#E5EBE1" }}>
+              {dedupePrepResult.message}
             </div>
           )}
 

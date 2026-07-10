@@ -274,6 +274,27 @@ export function computeHsInvoiceTotals(sessions, packageSize) {
   };
 }
 
+/** Keep one prep log per therapist + calendar day (prefer row with time slot). */
+export function dedupePrepHistoryRows(rows) {
+  const best = new Map();
+  for (const p of rows || []) {
+    const date = (p.session_date || "").slice(0, 10);
+    if (!date) continue;
+    const tid = p.therapist_id || "";
+    const key = `${date}|${tid}`;
+    const prev = best.get(key);
+    const score = (row) => {
+      let s = 0;
+      if ((row.time_slot || "").trim()) s += 8;
+      if ((row.notes || "").trim()) s += 4;
+      if (row.session_id) s += 3;
+      return s;
+    };
+    if (!prev || score(p) > score(prev)) best.set(key, p);
+  }
+  return [...best.values()].sort((a, b) => sessionDateSortKey(a).localeCompare(sessionDateSortKey(b)));
+}
+
 /** Score session row richness when collapsing same-day duplicates. */
 function sessionRichnessScore(s) {
   let score = 0;
