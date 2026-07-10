@@ -274,6 +274,34 @@ export function computeHsInvoiceTotals(sessions, packageSize) {
   };
 }
 
+/** Score session row richness when collapsing same-day duplicates. */
+function sessionRichnessScore(s) {
+  let score = 0;
+  if ((s?.note || "").trim()) score += 10;
+  if (s?.start_time) score += 5;
+  if (s?.end_time) score += 3;
+  if (s?.hours) score += 4;
+  if (s?.invoice_id) score += 5;
+  if (s?.therapist_ids?.length) score += Math.min(s.therapist_ids.length, 3);
+  return score;
+}
+
+/** Keep one session per invoice + calendar day (richest row wins). */
+export function dedupeSessionsByInvoiceDay(sessions) {
+  const best = new Map();
+  for (const s of sessions || []) {
+    const date = (s.session_date || "").slice(0, 10);
+    if (!date) continue;
+    const inv = s.invoice_id || "";
+    const key = `${date}|${inv}`;
+    const prev = best.get(key);
+    if (!prev || sessionRichnessScore(s) > sessionRichnessScore(prev)) {
+      best.set(key, s);
+    }
+  }
+  return sortSessionsByDateAsc([...best.values()]);
+}
+
 /** Keep only sessions belonging to a specific invoice (by id, source_invoice, or date window for orphans). */
 export function filterSessionsForInvoice(sessions, invoice, allInvoices = []) {
   if (!invoice) return [];
@@ -305,7 +333,7 @@ export function filterSessionsForInvoice(sessions, invoice, allInvoices = []) {
       }
     }
   }
-  return sortSessionsByDateAsc(out);
+  return dedupeSessionsByInvoiceDay(out);
 }
 
 /** Numeric key from invoice_number (e.g. INV0490 → 490). */

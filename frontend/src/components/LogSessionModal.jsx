@@ -136,7 +136,13 @@ export default function LogSessionModal({
       window.dispatchEvent(new CustomEvent("boost:prep-changed"));
       onSaved();
     } catch (err) {
-      alert(formatErr(err?.response?.data?.detail) || "Could not save session. Please try again.");
+      const status = err?.response?.status;
+      const detail = formatErr(err?.response?.data?.detail);
+      if (status === 409) {
+        alert(detail || "A session for this day already exists on this invoice. Open the invoice sheet and edit the existing row.");
+      } else {
+        alert(detail || "Could not save session. Please try again.");
+      }
     } finally {
       setSaving(false);
     }

@@ -7,6 +7,7 @@ import {
 } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
 import { getTherapistScheduleName } from "../scheduleConstants";
+import { invalidateCache } from "../dataCache";
 
 function AdminSection({ id, title, subtitle, icon, defaultOpen = false, badge, children }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -89,6 +90,8 @@ export default function Admin() {
   const [migratingUrls, setMigratingUrls] = useState(false);
   const [repairSessionsResult, setRepairSessionsResult] = useState(null);
   const [repairingSessions, setRepairingSessions] = useState(false);
+  const [dedupeSessionsResult, setDedupeSessionsResult] = useState(null);
+  const [dedupingSessions, setDedupingSessions] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
   const [storedBackups, setStoredBackups] = useState([]);
   const [backupMeta, setBackupMeta] = useState(null);
@@ -525,6 +528,21 @@ export default function Admin() {
       alert("Failed: " + (e.response?.data?.detail || e.message));
     } finally {
       setRepairingSessions(false);
+    }
+  };
+
+  const dedupeSessions = async () => {
+    if (!window.confirm("Remove duplicate sessions (same client + invoice + day)? Run repair links first if needed.")) return;
+    setDedupingSessions(true);
+    setDedupeSessionsResult(null);
+    try {
+      const { data } = await api.post("/admin/dedupe-sessions");
+      setDedupeSessionsResult(data);
+      invalidateCache("/sessions");
+    } catch (e) {
+      alert("Failed: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setDedupingSessions(false);
     }
   };
 
@@ -1573,6 +1591,20 @@ export default function Admin() {
           {repairSessionsResult && (
             <div className="text-xs p-2 rounded-lg mb-3" style={{ background: "#E5EBE1" }}>
               Linked: {repairSessionsResult.invoice_ids_linked ?? 0} · Fixed types: {repairSessionsResult.service_types_fixed ?? 0}
+            </div>
+          )}
+
+          <ToolRow title="Remove Duplicate Sessions" desc="One session per client + invoice + day. Run repair links first.">
+            <button onClick={dedupeSessions} disabled={dedupingSessions} className="btn btn-secondary text-sm">
+              {dedupingSessions ? <span className="spinner" /> : "Dedupe Sessions"}
+            </button>
+          </ToolRow>
+          {dedupeSessionsResult && (
+            <div className="text-xs p-2 rounded-lg mb-3" style={{ background: "#E5EBE1" }}>
+              {dedupeSessionsResult.message}
+              {dedupeSessionsResult.samples?.length > 0 && (
+                <div className="mt-1 opacity-80">{dedupeSessionsResult.samples.length} sample(s) logged</div>
+              )}
             </div>
           )}
 

@@ -9710,7 +9710,19 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
     existing_sessions = await db.sessions.find(
         {"client_id": cid}, {"_id": 0, "session_date": 1, "start_time": 1, "sync_key": 1}
     ).to_list(5000)
-    existing_key = {(s.get("session_date"), s.get("start_time") or "") for s in existing_sessions}
+    existing_key = {
+        (
+            _session_date_iso(s.get("session_date")) or "",
+            (s.get("start_time") or "").strip(),
+            (s.get("invoice_id") or ""),
+        )
+        for s in existing_sessions
+    }
+    existing_day_inv = {
+        (_session_date_iso(s.get("session_date")) or "", (s.get("invoice_id") or ""))
+        for s in existing_sessions
+        if _session_date_iso(s.get("session_date"))
+    }
     existing_sync = {s["sync_key"] for s in existing_sessions if s.get("sync_key")}
 
     invoices_added, invoices_updated, sessions_added, sessions_skipped = [], [], 0, 0
@@ -9849,8 +9861,9 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
                 sheet_ss += 1
 
             sync_key = f"{inv_num}|{date_iso}|{row_idx}"
-            key = (date_iso, start_t)
-            if sync_key in existing_sync or key in existing_key:
+            key = (date_iso, (start_t or "").strip(), inv_doc.get("id") or "")
+            day_inv_key = (date_iso, inv_doc.get("id") or "")
+            if sync_key in existing_sync or key in existing_key or day_inv_key in existing_day_inv:
                 sessions_skipped += 1
                 continue
             inv_st = _normalize_service_type(inv_doc.get("service_type") or header_info.get("service_type"))
@@ -9875,6 +9888,7 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
             }
             await db.sessions.insert_one(sess_doc)
             existing_key.add(key)
+            existing_day_inv.add(day_inv_key)
             existing_sync.add(sync_key)
             sessions_added += 1
             if earliest is None or date_iso < earliest:
@@ -10149,6 +10163,108 @@ def _attach_open_invoice_to_session(doc: dict, client: dict, invoices: list) -> 
     return doc
 
 
+def _session_richness_score(s: dict) -> int:
+    score = 0
+    if (s.get("note") or "").strip():
+        score += 10
+    if s.get("start_time"):
+        score += 5
+    if s.get("end_time"):
+        score += 3
+    if s.get("hours") not in (None, "", 0):
+        score += 4
+    score += min(len(s.get("therapist_ids") or []), 3)
+    if s.get("sync_key"):
+        score += 2
+    if s.get("invoice_id"):
+        score += 5
+    if s.get("source_invoice"):
+        score += 2
+    return score
+
+
+def _session_day_group_key(s: dict) -> tuple:
+    sd = _session_date_iso(s.get("session_date")) or ""
+    inv = (s.get("invoice_id") or "").strip() or "__none__"
+    return (s.get("client_id") or "", inv, sd)
+
+
+async def _find_duplicate_session_for_day(
+    client_id: str,
+    session_date: str,
+    invoice_id: Optional[str],
+    exclude_id: Optional[str] = None,
+) -> Optional[dict]:
+    """Return an existing session on the same client + calendar day + invoice."""
+    sd = _session_date_iso(session_date)
+    if not sd or not client_id:
+        return None
+    q = {"client_id": client_id, **_session_date_query(sd)}
+    rows = await db.sessions.find(q, {"_id": 0}).to_list(100)
+    inv = (invoice_id or "").strip()
+    for s in rows:
+        if exclude_id and s.get("id") == exclude_id:
+            continue
+        s_inv = (s.get("invoice_id") or "").strip()
+        if inv and s_inv == inv:
+            return s
+        if not inv and not s_inv:
+            return s
+    return None
+
+
+async def _dedupe_all_sessions(dry_run: bool = False) -> dict:
+    """Remove duplicate sessions: same client + invoice + calendar day."""
+    all_sessions = await db.sessions.find({}, {"_id": 0}).to_list(100000)
+    groups: dict = {}
+    for s in all_sessions:
+        k = _session_day_group_key(s)
+        if not k[2]:
+            continue
+        groups.setdefault(k, []).append(s)
+
+    removed = 0
+    duplicate_groups = 0
+    details = []
+    for key, group in groups.items():
+        if len(group) < 2:
+            continue
+        duplicate_groups += 1
+        winner = max(group, key=lambda s: (_session_richness_score(s), s.get("created_at") or ""))
+        client_id, inv_id, sd = key
+        for loser in group:
+            if loser["id"] == winner["id"]:
+                continue
+            details.append({
+                "client_id": client_id,
+                "date": sd,
+                "invoice_id": inv_id if inv_id != "__none__" else None,
+                "kept": winner["id"],
+                "removed": loser["id"],
+            })
+            if not dry_run:
+                await db.prep_history.update_many(
+                    {"session_id": loser["id"]},
+                    {"$set": {"session_id": winner["id"]}},
+                )
+                await db.schedule_preparations.update_many(
+                    {"session_id": loser["id"]},
+                    {"$set": {"session_id": winner["id"]}},
+                )
+                await db.sessions.delete_one({"id": loser["id"]})
+            removed += 1
+
+    verb = "Would remove" if dry_run else "Removed"
+    return {
+        "ok": True,
+        "removed": removed,
+        "duplicate_groups": duplicate_groups,
+        "samples": details[:40],
+        "dry_run": dry_run,
+        "message": f"{verb} {removed} duplicate session(s) across {duplicate_groups} client/day/invoice group(s).",
+    }
+
+
 @api.post("/sessions")
 async def create_session(payload: SessionIn, user=Depends(get_current_user)):
     if (payload.status or "").strip() == "No Service":
@@ -10164,7 +10280,19 @@ async def create_session(payload: SessionIn, user=Depends(get_current_user)):
     doc = {"id": sid, **payload.model_dump(), "therapist_ids": therapist_ids,
            "created_by": user["id"], "created_by_role": user["role"],
            "created_at": now_iso()}
+    doc["session_date"] = _session_date_iso(payload.session_date) or (payload.session_date or "")[:10]
     doc = _attach_open_invoice_to_session(doc, client or {}, invs)
+    dup = await _find_duplicate_session_for_day(
+        payload.client_id, doc["session_date"], doc.get("invoice_id"),
+    )
+    if dup:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"A session on {doc['session_date']} already exists for this invoice. "
+                "Edit the existing row instead of logging again."
+            ),
+        )
     await db.sessions.insert_one(doc)
     doc.pop("_id", None)
     if payload.status in ("Completed", "No Show", "Cancelled"):
@@ -10233,6 +10361,18 @@ async def update_session(sid: str, payload: SessionIn, user=Depends(get_current_
     patch = payload.model_dump()
     patch["therapist_ids"] = therapist_ids
     patch["note"] = (payload.note or "").strip() or None
+    patch["session_date"] = _session_date_iso(payload.session_date) or (payload.session_date or "")[:10]
+    dup = await _find_duplicate_session_for_day(
+        payload.client_id,
+        patch["session_date"],
+        sess.get("invoice_id"),
+        exclude_id=sid,
+    )
+    if dup:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Another session on {patch['session_date']} already exists for this invoice.",
+        )
     await db.sessions.update_one({"id": sid}, {"$set": patch})
     updated = await db.sessions.find_one({"id": sid}, {"_id": 0})
     try:
@@ -15519,6 +15659,12 @@ async def admin_dedupe_intake(_=Depends(admin_only)):
     removed = await _dedupe_intake_records()
     total = await db.intake.count_documents({})
     return {"ok": True, "removed": removed, "total": total, "message": f"Removed {removed} duplicate(s). {total} intake records remain."}
+
+
+@api.post("/admin/dedupe-sessions")
+async def admin_dedupe_sessions(dry_run: bool = False, _=Depends(admin_only)):
+    """Remove duplicate sessions (same client + invoice + calendar day)."""
+    return await _dedupe_all_sessions(dry_run=dry_run)
 
 
 @api.post("/admin/dedupe-clients")
