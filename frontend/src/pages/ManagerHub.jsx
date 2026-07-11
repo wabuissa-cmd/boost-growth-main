@@ -14,10 +14,10 @@ import {
 import { getTherapistScheduleName, sortTherapistsForSchedule } from "../scheduleConstants";
 
 const MAIN_TABS = [
-  { id: "staff", label: "Therapists' Requests", testid: "mgr-tab-staff", icon: ListChecks },
-  { id: "balance", label: "Leave Balance", testid: "mgr-tab-balance", icon: Scales },
-  { id: "profiles", label: "Therapist Profiles", testid: "mgr-tab-profiles", icon: UserCircle },
-  { id: "calendar", label: "Evaluation Calendar", testid: "mgr-tab-calendar", icon: CalendarBlank },
+  { id: "staff", label: "Therapists' Requests", testid: "mgr-tab-staff", icon: <ListChecks size={14} weight="duotone" /> },
+  { id: "balance", label: "Leave Balance", testid: "mgr-tab-balance", icon: <Scales size={14} weight="duotone" /> },
+  { id: "profiles", label: "Therapist Profiles", testid: "mgr-tab-profiles", icon: <UserCircle size={14} weight="duotone" /> },
+  { id: "calendar", label: "Evaluation Calendar", testid: "mgr-tab-calendar", icon: <CalendarBlank size={14} weight="duotone" /> },
 ];
 
 const TAB_META = {
@@ -497,7 +497,9 @@ function EvaluationCalendarTab({ embeddedInHub = false }) {
   const byMonth = useMemo(() => {
     const map = Array.from({ length: 12 }, (_, i) => ({ month: i, label: MONTH_NAMES[i], items: [] }));
     for (const e of entries) {
-      const m = parseInt(e.date.slice(5, 7), 10) - 1;
+      const dateStr = String(e?.date || "");
+      if (dateStr.length < 7) continue;
+      const m = parseInt(dateStr.slice(5, 7), 10) - 1;
       if (m >= 0 && m < 12) map[m].items.push(e);
     }
     return map;
@@ -788,6 +790,14 @@ export default function ManagerHub() {
       });
     });
   }, [user]);
+
+  if (user === null) {
+    return (
+      <div className="portal-page-shell manager-hub-page">
+        <div className="mgr-hub-panel-loading"><div className="spinner" /></div>
+      </div>
+    );
+  }
 
   if (!canAccessManagerHub(user)) {
     return <Navigate to="/home" replace />;

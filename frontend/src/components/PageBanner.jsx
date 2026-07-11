@@ -1,6 +1,15 @@
 /** Editorial page header — integrated rounded banner with pill tabs. */
 import "../editorialLayout.css";
 
+function TabIcon({ icon }) {
+  if (!icon) return null;
+  if (typeof icon === "function") {
+    const Icon = icon;
+    return <Icon size={14} weight="duotone" />;
+  }
+  return icon;
+}
+
 export default function PageBanner({
   title,
   subtitle,
@@ -72,7 +81,7 @@ export default function PageBanner({
               className={`editorial-pill${activeTab === t.id ? " is-active" : ""}`}
               onClick={() => onTabChange?.(t.id)}
             >
-              {t.icon}
+              {t.icon && <TabIcon icon={t.icon} />}
               {t.label}
               {t.count != null ? ` (${t.count})` : ""}
             </button>
