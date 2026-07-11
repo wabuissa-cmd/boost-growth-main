@@ -4832,6 +4832,50 @@ async def admin_fix_permission_schedule(payload: FixPermissionScheduleIn, user=D
     }
 
 
+@api.post("/admin/sync-schedule-from-google")
+async def admin_sync_schedule_from_google(body: dict, user=Depends(admin_only)):
+    """Re-import one week from the master Google Sheet (exact Excel copy)."""
+    import httpx
+    week_start = _normalize_week_start(body.get("week_start") or "")
+    if not week_start:
+        raise HTTPException(status_code=400, detail="week_start required")
+    sheet_url = (body.get("url") or body.get("sheet_url") or "").strip() or SCHEDULE_MASTER_SHEET_URL
+    sheet_name = (body.get("sheet_name") or "").strip() or None
+    clear_existing = body.get("clear_existing", True)
+    export_url = _google_sheet_export_url(sheet_url)
+    async with httpx.AsyncClient(follow_redirects=True, timeout=120.0) as client:
+        resp = await client.get(export_url)
+    if resp.status_code != 200:
+        raise HTTPException(status_code=400, detail=f"Could not download sheet (HTTP {resp.status_code})")
+    grid, merge_anchors, merge_skip, used_sheet, sheet_names, fill_states = _load_schedule_xlsx_bytes(
+        resp.content, sheet_name
+    )
+    if not sheet_name:
+        picked = _pick_sheet_for_week(sheet_names, week_start)
+        if picked and picked != used_sheet:
+            grid, merge_anchors, merge_skip, used_sheet, _, fill_states = _load_schedule_xlsx_bytes(
+                resp.content, picked
+            )
+    week_start, week_warning = _resolve_import_week_start(week_start, used_sheet)
+    therapists = await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).to_list(100)
+    t_by_name = _build_schedule_therapist_name_map(therapists)
+    inserted, skipped = await _import_schedule_grid(
+        grid, week_start, t_by_name, bool(clear_existing),
+        merge_anchors=merge_anchors, merge_skip=merge_skip,
+        cell_fill_states=fill_states,
+    )
+    await _relink_prep_markers_after_schedule_import(week_start)
+    return {
+        "ok": True,
+        "cells_inserted": inserted,
+        "week_start": week_start,
+        "sheet_used": used_sheet,
+        "merge_spans_detected": len(merge_anchors),
+        "skipped_therapists": skipped[:20],
+        "week_start_warning": week_warning,
+    }
+
+
 def _can_manage_schedule_prep(user: dict) -> bool:
     return (
         _has_full_client_access(user)
@@ -17360,24 +17404,6 @@ def _resolve_import_anchor_slot(canonical_ts: str, custom: Optional[str]) -> str
     return canonical_ts
 
 
-def _resolve_child_session_anchor(
-    canonical_ts: str,
-    duration: float,
-    child: Optional[str],
-    service: Optional[str],
-) -> str:
-    """Known session-time corrections (Excel merge anchor vs actual session start)."""
-    child_l = (child or "").strip().lower()
-    if "salman" in child_l and canonical_ts == "1:00 PM - 2:00 PM" and float(duration or 1) >= 2:
-        try:
-            idx = SCHEDULE_TIME_SLOTS.index(canonical_ts)
-            if idx + 1 < len(SCHEDULE_TIME_SLOTS):
-                return SCHEDULE_TIME_SLOTS[idx + 1]
-        except ValueError:
-            pass
-    return canonical_ts
-
-
 def _duration_from_custom(time_slot: str, custom: str, time_slots: list) -> float:
     """Session length in hours from a custom time range (supports 1.5h, 2.5h, …)."""
     if not custom or not str(custom).strip():
@@ -17958,9 +17984,6 @@ async def _import_schedule_grid(
                             duration = merge_cols
                         else:
                             duration = 1.0
-                        canonical_ts = _resolve_child_session_anchor(
-                            canonical_ts, duration, child, service
-                        )
                         span = _duration_slot_span(duration)
                         if span > 1:
                             skip_until = slot_idx + span - 1
