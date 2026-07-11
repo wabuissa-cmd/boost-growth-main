@@ -1052,8 +1052,7 @@ export default function Schedule() {
 
     try {
       if (mode === "leave_day") {
-        const dayDate = addDays(weekStart, day);
-        const dateLabel = scheduleDayDateLabel(weekStart, di);
+        const dateLabel = scheduleDayDateLabel(weekStart, day);
         if (!window.confirm(`Mark ${therapistName} on leave for full ${DAYS_EN[day]} (${dateLabel})?`)) return;
         await clearTherapistDay(therapist_id, day);
         await api.post("/schedule", {
@@ -1072,18 +1071,26 @@ export default function Schedule() {
           });
         }
       } else if (mode === "available") {
-        await deleteAtSlot(therapist_id, day, time_slot);
+        const existing = findCellAt(therapist_id, day, time_slot, cellMap, cells);
+        if (existing?.id) await api.delete(`/schedule/${existing.id}`);
         await api.post("/schedule", {
           therapist_id, day, time_slot, duration: 1,
           week_start: weekStartISO, service_code: "AVAILABLE", note: "Available",
           state: "available", color: "#FFFFFF", child_name: null,
         });
       } else if (mode === "clear") {
-        await deleteAtSlot(therapist_id, day, time_slot);
+        const existing = findCellAt(therapist_id, day, time_slot, cellMap, cells);
+        if (existing?.id) await api.delete(`/schedule/${existing.id}`);
       }
       await load(true);
     } catch (err) {
-      alert(err?.response?.data?.detail || "Could not update schedule. Please try again.");
+      const detail = err?.response?.data?.detail;
+      const msg = typeof detail === "string"
+        ? detail
+        : Array.isArray(detail)
+          ? detail.map((d) => d?.msg || JSON.stringify(d)).join("; ")
+          : err?.message;
+      alert(msg || "Could not update schedule. Please try again.");
     } finally {
       setCtxMenu(null);
     }
