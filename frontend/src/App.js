@@ -27,7 +27,7 @@ const LeaveRequests = lazy(() => import("./pages/LeaveRequests"));
 const StaffLeave = lazy(() => import("./pages/StaffLeave"));
 const Billing = lazy(() => import("./pages/Billing"));
 const TherapistMyReports = lazy(() => import("./pages/TherapistMyReports"));
-const ManagerHub = lazy(() => import("./pages/ManagerHub"));
+import ManagerHub from "./pages/ManagerHub";
 const PerformanceMeetings = lazy(() => import("./pages/PerformanceMeetings"));
 const Purchases = lazy(() => import("./pages/Purchases"));
 const SupervisionCaseload = lazy(() => import("./pages/SupervisionCaseload"));
@@ -238,18 +238,28 @@ function AppRoutes() {
 class ErrorBoundary extends Component {
   state = { err: null };
   static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err) {
+    console.error("Portal render error:", err);
+  }
   render() {
     if (this.state.err) {
+      const msg = this.state.err?.message || String(this.state.err);
       return (
         <div className="min-h-screen flex items-center justify-center bg-organic p-6">
           <div className="card p-8 max-w-md text-center">
             <div className="font-display text-xl mb-2" style={{ color: "#2C3625" }}>Something went wrong</div>
-            <p className="text-sm mb-4" style={{ color: "#5C6853" }}>
-              The app could not load. Try clearing site data and signing in again.
+            <p className="text-sm mb-2" style={{ color: "#5C6853" }}>
+              The app could not load this page. Try clearing site data and signing in again.
             </p>
-            <button type="button" className="btn btn-primary" onClick={() => { localStorage.removeItem("bg_token"); window.location.href = "/login"; }}>
-              Back to Login
-            </button>
+            <p className="text-xs mb-4 break-words" style={{ color: "#8A3F27" }}>{msg}</p>
+            <div className="flex flex-wrap gap-2 justify-center">
+              <button type="button" className="btn btn-secondary" onClick={() => { this.setState({ err: null }); window.location.href = "/home"; }}>
+                Go Home
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => { localStorage.removeItem("bg_token"); window.location.href = "/login"; }}>
+                Back to Login
+              </button>
+            </div>
           </div>
         </div>
       );

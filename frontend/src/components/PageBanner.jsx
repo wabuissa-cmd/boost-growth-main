@@ -3,7 +3,8 @@ import "../editorialLayout.css";
 
 function TabIcon({ icon }) {
   if (!icon) return null;
-  if (typeof icon === "function") {
+  if (typeof icon === "object" && icon.$$typeof) return icon;
+  if (typeof icon === "function" || (typeof icon === "object" && typeof icon.render === "function")) {
     const Icon = icon;
     return <Icon size={14} weight="duotone" />;
   }

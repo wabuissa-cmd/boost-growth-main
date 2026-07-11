@@ -315,7 +315,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
       const { data } = await api.get("/requests", {
         params: useStaffScope ? { scope: "staff" } : {},
       });
-      setItems(data);
+      setItems(Array.isArray(data) ? data : []);
     } catch (err) {
       if (!embedded) {
         setRequestsError(err?.response?.data?.detail || "Could not load requests. Please try again.");
@@ -329,7 +329,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
     const params = { year: yr };
     if (leaveHr || managerView) params.scope = "staff";
     const { data } = await api.get("/leaves", { params });
-    const sorted = [...(data || [])].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+    const sorted = [...(Array.isArray(data) ? data : [])].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
     if (managerView) setStaffLeaves(sorted);
     if (leaveHr) setRecentLeaves(sorted.slice(0, 10));
   };
@@ -495,9 +495,9 @@ export default function Requests({ personal = false, embedded = false, managerVi
   };
 
   const queueItems = useMemo(() => {
-    const staff = items.filter(r => r.request_type !== "leave");
+    const staff = (Array.isArray(items) ? items : []).filter(r => r.request_type !== "leave");
     if (!managerView) return staff;
-    const leaves = staffLeaves.map(normalizeLeaveForQueue);
+    const leaves = (Array.isArray(staffLeaves) ? staffLeaves : []).map(normalizeLeaveForQueue);
     return [...staff, ...leaves].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
   }, [items, staffLeaves, managerView]);
 
