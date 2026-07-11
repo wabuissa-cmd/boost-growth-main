@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import api from "../api";
-import { useAuth } from "../auth";
+import { useAuth, canAccessManagerHub } from "../auth";
 import {
   Plus, PencilSimple, Trash, X, UserPlus, Key, EnvelopeSimple, CheckCircle, Warning,
-  Database, SignOut, CaretDown, CaretUp, Users, Wrench, LinkSimple, Heartbeat,
+  Database, SignOut, CaretDown, CaretUp, Users, Wrench, LinkSimple, Heartbeat, ListChecks,
 } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
 import { getTherapistScheduleName } from "../scheduleConstants";
@@ -55,7 +56,7 @@ function ToolRow({ title, desc, children, danger }) {
 }
 
 export default function Admin() {
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const [therapists, setTherapists] = useState([]);
   const [edit, setEdit] = useState(null);
   const [emailSettings, setEmailSettings] = useState({
@@ -882,6 +883,11 @@ export default function Admin() {
             <SignOut size={16} /> Log Out
           </button>
         )}
+        toolbar={canAccessManagerHub(user) ? (
+          <Link to="/manager?tab=staff" className="btn btn-secondary text-sm" data-testid="admin-manager-hub-link">
+            <ListChecks size={16} weight="duotone" /> Manager Hub (Jenan view)
+          </Link>
+        ) : null}
       />
 
       <section className="portal-content-panel portal-page-body">

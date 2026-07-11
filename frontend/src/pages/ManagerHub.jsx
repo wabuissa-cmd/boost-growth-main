@@ -1,11 +1,10 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
 import api, { API, openAuthenticatedFile } from "../api";
 import { useAuth, canAccessManagerHub, isJenan } from "../auth";
 import PortalPageHeader from "../components/PortalPageHeader";
-
-const EmbeddedRequests = lazy(() => import("./Requests"));
-const EmbeddedLeaveBalance = lazy(() => import("./LeaveBalance"));
+import Requests from "./Requests";
+import LeaveBalance from "./LeaveBalance";
 import {
   MagnifyingGlass, Warning, UserCircle, FileText, Bell, UploadSimple,
   FloppyDisk, DownloadSimple, CalendarBlank, ArrowLeft, X,
@@ -844,16 +843,12 @@ export default function ManagerHub() {
       <div className="mgr-hub-content">
         {activeTab === "staff" && (
           <section className="card portal-content-panel mgr-hub-panel">
-            <Suspense fallback={<div className="mgr-hub-panel-loading"><div className="spinner" /></div>}>
-              <EmbeddedRequests embedded managerView hubEmbedded />
-            </Suspense>
+            <Requests embedded managerView hubEmbedded />
           </section>
         )}
         {activeTab === "balance" && (
           <section className="card portal-content-panel mgr-hub-panel">
-            <Suspense fallback={<div className="mgr-hub-panel-loading"><div className="spinner" /></div>}>
-              <EmbeddedLeaveBalance embedded staffScope hubEmbedded />
-            </Suspense>
+            <LeaveBalance embedded staffScope hubEmbedded />
           </section>
         )}
         {activeTab === "profiles" && (

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import PageBanner from "../components/PageBanner";
 import { Scales } from "@phosphor-icons/react";
-import { useAuth, showAdminNav, canManageLeaves } from "../auth";
+import { useAuth, showAdminNav, canManageLeaves, canAccessManagerHub } from "../auth";
 import api from "../api";
 import LeaveBalanceTable from "../components/LeaveBalanceTable";
 import LeaveBalanceSheetGrid from "../components/LeaveBalanceSheetGrid";
@@ -10,8 +10,9 @@ export default function LeaveBalance({ embedded = false, staffScope = false, hub
   const { user } = useAuth();
   const isAdmin = showAdminNav(user);
   const isLeaveManager = canManageLeaves(user);
+  const hubManagerView = hubEmbedded && staffScope && canAccessManagerHub(user);
   const useStaffScope = staffScope || isLeaveManager;
-  const useSheetGrid = staffScope && isLeaveManager;
+  const useSheetGrid = (staffScope && isLeaveManager) || hubManagerView;
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
   const [leaves, setLeaves] = useState([]);
@@ -27,7 +28,7 @@ export default function LeaveBalance({ embedded = false, staffScope = false, hub
     load();
   }, [year, isAdmin, isLeaveManager, useSheetGrid]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!isAdmin && !isLeaveManager) {
+  if (!isAdmin && !isLeaveManager && !hubManagerView) {
     return (
       <div className="card p-12 text-center" style={{ color: "#8B9E7A" }}>
         Admin only — submit leave requests from the Requests page.
@@ -49,7 +50,7 @@ export default function LeaveBalance({ embedded = false, staffScope = false, hub
       />
       )}
 
-      {embedded && useSheetGrid && (
+      {embedded && hubEmbedded && (
         <div className={`flex flex-wrap items-center justify-between gap-2 mb-3${hubEmbedded ? " mgr-hub-balance-toolbar" : ""}`}>
           {hubEmbedded && (
             <div className="mgr-hub-panel-head mgr-hub-panel-head--compact min-w-0 flex-1 mb-0">

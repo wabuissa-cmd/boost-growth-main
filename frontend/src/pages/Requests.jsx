@@ -289,7 +289,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
   const hrReview = !personal && canHrReviewLeaves(user);
   const isPortalAdminUser = !personal && showAdminNav(user);
   const isManager = !personal && isJenan(user) && !isPortalAdminUser;
-  const adminManagerPreview = managerView && isPortalAdminUser && showSystemAdmin(user);
+  const adminManagerPreview = managerView && showSystemAdmin(user) && !isJenan(user);
   const inManagerReviewMode = managerView && (isManager || adminManagerPreview);
   const staffLabel = managerView ? "Therapists' Requests" : "Staff Requests";
   const [items, setItems] = useState([]);
