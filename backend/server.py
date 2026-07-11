@@ -18668,49 +18668,32 @@ async def _run_startup():
             logger.warning(f"Sunday portal update skipped: {e}")
 
         try:
-            wrong = await _purge_clients_by_file_nos({"076", "081"})
-            if wrong.get("count"):
-                logger.info(f"Purged retired clients 076/081: {wrong.get('purged')}")
-            boot = await _seed_master_data_impl({"085", "086"})
-            extra = await _sync_client_seed_fields({"085", "086"})
-            drive = await _bulk_sync_active_clients_from_drive(
-                file_nos=["085", "086"], user_id="startup",
-            )
-            n_new = len(boot.get("clients", {}).get("created") or [])
-            n_up = len(boot.get("clients", {}).get("updated") or [])
-            synced = sum(1 for r in drive.get("results") or [] if r.get("status") == "synced")
-            if n_new or n_up or extra.get("updated") or synced:
+            # Lightweight client seed only — never block boot with Drive/intake/prep scans.
+            maint = await db.settings.find_one({"key": "clients_085_086_v1"}, {"_id": 0}) or {}
+            if not maint.get("done"):
+                wrong = await _purge_clients_by_file_nos({"076", "081"})
+                if wrong.get("count"):
+                    logger.info(f"Purged retired clients 076/081: {wrong.get('purged')}")
+                boot = await _seed_master_data_impl({"085", "086"})
+                extra = await _sync_client_seed_fields({"085", "086"})
+                await db.settings.update_one(
+                    {"key": "clients_085_086_v1"},
+                    {"$set": {
+                        "done": True,
+                        "at": now_iso(),
+                        "created": boot.get("clients", {}).get("created"),
+                        "updated": boot.get("clients", {}).get("updated"),
+                        "seed_fields": extra.get("updated"),
+                    }},
+                    upsert=True,
+                )
                 logger.info(
-                    "Clients 085/086: created=%s updated=%s seed=%s drive_synced=%s",
-                    n_new, n_up, extra.get("updated"), synced,
+                    "Clients 085/086 seeded (Drive sync via Admin when ready): created=%s updated=%s",
+                    len(boot.get("clients", {}).get("created") or []),
+                    len(boot.get("clients", {}).get("updated") or []),
                 )
         except Exception as e:
-            logger.warning(f"Clients 085/086 bootstrap skipped: {e}")
-
-        try:
-            intake_sync = await _sync_waiting_lists_from_google()
-            if intake_sync.get("ok"):
-                logger.info(
-                    "Intake Google sync: pre=%s post=%s school=%s removed_stale=%s",
-                    intake_sync.get("pre_count"),
-                    intake_sync.get("post_count"),
-                    intake_sync.get("school_count"),
-                    intake_sync.get("removed_stale"),
-                )
-        except Exception as e:
-            logger.warning(f"Intake Google sync skipped: {e}")
-
-        try:
-            prep_noise = await _purge_noise_prep_history()
-            prep_dedupe = await _dedupe_prep_history()
-            if prep_noise.get("removed") or prep_dedupe.get("removed"):
-                logger.info(
-                    "Prep cleanup: noise=%s dedupe=%s",
-                    prep_noise.get("removed"),
-                    prep_dedupe.get("removed"),
-                )
-        except Exception as e:
-            logger.warning(f"Prep history cleanup skipped: {e}")
+            logger.warning(f"Clients 085/086 seed skipped: {e}")
 
         try:
             n = await _backfill_schedule_cell_colors_for_week("2026-06-28")
@@ -18720,8 +18703,15 @@ async def _run_startup():
             logger.warning(f"Schedule cell color backfill skipped: {e}")
 
         try:
-            await _sync_schedule_preparations_for_week("2026-06-28", "2026-07-02")
-            logger.info("Prep relink for week 2026-06-28 complete")
+            prep_week_flag = await db.settings.find_one({"key": "prep_relink_2026_06_28"}, {"_id": 0}) or {}
+            if not prep_week_flag.get("done"):
+                await _sync_schedule_preparations_for_week("2026-06-28", "2026-07-02")
+                await db.settings.update_one(
+                    {"key": "prep_relink_2026_06_28"},
+                    {"$set": {"done": True, "at": now_iso()}},
+                    upsert=True,
+                )
+                logger.info("Prep relink for week 2026-06-28 complete (one-time)")
         except Exception as e:
             logger.warning(f"Prep relink for week 2026-06-28 skipped: {e}")
 
