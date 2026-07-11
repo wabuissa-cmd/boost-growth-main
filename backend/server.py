@@ -2394,21 +2394,18 @@ MASTER_CLIENTS = [
     ("068", "Abdulrahman Alshawi",   "msRazan",    ["msFahda"],                24, "msFahda", "HS",    "AR Rayan"),
     ("070", "Abdulelah Almuhana",    "msAbeer",    ["msMaha"],                 32, "msMaha",  "HS",    "Al-Manziliyah"),
     ("072", "Khalid Bin Shuael",     "msShatha",   ["msFahda"],                24, "msFahda", "HS",    "AlMursalat"),
-    ("076", "Sultan Aba Alkheil", "msShatha",   [],           24, "msMaha",  "HS/SS", "Al-Mursalat"),
     ("079", "Fahad Suliman",         "msFahda",    ["msFahda"],                40, "msFahda", "HS",    "Al-Sahafa"),
     ("053", "Ahmad Alshalfan",       "msHajer",    ["msFahda"],                24, "msFahda", "HS/SS", "Almalqa"),
     ("080", "Faisal Alzughaibi",     "msFatimah",  [],                         24, "msFahda", "HS",    "Alyasmeen"),
-    ("081", "Abdulmohsen Al-Abikan", "msFahda",  [],                         24, "msFahda", "SS/HS", "TBD"),
+    ("085", "Sultan Abdelkhal",      "msShatha",   [],                         24, "msMaha",  "HS/SS", "Al-Mursalat"),
+    ("086", "Abdelmohsen Labikan",   "msFahda",    [],                         24, "msFahda", "SS/HS", "TBD"),
 ]
 
-# Bilingual display names (English in `name`, Arabic in `name_ar`)
-CLIENT_NAME_AR = {
-    "076": "سلطان أبا الخيل",
-    "081": "عبدالمحسن العبيكان",
-}
+# Bilingual display names (English in `name`, Arabic in `name_ar`) — optional per client.
+CLIENT_NAME_AR: dict = {}
 
-# Mistaken test clients (another worker's children) — purged on startup, never re-seeded.
-REMOVED_CLIENT_FILE_NOS = frozenset({"082", "083", "084"})
+# Mistaken / retired file numbers — purged on startup, never re-seeded.
+REMOVED_CLIENT_FILE_NOS = frozenset({"076", "081", "082", "083", "084"})
 
 async def _resolve_therapist_id(key_to_id: dict, key: str) -> Optional[str]:
     return key_to_id.get(key)
@@ -3278,6 +3275,32 @@ async def _dedupe_prep_history(client_id: Optional[str] = None, dry_run: bool = 
         "dry_run": dry_run,
         "message": f"{verb} {removed} duplicate prep row(s) across {duplicate_groups} therapist/day group(s).",
     }
+
+
+def _prep_history_row_is_meaningful(row: dict) -> bool:
+    """Drop blank orphan prep rows from history views."""
+    if row.get("session_id") or row.get("invoice_id"):
+        return True
+    tid = (row.get("therapist_id") or "").strip()
+    tname = (row.get("therapist_name") or "").strip()
+    notes = (row.get("notes") or "").strip()
+    slot = (row.get("time_slot") or "").strip()
+    return bool(tid or tname or slot or notes)
+
+
+async def _purge_noise_prep_history(client_id: Optional[str] = None) -> dict:
+    """Delete prep_history rows with no therapist, slot, notes, or session link."""
+    q: dict = {}
+    if client_id:
+        q["client_id"] = client_id
+    rows = await db.prep_history.find(q, {"_id": 0, "id": 1}).to_list(100000)
+    removed = 0
+    for row in rows:
+        full = await db.prep_history.find_one({"id": row["id"]}, {"_id": 0})
+        if full and not _prep_history_row_is_meaningful(full):
+            await db.prep_history.delete_one({"id": row["id"]})
+            removed += 1
+    return {"ok": True, "removed": removed}
 
 
 async def _upsert_prep_history(
@@ -4881,6 +4904,9 @@ async def list_client_prep_history(
             item["therapist_name"] = therapist_schedule_display_name(
                 therapists.get(item.get("therapist_id"))
             )
+        if item.get("notes"):
+            item["notes"] = str(item["notes"]).strip()
+    items = [it for it in items if _prep_history_row_is_meaningful(it)]
     return items
 
 
@@ -16886,12 +16912,20 @@ async def _upsert_school_waiting_rows(rows: List[dict], detected_columns: List[s
 @api.post("/admin/fix-school-intake")
 async def admin_fix_school_intake(_=Depends(import_access)):
     """Re-sync all waiting lists from Google Sheet tabs (pre / post / school)."""
+    result = await _sync_waiting_lists_from_google()
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("detail") or "Could not sync waiting list")
+    return result
+
+
+async def _sync_waiting_lists_from_google() -> dict:
+    """Import official waiting-list workbook; remove rows not on the sheet."""
     import httpx
     export_url = _google_sheet_export_url(WAITING_LIST_SHEET_URL)
     async with httpx.AsyncClient(follow_redirects=True, timeout=120.0) as client:
         resp = await client.get(export_url)
     if resp.status_code != 200:
-        raise HTTPException(status_code=400, detail=f"Could not download sheet (HTTP {resp.status_code})")
+        return {"ok": False, "detail": f"Could not download sheet (HTTP {resp.status_code})"}
     rows, detected_columns, parse_meta = _read_intake_rows(resp.content, "waiting_list.xlsx")
     result = await _upsert_intake_rows(rows, detected_columns, parse_meta, replace_google_stale=True)
     result["ok"] = True
@@ -18141,12 +18175,19 @@ CLIENT_SEED = [
     {"file_no":"068","name":"Abdulrahman Alshawi","main":"Ms. Razan","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#C9DAF8","locs":[{"service":"HS","address":"AR Rayan - Home no 32"}]},
     {"file_no":"070","name":"Abdulelah Almuhana","main":"Ms. Abeer","co":["Ms. Maha"],"pkg":32,"sup":"Ms. Maha","color":"#CFE2F3","locs":[{"service":"HS","address":"Al-Manziliyah"}]},
     {"file_no":"072","name":"Khalid Bin Shuael","main":"Ms. Shatha","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#EAD1DC","locs":[{"service":"HS","address":"AlMursalat"}]},
-    {"file_no":"076","name":"Sultan Aba Alkheil","name_ar":"سلطان أبا الخيل","main":"Ms. Shatha","co":[],"pkg":24,"sup":"Ms. Maha","color":"#D0E0E3","locs":[{"service":"HS","address":"Al-Mursalat"},{"service":"SS","address":"Al-Mursalat"}]},
-    {"file_no":"081","name":"Abdulmohsen Al-Abikan","name_ar":"عبدالمحسن العبيكان","main":"Ms. Fahda","co":[],"pkg":24,"sup":"Ms. Fahda","color":"#EAD1DC","locs":[{"service":"SS","address":"TBD"}]},
+    {"file_no":"085","name":"Sultan Abdelkhal","main":"Ms. Shatha","co":[],"pkg":24,"sup":"Ms. Maha","color":"#D0E0E3","locs":[{"service":"HS","address":"Al-Mursalat"},{"service":"SS","address":"Al-Mursalat"}]},
+    {"file_no":"086","name":"Abdelmohsen Labikan","main":"Ms. Fahda","co":[],"pkg":24,"sup":"Ms. Fahda","color":"#EAD1DC","locs":[{"service":"SS","address":"TBD"},{"service":"HS","address":"TBD"}]},
 ]
 
 CLIENT_ATTENDANCE_SHEETS = {
     "038": "https://docs.google.com/spreadsheets/d/1O4xIX4pJzXfHw3b029kXOQZ8owI9F4RYSlBFuPJ3X7k/edit?usp=sharing",
+    "085": "https://docs.google.com/spreadsheets/d/1_OMAt6A0d-Nz4rsQEPYRonxi-dFW_TcCupL4i2hUEo0/edit?usp=drive_web",
+    "086": "https://docs.google.com/spreadsheets/d/1MI7IxaronmyQ4Uz2e2TyJ_UK_iuxIsG1yAws1KQ2zVw/edit?usp=drive_web",
+}
+
+CLIENT_DRIVE_FOLDERS = {
+    "085": "https://drive.google.com/drive/folders/1_FaXF5cT7vcDJSnWvrH09lfiyHm2SlYV",
+    "086": "https://drive.google.com/drive/folders/1PcpbR9gj_VYlDp_1EfXqgyFNVbpDupJG",
 }
 
 OFFICIAL_CLIENT_FILE_NOS = frozenset(c["file_no"] for c in CLIENT_SEED)
@@ -18266,6 +18307,10 @@ async def _sync_client_seed_fields(file_nos: set) -> dict:
             fields["name_ar"] = seed["name_ar"]
         elif fn in CLIENT_NAME_AR:
             fields["name_ar"] = CLIENT_NAME_AR[fn]
+        if fn in CLIENT_ATTENDANCE_SHEETS:
+            fields["attendance_sheet_url"] = CLIENT_ATTENDANCE_SHEETS[fn]
+        if fn in CLIENT_DRIVE_FOLDERS:
+            fields["drive_url"] = CLIENT_DRIVE_FOLDERS[fn]
         await db.clients.update_one({"file_no": fn}, {"$set": fields})
         updated.append(fn)
     return {"updated": updated}
@@ -18377,7 +18422,6 @@ INTAKE_SEED = [
     {"intake_type": "post", "child_name": "Ahmad Alshalfan", "service": "SS/HS", "phone": "505287407", "district": "Almalqa", "age": "2020", "diagnosis": "ADHD and GDD", "priority": True},
     {"intake_type": "post", "child_name": "Abdulelah Almuhana", "service": "HS", "phone": "966565544999", "district": "Al-Taawun", "age": "2021", "priority": True},
     {"intake_type": "post", "child_name": "Faisal Alzghaibi", "service": "HS", "phone": "966507479800", "district": "Alyasmeen", "age": "1445", "priority": False},
-    {"intake_type": "post", "child_name": "Sultan Aba Alkheil", "service": "HS/SS", "district": "Al-Mursalat", "age": "2019", "priority": False},
     {"intake_type": "post", "child_name": "Leena Alshahrani", "service": "HS", "phone": "530511175", "district": "Alnarjis", "priority": False},
 ]
 
@@ -18624,14 +18668,49 @@ async def _run_startup():
             logger.warning(f"Sunday portal update skipped: {e}")
 
         try:
-            boot = await _seed_master_data_impl({"081", "076"})
-            extra = await _sync_client_seed_fields({"081", "076"})
+            wrong = await _purge_clients_by_file_nos({"076", "081"})
+            if wrong.get("count"):
+                logger.info(f"Purged retired clients 076/081: {wrong.get('purged')}")
+            boot = await _seed_master_data_impl({"085", "086"})
+            extra = await _sync_client_seed_fields({"085", "086"})
+            drive = await _bulk_sync_active_clients_from_drive(
+                file_nos=["085", "086"], user_id="startup",
+            )
             n_new = len(boot.get("clients", {}).get("created") or [])
             n_up = len(boot.get("clients", {}).get("updated") or [])
-            if n_new or n_up or extra.get("updated"):
-                logger.info(f"Master clients 076/081 sync: {n_new} created, {n_up} updated, seed fields {extra.get('updated')}")
+            synced = sum(1 for r in drive.get("results") or [] if r.get("status") == "synced")
+            if n_new or n_up or extra.get("updated") or synced:
+                logger.info(
+                    "Clients 085/086: created=%s updated=%s seed=%s drive_synced=%s",
+                    n_new, n_up, extra.get("updated"), synced,
+                )
         except Exception as e:
-            logger.warning(f"Master clients 076/081 sync skipped: {e}")
+            logger.warning(f"Clients 085/086 bootstrap skipped: {e}")
+
+        try:
+            intake_sync = await _sync_waiting_lists_from_google()
+            if intake_sync.get("ok"):
+                logger.info(
+                    "Intake Google sync: pre=%s post=%s school=%s removed_stale=%s",
+                    intake_sync.get("pre_count"),
+                    intake_sync.get("post_count"),
+                    intake_sync.get("school_count"),
+                    intake_sync.get("removed_stale"),
+                )
+        except Exception as e:
+            logger.warning(f"Intake Google sync skipped: {e}")
+
+        try:
+            prep_noise = await _purge_noise_prep_history()
+            prep_dedupe = await _dedupe_prep_history()
+            if prep_noise.get("removed") or prep_dedupe.get("removed"):
+                logger.info(
+                    "Prep cleanup: noise=%s dedupe=%s",
+                    prep_noise.get("removed"),
+                    prep_dedupe.get("removed"),
+                )
+        except Exception as e:
+            logger.warning(f"Prep history cleanup skipped: {e}")
 
         try:
             n = await _backfill_schedule_cell_colors_for_week("2026-06-28")

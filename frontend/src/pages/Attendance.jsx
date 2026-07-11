@@ -27,6 +27,7 @@ import {
   sessionEditableByUser, rowBgForSession,
   dedupePrepHistoryRows,
   clientSessionsSignature,
+  isMeaningfulPrepRow,
 } from "../attendanceUtils";
 import { PackageAlertBanner } from "../components/PackageStatusBadge";
 import PreparationPrepLayout from "../components/PreparationPrepLayout";
@@ -483,7 +484,7 @@ function PrepOnlyRow({ rec, findT, bordered = false, canRemove = false, onRemove
       <td className={cell}>{therapistLabel}</td>
       <td className={cell}>—</td>
       <td className={cell}>—</td>
-      <td className={`${cell} italic`} style={{ color: "var(--text-secondary)" }}>{rec.notes || ""}</td>
+      <td className={`${cell} italic`} style={{ color: "var(--text-secondary)" }}>{(rec.notes || "").trim() || "—"}</td>
       {canRemove && (
         <td className={`${cell} text-right whitespace-nowrap no-print`}>
           <button
@@ -624,6 +625,7 @@ export function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, 
   const prepOnlyRows = useMemo(() => {
     const linkedSessionIds = new Set(cycleSessions.map(s => s.id));
     const filtered = (prepHistory || []).filter(p => {
+      if (!isMeaningfulPrepRow(p)) return false;
       if (p.session_id && linkedSessionIds.has(p.session_id)) return false;
       if (p.session_id) return false;
       const sameDaySession = cycleSessions.some(s => (s.session_date || "").slice(0, 10) === (p.session_date || "").slice(0, 10));

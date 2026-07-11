@@ -285,6 +285,19 @@ export function clientSessionsSignature(sessions, clientId) {
   return `${mine.length}:${latest.id || ""}:${latest.session_date || ""}:${latest.updated_at || ""}`;
 }
 
+/** True when a prep row has therapist, slot, notes, or session link. */
+export function isMeaningfulPrepRow(row) {
+  if (!row) return false;
+  if (row.session_id || row.invoice_id) return true;
+  const tid = (row.therapist_id || "").trim();
+  const tname = (row.therapist_name || "").trim();
+  const notes = (row.notes || "").trim();
+  const slot = (row.time_slot || "").trim();
+  const date = normalizeSessionDateKey(row.session_date);
+  if (!date) return false;
+  return Boolean(tid || tname || slot || notes);
+}
+
 /** Keep one prep log per therapist + calendar day (prefer row with time slot). */
 export function dedupePrepHistoryRows(rows) {
   const best = new Map();
@@ -294,6 +307,7 @@ export function dedupePrepHistoryRows(rows) {
     return `id:${p.therapist_id || ""}`;
   };
   for (const p of rows || []) {
+    if (!isMeaningfulPrepRow(p)) continue;
     const date = (p.session_date || "").slice(0, 10);
     if (!date) continue;
     const key = `${date}|${therapistKey(p)}`;

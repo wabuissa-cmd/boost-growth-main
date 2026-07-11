@@ -131,7 +131,7 @@ function WaitingNameTicker({ items }) {
   );
 }
 
-export default function WaitingPage({ mode }) {
+export default function WaitingPage({ mode, onModeChange }) {
   const isSchool = mode === "school";
   const { user } = useAuth();
   const canManage = canEditIntake(user);
@@ -169,6 +169,10 @@ export default function WaitingPage({ mode }) {
     }
   };
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    document.querySelector(".app-main-scroll")?.scrollTo({ top: 0, behavior: "instant" });
+  }, [mode]);
 
   useEffect(() => {
     if (!filtersOpen) return;
@@ -392,6 +396,27 @@ export default function WaitingPage({ mode }) {
     </>
   ) : null;
 
+  const queueSwitcher = onModeChange ? (
+    <div className="editorial-pill-row mb-2">
+      <button
+        type="button"
+        onClick={() => onModeChange("intake")}
+        className={`editorial-pill${!isSchool ? " is-active" : ""}`}
+        data-testid="waiting-tab-intake"
+      >
+        <ClipboardText size={14} weight="duotone" /> Intake Waiting
+      </button>
+      <button
+        type="button"
+        onClick={() => onModeChange("school")}
+        className={`editorial-pill${isSchool ? " is-active" : ""}`}
+        data-testid="waiting-tab-school"
+      >
+        <Buildings size={14} weight="duotone" /> School Waiting
+      </button>
+    </div>
+  ) : null;
+
   const tabToolbar = isSchool ? (
     <div className="editorial-pill-row">
       <span className="editorial-pill is-active" style={{ cursor: "default" }}>
@@ -437,7 +462,7 @@ export default function WaitingPage({ mode }) {
       : "After intake, awaiting placement";
 
   return (
-    <div className="page-enter portal-page-shell">
+    <div className="portal-page-shell page-enter">
       {canManage && (
         <div className="waiting-actions-bar flex justify-end mb-2 relative">
           {adminBadge}
@@ -461,7 +486,12 @@ export default function WaitingPage({ mode }) {
           { label: "SS", n: ssCount, color: "#5C6B52" },
           { label: "Priority", n: priCount, color: "#8B6B4E" },
         ]}
-        toolbar={tabToolbar}
+        toolbar={(
+          <>
+            {queueSwitcher}
+            {tabToolbar}
+          </>
+        )}
       />
 
       {canManage && (
