@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, useCallback, useRef, useLayoutEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import api, { DAYS_EN, DAYS_SHORT, TIME_SLOTS, SERVICE_CODES, startOfWeek, addDays, toISODate, formatDateRange, PREP_LOAD_TIMEOUT } from "../api";
+import api, { DAYS_EN, DAYS_SHORT, MONTH_SHORT, TIME_SLOTS, SERVICE_CODES, startOfWeek, addDays, toISODate, formatDateRange, PREP_LOAD_TIMEOUT } from "../api";
 import {
-  getCellStyle, MERGE_QUICK, scheduleCellDisplayLabel, buildScheduleCellPayload,
+  getCellStyle, MERGE_QUICK, scheduleCellDisplayLabel, scheduleCellTimeRangeLabel, buildScheduleCellPayload,
   SERVICE_CELL_COLORS, buildSlotRange, isSlotSelectable, slotIndex, clampMergeSlotCount, clampMergeDuration,
   findCellAt, isHiddenFromSchedule, scheduleDisplaySpan, scheduleCoveredSlotKeys,
   scheduleCellSlotKey,
@@ -44,6 +44,11 @@ const SCHEDULE_ZOOM = 80;
 
 function formatSlotHeader(ts) {
   return ts.replace(" AM", "a").replace(" PM", "p").replace(" - ", "–");
+}
+
+function scheduleDayDateLabel(weekStart, dayIdx) {
+  const d = addDays(weekStart, dayIdx);
+  return `${d.getDate()} ${MONTH_SHORT[d.getMonth()]}`;
 }
 
 function timeHeaderStyle() {
@@ -146,6 +151,7 @@ function CellContent({ cell, sc }) {
     return <div className="text-[10px] font-semibold opacity-70">Available</div>;
   }
   const label = scheduleCellDisplayLabel(cell, sc?.short);
+  const timeRange = scheduleCellTimeRangeLabel(cell);
   const coverName = (cell.cover_child_name || "").trim();
   const showCover = cell.state === "cancel_child" && coverName;
   return (
@@ -159,6 +165,9 @@ function CellContent({ cell, sc }) {
         </div>
       )}
       {cell.custom_time && <div className="text-[9px] opacity-80 text-center w-full">({cell.custom_time})</div>}
+      {!cell.custom_time && timeRange && (
+        <div className="text-[9px] opacity-80 text-center w-full">({timeRange})</div>
+      )}
     </div>
   );
 }
@@ -845,7 +854,7 @@ export default function Schedule() {
             data-testid="mobile-day-select"
           >
             {DAYS_EN.map((d, i) => (
-              <option key={d} value={i}>{d} · {addDays(weekStart, i).getDate()}/{addDays(weekStart, i).getMonth() + 1}</option>
+              <option key={d} value={i}>{d} · {scheduleDayDateLabel(weekStart, i)}</option>
             ))}
           </select>
         </div>
@@ -1044,7 +1053,7 @@ export default function Schedule() {
     try {
       if (mode === "leave_day") {
         const dayDate = addDays(weekStart, day);
-        const dateLabel = `${dayDate.getDate()}/${dayDate.getMonth() + 1}`;
+        const dateLabel = scheduleDayDateLabel(weekStart, di);
         if (!window.confirm(`Mark ${therapistName} on leave for full ${DAYS_EN[day]} (${dateLabel})?`)) return;
         await clearTherapistDay(therapist_id, day);
         await api.post("/schedule", {
@@ -1726,7 +1735,7 @@ export default function Schedule() {
                   )}
                   <td className={`sheet-td sheet-day font-bold text-center${recentActiveDayIndices.has(di) ? " schedule-day-recent" : ""}`}>
                     <div className="text-[11px] tracking-wider" style={{ color: "#2C3625" }}>{DAYS_SHORT[di].toUpperCase()}</div>
-                    <div className="text-[9px] font-normal" style={{ color: "var(--brand-sage)" }}>{addDays(weekStart, di).getDate()}/{addDays(weekStart, di).getMonth() + 1}</div>
+                    <div className="text-[9px] font-normal" style={{ color: "var(--brand-sage)" }}>{scheduleDayDateLabel(weekStart, di)}</div>
                   </td>
                   {closureLabel ? (
                     <ClosureBannerCell
@@ -1839,7 +1848,7 @@ export default function Schedule() {
                   className={`schedule-blocks-day${recentActiveDayIndices.has(di) ? " schedule-day-recent" : ""}`}
                 >
                   <div className="text-[11px] tracking-wider">{DAYS_SHORT[di].toUpperCase()}</div>
-                  <div className="text-[10px] font-normal" style={{ color: "var(--brand-sage)" }}>{addDays(weekStart, di).getDate()}/{addDays(weekStart, di).getMonth() + 1}</div>
+                  <div className="text-[10px] font-normal" style={{ color: "var(--brand-sage)" }}>{scheduleDayDateLabel(weekStart, di)}</div>
                 </td>
                 {closureLabel ? (
                   <ClosureBannerCell

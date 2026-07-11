@@ -548,6 +548,22 @@ export function dedupeScheduleDisplayName(text) {
   return parts.join(" ");
 }
 
+/** Show session window on merged cells (e.g. 1:00–3:00 PM for a 2h block). */
+export function scheduleCellTimeRangeLabel(cell) {
+  if (!cell) return null;
+  if (cell.custom_time?.trim()) return cell.custom_time.trim();
+  const dur = parseFloat(cell.duration) || 1;
+  if (dur <= 1) return null;
+  const anchor = (cell.time_slot || "").trim();
+  const idx = slotIndex(anchor, TIME_SLOTS);
+  if (idx < 0) return null;
+  const start = anchor.split(" - ")[0]?.trim();
+  const endIdx = Math.min(idx + Math.max(1, Math.ceil(dur)) - 1, TIME_SLOTS.length - 1);
+  const end = TIME_SLOTS[endIdx]?.split(" - ")[1]?.trim();
+  if (!start || !end) return null;
+  return `${start} – ${end}`;
+}
+
 /** Primary label shown inside a schedule grid cell (preserves full Excel text when stored in note). */
 export function scheduleCellDisplayLabel(cell, serviceShort) {
   if (!cell) return "";

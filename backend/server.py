@@ -17313,6 +17313,53 @@ def _slot_bounds_minutes(time_slot: str):
     return s, e
 
 
+def _normalize_slot_header(label: str) -> str:
+    """Normalize Excel header quirks (missing spaces, en-dash) for slot matching."""
+    s = re.sub(r"\s+", " ", (label or "").strip())
+    s = s.replace("–", "-").replace("—", "-")
+    s = re.sub(r"(\d)(AM|PM)\b", r"\1 \2", s, flags=re.I)
+    s = re.sub(r"(\d:\d{2})(AM|PM)\b", r"\1 \2", s, flags=re.I)
+    return s
+
+
+def _match_excel_header_to_time_slot(header: str) -> Optional[str]:
+    """Map an Excel column header to a canonical SCHEDULE_TIME_SLOTS entry."""
+    norm = _normalize_slot_header(header).upper()
+    if not norm:
+        return None
+    for slot in SCHEDULE_TIME_SLOTS:
+        if _normalize_slot_header(slot).upper() == norm:
+            return slot
+    start = norm.split(" - ")[0].strip() if " - " in norm else norm
+    for slot in SCHEDULE_TIME_SLOTS:
+        slot_start = _normalize_slot_header(slot).upper().split(" - ")[0].strip()
+        if slot_start == start:
+            return slot
+    return None
+
+
+def _resolve_import_anchor_slot(canonical_ts: str, custom: Optional[str]) -> str:
+    """Prefer custom-time start when it clearly belongs in a later slot than the Excel anchor."""
+    if not custom or not canonical_ts:
+        return canonical_ts
+    m = re.search(r"(\d{1,2}:\d{2})", str(custom))
+    if not m:
+        return canonical_ts
+    start_min = _parse_hm_to_minutes(m.group(1), "AM")
+    if start_min is None:
+        return canonical_ts
+    anchor_s, anchor_e = _slot_bounds_minutes(canonical_ts)
+    if anchor_s is not None and start_min >= anchor_s and (anchor_e is None or start_min < anchor_e):
+        return canonical_ts
+    for slot in SCHEDULE_TIME_SLOTS:
+        s, e = _slot_bounds_minutes(slot)
+        if s is None:
+            continue
+        if start_min >= s and (e is None or start_min < e):
+            return slot
+    return canonical_ts
+
+
 def _duration_from_custom(time_slot: str, custom: str, time_slots: list) -> float:
     """Session length in hours from a custom time range (supports 1.5h, 2.5h, …)."""
     if not custom or not str(custom).strip():
@@ -17838,10 +17885,10 @@ async def _import_schedule_grid(
                             continue
                         val = r[col_idx].strip() if col_idx < len(r) else ""
                         parsed = _parse_schedule_cell_text(val)
-                        canonical_ts = (
+                        canonical_ts = _match_excel_header_to_time_slot(ts) or (
                             SCHEDULE_TIME_SLOTS[slot_idx]
                             if slot_idx < len(SCHEDULE_TIME_SLOTS)
-                            else ts
+                            else _normalize_slot_header(ts)
                         )
                         if not parsed:
                             if _is_empty_schedule_cell(val):
@@ -17850,6 +17897,7 @@ async def _import_schedule_grid(
                                 )
                             continue
                         service, child, custom, note = parsed
+                        canonical_ts = _resolve_import_anchor_slot(canonical_ts, custom)
                         merge_cols = float(merge_anchors.get((i, col_idx), 1))
                         custom_dur = _duration_from_custom(canonical_ts, custom, time_slots) if custom else 1.0
                         if custom and custom_dur > 1:

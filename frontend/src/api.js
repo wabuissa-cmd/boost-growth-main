@@ -52,6 +52,8 @@ export function formatErr(detail) {
 export const DAYS_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"]; // 5 working days
 export const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu"];
 
+export const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 export const TIME_SLOTS = [
   "8:00 AM - 9:00 AM",
   "9:00 AM - 10:00 AM",
