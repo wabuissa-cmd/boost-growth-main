@@ -17360,6 +17360,24 @@ def _resolve_import_anchor_slot(canonical_ts: str, custom: Optional[str]) -> str
     return canonical_ts
 
 
+def _resolve_child_session_anchor(
+    canonical_ts: str,
+    duration: float,
+    child: Optional[str],
+    service: Optional[str],
+) -> str:
+    """Known session-time corrections (Excel merge anchor vs actual session start)."""
+    child_l = (child or "").strip().lower()
+    if "salman" in child_l and canonical_ts == "1:00 PM - 2:00 PM" and float(duration or 1) >= 2:
+        try:
+            idx = SCHEDULE_TIME_SLOTS.index(canonical_ts)
+            if idx + 1 < len(SCHEDULE_TIME_SLOTS):
+                return SCHEDULE_TIME_SLOTS[idx + 1]
+        except ValueError:
+            pass
+    return canonical_ts
+
+
 def _duration_from_custom(time_slot: str, custom: str, time_slots: list) -> float:
     """Session length in hours from a custom time range (supports 1.5h, 2.5h, …)."""
     if not custom or not str(custom).strip():
@@ -17636,13 +17654,12 @@ def _normalize_week_start(week_start: str) -> str:
     return sunday.isoformat()
 
 
-def _schedule_state_from_excel_fill(cell) -> Optional[str]:
-    """Detect cancel states from Excel cell background (pink = client, yellow = therapist)."""
+def _fill_rgb_hex(cell) -> Optional[str]:
+    """Extract 6-char RGB from an openpyxl cell fill, if any."""
     try:
         fill = cell.fill
         if not fill or getattr(fill, "fill_type", None) != "solid":
             return None
-        color = ""
         for attr in ("fgColor", "start_color"):
             part = getattr(fill, attr, None)
             if part is None:
@@ -17650,13 +17667,45 @@ def _schedule_state_from_excel_fill(cell) -> Optional[str]:
             rgb = getattr(part, "rgb", None) or getattr(part, "value", None)
             if rgb:
                 s = str(rgb).upper()
-                color = s[-6:] if len(s) >= 6 else s
-                break
+                return s[-6:] if len(s) >= 6 else s
+    except Exception:
+        return None
+    return None
+
+
+def _is_light_session_excel_fill(rgb: str) -> bool:
+    """Light pastels in the schedule sheet are client/session colors — not cancellations."""
+    if not rgb or len(rgb) < 6:
+        return False
+    known = {
+        "FFE599", "FFF2CC", "FFF4C4", "FCE5CD", "FFE2CC", "F9CB9C",
+        "F4CCCC", "D5A6BD", "E6B8AF", "D9D2E9", "B4A7D6", "A2C4C9",
+        "D0E0E3", "B6D7A8", "D6E8F0", "EA9999", "CFE2F3", "FFF2CC",
+    }
+    if rgb in known:
+        return True
+    r, g, b = int(rgb[0:2], 16), int(rgb[2:4], 16), int(rgb[4:6], 16)
+    # Pale yellow/cream session highlights (Saleh #FFE599, Khalid #FFF2CC, etc.)
+    if r >= 235 and g >= 210 and b >= 120:
+        return True
+    return False
+
+
+def _schedule_state_from_excel_fill(cell) -> Optional[str]:
+    """Detect cancel states from Excel fills — pink = client cancel, dark yellow = therapist cancel."""
+    try:
+        color = _fill_rgb_hex(cell)
         if not color:
+            return None
+        if _is_light_session_excel_fill(color):
             return None
         if color in ("FCE0E8", "E8A4BD", "F4C2D0", "F8D7E3"):
             return "cancel_child"
-        if color in ("FFF4C4", "E8C572", "FFE599", "FFF2CC"):
+        # Dark / saturated yellow only — light yellow is a normal client color in the sheet.
+        if color in ("FFFF00", "E8C572", "FFC000", "FFD966", "FFF4C4"):
+            return "cancel_therapist"
+        r, g, b = int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16)
+        if r > 210 and g > 160 and b < 90:
             return "cancel_therapist"
     except Exception:
         return None
@@ -17688,7 +17737,10 @@ async def _snapshot_week_cell_overrides(week_start: str) -> dict:
     async for cell in db.schedule_cells.find({"week_start": week_start}, {"_id": 0}).batch_size(200):
         state = cell.get("state") or "normal"
         cover = (cell.get("cover_child_name") or "").strip() or None
-        if state not in ("cancel_child", "cancel_therapist") and not cover:
+        if state == "cancel_therapist":
+            # Excel re-import re-derives therapist cancel from dark-yellow fills only.
+            continue
+        if state not in ("cancel_child",) and not cover:
             continue
         key = _cell_import_meta_key(
             cell.get("therapist_id") or "",
@@ -17906,6 +17958,9 @@ async def _import_schedule_grid(
                             duration = merge_cols
                         else:
                             duration = 1.0
+                        canonical_ts = _resolve_child_session_anchor(
+                            canonical_ts, duration, child, service
+                        )
                         span = _duration_slot_span(duration)
                         if span > 1:
                             skip_until = slot_idx + span - 1
