@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import api, { API, openAuthenticatedFile } from "../api";
-import { useAuth, showAdminNav, canEditStaffRequests, canManageLeaves, canHrReviewLeaves, isJenan, showSystemAdmin } from "../auth";
+import { useAuth, showAdminNav, canEditStaffRequests, canManageLeaves, canHrReviewLeaves, isJenan, showSystemAdmin, canAccessManagerHub } from "../auth";
 import { Navigate } from "react-router-dom";
 import { Plus, PencilSimple, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Package, UploadSimple, Eye, FileArrowDown, FileText, Buildings, ListChecks } from "@phosphor-icons/react";
 import {
@@ -508,7 +508,15 @@ export default function Requests({ personal = false, embedded = false, managerVi
     return r.status === filter;
   });
 
-  if (!personal && !canEditStaffRequests(user) && !(managerView && showSystemAdmin(user))) {
+  const canViewManagerQueue = managerView && canAccessManagerHub(user);
+  if (!personal && !canEditStaffRequests(user) && !canViewManagerQueue) {
+    if (embedded && managerView) {
+      return (
+        <div className="card p-6 text-center text-sm" style={{ color: "#8B9E7A" }}>
+          Manager queue access required.
+        </div>
+      );
+    }
     return <Navigate to="/my-requests" replace/>;
   }
 

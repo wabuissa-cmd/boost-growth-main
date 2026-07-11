@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
 import api, { API, openAuthenticatedFile } from "../api";
 import { useAuth, canAccessManagerHub, isJenan } from "../auth";
 import PortalPageHeader from "../components/PortalPageHeader";
-import Requests from "./Requests";
-import LeaveBalance from "./LeaveBalance";
+
+const EmbeddedRequests = lazy(() => import("./Requests"));
+const EmbeddedLeaveBalance = lazy(() => import("./LeaveBalance"));
 import {
   MagnifyingGlass, Warning, UserCircle, FileText, Bell, UploadSimple,
   FloppyDisk, DownloadSimple, CalendarBlank, ArrowLeft, X,
@@ -491,7 +492,7 @@ function EvaluationCalendarTab({ embeddedInHub = false }) {
   }, [year]);
 
   const todayIso = new Date().toISOString().slice(0, 10);
-  const entries = data?.entries || [];
+  const entries = useMemo(() => (Array.isArray(data?.entries) ? data.entries : []), [data]);
   const summary = data?.summary || {};
 
   const byMonth = useMemo(() => {
@@ -843,12 +844,16 @@ export default function ManagerHub() {
       <div className="mgr-hub-content">
         {activeTab === "staff" && (
           <section className="card portal-content-panel mgr-hub-panel">
-            <Requests embedded managerView hubEmbedded />
+            <Suspense fallback={<div className="mgr-hub-panel-loading"><div className="spinner" /></div>}>
+              <EmbeddedRequests embedded managerView hubEmbedded />
+            </Suspense>
           </section>
         )}
         {activeTab === "balance" && (
           <section className="card portal-content-panel mgr-hub-panel">
-            <LeaveBalance embedded staffScope hubEmbedded />
+            <Suspense fallback={<div className="mgr-hub-panel-loading"><div className="spinner" /></div>}>
+              <EmbeddedLeaveBalance embedded staffScope hubEmbedded />
+            </Suspense>
           </section>
         )}
         {activeTab === "profiles" && (

@@ -5291,6 +5291,11 @@ textarea.modal-input {
     background: #FFFCF7;
     border: 1px solid #E2DDD4;
 }
+.mgr-hub-panel-loading {
+    display: flex;
+    justify-content: center;
+    padding: 3rem 1rem;
+}
 .mgr-hub-panel--flush {
     padding: 1rem;
 }
