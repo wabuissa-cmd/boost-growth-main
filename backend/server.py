@@ -1537,6 +1537,15 @@ class LeaveStatusUpdate(BaseModel):
     adjusted_end_time: Optional[str] = None
 
 
+class FixPermissionScheduleIn(BaseModel):
+    therapist_key: Optional[str] = "msRazan"
+    therapist_id: Optional[str] = None
+    date: str
+    start_time: str = "11:00"
+    end_time: str = "13:00"
+    leave_id: Optional[str] = None
+
+
 class TherapistHrProfileUpdate(BaseModel):
     probation_end: Optional[str] = None
     trial_end: Optional[str] = None
@@ -4762,6 +4771,65 @@ async def admin_fix_fahda_saleh_prep_badge(
     end = (datetime.fromisoformat(ws) + timedelta(days=4)).strftime("%Y-%m-%d")
     await _reconcile_stale_prep_suppressions(start, end)
     return result
+
+
+@api.post("/admin/fix-permission-schedule")
+async def admin_fix_permission_schedule(payload: FixPermissionScheduleIn, user=Depends(admin_only)):
+    """Fix approved Permission on schedule: set hours and re-apply LEAVE slots (not full day)."""
+    date = str(payload.date or "")[:10]
+    if not date:
+        raise HTTPException(status_code=400, detail="date required")
+    therapist_id = (payload.therapist_id or "").strip()
+    if not therapist_id:
+        key = (payload.therapist_key or "msRazan").strip()
+        t = await db.therapists.find_one({"key": key}, {"_id": 0, "id": 1})
+        if not t:
+            raise HTTPException(status_code=404, detail=f"Therapist key {key!r} not found")
+        therapist_id = t["id"]
+    leave = None
+    if payload.leave_id:
+        leave = await db.leaves.find_one({"id": payload.leave_id}, {"_id": 0})
+    if not leave:
+        leave = await db.leaves.find_one(
+            {
+                "therapist_id": therapist_id,
+                "start_date": {"$lte": date},
+                "end_date": {"$gte": date},
+                "status": {"$in": ["approved", "done"]},
+            },
+            {"_id": 0},
+            sort=[("decided_at", -1)],
+        )
+    if not leave:
+        raise HTTPException(status_code=404, detail="No approved leave found for that therapist/date")
+    hours = _session_hours_from_times(payload.start_time.strip()[:5], payload.end_time.strip()[:5])
+    days_val = round(hours / 8.0, 2) if hours is not None else float(leave.get("days") or 0.25)
+    patch = {
+        "start_date": date,
+        "end_date": date,
+        "start_time": payload.start_time.strip()[:5],
+        "end_time": payload.end_time.strip()[:5],
+        "leave_type": "Permission",
+        "days": days_val,
+    }
+    await db.leaves.update_one({"id": leave["id"]}, {"$set": patch})
+    merged = {**leave, **patch}
+    removed = await _clear_leave_schedule_cells(therapist_id, date, date)
+    schedule_cell_ids = await _reapply_approved_leave_to_schedule(merged)
+    await db.leaves.update_one(
+        {"id": leave["id"]},
+        {"$set": {"schedule_applied": True, "schedule_cell_ids": schedule_cell_ids}},
+    )
+    return {
+        "ok": True,
+        "leave_id": leave["id"],
+        "therapist_id": therapist_id,
+        "date": date,
+        "start_time": patch["start_time"],
+        "end_time": patch["end_time"],
+        "removed_leave_cells": removed,
+        "schedule_cell_ids": schedule_cell_ids,
+    }
 
 
 def _can_manage_schedule_prep(user: dict) -> bool:
@@ -14200,6 +14268,34 @@ async def _apply_approved_leave_to_schedule(leave: dict) -> List[str]:
     return created_ids
 
 
+async def _clear_leave_schedule_cells(therapist_id: str, start_iso: str, end_iso: str) -> int:
+    """Remove LEAVE blocks for a therapist across dates (for permission re-apply)."""
+    removed = 0
+    for date_iso, d in _iter_dates_in_range(start_iso, end_iso):
+        day_idx = _schedule_day_index(d)
+        if day_idx > 4:
+            continue
+        week_start = _week_start_sunday(date_iso)
+        res = await db.schedule_cells.delete_many({
+            "therapist_id": therapist_id,
+            "week_start": week_start,
+            "day": day_idx,
+            "service_code": "LEAVE",
+        })
+        removed += int(res.deleted_count or 0)
+    return removed
+
+
+async def _reapply_approved_leave_to_schedule(leave: dict) -> List[str]:
+    """Drop existing LEAVE cells for this leave window, then write the correct blocks."""
+    therapist_id = leave.get("therapist_id")
+    start = str(leave.get("start_date") or "")[:10]
+    end = str(leave.get("end_date") or "")[:10]
+    if therapist_id and start and end:
+        await _clear_leave_schedule_cells(therapist_id, start, end)
+    return await _apply_approved_leave_to_schedule(leave)
+
+
 async def _cancel_schedule_for_therapist(therapist_id: str, start_date: str, end_date: str) -> list:
     """Mark matching schedule cells as cancel_therapist; return impact list."""
     impacted = []
@@ -14499,7 +14595,23 @@ async def update_leave(lid: str, payload: LeaveIn, user=Depends(get_current_user
     update["start_date"] = (payload.start_date or "")[:10]
     update["end_date"] = (payload.end_date or "")[:10]
     await db.leaves.update_one({"id": lid}, {"$set": update})
-    return await db.leaves.find_one({"id": lid}, {"_id": 0})
+    updated = await db.leaves.find_one({"id": lid}, {"_id": 0})
+    if (
+        updated
+        and _is_portal_admin(user)
+        and updated.get("status") in ("approved", "done")
+        and _canonical_leave_type(updated.get("leave_type")) == "Permission"
+    ):
+        try:
+            schedule_cell_ids = await _reapply_approved_leave_to_schedule(updated)
+            await db.leaves.update_one(
+                {"id": lid},
+                {"$set": {"schedule_applied": True, "schedule_cell_ids": schedule_cell_ids}},
+            )
+            updated = await db.leaves.find_one({"id": lid}, {"_id": 0})
+        except Exception:
+            logger.exception("Re-apply permission leave to schedule failed for leave %s", lid)
+    return updated
 
 @api.put("/leaves/{lid}/status")
 async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends(get_current_user)):

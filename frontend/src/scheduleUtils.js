@@ -48,11 +48,15 @@ export function durationSlotSpan(dur) {
   return Math.max(1, Math.ceil(d));
 }
 
-/** Meta blocks (Leave, Meeting, …) — Leave spans the full day row; others use duration. */
+/** Meta blocks (Leave, Meeting, …) — full-day Leave uses duration ≥ slot count; Permission uses hourly slots. */
 export function scheduleDisplaySpan(cell) {
   if (!cell) return 1;
   const code = cell.service_code;
-  if (code === "LEAVE") return TIME_SLOTS.length;
+  if (code === "LEAVE") {
+    const dur = parseFloat(cell.duration) || 1;
+    if (dur >= TIME_SLOTS.length) return TIME_SLOTS.length;
+    return durationSlotSpan(dur);
+  }
   if (code === "AVAILABLE") return 1;
   return durationSlotSpan(cell.duration);
 }

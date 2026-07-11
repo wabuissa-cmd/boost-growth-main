@@ -76,6 +76,15 @@ export function leavePayCategory(leaveType) {
   return canonicalLeaveType(leaveType) === "Unpaid" ? "Unpaid" : "Paid";
 }
 
+/** Single-day Permission with explicit hours — schedule shows slot LEAVE cells, not a full-day banner. */
+export function isPartialDayPermission(leave) {
+  if (!leave || canonicalLeaveType(leave.leave_type) !== "Permission") return false;
+  const start = String(leave.start_date || "").slice(0, 10);
+  const end = String(leave.end_date || "").slice(0, 10);
+  if (!start || !end || start !== end) return false;
+  return Boolean(String(leave.start_time || "").trim() && String(leave.end_time || "").trim());
+}
+
 /** Permission approved without balance deduction — show in leave list. */
 export function permissionPayLabel(leave) {
   if (!leave || canonicalLeaveType(leave.leave_type) !== "Permission") return null;

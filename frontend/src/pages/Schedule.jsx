@@ -34,6 +34,7 @@ import { buildSessionPrepLookup, buildSuppressionLookup, getCellStatusBadge, mer
 import { buildParentMessages } from "../scheduleParentMessages";
 import { sortTherapistsForSchedule, sortTherapistsForScheduleWeek, getTherapistScheduleName, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
 import { cachedGet, invalidateCache } from "../dataCache";
+import { isPartialDayPermission } from "../leaveUtils";
 import "../dashboardLayout.css";
 
 const SCHEDULE_MOBILE_BP = 768;
@@ -685,6 +686,7 @@ export default function Schedule() {
     const weekDates = [0, 1, 2, 3, 4].map(d => toISODate(addDays(weekStart, d)));
     leaves.forEach(l => {
       if (!["approved", "done"].includes(l.status)) return;
+      if (isPartialDayPermission(l)) return;
       // Backend normally stores yyyy-mm-dd, but be resilient to full ISO timestamps.
       const start = String(l.start_date || "").slice(0, 10);
       const end = String(l.end_date || "").slice(0, 10);
