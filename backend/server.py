@@ -4804,6 +4804,8 @@ async def admin_fix_permission_schedule(payload: FixPermissionScheduleIn, user=D
         raise HTTPException(status_code=404, detail="No approved leave found for that therapist/date")
     hours = _session_hours_from_times(payload.start_time.strip()[:5], payload.end_time.strip()[:5])
     days_val = round(hours / 8.0, 2) if hours is not None else float(leave.get("days") or 0.25)
+    old_start = str(leave.get("start_date") or "")[:10]
+    old_end = str(leave.get("end_date") or old_start)[:10]
     patch = {
         "start_date": date,
         "end_date": date,
@@ -4814,7 +4816,10 @@ async def admin_fix_permission_schedule(payload: FixPermissionScheduleIn, user=D
     }
     await db.leaves.update_one({"id": leave["id"]}, {"$set": patch})
     merged = {**leave, **patch}
-    removed = await _clear_leave_schedule_cells(therapist_id, date, date)
+    removed = 0
+    if old_start and old_end and (old_start != date or old_end != date):
+        removed += await _clear_leave_schedule_cells(therapist_id, old_start, old_end)
+    removed += await _clear_leave_schedule_cells(therapist_id, date, date)
     schedule_cell_ids = await _reapply_approved_leave_to_schedule(merged)
     await db.leaves.update_one(
         {"id": leave["id"]},
@@ -14638,6 +14643,8 @@ async def update_leave(lid: str, payload: LeaveIn, user=Depends(get_current_user
     # Keep date-only normalization consistent with create_leave.
     update["start_date"] = (payload.start_date or "")[:10]
     update["end_date"] = (payload.end_date or "")[:10]
+    old_start = str(leave.get("start_date") or "")[:10]
+    old_end = str(leave.get("end_date") or old_start)[:10]
     await db.leaves.update_one({"id": lid}, {"$set": update})
     updated = await db.leaves.find_one({"id": lid}, {"_id": 0})
     if (
@@ -14647,6 +14654,12 @@ async def update_leave(lid: str, payload: LeaveIn, user=Depends(get_current_user
         and _canonical_leave_type(updated.get("leave_type")) == "Permission"
     ):
         try:
+            if old_start and old_end and (
+                old_start != updated.get("start_date") or old_end != updated.get("end_date")
+            ):
+                await _clear_leave_schedule_cells(
+                    updated.get("therapist_id"), old_start, old_end
+                )
             schedule_cell_ids = await _reapply_approved_leave_to_schedule(updated)
             await db.leaves.update_one(
                 {"id": lid},
@@ -17339,7 +17352,7 @@ def _parse_hm_to_minutes(hm: str, ref_ampm: str = "AM") -> Optional[int]:
         ampm = m.group(3).upper()
     elif h < 8 and ref_ampm == "PM":
         ampm = "PM"
-    if ampm == "PM" and h != 12:
+    if ampm == "PM" and h < 12:
         h += 12
     if ampm == "AM" and h == 12:
         h = 0
