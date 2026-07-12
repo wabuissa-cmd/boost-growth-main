@@ -9949,6 +9949,298 @@ def _swap_month_day_iso(iso: str) -> Optional[str]:
         return None
 
 
+_DAY_LABEL_TO_ABBR = {
+    "mon": "Mon", "monday": "Mon",
+    "tue": "Tue", "tues": "Tue", "tuesday": "Tue",
+    "wed": "Wed", "wednesday": "Wed",
+    "thu": "Thu", "thur": "Thu", "thurs": "Thu", "thursday": "Thu",
+    "fri": "Fri", "friday": "Fri",
+    "sat": "Sat", "saturday": "Sat",
+    "sun": "Sun", "sunday": "Sun",
+}
+
+
+def _day_label_to_abbr(label: str) -> Optional[str]:
+    s = (label or "").strip().lower()
+    if not s:
+        return None
+    if s[:3] in _DAY_LABEL_TO_ABBR:
+        return _DAY_LABEL_TO_ABBR[s[:3]]
+    return _DAY_LABEL_TO_ABBR.get(s)
+
+
+def _date_matches_day_label(date_iso: str, day_label: str) -> bool:
+    abbr = _day_label_to_abbr(day_label)
+    if not abbr or not date_iso:
+        return True
+    return _day_name_from_date(date_iso) == abbr
+
+
+def _correct_date_by_day_label(date_iso: str, day_label: str) -> str:
+    """Prefer the ISO whose weekday matches the Excel Day column."""
+    if not date_iso or not day_label:
+        return date_iso
+    if _date_matches_day_label(date_iso, day_label):
+        return date_iso
+    swapped = _swap_month_day_iso(date_iso)
+    if swapped and _date_matches_day_label(swapped, day_label):
+        return swapped
+    return date_iso
+
+
+def _normalize_excel_session_date(
+    raw_date,
+    text_dates: list,
+    day_label: Optional[str] = None,
+    peer_isos: Optional[list] = None,
+) -> Optional[str]:
+    """Parse Excel session date — D/M/Y strings, datetime cells, Day column, peer rows."""
+    date_iso = None
+    if isinstance(raw_date, datetime):
+        date_iso = raw_date.strftime("%Y-%m-%d")
+        anchor = any(str(x).startswith(("2024-", "2025-", "2026-")) for x in (text_dates or []))
+        swapped = _swap_month_day_iso(date_iso)
+        if anchor and swapped and swapped != date_iso:
+            if day_label:
+                if _date_matches_day_label(swapped, day_label) and not _date_matches_day_label(date_iso, day_label):
+                    date_iso = swapped
+            elif peer_isos and len(peer_isos) >= 2:
+                corrected = _session_likely_swapped_month_day(date_iso, peer_isos)
+                if corrected:
+                    date_iso = corrected
+    elif raw_date:
+        date_iso = _normalize_date(str(raw_date))
+    if date_iso and day_label:
+        date_iso = _correct_date_by_day_label(date_iso, day_label)
+    return date_iso
+
+
+def _find_invoice_sheet_header(ws) -> tuple:
+    """Return (header_row_idx, col_map) for invoice session tables."""
+    for r_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=12, values_only=True), start=1):
+        cells = [str(c).strip().lower() if c is not None else "" for c in row]
+        joined = " ".join(cells)
+        if "date" in cells and ("status" in cells or "# of hrs" in joined or "hrs" in joined):
+            col_map: Dict[str, int] = {}
+            for ci, h in enumerate(cells):
+                if h in ("day", "days"):
+                    col_map["day"] = ci
+                elif h == "date":
+                    col_map["date"] = ci
+                elif h == "status":
+                    col_map["status"] = ci
+                elif h == "time":
+                    col_map["time"] = ci
+                elif h in ("# of hrs", "hrs", "hours"):
+                    col_map["hours"] = ci
+                elif h == "therapist":
+                    col_map["therapist"] = ci
+                elif h in ("note", "notes"):
+                    col_map["note"] = ci
+            return r_idx, col_map
+    return None, {}
+
+
+def _parse_sheet_session_rows(ws, inv_num: str) -> List[dict]:
+    """Parse session rows from an invoice tab with corrected D/M dates."""
+    header_row_idx, col_map = _find_invoice_sheet_header(ws)
+    if header_row_idx is None or "date" not in col_map:
+        return []
+
+    raw_rows: List[dict] = []
+    text_dates: List[str] = []
+    for row_idx, row in enumerate(
+        ws.iter_rows(min_row=header_row_idx + 1, values_only=True),
+        start=header_row_idx + 1,
+    ):
+        if row is None or all((c is None or (isinstance(c, str) and not c.strip())) for c in row):
+            continue
+        joined = " ".join(str(c).lower() for c in row if c is not None)
+        if "total" in joined and "session" in joined:
+            break
+        raw_date = row[col_map["date"]] if col_map["date"] < len(row) else None
+        if not raw_date:
+            continue
+        day_label = ""
+        if "day" in col_map and col_map["day"] < len(row) and row[col_map["day"]]:
+            day_label = str(row[col_map["day"]]).strip()
+        if isinstance(raw_date, str):
+            td = _normalize_date(raw_date)
+            if td:
+                text_dates.append(td)
+        status_val = (
+            str(row[col_map["status"]]).strip()
+            if "status" in col_map and col_map["status"] < len(row) and row[col_map["status"]]
+            else ""
+        ).strip()
+        status_l = status_val.lower()
+        if _re_top.match(r"^(HS|SS)\s*\|", status_val, _re_top.IGNORECASE):
+            status_val = _re_top.sub(r"^(HS|SS)\s*\|\s*", "", status_val, flags=_re_top.IGNORECASE).strip()
+            status_l = status_val.lower()
+        if status_l in ("completed", "complete", "delivered"):
+            status_norm = "Completed"
+        elif "no service" in status_l or status_l == "ns":
+            status_norm = "No Service"
+        elif "cancel" in status_l:
+            status_norm = "Cancelled"
+        elif "no show" in status_l or "no-show" in status_l:
+            status_norm = "No Show"
+        else:
+            status_norm = status_val.title() if status_val else "Completed"
+        time_str = (
+            str(row[col_map["time"]]).strip()
+            if "time" in col_map and col_map["time"] < len(row) and row[col_map["time"]]
+            else ""
+        )
+        start_t, end_t, calc_h = _parse_time_range(time_str)
+        hours_val = row[col_map["hours"]] if "hours" in col_map and col_map["hours"] < len(row) else None
+        try:
+            hours_f = float(hours_val) if hours_val not in (None, "", "—") else calc_h
+        except Exception:
+            hours_f = calc_h
+        ther_cell = (
+            str(row[col_map["therapist"]]).strip()
+            if "therapist" in col_map and col_map["therapist"] < len(row) and row[col_map["therapist"]]
+            else ""
+        )
+        note_val = (
+            str(row[col_map["note"]]).strip()
+            if "note" in col_map and col_map["note"] < len(row) and row[col_map["note"]]
+            else ""
+        )
+        raw_rows.append({
+            "row_idx": row_idx,
+            "raw_date": raw_date,
+            "day_label": day_label,
+            "status": status_norm,
+            "start_time": start_t or None,
+            "end_time": end_t or None,
+            "hours": hours_f,
+            "therapist_cell": ther_cell,
+            "note": note_val or None,
+        })
+
+    peer_isos: List[str] = []
+    parsed: List[dict] = []
+    for rd in raw_rows:
+        date_iso = _normalize_excel_session_date(
+            rd["raw_date"], text_dates, rd.get("day_label"), peer_isos,
+        )
+        rd["date_iso"] = date_iso
+        if date_iso:
+            peer_isos.append(date_iso)
+            parsed.append(rd)
+    return parsed
+
+
+async def _reconcile_session_dates_from_workbook(cid: str, client: dict, wb, dry_run: bool = False) -> dict:
+    """Align portal session dates with corrected Excel rows (child-by-child)."""
+    matched_sheets = _discover_invoice_sheets(wb, client.get("file_no"))
+    existing_inv = {
+        i["invoice_number"]: i
+        for i in await db.invoices.find({"client_id": cid}, {"_id": 0}).to_list(500)
+    }
+    for inv in list(existing_inv.values()):
+        tab = (inv.get("source_sheet") or "").strip()
+        if tab and tab not in existing_inv:
+            existing_inv[tab] = inv
+
+    fixes: List[dict] = []
+    applied = 0
+    skipped = 0
+
+    for name in matched_sheets:
+        ws = wb[name]
+        clean = name.strip()
+        header_info = _parse_invoice_header(ws, clean)
+        inv_num = header_info.get("invoice_number") or clean
+        normalized = _invoice_number_from_name(inv_num) or _invoice_number_from_name(clean)
+        if normalized:
+            inv_num = normalized
+        inv_doc = existing_inv.get(inv_num) or existing_inv.get(clean)
+        if not inv_doc:
+            continue
+
+        excel_rows = _parse_sheet_session_rows(ws, inv_num)
+        by_row_idx = {r["row_idx"]: r for r in excel_rows}
+
+        sessions = await db.sessions.find(
+            {
+                "client_id": cid,
+                "$or": [{"invoice_id": inv_doc["id"]}, {"source_invoice": inv_num}],
+            },
+            {"_id": 0},
+        ).to_list(5000)
+
+        for s in sessions:
+            sk = s.get("sync_key") or ""
+            parts = sk.split("|")
+            row_idx = None
+            if len(parts) == 3 and parts[0] in (inv_num, clean):
+                try:
+                    row_idx = int(parts[2])
+                except Exception:
+                    row_idx = None
+
+            excel_row = by_row_idx.get(row_idx) if row_idx is not None else None
+            if not excel_row:
+                st = (s.get("start_time") or "").strip()
+                for er in excel_rows:
+                    if (er.get("start_time") or "").strip() == st and er.get("status") == s.get("status"):
+                        excel_row = er
+                        break
+
+            if not excel_row or not excel_row.get("date_iso"):
+                continue
+
+            cur = _normalize_session_date_iso(s.get("session_date"))
+            target = excel_row["date_iso"]
+            if cur == target:
+                continue
+
+            start_t = s.get("start_time") or ""
+            conflict = any(
+                o.get("id") != s.get("id")
+                and _normalize_session_date_iso(o.get("session_date")) == target
+                and (o.get("start_time") or "") == start_t
+                for o in sessions
+            )
+            if conflict:
+                skipped += 1
+                continue
+
+            new_sync_key = f"{inv_num}|{target}|{excel_row['row_idx']}"
+            fixes.append({
+                "client_name": client.get("name"),
+                "file_no": client.get("file_no"),
+                "session_id": s.get("id"),
+                "invoice": inv_num,
+                "row_idx": excel_row["row_idx"],
+                "from_date": cur,
+                "to_date": target,
+                "day_label": excel_row.get("day_label"),
+                "status": s.get("status"),
+            })
+            if not dry_run:
+                await db.sessions.update_one(
+                    {"id": s["id"]},
+                    {"$set": {
+                        "session_date": target,
+                        "day_name": _day_name_from_date(target),
+                        "sync_key": new_sync_key,
+                        "updated_at": now_iso(),
+                    }},
+                )
+                applied += 1
+
+    return {
+        "candidates": len(fixes),
+        "applied": applied,
+        "skipped_conflicts": skipped,
+        "fixes": fixes[:200],
+    }
+
+
 def _session_likely_swapped_month_day(session_iso: str, peer_isos: list) -> Optional[str]:
     """Return corrected ISO when this session's month looks like a day/month swap."""
     swapped = _swap_month_day_iso(session_iso)
@@ -10113,87 +10405,35 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
             invoices_added.append(inv_num)
             existing_inv[inv_num] = inv_doc
 
-        # Find header row containing the session columns
-        header_row_idx = None
-        col_map = {}
-        for r_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=12, values_only=True), start=1):
-            cells = [str(c).strip().lower() if c is not None else "" for c in row]
-            joined = " ".join(cells)
-            if "date" in cells and ("status" in cells or "# of hrs" in joined or "hrs" in joined):
-                header_row_idx = r_idx
-                for ci, h in enumerate(cells):
-                    if h in ("day", "days"):
-                        col_map["day"] = ci
-                    elif h == "date":
-                        col_map["date"] = ci
-                    elif h == "status":
-                        col_map["status"] = ci
-                    elif h == "time":
-                        col_map["time"] = ci
-                    elif h in ("# of hrs", "hrs", "hours"):
-                        col_map["hours"] = ci
-                    elif h == "therapist":
-                        col_map["therapist"] = ci
-                    elif h in ("note", "notes"):
-                        col_map["note"] = ci
-                break
-        if header_row_idx is None or "date" not in col_map:
+        parsed_rows = _parse_sheet_session_rows(ws, inv_num)
+        if not parsed_rows:
             continue
 
-        # Earliest session_date for this invoice -> use as start_date
         earliest = None
-        # Iterate session rows after the header
-        for row_idx, row in enumerate(ws.iter_rows(min_row=header_row_idx + 1, values_only=True), start=header_row_idx + 1):
-            if row is None or all((c is None or (isinstance(c, str) and not c.strip())) for c in row):
-                continue
-            raw_date = row[col_map["date"]] if col_map["date"] < len(row) else None
-            # Stop when we hit a totals/footer row
-            joined = " ".join(str(c).lower() for c in row if c is not None)
-            if "total" in joined and "session" in joined:
-                break
-            date_iso = None
-            if isinstance(raw_date, datetime):
-                date_iso = raw_date.strftime("%Y-%m-%d")
-            elif raw_date:
-                date_iso = _normalize_date(str(raw_date))
+        for pr in parsed_rows:
+            date_iso = pr.get("date_iso")
             if not date_iso:
                 continue
-            status_val = (str(row[col_map["status"]]).strip() if "status" in col_map and col_map["status"] < len(row) and row[col_map["status"]] else "").strip()
-            # Normalize statuses — strip HS| / SS| service prefix if present
-            status_l = status_val.lower()
-            svc_hint = _session_blob_service_hint({"status": status_val, "note": "", "location": ""})
+            status_norm = pr["status"]
+            svc_hint = _session_blob_service_hint({
+                "status": status_norm, "note": pr.get("note") or "", "location": "",
+            })
             if svc_hint == "HS":
                 sheet_hs += 1
             elif svc_hint == "SS":
                 sheet_ss += 1
-            if _re_top.match(r"^(HS|SS)\s*\|", status_val, _re_top.IGNORECASE):
-                status_val = _re_top.sub(r"^(HS|SS)\s*\|\s*", "", status_val, flags=_re_top.IGNORECASE).strip()
-                status_l = status_val.lower()
-            if status_l in ("completed", "complete", "delivered"):
-                status_norm = "Completed"
-            elif "no service" in status_l or status_l == "ns":
-                status_norm = "No Service"
-            elif "cancel" in status_l:
-                status_norm = "Cancelled"
-            elif "no show" in status_l or "no-show" in status_l:
-                status_norm = "No Show"
-            else:
-                status_norm = status_val.title() if status_val else "Completed"
-            time_str = str(row[col_map["time"]]).strip() if "time" in col_map and col_map["time"] < len(row) and row[col_map["time"]] else ""
-            start_t, end_t, calc_h = _parse_time_range(time_str)
-            hours_val = row[col_map["hours"]] if "hours" in col_map and col_map["hours"] < len(row) else None
-            try:
-                hours_f = float(hours_val) if hours_val not in (None, "", "—") else calc_h
-            except Exception:
-                hours_f = calc_h
-            ther_cell = str(row[col_map["therapist"]]).strip() if "therapist" in col_map and col_map["therapist"] < len(row) and row[col_map["therapist"]] else ""
-            ther_ids = _resolve_therapist_ids(ther_cell)
-            note_val = str(row[col_map["note"]]).strip() if "note" in col_map and col_map["note"] < len(row) and row[col_map["note"]] else ""
+            note_val = pr.get("note") or ""
             nh = _session_blob_service_hint({"note": note_val, "status": "", "location": ""})
             if nh == "HS":
                 sheet_hs += 1
             elif nh == "SS":
                 sheet_ss += 1
+
+            start_t = pr.get("start_time")
+            end_t = pr.get("end_time")
+            hours_f = pr.get("hours")
+            ther_ids = _resolve_therapist_ids(pr.get("therapist_cell") or "")
+            row_idx = pr["row_idx"]
 
             sync_key = f"{inv_num}|{date_iso}|{row_idx}"
             key = (date_iso, (start_t or "").strip(), inv_doc.get("id") or "")
@@ -10273,6 +10513,7 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
         if norm:
             synced_nums.add(norm)
     reconcile = await _reconcile_invoices_after_sync(cid, synced_nums)
+    date_reconcile = await _reconcile_session_dates_from_workbook(cid, client, wb)
 
     return {
         "matched_sheets": matched_sheets,
@@ -10283,6 +10524,7 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
         "sessions_added": sessions_added,
         "sessions_skipped_existing": sessions_skipped,
         "invoices_reconciled": reconcile,
+        "session_dates_reconciled": date_reconcile,
         "warning": (
             None if matched_sheets
             else f"No invoice sheets found. Tabs in file: {', '.join(all_tabs)}"
@@ -15725,6 +15967,87 @@ class FixSwappedSessionDatesIn(BaseModel):
     dry_run: bool = True
     client_id: Optional[str] = None
     file_no: Optional[str] = None
+
+
+class ReconcileSessionDatesFromDriveIn(BaseModel):
+    file_nos: Optional[List[str]] = None
+    dry_run: bool = False
+    folder_url: Optional[str] = None
+
+
+@api.post("/admin/reconcile-session-dates-from-drive")
+async def admin_reconcile_session_dates_from_drive(
+    body: ReconcileSessionDatesFromDriveIn, user=Depends(client_lead_or_admin),
+):
+    """Fix swapped session dates per child by re-reading their Drive attendance workbook."""
+    from drive_sync import (
+        ACTIVE_CLIENTS_FOLDER_ID,
+        extract_folder_id,
+        fetch_workbook_from_url,
+        list_active_client_folders,
+        resolve_attendance_sheet_url,
+    )
+
+    parent_id = extract_folder_id(body.folder_url or "") or ACTIVE_CLIENTS_FOLDER_ID
+    folders = list_active_client_folders(parent_id)
+    if body.file_nos:
+        wanted = {str(x).strip().zfill(3) for x in body.file_nos if str(x).strip()}
+        folders = [f for f in folders if f["file_no"] in wanted]
+
+    results: List[dict] = []
+    total_applied = 0
+    for entry in folders:
+        file_no = entry["file_no"]
+        client = await _find_client_by_file_no(file_no)
+        if not client:
+            results.append({"file_no": file_no, "status": "skipped", "reason": "client not in portal"})
+            continue
+        sheet_url = resolve_attendance_sheet_url(entry["folder_id"])
+        if not sheet_url:
+            results.append({
+                "file_no": file_no,
+                "client_name": client.get("name"),
+                "status": "skipped",
+                "reason": "no attendance spreadsheet",
+            })
+            continue
+        try:
+            wb = fetch_workbook_from_url(sheet_url)
+            if body.dry_run:
+                preview = await _reconcile_session_dates_from_workbook(
+                    client["id"], client, wb, dry_run=True,
+                )
+                results.append({
+                    "file_no": file_no,
+                    "client_name": client.get("name"),
+                    "status": "preview",
+                    **preview,
+                })
+                continue
+            reconcile = await _reconcile_session_dates_from_workbook(
+                client["id"], client, wb, dry_run=False,
+            )
+            total_applied += reconcile.get("applied", 0)
+            results.append({
+                "file_no": file_no,
+                "client_name": client.get("name"),
+                "status": "reconciled",
+                **reconcile,
+            })
+        except Exception as exc:
+            results.append({
+                "file_no": file_no,
+                "client_name": client.get("name"),
+                "status": "error",
+                "error": str(exc),
+            })
+
+    return {
+        "total_children": len(folders),
+        "total_dates_fixed": total_applied,
+        "results": results,
+        "message": f"Reconciled session dates for {len(results)} folder(s); {total_applied} date(s) corrected",
+    }
 
 
 @api.post("/admin/fix-swapped-session-dates")

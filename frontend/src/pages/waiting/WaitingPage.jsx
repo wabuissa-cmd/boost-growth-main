@@ -397,7 +397,7 @@ export default function WaitingPage({ mode, onModeChange }) {
   ) : null;
 
   const queueSwitcher = onModeChange ? (
-    <div className="editorial-pill-row mb-2">
+    <div className="editorial-pill-row">
       <button
         type="button"
         onClick={() => onModeChange("intake")}
@@ -462,9 +462,9 @@ export default function WaitingPage({ mode, onModeChange }) {
       : "After intake, awaiting placement";
 
   return (
-    <div className="portal-page-shell page-enter">
+    <div className="portal-page-shell page-enter waiting-page-shell">
       {canManage && (
-        <div className="waiting-actions-bar flex justify-end mb-2 relative">
+        <div className="waiting-actions-bar flex justify-end relative">
           {adminBadge}
         </div>
       )}
@@ -494,8 +494,9 @@ export default function WaitingPage({ mode, onModeChange }) {
         )}
       />
 
+      <section className="portal-content-panel portal-page-body waiting-page-panel">
       {canManage && (
-        <div className="flex flex-wrap items-center gap-2 mb-3 text-xs px-1">
+        <div className="waiting-meta-row">
           <CalendarBlank size={14} style={{ color: "var(--text-muted)" }} />
           <span style={{ color: "#5C6853" }}>Last updated:</span>
           {editingDate ? (
@@ -548,19 +549,19 @@ export default function WaitingPage({ mode, onModeChange }) {
       )}
 
       {loadError && (
-        <div className="mb-4 p-3 rounded-xl border text-sm font-semibold bg-[#F8EBE7] border-[#ECA6A6] text-[#8A3F27]">
+        <div className="waiting-alert waiting-alert--error">
           {loadError}
         </div>
       )}
 
       {syncResult && (
-        <div className={`mb-4 p-3 rounded-xl border text-sm font-semibold ${syncResult.ok ? "bg-[#E5EBE1] border-[#B4C2A9] text-[#3D4F35]" : "bg-[#F8EBE7] border-[#ECA6A6] text-[#8A3F27]"}`}>
+        <div className={`waiting-alert ${syncResult.ok ? "waiting-alert--ok" : "waiting-alert--error"}`}>
           {syncResult.msg}
         </div>
       )}
 
-      <section className="portal-content-panel portal-page-body">
-      <div className="waiting-filter-toolbar mb-3" ref={filtersRef}>
+      <div className="waiting-page-inner">
+      <div className="waiting-filter-toolbar" ref={filtersRef}>
         <button
           type="button"
           className={`waiting-filter-trigger${filtersOpen ? " is-open" : ""}${activeFilterCount ? " has-active" : ""}`}
@@ -680,12 +681,12 @@ export default function WaitingPage({ mode, onModeChange }) {
           )}
 
           {displayed.length === 0 ? (
-            <div className="p-12 text-center text-sm m-3 rounded-xl border border-dashed" style={{ color: "var(--text-muted)", borderColor: "var(--border-light)" }}>
+            <div className="waiting-empty-state">
               No records in this queue
             </div>
           ) : (
             <>
-            <div className="px-3 pb-4 waiting-table-area">
+            <div className="waiting-table-area">
               <div className="intake-table-wrap waiting-table-wrap">
                 <table className="intake-table">
                   <thead>
@@ -844,6 +845,7 @@ export default function WaitingPage({ mode, onModeChange }) {
             </>
           )}
         </aside>
+      </div>
       </div>
       </section>
 

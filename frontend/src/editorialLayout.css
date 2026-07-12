@@ -493,6 +493,10 @@
   padding: 1rem 1.15rem 1.15rem;
 }
 
+.portal-content-panel.waiting-page-panel > div:not([class$="-panel-head"]):not(.ci-naturora) {
+  padding: 0;
+}
+
 .portal-content-panel .ci-naturora,
 .portal-content-panel-wrap {
   width: 100%;
@@ -568,6 +572,16 @@
 
 .portal-content-panel.portal-page-body {
   padding: 1rem 1.15rem 1.15rem;
+}
+
+.portal-content-panel.waiting-page-panel.portal-page-body {
+  padding: 0;
+}
+
+.portal-content-panel.waiting-page-panel > .waiting-meta-row,
+.portal-content-panel.waiting-page-panel > .waiting-alert,
+.portal-content-panel.waiting-page-panel > .waiting-page-inner {
+  padding: 0;
 }
 
 .portal-content-panel.portal-page-body > .ci-naturora,

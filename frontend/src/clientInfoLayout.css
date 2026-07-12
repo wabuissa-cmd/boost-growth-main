@@ -1386,11 +1386,12 @@
 }
 
 .waiting-table-wrap .intake-table th {
-  padding: 0.45rem 0.6rem;
+  padding: 0.4rem 0.55rem;
 }
 
 .waiting-table-wrap .intake-table td {
-  padding: 0.42rem 0.6rem;
+  padding: 0.38rem 0.55rem;
+  line-height: 1.35;
 }
 
 .purchases-month-nav {
