@@ -32,8 +32,17 @@ function itemCategory(i) {
   return i.list_category || (i.intake_type === "school" ? "school" : "intake");
 }
 
+function asText(value) {
+  if (value == null || value === "") return "";
+  return String(value).trim();
+}
+
+function textCompare(a, b) {
+  return asText(a).localeCompare(asText(b), undefined, { sensitivity: "base", numeric: true });
+}
+
 function englishNamePart(name) {
-  return (name || "").replace(/\([^)]*\)/g, "").trim();
+  return asText(name).replace(/\([^)]*\)/g, "").trim();
 }
 
 function isDualEnglishName(name) {
@@ -42,7 +51,7 @@ function isDualEnglishName(name) {
 }
 
 function formatDOB(item) {
-  const raw = (item.birth_date || "").trim();
+  const raw = asText(item.birth_date);
   if (raw) {
     const d = new Date(`${raw.slice(0, 10)}T12:00:00`);
     if (!Number.isNaN(d.getTime())) {
@@ -50,13 +59,13 @@ function formatDOB(item) {
     }
     return raw.slice(0, 10);
   }
-  const age = String(item.age || "").trim();
+  const age = asText(item.age);
   if (/^\d{4}$/.test(age)) return age;
   return "";
 }
 
 function ageFromDOB(item) {
-  const raw = (item.birth_date || "").trim().slice(0, 10);
+  const raw = asText(item.birth_date).slice(0, 10);
   if (!raw) return "";
   const born = new Date(`${raw}T12:00:00`);
   if (Number.isNaN(born.getTime())) return "";
@@ -77,12 +86,12 @@ function sortableAge(item) {
 }
 
 function diagnosisKey(item) {
-  return (item.diagnosis || "").trim().toLowerCase() || "—";
+  return asText(item.diagnosis).toLowerCase() || "—";
 }
 
 function serviceMatches(item, filter) {
   if (!filter) return true;
-  const svc = (item.service || "").toUpperCase();
+  const svc = asText(item.service).toUpperCase();
   if (filter === "HS") return svc.includes("HS");
   if (filter === "SS") return svc.includes("SS");
   return true;
@@ -282,13 +291,13 @@ export default function WaitingPage({ mode, onModeChange }) {
     }
     list = [...list];
     if (sortBy === "age_asc") {
-      list.sort((a, b) => sortableAge(a) - sortableAge(b) || (a.child_name || "").localeCompare(b.child_name || ""));
+      list.sort((a, b) => sortableAge(a) - sortableAge(b) || textCompare(a.child_name, b.child_name));
     } else if (sortBy === "age_desc") {
-      list.sort((a, b) => sortableAge(b) - sortableAge(a) || (a.child_name || "").localeCompare(b.child_name || ""));
+      list.sort((a, b) => sortableAge(b) - sortableAge(a) || textCompare(a.child_name, b.child_name));
     } else if (sortBy === "diagnosis") {
-      list.sort((a, b) => diagnosisKey(a).localeCompare(diagnosisKey(b)) || (a.child_name || "").localeCompare(b.child_name || ""));
+      list.sort((a, b) => textCompare(diagnosisKey(a), diagnosisKey(b)) || textCompare(a.child_name, b.child_name));
     } else {
-      list.sort((a, b) => (a.child_name || "").localeCompare(b.child_name || ""));
+      list.sort((a, b) => textCompare(a.child_name, b.child_name));
     }
     return list;
   }, [filtered, priorityOnly, filterService, sortBy, filterDiagnosis]);
@@ -299,7 +308,7 @@ export default function WaitingPage({ mode, onModeChange }) {
       const k = diagnosisKey(i);
       if (k && k !== "—") keys.add(k);
     }
-    return Array.from(keys).sort((a, b) => a.localeCompare(b));
+    return Array.from(keys).sort(textCompare);
   }, [filtered]);
 
   const nameIssues = useMemo(() => {
