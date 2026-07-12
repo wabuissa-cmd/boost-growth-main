@@ -102,6 +102,10 @@ export function toISODate(d) {
   const day = String(dt.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
+/** Today's calendar date in the user's local timezone (safe for date inputs). */
+export function localTodayISO() {
+  return toISODate(new Date());
+}
 export function formatDateRange(weekStart) {
   const end = addDays(weekStart, 4);
   const opt = { day: "numeric", month: "short" };

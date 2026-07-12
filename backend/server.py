@@ -4814,11 +4814,26 @@ async def admin_fix_permission_schedule(payload: FixPermissionScheduleIn, user=D
         "leave_type": "Permission",
         "days": days_val,
     }
+    if not leave.get("original_start_date"):
+        patch["original_start_date"] = old_start
+        patch["original_end_date"] = old_end
+        patch["original_start_time"] = leave.get("start_time")
+        patch["original_end_time"] = leave.get("end_time")
+        patch["original_days"] = leave.get("days")
     await db.leaves.update_one({"id": leave["id"]}, {"$set": patch})
     merged = {**leave, **patch}
     removed = 0
     if old_start and old_end and (old_start != date or old_end != date):
         removed += await _clear_leave_schedule_cells(therapist_id, old_start, old_end)
+        timeline = list(leave.get("timeline") or [])
+        timeline.append({
+            "event": "date_corrected",
+            "at": now_iso(),
+            "by": _actor_display(user),
+            "note": f"Schedule date {old_start} → {date}",
+        })
+        await db.leaves.update_one({"id": leave["id"]}, {"$set": {"timeline": timeline}})
+        merged["timeline"] = timeline
     removed += await _clear_leave_schedule_cells(therapist_id, date, date)
     schedule_cell_ids = await _reapply_approved_leave_to_schedule(merged)
     await db.leaves.update_one(
@@ -14607,6 +14622,14 @@ async def create_leave(payload: LeaveIn, user=Depends(get_current_user)):
     body["therapist_id"] = tid
     body["therapist_name"] = therapist_name
     doc = {"id": lid, **body, **_leave_default_fields(), "created_by": user["id"], "created_at": now_iso()}
+    # Immutable audit: what the therapist actually submitted (never overwrite on admin fixes).
+    doc["original_start_date"] = body["start_date"]
+    doc["original_end_date"] = body["end_date"]
+    if payload.start_time:
+        doc["original_start_time"] = (payload.start_time or "").strip()[:5]
+    if payload.end_time:
+        doc["original_end_time"] = (payload.end_time or "").strip()[:5]
+    doc["original_days"] = float(payload.days or 0)
     submitted_pending = (payload.status or "pending").strip().lower() in (
         "", "pending", "pending_manager", "pending_attachment",
     )

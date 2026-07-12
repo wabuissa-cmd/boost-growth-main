@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from "react";
-import api, { API, openAuthenticatedFile } from "../api";
+import api, { API, openAuthenticatedFile, localTodayISO } from "../api";
 import { useAuth, showAdminNav, canEditStaffRequests, canManageLeaves, canHrReviewLeaves, isJenan, showSystemAdmin, canAccessManagerHub } from "../auth";
 import { Navigate } from "react-router-dom";
 import { Plus, PencilSimple, X, ChatCircleText, CalendarBlank, Tag, Lightning, Clock, CheckCircle, XCircle, Hourglass, Spinner, Trophy, Briefcase, Package, UploadSimple, Eye, FileArrowDown, FileText, Buildings, ListChecks } from "@phosphor-icons/react";
@@ -269,7 +269,7 @@ const LEAVE_FORM_TYPES = [
 ];
 
 function emptyLeaveForm() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localTodayISO();
   return {
     therapist_id: "",
     start_date: today,

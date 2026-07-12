@@ -48,7 +48,8 @@ function formatSlotHeader(ts) {
 
 function scheduleDayDateLabel(weekStart, dayIdx) {
   const d = addDays(weekStart, dayIdx);
-  return `${d.getDate()} ${MONTH_SHORT[d.getMonth()]}`;
+  const weekday = d.toLocaleDateString("en-US", { weekday: "short" });
+  return `${weekday} ${d.getDate()} ${MONTH_SHORT[d.getMonth()]}`;
 }
 
 function timeHeaderStyle() {

@@ -1,5 +1,7 @@
 /** Leave management helpers — document badges, balance status, filters. */
 
+import { localTodayISO } from "./api";
+
 export const LEAVE_STATUS = {
   pending: { label: "Pending", therapistLabel: "Under Review", color: "#D4A64A", bg: "#FAF0D1", icon: "🟡" },
   pending_manager: { label: "Pending Manager", therapistLabel: "Direct Manager Review", color: "#D4A64A", bg: "#FAF0D1", icon: "🟡" },
@@ -138,7 +140,9 @@ export function fmtDateRange(start, end) {
   if (!start) return "—";
   const fmt = (iso) => {
     const d = new Date(`${iso.slice(0, 10)}T12:00:00`);
-    return `${d.getDate()} ${d.toLocaleDateString("en-US", { month: "short" })}`;
+    const weekday = d.toLocaleDateString("en-US", { weekday: "short" });
+    const month = d.toLocaleDateString("en-US", { month: "short" });
+    return `${weekday} ${d.getDate()} ${month}`;
   };
   if (!end || start === end) return fmt(start);
   return `${fmt(start)} → ${fmt(end)}`;
@@ -252,7 +256,7 @@ export function isHistoryLeave(l) {
 }
 
 export function isOnLeaveNow(l, todayIso) {
-  const t = todayIso || new Date().toISOString().slice(0, 10);
+  const t = todayIso || localTodayISO();
   return ["approved", "done", "absent"].includes(l.status)
     && l.start_date <= t && l.end_date >= t;
 }

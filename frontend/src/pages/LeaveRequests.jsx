@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import api, { API, openAuthenticatedFile } from "../api";
+import api, { API, openAuthenticatedFile, localTodayISO } from "../api";
 import { useAuth, showAdminNav, canManageLeaves, canHrReviewLeaves, isJenan } from "../auth";
 import {
   Plus, X, CheckCircle, XCircle, FilePdf, UploadSimple, Eye, Trash,
@@ -22,7 +22,7 @@ import {
 import { getPortalDisplayName, getTherapistScheduleName } from "../scheduleConstants";
 
 function emptyLeave(therapistId = "") {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localTodayISO();
   return {
     therapist_id: therapistId, start_date: today, end_date: today,
     days: 1, leave_type: "Annual", status: "pending", notes: "",
@@ -571,8 +571,8 @@ function LeaveRequestCard({
 
 function MarkAbsenceModal({ therapists, onClose, onDone }) {
   const [form, setForm] = useState({
-    therapist_id: "", date_from: new Date().toISOString().slice(0, 10),
-    date_to: new Date().toISOString().slice(0, 10), leave_type: "Absence",
+    therapist_id: "", date_from: localTodayISO(),
+    date_to: localTodayISO(), leave_type: "Absence",
     notes: "", cancel_sessions: true,
   });
   const [submitting, setSubmitting] = useState(false);

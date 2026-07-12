@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, Fragment } from "react";
-import api, { API, openAuthenticatedFile } from "../api";
+import api, { API, openAuthenticatedFile, localTodayISO } from "../api";
 import { useAuth, isJenan } from "../auth";
 import {
   Plus, CalendarBlank, CheckCircle, XCircle, Hourglass, ChatCircleText, Clock,
@@ -136,7 +136,7 @@ function leaveSubjectId(user) {
 }
 
 function emptyForm(userId) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localTodayISO();
   return {
     category: null, // "leave" | "general"
     selectedType: null,
@@ -337,7 +337,7 @@ export default function TherapistRequests() {
   }));
 
   const selectType = (typeId, categoryOverride = null) => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localTodayISO();
     setForm((f) => ({
       ...emptyForm(leaveSubjectId(user)),
       category: categoryOverride
