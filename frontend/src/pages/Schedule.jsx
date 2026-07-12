@@ -262,7 +262,7 @@ export default function Schedule() {
   const longPressTimer = useRef(null);
   const touchStartPos = useRef(null);
   const [adminEditsOpen, setAdminEditsOpen] = useState(false);
-  const [addSpecialistOpen, setAddSpecialistOpen] = useState(false);
+  const [manageTherapistsOpen, setManageTherapistsOpen] = useState(false);
   const [addTherapistId, setAddTherapistId] = useState("");
   const [scheduleTherapistBusy, setScheduleTherapistBusy] = useState(false);
   const [prepRelinkBusy, setPrepRelinkBusy] = useState(false);
@@ -739,15 +739,13 @@ export default function Schedule() {
     return sortForWeek(list);
   }, [therapists, search, sortForWeek]);
 
-  const addableScheduleTherapists = useMemo(
-    () => sortForWeek(
-      therapists.filter((t) => isHiddenFromSchedule({ ...t, show_on_schedule: false }))
-    ),
+  const onScheduleTherapists = useMemo(
+    () => sortForWeek(therapists.filter((t) => !isHiddenFromSchedule(t))),
     [therapists, sortForWeek],
   );
 
-  const manuallyShownTherapists = useMemo(
-    () => sortForWeek(therapists.filter((t) => t.show_on_schedule === true)),
+  const addableScheduleTherapists = useMemo(
+    () => sortForWeek(therapists.filter((t) => isHiddenFromSchedule(t))),
     [therapists, sortForWeek],
   );
 
@@ -758,8 +756,7 @@ export default function Schedule() {
       const { data } = await api.put(`/therapists/${addTherapistId}`, { show_on_schedule: true });
       setTherapists((prev) => prev.map((t) => (t.id === data.id ? { ...t, ...data } : t)));
       setAddTherapistId("");
-      setAdminEditsOpen(false);
-      setAddSpecialistOpen(false);
+      setManageTherapistsOpen(false);
     } catch (e) {
       alert(e.response?.data?.detail || "Could not add therapist to schedule");
     } finally {
@@ -2051,12 +2048,12 @@ export default function Schedule() {
               <>
               <button
                 type="button"
-                data-testid="schedule-add-specialist-btn"
-                onClick={() => { setAddTherapistId(""); setAddSpecialistOpen(true); }}
+                data-testid="schedule-manage-therapists-btn"
+                onClick={() => { setAddTherapistId(""); setManageTherapistsOpen(true); }}
                 className="btn btn-outline text-[11px] flex items-center gap-1 px-2 py-1 min-h-0 shrink-0"
               >
                 <UserPlus size={13} />
-                Add therapist
+                Manage therapists
               </button>
               <div className="relative ml-auto shrink-0" ref={adminEditsRef}>
                 <button
@@ -2072,24 +2069,6 @@ export default function Schedule() {
                 </button>
                 {adminEditsOpen && (
                   <div className="schedule-admin-edits-menu absolute right-0 top-[calc(100%+6px)] z-[200] card p-2.5 min-w-[228px] shadow-lg border border-[#E2DDD4] flex flex-col gap-2 bg-white">
-                    {manuallyShownTherapists.length > 0 && (
-                      <div className="border-b pb-2 mb-1 space-y-1" style={{ borderColor: "#EDE9E3" }}>
-                        <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "var(--brand-sage)" }}>Added therapists</div>
-                        {manuallyShownTherapists.map((t) => (
-                          <div key={t.id} className="flex items-center justify-between gap-1 text-[10px]">
-                            <span className="truncate" style={{ color: "#2C3625" }}>{getTherapistScheduleName(t)}</span>
-                            <button
-                              type="button"
-                              className="text-[9px] underline shrink-0"
-                              disabled={scheduleTherapistBusy}
-                              onClick={() => removeTherapistFromSchedule(t.id)}
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                     <button type="button" onClick={() => { setShowHolidays(true); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start min-h-[36px]">Official holidays</button>
                     {canManagePrep && (
                       <button
@@ -2147,28 +2126,49 @@ export default function Schedule() {
         </div>
       )}
 
-      {addSpecialistOpen && (
+      {manageTherapistsOpen && (
         <ModalBase
-          title="Add therapist"
-          subtitle="Choose a therapist to show as a column on the weekly schedule"
-          onClose={() => setAddSpecialistOpen(false)}
+          title="Manage schedule therapists"
+          subtitle="Add or hide therapist rows on the weekly schedule (does not delete their account)"
+          onClose={() => setManageTherapistsOpen(false)}
           size="sm"
           footer={(
             <>
-              <ModalBtnSecondary type="button" onClick={() => setAddSpecialistOpen(false)}>Cancel</ModalBtnSecondary>
+              <ModalBtnSecondary type="button" onClick={() => setManageTherapistsOpen(false)}>Close</ModalBtnSecondary>
               <ModalBtnPrimary
                 type="button"
                 data-testid="schedule-add-therapist-btn"
                 onClick={addTherapistToSchedule}
                 disabled={!addTherapistId || scheduleTherapistBusy}
               >
-                {scheduleTherapistBusy ? "Adding…" : "Add to schedule"}
+                {scheduleTherapistBusy ? "Saving…" : "Add selected"}
               </ModalBtnPrimary>
             </>
           )}
         >
-          <FormSection title="Therapist">
-            <FormField label="Select therapist">
+          <FormSection title="On schedule now">
+            {onScheduleTherapists.length === 0 ? (
+              <p className="text-xs m-0" style={{ color: "var(--brand-sage)" }}>No therapists on the schedule.</p>
+            ) : (
+              <ul className="space-y-1.5 m-0 p-0 list-none">
+                {onScheduleTherapists.map((t) => (
+                  <li key={t.id} className="flex items-center justify-between gap-2 text-sm py-1.5 border-b last:border-0" style={{ borderColor: "#EDE9E3" }}>
+                    <span style={{ color: "#2C3625" }}>{getTherapistScheduleName(t)}</span>
+                    <button
+                      type="button"
+                      className="text-xs underline shrink-0"
+                      disabled={scheduleTherapistBusy}
+                      onClick={() => removeTherapistFromSchedule(t.id)}
+                    >
+                      Hide
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </FormSection>
+          <FormSection title="Add to schedule">
+            <FormField label="Hidden therapist">
               <select
                 className="modal-input"
                 value={addTherapistId}
