@@ -37,7 +37,7 @@ const MANAGER_REVIEW_STATUS_MAP = {
     color: "#E6C983",
   },
   [MANAGER_APPROVE_KEY]: {
-    label: "Forward to HR",
+    label: "Approve",
     cls: "bg-[#E5EBE1] text-[var(--brand-dark)] border-[#B4C2A9]",
     icon: <CheckCircle size={14} weight="duotone"/>,
     color: "#B4C2A9",
@@ -401,8 +401,8 @@ export default function Requests({ personal = false, embedded = false, managerVi
         admin_note: statusEdit.admin_note,
       };
       if (inManagerReviewMode) {
-        payload.notify_hr = !!statusEdit.notify_hr;
-        payload.notify_therapist = !!statusEdit.notify_therapist;
+        payload.notify_hr = true;
+        payload.notify_therapist = false;
       }
       await api.put(`/leaves/${statusEdit.leaveId}/status`, payload);
       setStatusEdit(null);
@@ -1107,7 +1107,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
               )}
               {managerView && statusEdit._managerReviewable && (
                 <p className="text-sm -mt-2 mb-2" style={{ color: "var(--text-secondary)" }}>
-                  Choose Approve, Pending, or Reject. Optionally notify HR for follow-up or notify the therapist directly.
+                  Choose Approve, Pending, Reject, or In progress. Approve/Reject automatically forwards to HR — you do not need to notify HR or the therapist.
                 </p>
               )}
               {managerView && !statusEdit._managerReviewable && (
@@ -1312,7 +1312,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
                       style={{ borderTop: "1px solid #E2DDD4", background: "#FAFAF7" }}
                     >
                       <div className="text-xs" style={{ color: "#3D4F35" }}>
-                        Manager step always forwards to HR. HR will send the final email to the therapist.
+                        Saving Approve or Reject sends the request to HR automatically. HR emails the therapist after the final decision.
                       </div>
                     </div>
                   )}

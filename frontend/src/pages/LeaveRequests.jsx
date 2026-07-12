@@ -164,7 +164,7 @@ function LeaveRequestCard({
 
   const setStatus = async (status, opts = {}) => {
     try {
-      await api.put(`/leaves/${leave.id}/status`, {
+      const payload = {
         status,
         is_paid: opts.is_paid,
         deduct_balance: opts.deduct_balance,
@@ -174,7 +174,12 @@ function LeaveRequestCard({
         adjusted_days: opts.adjusted_days,
         adjusted_start_time: opts.adjusted_start_time,
         adjusted_end_time: opts.adjusted_end_time,
-      });
+      };
+      if (isManager && !portalAdmin) {
+        payload.notify_hr = true;
+        payload.notify_therapist = false;
+      }
+      await api.put(`/leaves/${leave.id}/status`, payload);
       await onRefresh();
       if (opts.successMessage) alert(opts.successMessage);
     } catch (e) {
@@ -371,12 +376,15 @@ function LeaveRequestCard({
           )}
           {isManager && pendingManager && !portalAdmin && (
             <>
-              <button onClick={() => setStatus("pending_hr")} className="btn btn-primary text-xs" data-testid={`approve-manager-${leave.id}`}>
-                <CheckCircle size={14} /> Forward to HR
+              <button onClick={() => setStatus("manager_approve")} className="btn btn-primary text-xs" data-testid={`approve-manager-${leave.id}`}>
+                <CheckCircle size={14} /> Approve
               </button>
               <button onClick={() => setStatus("manager_reject")} className="btn btn-outline text-xs" data-testid={`reject-${leave.id}`}>
                 <XCircle size={14} /> Reject
               </button>
+              <p className="w-full text-[10px] mt-1" style={{ color: "#5C6853" }}>
+                Approve/Reject forwards to HR automatically — HR notifies the therapist.
+              </p>
             </>
           )}
           {hrReview && pendingHr && !portalAdmin && leave.leave_type === "Permission" && (

@@ -1856,7 +1856,7 @@ async def me(user: dict = Depends(get_current_user)):
     user["staff_admin"] = user["portal_admin"] or _is_walaa_ops(user)
     user["jenan_hr"] = _is_jenan(user)
     user["can_manage_leaves"] = _is_jenan(user)
-    user["can_hr_review_leaves"] = _is_hr_ops(user)
+    user["can_hr_review_leaves"] = _is_hr_ops(user) or _is_walaa_ops(user)
     user["can_edit_staff_requests"] = _is_jenan(user) or _is_hr_ops(user)
     user["can_access_manager_hub"] = _is_jenan(user) or _is_portal_admin(user) or _is_walaa_ops(user)
     user["can_import"] = _is_portal_admin(user) or _is_walaa_ops(user)
@@ -5118,11 +5118,20 @@ async def _notify_admins(ntype: str, title: str, message: str):
 
 
 async def _notify_hr_ops(ntype: str, title: str, message: str, **extra):
+    """In-app alert for HR ops + Walaa ops when manager forwards a request."""
+    notified: set = set()
     admins = await db.users.find({"role": "admin"}, {"_id": 0, "id": 1, "email": 1, "is_hr_ops": 1}).to_list(50)
     for a in admins:
         stub = {"role": "admin", "email": a.get("email"), "is_hr_ops": a.get("is_hr_ops")}
-        if _is_hr_ops(stub):
-            await _notify(a["id"], ntype, title, message, **extra)
+        if _is_hr_ops(stub) or _is_portal_admin(stub):
+            uid = a["id"]
+            if uid not in notified:
+                await _notify(uid, ntype, title, message, **extra)
+                notified.add(uid)
+    for wid in await _walaa_notify_user_ids():
+        if wid not in notified:
+            await _notify(wid, ntype, title, message, **extra)
+            notified.add(wid)
 
 
 def _can_view_all_purchases(user: dict) -> bool:
@@ -5201,15 +5210,15 @@ async def _jenan_recipient_email() -> str:
 
 
 async def _hr_ops_recipient_emails() -> List[str]:
-    """HR inbox recipients — seeded HR account plus any is_hr_ops admin users."""
+    """HR inbox recipients — HR ops admins, Walaa ops, and fallback HR mailbox."""
     emails: set = set()
     admins = await db.users.find({"role": "admin"}, {"_id": 0, "email": 1, "is_hr_ops": 1}).to_list(50)
     for a in admins:
         stub = {"role": "admin", "email": a.get("email"), "is_hr_ops": a.get("is_hr_ops")}
-        if _is_hr_ops(stub) and a.get("email"):
+        if (_is_hr_ops(stub) or _is_portal_admin(stub)) and a.get("email"):
             emails.add(a["email"].lower().strip())
-    if not emails:
-        emails.add(HR_OPS_EMAIL.lower())
+    for em in ("walaa@boostgrowthsa.com", "wabuissa@boostgrowthsa.com", HR_OPS_EMAIL.lower()):
+        emails.add(em)
     return sorted(emails)
 
 
@@ -5267,7 +5276,7 @@ async def _notify_hr_manager_decision(
         hr_body += f"\n\nManager note:\n{admin_note}"
     portal = _portal_base_url()
     if portal:
-        link = "/manager" if ntype == "leave_request" else "/requests"
+        link = "/manager" if ntype in ("leave_request", "request") else "/requests"
         hr_body += f"\n\nReview in portal: {portal}{link}"
     hr_body += "\n\nSincerely,\nBoost Growth Portal"
     await _email_hr_ops_urgent(hr_title, hr_body)
@@ -12883,7 +12892,7 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
     raw_status = payload.status
     new_status = _coerce_manager_approve_to_hr(raw_status, payload.notify_hr)
     is_pa = _is_portal_admin(user)
-    is_hr = _is_hr_ops(user)
+    is_hr = _is_hr_ops(user) or _is_walaa_ops(user)
     is_jenan_mgr = _is_jenan(user) and not is_pa
     if is_jenan_mgr:
         notify_hr = True
@@ -12971,8 +12980,8 @@ async def update_request_status(rid: str, payload: RequestStatusUpdate, user=Dep
             decision_status=notify_status,
             admin_note=payload.admin_note,
         )
-    # Therapist email when manager forwards to HR (not final decision).
-    if is_jenan_mgr and manager_decision in ("approved", "rejected", "in_progress"):
+    # Manager forwards to HR — therapist is notified only after HR final decision.
+    if is_jenan_mgr and new_status != "pending_hr" and manager_decision == "in_progress":
         try:
             await _send_staff_request_manager_email(
                 {**(req or {}), **set_patch},
@@ -14704,7 +14713,7 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
     raw_status = payload.status
     new_status = (_coerce_manager_approve_to_hr(raw_status, payload.notify_hr) or "").strip().lower()
     is_pa = _is_portal_admin(user)
-    is_hr = _is_hr_ops(user)
+    is_hr = _is_hr_ops(user) or _is_walaa_ops(user)
     is_jenan_mgr = _is_jenan(user) and not is_pa
     if is_jenan_mgr:
         notify_hr = True

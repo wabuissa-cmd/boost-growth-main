@@ -229,7 +229,7 @@ export function canViewClinicalNav(user) {
 export function canHrReviewLeaves(user) {
   if (!user) return false;
   if (user.can_hr_review_leaves) return true;
-  return isHrOps(user);
+  return isHrOps(user) || isWalaaOps(user);
 }
 
 export function canEditStaffRequests(user) {
