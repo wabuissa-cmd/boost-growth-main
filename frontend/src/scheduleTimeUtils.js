@@ -52,10 +52,9 @@ function parseHmToMinutes(hm, refAmpm = "AM") {
   return null;
 }
 
-function slotEndRefAmpm(timeSlot) {
-  const parts = String(timeSlot || "").split(" - ");
-  const endPart = (parts[1] || parts[0] || "").toUpperCase();
-  return endPart.includes("PM") ? "PM" : "AM";
+function slotAnchorAmpm(timeSlot) {
+  const upper = String(timeSlot || "").toUpperCase();
+  return upper.includes("PM") ? "PM" : "AM";
 }
 
 function parseCustomTimeRange(custom, anchorSlot) {
@@ -63,8 +62,8 @@ function parseCustomTimeRange(custom, anchorSlot) {
   if (!txt) return null;
   const m = txt.match(/(\d{1,2}(?::\d{2})?)\s*[-–]\s*(\d{1,2}(?::\d{2})?)/);
   if (!m) return null;
-  const ref = slotEndRefAmpm(anchorSlot);
-  const startM = parseHmToMinutes(m[1], ref === "PM" ? "AM" : ref);
+  const ref = slotAnchorAmpm(anchorSlot);
+  const startM = parseHmToMinutes(m[1], ref);
   let endM = parseHmToMinutes(m[2], "PM");
   if (startM == null || endM == null) return null;
   if (endM <= startM) endM += 12 * 60;

@@ -46,6 +46,11 @@ function sessionStartMatchesCell(session, cell) {
   const endMin = cellEnd ? hmToMinutes(cellEnd) : null;
   if (sessMin == null || startMin == null) return false;
   if (endMin != null && sessMin >= startMin && sessMin < endMin) return true;
+  // Legacy sessions logged with AM mis-parse (03:30 vs cell 15:30)
+  if (endMin != null) {
+    const shifted = sessMin + 12 * 60;
+    if (shifted >= startMin && shifted < endMin) return true;
+  }
   return false;
 }
 
@@ -320,6 +325,38 @@ function sessionClientMatchesCellName(session, cellName, clients = []) {
   return scheduleNamesReferToSameClient(cellName, sc.name, clients);
 }
 
+const ANY_LOGGED_SESSION_STATUSES = new Set([
+  ...LOGGED_PREP_STATUSES,
+  ...NO_ATTENDANCE_SESSION_STATUSES,
+]);
+
+/** Find any logged session for a schedule cell (strict match first, then same client/day/therapist). */
+export function findExistingSessionForScheduleCell(
+  sessions,
+  cell,
+  therapistId,
+  sessionDate,
+  client,
+  clients = [],
+  idAliases = null,
+) {
+  const strict = findSessionForCellByStatus(
+    sessions, ANY_LOGGED_SESSION_STATUSES, cell, therapistId, sessionDate,
+    client, clients, null, idAliases,
+  );
+  if (strict) return strict;
+  const cid = client?.id;
+  if (!cid) return null;
+  for (const s of sessions || []) {
+    if (!ANY_LOGGED_SESSION_STATUSES.has(s.status)) continue;
+    if (s.client_id !== cid) continue;
+    if ((s.session_date || "").slice(0, 10) !== sessionDate) continue;
+    if (!sessionIncludesTherapist(s.therapist_ids, therapistId, idAliases)) continue;
+    return s;
+  }
+  return null;
+}
+
 function findSessionForCellByStatus(
   sessions,
   statusSet,
@@ -428,13 +465,13 @@ export function getCellStatusBadge(
     weekSessions, LOGGED_PREP_STATUSES, cell, therapistId, sessionDate,
     client, clients, suppressionLookup, idAliases,
   );
-  if (completed && slotStarted) return "prep";
+  if (completed) return "prep";
 
   const noShowSession = findSessionForCellByStatus(
     weekSessions, NO_ATTENDANCE_SESSION_STATUSES, cell, therapistId, sessionDate,
     client, clients, suppressionLookup, idAliases,
   );
-  if (noShowSession && slotEnded) return "no_show";
+  if (noShowSession) return "no_show";
 
   if (cell.state === "cancel_child" && slotEnded && !completed) {
     return "no_show";

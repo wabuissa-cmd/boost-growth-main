@@ -3650,7 +3650,12 @@ def _session_time_matches_cell(start_time: Optional[str], cell: Optional[dict], 
     start_min = _hm_to_minutes(cell_start)
     end_min = _hm_to_minutes(cell_end)
     if sess_min is not None and start_min is not None and end_min is not None:
-        return start_min <= sess_min < end_min
+        if start_min <= sess_min < end_min:
+            return True
+        # Legacy sessions logged with AM mis-parse (03:30 vs cell 15:30)
+        shifted = sess_min + 12 * 60
+        if start_min <= shifted < end_min:
+            return True
     return False
 
 

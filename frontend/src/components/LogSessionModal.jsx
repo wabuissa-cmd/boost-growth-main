@@ -134,7 +134,13 @@ export default function LogSessionModal({
       invalidateCache("/schedule/preparations");
       invalidateCache("/schedule");
       window.dispatchEvent(new CustomEvent("boost:prep-changed"));
-      onSaved();
+      onSaved({
+        ...form,
+        status: normalizeSessionStatus(form.status),
+        start_time: form.start_time,
+        end_time: form.end_time,
+        note: form.note,
+      });
     } catch (err) {
       const status = err?.response?.status;
       const detail = formatErr(err?.response?.data?.detail);

@@ -30,7 +30,7 @@ import ParentCancellationModal from "../components/ParentCancellationModal";
 import LogSessionModal from "../components/LogSessionModal";
 import { scheduleCellSessionTimes } from "../scheduleTimeUtils";
 import SchedulePrepBadge from "../components/SchedulePrepBadge";
-import { buildSessionPrepLookup, buildSuppressionLookup, getCellStatusBadge, mergePrepLookups, buildAllTherapistIdAliases, optimisticPrepKeysFromScheduleLog, findPrepRecordForCell } from "../schedulePrepUtils";
+import { buildSessionPrepLookup, buildSuppressionLookup, getCellStatusBadge, mergePrepLookups, buildAllTherapistIdAliases, optimisticPrepKeysFromScheduleLog, findPrepRecordForCell, findExistingSessionForScheduleCell } from "../schedulePrepUtils";
 import { buildParentMessages } from "../scheduleParentMessages";
 import { sortTherapistsForSchedule, sortTherapistsForScheduleWeek, getTherapistScheduleName, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
 import { cachedGet, invalidateCache } from "../dataCache";
@@ -1154,9 +1154,27 @@ export default function Schedule() {
     }
     if (!client) return;
     const times = scheduleCellSessionTimes(cell, time_slot);
+    const existingSession = findExistingSessionForScheduleCell(
+      weekSessions,
+      cell,
+      therapist_id,
+      sessionDate,
+      client,
+      clients,
+      therapistIdAliases,
+    ) || findExistingSessionForScheduleCell(
+      allSessions,
+      cell,
+      therapist_id,
+      sessionDate,
+      client,
+      clients,
+      therapistIdAliases,
+    );
     setQuickLog({
       client,
       cell,
+      session: existingSession || null,
       scheduleContext: {
         therapist_id: therapist_id,
         time_slot: cell?.time_slot || time_slot || "",
@@ -2770,31 +2788,34 @@ export default function Schedule() {
 
       {quickLog && (
         <LogSessionModal
-          key={`${quickLog.client?.id}-${quickLog.scheduleContext?.schedule_cell_id || ""}-${quickLog.prefill?.session_date || ""}`}
+          key={`${quickLog.client?.id}-${quickLog.scheduleContext?.schedule_cell_id || ""}-${quickLog.prefill?.session_date || ""}-${quickLog.session?.id || "new"}`}
           client={quickLog.client}
           therapists={therapists}
           currentUser={user}
           prefill={quickLog.prefill}
+          session={quickLog.session}
           scheduleContext={quickLog.scheduleContext}
           onClose={() => setQuickLog(null)}
-          onSaved={() => {
+          onSaved={(savedForm) => {
             const ctx = quickLog?.scheduleContext;
             const cl = quickLog?.client;
             const sessionDate = ctx?.week_start != null && ctx?.day != null
               ? toISODate(addDays(new Date(`${ctx.week_start}T12:00:00`), ctx.day))
               : (quickLog?.prefill?.session_date || "").slice(0, 10);
-            const savedForm = quickLog?.prefill || {};
+            const savedStatus = savedForm?.status || "Completed";
+            const savedStart = savedForm?.start_time || quickLog?.prefill?.start_time || ctx?.slot_start || "";
+            const savedEnd = savedForm?.end_time || quickLog?.prefill?.end_time || ctx?.slot_end || "";
             setQuickLog(null);
             if (ctx?.therapist_id && cl?.id && sessionDate) {
               const optimisticSession = {
-                id: `optimistic-${Date.now()}`,
+                id: quickLog?.session?.id || `optimistic-${Date.now()}`,
                 client_id: cl.id,
                 session_date: sessionDate,
-                start_time: savedForm.start_time || ctx.slot_start || "",
-                end_time: savedForm.end_time || ctx.slot_end || "",
-                status: "Completed",
+                start_time: savedStart,
+                end_time: savedEnd,
+                status: savedStatus,
                 therapist_ids: [ctx.therapist_id],
-                note: "",
+                note: savedForm?.note || "",
               };
               setWeekSessions((prev) => {
                 const filtered = (prev || []).filter(
@@ -2806,14 +2827,16 @@ export default function Schedule() {
                 );
                 return [...filtered, optimisticSession];
               });
-              setPrepLookup((prev) => mergePrepLookups(
-                prev,
-                optimisticPrepKeysFromScheduleLog(
-                  { ...ctx, session_date: sessionDate },
-                  cl,
-                  therapistIdAliases,
-                ),
-              ));
+              if (savedStatus === "Completed") {
+                setPrepLookup((prev) => mergePrepLookups(
+                  prev,
+                  optimisticPrepKeysFromScheduleLog(
+                    { ...ctx, session_date: sessionDate },
+                    cl,
+                    therapistIdAliases,
+                  ),
+                ));
+              }
             }
             invalidateCache("/sessions");
             invalidateCache("/schedule/preparations");
