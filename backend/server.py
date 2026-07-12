@@ -5638,6 +5638,7 @@ async def _jenan_therapist_id() -> Optional[str]:
 
 SCHEDULE_CHILD_NAME_ALIASES = {
     "abdularahman": "abdulrahman",
+    "abdulmohsen": "abdelmohsen",
     "aljouhrah": "aljoharah",
     "ameerah": "ameirah",
     "mohmmed": "mohammed",
@@ -5648,6 +5649,8 @@ SCHEDULE_CHILD_NAME_ALIASES = {
 SCHEDULE_SHORT_LABEL_FILES = {
     "abdulaziz a": "024",
     "abdulaziz w": "040",
+    "abdulmohsen": "086",
+    "abdelmohsen": "086",
     "khalid": "072",
     "khalid ibrahim": "072",
     "mohammed alaqeel": "027",

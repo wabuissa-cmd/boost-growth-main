@@ -313,6 +313,7 @@ export function normScheduleName(s) {
 
 const SCHEDULE_CHILD_NAME_ALIASES = {
   abdularahman: "abdulrahman",
+  abdulmohsen: "abdelmohsen",
   aljouhrah: "aljoharah",
   ameerah: "ameirah",
   mohmmed: "mohammed",
@@ -335,6 +336,8 @@ function applyScheduleChildNameAliases(name) {
 const SCHEDULE_SHORT_LABEL_FILES = {
   "abdulaziz a": "024",
   "abdulaziz w": "040",
+  "abdulmohsen": "086",
+  "abdelmohsen": "086",
   "khalid": "072",
   "khalid ibrahim": "072",
   "mohammed alaqeel": "027",
