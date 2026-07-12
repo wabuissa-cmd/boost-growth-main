@@ -4,6 +4,8 @@ import { scheduleCellSessionTimes, slotToTime24 } from "./scheduleTimeUtils";
 
 /** Only completed sessions count as prepared (green checkmark). */
 const LOGGED_PREP_STATUSES = new Set(["Completed"]);
+/** Sessions that bind a logged status to a schedule cell (incl. no attendance). */
+const CELL_BOUND_SESSION_STATUSES = new Set(["Completed", "Cancelled", "No Show"]);
 const ALLOW_FUTURE_PREP_BADGES = false;
 
 /** Session statuses that show the red corner badge (no attendance). */
@@ -221,7 +223,7 @@ export function buildSessionPrepLookup(
   for (const s of sessions || []) {
     const date = (s.session_date || "").slice(0, 10);
     if (!date || date < weekStartISO || date > weekEndISO) continue;
-    if (!LOGGED_PREP_STATUSES.has(s.status)) continue;
+    if (!CELL_BOUND_SESSION_STATUSES.has(s.status)) continue;
     if (!s.client_id) continue;
     if (!cells.length) continue;
     for (const cell of cells) {

@@ -126,10 +126,7 @@ export default function LogSessionModal({
       alert("Session notes are required before saving.\nملاحظات الجلسة مطلوبة قبل الحفظ.");
       return;
     }
-    setSaving(true);
-    try {
-      if (session?.id) await api.put(`/sessions/${session.id}`, payload);
-      else await api.post("/sessions", payload);
+    const finishSaved = () => {
       invalidateCache("/sessions");
       invalidateCache("/schedule/preparations");
       invalidateCache("/schedule");
@@ -141,11 +138,33 @@ export default function LogSessionModal({
         end_time: form.end_time,
         note: form.note,
       });
+    };
+
+    setSaving(true);
+    try {
+      if (session?.id) {
+        await api.put(`/sessions/${session.id}`, payload);
+      } else {
+        try {
+          await api.post("/sessions", payload);
+        } catch (postErr) {
+          const postStatus = postErr?.response?.status;
+          if (postStatus !== 409 || !client?.id) throw postErr;
+          const day = (payload.session_date || "").slice(0, 10);
+          const { data } = await api.get("/sessions", { params: { client_id: client.id } });
+          const existing = (Array.isArray(data) ? data : []).find(
+            (s) => (s.session_date || "").slice(0, 10) === day,
+          );
+          if (!existing?.id) throw postErr;
+          await api.put(`/sessions/${existing.id}`, payload);
+        }
+      }
+      finishSaved();
     } catch (err) {
       const status = err?.response?.status;
       const detail = formatErr(err?.response?.data?.detail);
       if (status === 409) {
-        alert(detail || "A session for this day already exists on this invoice. Open the invoice sheet and edit the existing row.");
+        alert(detail || "A session for this day already exists on this invoice. Tap the schedule cell again to edit it.");
       } else {
         alert(detail || "Could not save session. Please try again.");
       }

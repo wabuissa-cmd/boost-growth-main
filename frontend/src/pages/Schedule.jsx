@@ -416,11 +416,12 @@ export default function Schedule() {
     [therapists, user],
   );
 
-  const loadPreparations = useCallback(async () => {
+  const loadPreparations = useCallback(async (sessionsOverride = null) => {
     if (!user) return;
     if (!canSeePrepBadges) return;
     const ownTherapist = resolveSelfTherapist(user, therapists);
     const fetchGen = ++prepFetchGenRef.current;
+    const sessionsForLookup = sessionsOverride ?? weekSessions;
     try {
       const prepParams = { week_start: weekStartISO };
       if (ownTherapist?.id && !opsCanSeeAllPreps) {
@@ -434,7 +435,7 @@ export default function Schedule() {
       const supLookup = buildSuppressionLookup(sups);
       setSuppressionLookup(supLookup);
       setPrepLookup(buildSessionPrepLookup(
-        weekSessions, weekStartISO, weekEndISO, therapistIdAliases, supLookup, cells, clients,
+        sessionsForLookup, weekStartISO, weekEndISO, therapistIdAliases, supLookup, cells, clients,
       ));
       return rows.length;
     } catch {
@@ -442,7 +443,7 @@ export default function Schedule() {
       setPreparations([]);
       setSuppressionLookup(new Set());
       setPrepLookup(buildSessionPrepLookup(
-        weekSessions, weekStartISO, weekEndISO, therapistIdAliases, new Set(), cells, clients,
+        sessionsForLookup, weekStartISO, weekEndISO, therapistIdAliases, new Set(), cells, clients,
       ));
       return 0;
     }
@@ -483,9 +484,11 @@ export default function Schedule() {
       } catch (_) { setWeekStatus("published"); setWeekTherapistOrder([]); }
       scheduleInitialLoadRef.current = false;
       setScheduleLoadedWeek(ws);
+      return { weekSessions: inWeek, allSessions: sessList };
     } catch (err) {
       setScheduleError(err?.response?.data?.detail || "Could not load schedule. Please try again.");
       setScheduleLoadedWeek(null);
+      return null;
     } finally {
       setScheduleLoading(false);
     }
@@ -2840,7 +2843,11 @@ export default function Schedule() {
             }
             invalidateCache("/sessions");
             invalidateCache("/schedule/preparations");
-            load(true).then(() => loadPreparations());
+            load(true).then((result) => {
+              const fresh = result?.weekSessions;
+              if (fresh) loadPreparations(fresh);
+              else loadPreparations();
+            });
           }}
         />
       )}

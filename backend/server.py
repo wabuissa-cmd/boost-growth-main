@@ -821,6 +821,15 @@ JWT_SECRET = os.environ["JWT_SECRET"]
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+
+def _business_today_iso() -> str:
+    """Calendar today in Saudi Arabia (clinic schedule / therapist prep day)."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Asia/Riyadh")).strftime("%Y-%m-%d")
+    except Exception:
+        return datetime.now(timezone(timedelta(hours=3))).strftime("%Y-%m-%d")
+
 def hash_password(p: str) -> str:
     return bcrypt.hashpw(p.encode(), bcrypt.gensalt()).decode()
 
@@ -4130,7 +4139,7 @@ def _require_same_day_session(user: dict, session_date: str) -> None:
     if _has_full_client_access(user) or _is_hr_ops(user):
         return
     sd = (session_date or "")[:10]
-    today = now_iso()[:10]
+    today = _business_today_iso()
     if sd != today:
         raise HTTPException(
             status_code=400,
