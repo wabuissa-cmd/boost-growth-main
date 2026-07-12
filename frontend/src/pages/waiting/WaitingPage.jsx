@@ -104,20 +104,18 @@ function FilterTh({ active, onClick, children, title }) {
 }
 
 function WaitingNameTicker({ items }) {
-  const duration = Math.max(28, items.length * 3.5);
-  const loop = useMemo(() => [...items, ...items], [items]);
   if (!items.length) return null;
   return (
     <div className="waiting-name-ticker" aria-label={`All ${items.length} names in queue`}>
       <div className="waiting-name-ticker-label">
         <span className="font-bold text-xs" style={{ color: "var(--brand-dark)" }}>{items.length} names</span>
-        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>scrolling</span>
+        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>scroll →</span>
       </div>
       <div className="waiting-name-ticker-viewport">
-        <div className="waiting-name-ticker-track" style={{ animationDuration: `${duration}s` }}>
-          {loop.map((i, idx) => (
+        <div className="waiting-name-ticker-track">
+          {items.map((i) => (
             <span
-              key={`ticker-${i.id}-${idx}`}
+              key={`ticker-${i.id}`}
               className={`waiting-name-chip${i.priority ? " is-priority" : ""}`}
               title={[i.service, i.diagnosis, ageFromDOB(i) ? `${ageFromDOB(i)} yrs` : null].filter(Boolean).join(" · ")}
             >

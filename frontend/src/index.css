@@ -5798,26 +5798,41 @@ textarea.modal-input {
 }
 
 .waiting-name-ticker-viewport {
-  overflow: hidden;
-  mask-image: linear-gradient(90deg, transparent 0%, #000 4%, #000 96%, transparent 100%);
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #B4C2A9 #F0EDE9;
+  padding-bottom: 0.15rem;
+}
+
+.waiting-name-ticker-viewport::-webkit-scrollbar {
+  height: 8px;
+}
+
+.waiting-name-ticker-viewport::-webkit-scrollbar-track {
+  background: #F0EDE9;
+  border-radius: 999px;
+}
+
+.waiting-name-ticker-viewport::-webkit-scrollbar-thumb {
+  background: #B4C2A9;
+  border-radius: 999px;
+  border: 2px solid #F0EDE9;
+}
+
+.waiting-name-ticker-viewport::-webkit-scrollbar-thumb:hover {
+  background: #7A8A6A;
 }
 
 .waiting-name-ticker-track {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 0.28rem;
+  gap: 0.35rem;
   width: max-content;
-  animation: waiting-name-marquee linear infinite;
-}
-
-.waiting-name-ticker-track:hover {
-  animation-play-state: paused;
-}
-
-@keyframes waiting-name-marquee {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+  min-width: 100%;
+  padding: 0.1rem 0.05rem 0.2rem;
 }
 
 .waiting-name-roster-head {
