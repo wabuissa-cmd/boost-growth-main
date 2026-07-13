@@ -9,6 +9,21 @@ export const API = BACKEND_URL ? `${BACKEND_URL}/api` : "/api";
 
 const api = axios.create({ baseURL: API, withCredentials: true, timeout: 25000 });
 
+let authRedirectPending = false;
+
+function storeAuthToken(token) {
+  if (token) localStorage.setItem("bg_token", token);
+}
+
+function redirectToLoginExpired() {
+  if (authRedirectPending) return;
+  const path = window.location.pathname || "";
+  if (path.startsWith("/login")) return;
+  authRedirectPending = true;
+  localStorage.removeItem("bg_token");
+  window.location.href = "/login?expired=1";
+}
+
 /** Schedule Excel / Google import can take 1–2 min on large weekly grids. */
 export const SCHEDULE_IMPORT_TIMEOUT = 180000;
 /** Prep list must stay under this — full week sync runs only on explicit relink/sync. */
@@ -16,6 +31,7 @@ export const PREP_LOAD_TIMEOUT = 60000;
 
 api.interceptors.response.use(
   (res) => {
+    if (res.data?.token) storeAuthToken(res.data.token);
     const d = res.data;
     if (typeof d === "string" && d.trimStart().startsWith("<!")) {
       return Promise.reject(new Error("Server returned HTML instead of JSON — API not reachable"));
@@ -26,7 +42,14 @@ api.interceptors.response.use(
     }
     return res;
   },
-  (err) => Promise.reject(err)
+  (err) => {
+    const status = err?.response?.status;
+    const detail = String(err?.response?.data?.detail || "");
+    if (status === 401 && /expired|not authenticated|invalid token/i.test(detail)) {
+      redirectToLoginExpired();
+    }
+    return Promise.reject(err);
+  }
 );
 
 api.interceptors.request.use((config) => {

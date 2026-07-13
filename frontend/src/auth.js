@@ -9,12 +9,25 @@ export function AuthProvider({ children }) {
   const refresh = useCallback(async () => {
     try {
       const { data } = await api.get("/auth/me");
+      if (data?.token) localStorage.setItem("bg_token", data.token);
       setUser(data);
     } catch {
       setUser(false);
     }
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    if (!user || user === false) return undefined;
+    const id = setInterval(() => { refresh(); }, 30 * 60 * 1000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [user, refresh]);
 
   const loginAdmin = async (email, password) => {
     const { data } = await api.post("/auth/login", { email, password });

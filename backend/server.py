@@ -817,6 +817,8 @@ api = APIRouter(prefix="/api")
 
 JWT_ALGORITHM = "HS256"
 JWT_SECRET = os.environ["JWT_SECRET"]
+TOKEN_HOURS_THERAPIST = 168  # 7 days — therapists stay signed in across the work week
+TOKEN_HOURS_ADMIN = 72       # 3 days for admin / supervisor accounts
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -1161,9 +1163,43 @@ def _actor_display(user: dict) -> str:
         return email.split("@")[0].replace(".", " ").title()
     return "Staff"
 
-def set_auth_cookie(response: Response, token: str):
+def set_auth_cookie(response: Response, token: str, max_age: int = 86400):
     response.set_cookie(key="access_token", value=token, httponly=True,
-                        secure=True, samesite="none", max_age=86400, path="/")
+                        secure=True, samesite="none", max_age=max_age, path="/")
+
+
+def _auth_token_from_request(request: Request) -> Optional[str]:
+    token = request.cookies.get("access_token")
+    if not token:
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:]
+    return token or None
+
+
+def _maybe_refresh_auth_token(request: Request, user: dict) -> Optional[str]:
+    """Issue a fresh JWT when the current one is nearing expiry (sliding session)."""
+    token = _auth_token_from_request(request)
+    if not token:
+        return None
+    try:
+        payload = decode_token(token)
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+    exp = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+    remaining = (exp - datetime.now(timezone.utc)).total_seconds()
+    if remaining >= 24 * 3600:
+        return None
+    role = payload.get("role") or user.get("role") or "therapist"
+    hours = TOKEN_HOURS_THERAPIST if role == "therapist" else TOKEN_HOURS_ADMIN
+    fresh_payload = {"sub": payload["sub"], "role": role}
+    if payload.get("email"):
+        fresh_payload["email"] = payload["email"]
+    if payload.get("name"):
+        fresh_payload["name"] = payload["name"]
+    return create_token(fresh_payload, hours=hours)
 
 # ------------------- Models -------------------
 class LoginIn(BaseModel):
@@ -1603,15 +1639,18 @@ async def admin_login(payload: LoginIn, response: Response):
     user = await _find_user_by_login_email(email)
     if user and verify_password(payload.password, user["password_hash"]):
         login_email = (user.get("email") or email).lower()
-        token = create_token({"sub": user["id"], "role": "admin", "email": login_email})
-        set_auth_cookie(response, token)
+        token = create_token({"sub": user["id"], "role": "admin", "email": login_email}, hours=TOKEN_HOURS_ADMIN)
+        set_auth_cookie(response, token, max_age=TOKEN_HOURS_ADMIN * 3600)
         return {"id": user["id"], "email": login_email, "name": user.get("name"), "role": "admin", "token": token}
 
     # Secondary: allow ops/supervisors to sign in from the same form using therapist email+password
     t = await _find_therapist_by_login_email(email)
     if t and t.get("password_hash") and verify_password(payload.password, t["password_hash"]):
-        token = create_token({"sub": t["id"], "role": "therapist", "name": t["name"], "email": t.get("email")})
-        set_auth_cookie(response, token)
+        token = create_token(
+            {"sub": t["id"], "role": "therapist", "name": t["name"], "email": t.get("email")},
+            hours=TOKEN_HOURS_THERAPIST,
+        )
+        set_auth_cookie(response, token, max_age=TOKEN_HOURS_THERAPIST * 3600)
         return {"id": t["id"], "name": t["name"], "color": t.get("color"), "email": t.get("email"),
                 "key": t.get("key"), "role": "therapist", "token": token,
                 "must_change_password": bool(t.get("must_change_password"))}
@@ -1628,8 +1667,8 @@ async def therapist_login(payload: TherapistPinLogin, response: Response):
     t = await db.therapists.find_one({"id": payload.therapist_id})
     if not t or not verify_password(payload.pin, t["pin_hash"]):
         raise HTTPException(status_code=401, detail="Incorrect PIN")
-    token = create_token({"sub": t["id"], "role": "therapist", "name": t["name"]})
-    set_auth_cookie(response, token)
+    token = create_token({"sub": t["id"], "role": "therapist", "name": t["name"]}, hours=TOKEN_HOURS_THERAPIST)
+    set_auth_cookie(response, token, max_age=TOKEN_HOURS_THERAPIST * 3600)
     return {"id": t["id"], "name": t["name"], "color": t.get("color"), "key": t.get("key"),
             "role": "therapist", "token": token,
             "must_change_password": bool(t.get("must_change_password"))}
@@ -1644,8 +1683,8 @@ async def therapist_email_login(payload: TherapistEmailLogin, response: Response
     t = await _find_therapist_by_login_email(email)
     if not t or not t.get("password_hash") or not verify_password(payload.password, t["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    token = create_token({"sub": t["id"], "role": "therapist", "name": t["name"]})
-    set_auth_cookie(response, token)
+    token = create_token({"sub": t["id"], "role": "therapist", "name": t["name"]}, hours=TOKEN_HOURS_THERAPIST)
+    set_auth_cookie(response, token, max_age=TOKEN_HOURS_THERAPIST * 3600)
     return {"id": t["id"], "name": t["name"], "color": t.get("color"), "key": t.get("key"),
             "email": t.get("email"), "role": "therapist", "token": token,
             "must_change_password": bool(t.get("must_change_password"))}
@@ -1843,7 +1882,7 @@ async def admin_heal_walaa_my_requests(user=Depends(get_current_user)):
     return await _heal_walaa_my_requests_once()
 
 @api.get("/auth/me")
-async def me(user: dict = Depends(get_current_user)):
+async def me(request: Request, response: Response, user: dict = Depends(get_current_user)):
     tid = await _resolve_user_therapist_id(user)
     if tid:
         therapist = await db.therapists.find_one(
@@ -1874,6 +1913,12 @@ async def me(user: dict = Depends(get_current_user)):
     user["walaa_ops"] = _is_walaa_ops(user)
     user["can_parent_cancellation_ops"] = _can_parent_cancellation_ops(user)
     user["can_view_billing"] = _is_portal_admin(user) or _is_hr_ops(user) or _is_walaa_ops(user) or _is_jenan(user)
+    fresh = _maybe_refresh_auth_token(request, user)
+    if fresh:
+        role = user.get("role") or "therapist"
+        max_age = (TOKEN_HOURS_THERAPIST if role == "therapist" else TOKEN_HOURS_ADMIN) * 3600
+        set_auth_cookie(response, fresh, max_age=max_age)
+        user["token"] = fresh
     return user
 
 @api.post("/auth/logout")

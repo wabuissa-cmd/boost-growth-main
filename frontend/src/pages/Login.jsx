@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth";
 import { formatErr } from "../api";
 import { ArrowRight, ShieldCheck, UserCircle } from "@phosphor-icons/react";
@@ -97,6 +98,8 @@ function TherapistForm({ tEmail, setTEmail, tPassword, setTPassword, err, loadin
 
 export default function Login() {
   const { loginAdmin, loginTherapistEmail } = useAuth();
+  const [searchParams] = useSearchParams();
+  const sessionExpired = searchParams.get("expired") === "1";
   const [mode, setMode] = useState("choose");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -120,6 +123,13 @@ export default function Login() {
     finally { setLoading(false); }
   };
 
+  const expiredNotice = sessionExpired ? (
+    <div className="text-sm text-amber-900 bg-amber-50 border border-amber-200 p-3 rounded-lg mb-4">
+      Your session expired. Please sign in again to save preparation and sessions.
+      <div className="mt-1" dir="rtl">انتهت جلسة الدخول. سجّلي الدخول مرة أخرى لحفظ التحضير والجلسات.</div>
+    </div>
+  ) : null;
+
   const formContent = mode === "choose" ? (
     <ChooseButtons onAdmin={() => setMode("admin")} onTherapist={() => setMode("therapist")} />
   ) : mode === "admin" ? (
@@ -128,6 +138,13 @@ export default function Login() {
   ) : (
     <TherapistForm tEmail={tEmail} setTEmail={setTEmail} tPassword={tPassword} setTPassword={setTPassword}
       err={err} loading={loading} onBack={() => setMode("choose")} onSubmit={submitTherapist} />
+  );
+
+  const formBlock = (
+    <>
+      {expiredNotice}
+      {formContent}
+    </>
   );
 
   return (
@@ -161,7 +178,7 @@ export default function Login() {
           </div>
           <div className="relative flex-1 min-h-0 px-6 pb-6 flex flex-col justify-end overflow-y-auto overscroll-y-contain">
             <div className="login-form-card bg-white rounded-2xl p-6 shadow-xl w-full max-w-md mx-auto mb-safe">
-              {formContent}
+              {formBlock}
             </div>
           </div>
         </div>
@@ -169,7 +186,7 @@ export default function Login() {
         {/* Desktop: centered card */}
         <div className="hidden md:flex flex-1 flex-col justify-center px-6">
           <div className="card p-7 page-enter w-full max-w-md mx-auto">
-            {formContent}
+            {formBlock}
           </div>
         </div>
       </div>

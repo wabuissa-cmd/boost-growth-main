@@ -163,6 +163,10 @@ export default function LogSessionModal({
     } catch (err) {
       const status = err?.response?.status;
       const detail = formatErr(err?.response?.data?.detail);
+      if (status === 401) {
+        alert("انتهت جلسة الدخول. سجّلي الدخول مرة أخرى ثم أعيدي الحفظ.\n\nSession expired — please sign in again.");
+        return;
+      }
       if (status === 409) {
         alert(detail || "A session for this day already exists on this invoice. Tap the schedule cell again to edit it.");
       } else {
