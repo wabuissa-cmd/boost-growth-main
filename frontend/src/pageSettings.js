@@ -97,3 +97,41 @@ export function mergeBillingPageSettings(raw) {
   }
   return base;
 }
+
+export const DEFAULT_SCHEDULE_PAGE = {
+  page_title: "Weekly Schedule",
+  sheet_tab_label: "Team schedule",
+  blocks_tab_label: "My schedule",
+  admin_subtitle: "Right-click any cell for actions · Click to edit · Green ✓ = session prepared",
+  therapist_blocks_subtitle: "My schedule — click your sessions to log preparation",
+  team_sheet_subtitle: "Team schedule — view all therapists",
+  legend_hint: "Tap a session to log preparation · Long-press for menu · Times shown per hour slot",
+  sheet_panel_title: "Team schedule",
+  sheet_panel_desc: "All therapists in one table — swipe horizontally on smaller screens",
+  blocks_panel_title: "My schedule",
+  blocks_panel_desc: "Sessions grouped by therapist — tap any cell to log or edit",
+  leave_banner_label: "LEAVE",
+  absent_banner_label: "ABSENT",
+  draft_badge_label: "Draft",
+  published_badge_label: "Published",
+  search_placeholder: "Search therapist…",
+  sync_prep_label: "Sync prep",
+  save_draft_label: "Save as Draft",
+  publish_week_label: "Publish Week",
+  show_sync_prep: true,
+  show_parent_whatsapp: true,
+  show_legend: true,
+};
+
+export function mergeSchedulePageSettings(raw) {
+  const base = { ...DEFAULT_SCHEDULE_PAGE };
+  if (!raw || typeof raw !== "object") return base;
+  for (const key of Object.keys(DEFAULT_SCHEDULE_PAGE)) {
+    if (typeof DEFAULT_SCHEDULE_PAGE[key] === "boolean") {
+      if (key in raw) base[key] = Boolean(raw[key]);
+    } else if (typeof raw[key] === "string" && raw[key].trim()) {
+      base[key] = raw[key].trim();
+    }
+  }
+  return base;
+}

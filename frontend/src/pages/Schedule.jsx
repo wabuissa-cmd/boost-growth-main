@@ -16,7 +16,7 @@ import { useAuth, showAdminNav, isClientLead, canParentCancellationOps, hasFullC
 import {
   CaretLeft, CaretRight, CaretDown, Trash, Copy, BellRinging, X, House, MagnifyingGlass,
   CopySimple, Table, CalendarBlank, CheckCircle, PencilSimple, GridFour, Printer, WhatsappLogo, UserPlus,
-  ClipboardText, CalendarCheck, Prohibit, ArrowCounterClockwise,
+  ClipboardText, CalendarCheck, Prohibit, ArrowCounterClockwise, GearSix,
 } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
@@ -24,6 +24,7 @@ import {
 } from "../components/Modal";
 import ScheduleCellPanel from "../components/ScheduleCellPanel";
 import SchedulePageHeader from "../components/SchedulePageHeader";
+import SchedulePageControl from "../components/SchedulePageControl";
 import ScheduleHolidaysModal from "../components/ScheduleHolidaysModal";
 import ParentWhatsAppModal from "../components/ParentWhatsAppModal";
 import ParentCancellationModal from "../components/ParentCancellationModal";
@@ -34,6 +35,7 @@ import { buildSessionPrepLookup, buildSuppressionLookup, getCellStatusBadge, mer
 import { buildParentMessages } from "../scheduleParentMessages";
 import { sortTherapistsForSchedule, sortTherapistsForScheduleWeek, getTherapistScheduleName, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
 import { cachedGet, invalidateCache } from "../dataCache";
+import { mergeSchedulePageSettings } from "../pageSettings";
 import { isPartialDayPermission } from "../leaveUtils";
 import "../dashboardLayout.css";
 
@@ -66,8 +68,8 @@ function getSheetCellStyle(cell, clients) {
   return { ...base, height: 38, minHeight: 38, padding: "2px 1px", fontSize: 10 };
 }
 
-function LeaveBannerCell({ leaveInfo, className, canEdit, therapist_id, day, onCtx, onTouchStart, onTouchMove, onTouchEnd }) {
-  const label = leaveInfo?.type === "Absence" ? "ABSENT" : "LEAVE";
+function LeaveBannerCell({ leaveInfo, className, canEdit, therapist_id, day, onCtx, onTouchStart, onTouchMove, onTouchEnd, leaveLabel = "LEAVE", absentLabel = "ABSENT" }) {
+  const label = leaveInfo?.type === "Absence" ? absentLabel : leaveLabel;
   const leaveStyle = SERVICE_CELL_COLORS.LEAVE;
   return (
     <td
@@ -240,6 +242,9 @@ export default function Schedule() {
   const [clients, setClients] = useState([]);
   const [leaves, setLeaves] = useState([]);
   const [search, setSearch] = useState("");
+  const [pageSettings, setPageSettings] = useState(() => mergeSchedulePageSettings(null));
+  const [pageControlOpen, setPageControlOpen] = useState(false);
+  const canEditPageSettings = scheduleAdmin || hasOpsAccess(user);
   const [panelForm, setPanelForm] = useState(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelSaving, setPanelSaving] = useState(false);
@@ -300,6 +305,12 @@ export default function Schedule() {
   useEffect(() => {
     setCtxCoverDraft((ctxMenu?.cell?.cover_child_name || "").trim());
   }, [ctxMenu?.cell?.id, ctxMenu?.cell?.cover_child_name]);
+
+  useEffect(() => {
+    cachedGet("/page-settings/schedule")
+      .then((s) => { if (s) setPageSettings(mergeSchedulePageSettings(s)); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!adminEditsOpen) return;
@@ -1786,6 +1797,8 @@ export default function Schedule() {
                       onTouchStart={onCellTouchStart}
                       onTouchMove={onCellTouchMove}
                       onTouchEnd={onCellTouchEnd}
+                      leaveLabel={pageSettings.leave_banner_label}
+                      absentLabel={pageSettings.absent_banner_label}
                     />
                   ) : TIME_SLOTS.map(ts => {
                     const cell = findCellAt(t.id, di, ts, cellMap, cells);
@@ -1899,6 +1912,8 @@ export default function Schedule() {
                     onTouchStart={onCellTouchStart}
                     onTouchMove={onCellTouchMove}
                     onTouchEnd={onCellTouchEnd}
+                    leaveLabel={pageSettings.leave_banner_label}
+                    absentLabel={pageSettings.absent_banner_label}
                   />
                 ) : TIME_SLOTS.map(ts => {
                   const cell = findCellAt(therapist.id, di, ts, cellMap, cells);
@@ -1949,10 +1964,24 @@ export default function Schedule() {
     );
   }
 
-  const schedulePanelTitle = view === "sheet" ? "Team schedule" : "My schedule";
+  const schedulePanelTitle = view === "sheet"
+    ? (pageSettings.sheet_panel_title || "Team schedule")
+    : (pageSettings.blocks_panel_title || "My schedule");
   const schedulePanelDesc = view === "sheet"
-    ? "All therapists in one table — swipe horizontally on smaller screens"
-    : "Sessions grouped by therapist — tap any cell to log or edit";
+    ? (pageSettings.sheet_panel_desc || "All therapists in one table — swipe horizontally on smaller screens")
+    : (pageSettings.blocks_panel_desc || "Sessions grouped by therapist — tap any cell to log or edit");
+
+  const scheduleSubtitle = isAdmin
+    ? (pageSettings.admin_subtitle || "Right-click any cell for actions · Click to edit · Green ✓ = session prepared")
+    : scheduleLead && view === "sheet"
+      ? opsCanSeeAllPreps
+        ? "Team schedule — green ✓ = session prepared"
+        : (pageSettings.team_sheet_subtitle || "Team schedule — right-click or click therapist name or any cell to edit")
+      : view === "blocks"
+        ? opsCanSeeAllPreps
+          ? "Per therapist — green ✓ = session prepared"
+          : (pageSettings.therapist_blocks_subtitle || "My schedule — click your sessions to log preparation")
+        : (pageSettings.team_sheet_subtitle || "Team schedule — view all therapists");
 
   return (
     <div className="portal-page-shell schedule-page" dir="ltr">
@@ -1962,18 +1991,9 @@ export default function Schedule() {
         view={view}
         onViewChange={setView}
         canSwitchView
+        pageSettings={pageSettings}
         toolbarPlacement={isScheduleNarrow ? "outside" : "inline"}
-        subtitle={isAdmin
-          ? "Right-click any cell for actions · Click to edit · Green ✓ = session prepared"
-          : scheduleLead && view === "sheet"
-            ? opsCanSeeAllPreps
-              ? "Team schedule — green ✓ = session prepared"
-              : "Team schedule — right-click or click therapist name or any cell to edit"
-            : view === "blocks"
-              ? opsCanSeeAllPreps
-                ? "Per therapist — green ✓ = session prepared"
-                : "My schedule — click your sessions to log preparation"
-              : "Team schedule — view all therapists"}
+        subtitle={scheduleSubtitle}
         badge={isScheduleNarrow ? (
           <span className="pill text-[10px] px-2 py-0.5 font-bold bg-white/90 text-[var(--brand-dark)] border border-[#D4DEC8] whitespace-nowrap">
             {formatDateRange(weekStart)}
@@ -1981,17 +2001,17 @@ export default function Schedule() {
         ) : isAdmin ? (
           weekStatus === "draft" ? (
             <span className="pill text-[10px] px-2 py-1 font-bold bg-[#FAF0D1] text-[#6B5218] border border-[#E5C387]">
-              Draft
+              {pageSettings.draft_badge_label || "Draft"}
             </span>
           ) : (
             <span className="pill text-[10px] px-2 py-1 font-bold bg-[#E5EBE1] text-[var(--brand-dark)] border border-[#B8C8A8] flex items-center gap-1">
-              <CheckCircle size={12} weight="fill" /> Published
+              <CheckCircle size={12} weight="fill" /> {pageSettings.published_badge_label || "Published"}
             </span>
           )
         ) : null}
         stats={isScheduleNarrow ? [] : [
           { n: formatDateRange(weekStart), label: "This Week", color: "#2C3625" },
-          { n: view === "blocks" ? "My schedule" : "Team schedule", label: "View", color: "var(--text-secondary)" },
+          { n: view === "blocks" ? (pageSettings.blocks_tab_label || "My schedule") : (pageSettings.sheet_tab_label || "Team schedule"), label: "View", color: "var(--text-secondary)" },
           { n: visibleTherapists.length, label: "Therapists", color: "#6B5218" },
           { n: clients.length, label: "Clients", color: "var(--brand-dark)" },
           ...(isAdmin && buildInfo?.build ? [{
@@ -2002,6 +2022,17 @@ export default function Schedule() {
         ]}
         toolbar={(
           <div className="flex items-center gap-1.5 flex-wrap schedule-toolbar schedule-toolbar--wrap relative">
+            {canEditPageSettings && (
+              <button
+                type="button"
+                data-testid="schedule-page-settings-btn"
+                className="btn btn-outline text-[11px] flex items-center gap-1 px-2 py-1 min-h-0 shrink-0"
+                onClick={() => setPageControlOpen(true)}
+                title="Schedule page settings"
+              >
+                <GearSix size={14} weight="duotone" /> Page settings
+              </button>
+            )}
             <div className="inline-flex items-center rounded-lg border border-[#E2DDD4] px-0.5 bg-[#FAFAF7] shrink-0 schedule-toolbar-week-nav">
               <button data-testid="prev-week-btn" onClick={() => setWeekStart(addDays(weekStart, -7))} className="btn btn-ghost p-1 min-h-0"><CaretLeft size={14} /></button>
               <div className="px-2 text-[11px] font-bold whitespace-nowrap" style={{ color: "#2C3625" }}>{formatDateRange(weekStart)}</div>
@@ -2014,10 +2045,10 @@ export default function Schedule() {
             {isAdmin && !isScheduleNarrow && (view === "blocks" || view === "sheet") && (
               <div className="relative flex-1 min-w-[100px] max-w-[160px]">
                 <MagnifyingGlass size={13} className="absolute top-1/2 -translate-y-1/2 left-2" style={{ color: "var(--brand-sage)" }} />
-                <input data-testid="schedule-search-input" className="input pl-7 py-1 text-[11px] min-h-0 h-7" placeholder="Search therapist…" value={search} onChange={e => setSearch(e.target.value)} />
+                <input data-testid="schedule-search-input" className="input pl-7 py-1 text-[11px] min-h-0 h-7" placeholder={pageSettings.search_placeholder || "Search therapist…"} value={search} onChange={e => setSearch(e.target.value)} />
               </div>
             )}
-            {canManagePrep && (
+            {canManagePrep && pageSettings.show_sync_prep !== false && (
               <button
                 type="button"
                 data-testid="sync-prep-toolbar-btn"
@@ -2027,11 +2058,11 @@ export default function Schedule() {
                 title="Re-link green prep badges from session history for this week"
               >
                 <CheckCircle size={14} weight="fill" />
-                {prepRelinkBusy ? "Syncing prep…" : "Sync prep"}
+                {prepRelinkBusy ? "Syncing prep…" : (pageSettings.sync_prep_label || "Sync prep")}
               </button>
             )}
             <div className="schedule-parent-actions flex items-center gap-1.5 flex-wrap shrink-0">
-            {canNotifySchedule && (
+            {canNotifySchedule && pageSettings.show_parent_whatsapp !== false && (
               <button
                 type="button"
                 data-testid="parent-whatsapp-messages-btn"
@@ -2103,8 +2134,8 @@ export default function Schedule() {
                         {prepRelinkBusy ? "Syncing prep…" : "Sync prep from history"}
                       </button>
                     )}
-                    <button type="button" onClick={() => { setDraft(); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start min-h-[36px]">Save as Draft</button>
-                    <button type="button" onClick={() => { openPublishModal(); setAdminEditsOpen(false); }} className="btn btn-primary text-xs w-full justify-start min-h-[36px]">Publish Week</button>
+                    <button type="button" onClick={() => { setDraft(); setAdminEditsOpen(false); }} className="btn btn-outline text-xs w-full justify-start min-h-[36px]">{pageSettings.save_draft_label || "Save as Draft"}</button>
+                    <button type="button" onClick={() => { openPublishModal(); setAdminEditsOpen(false); }} className="btn btn-primary text-xs w-full justify-start min-h-[36px]">{pageSettings.publish_week_label || "Publish Week"}</button>
                     <button
                       type="button"
                       data-testid="duplicate-week-btn"
@@ -2850,6 +2881,26 @@ export default function Schedule() {
             });
           }}
         />
+      )}
+
+      {pageControlOpen && (
+        <ModalBase
+          title="Schedule page settings"
+          subtitle="Self-serve control for Weekly Schedule"
+          onClose={() => setPageControlOpen(false)}
+          size="lg"
+          footer={
+            <ModalBtnSecondary type="button" onClick={() => setPageControlOpen(false)}>Close</ModalBtnSecondary>
+          }
+        >
+          <SchedulePageControl
+            compact
+            onSaved={(s) => {
+              setPageSettings(mergeSchedulePageSettings(s));
+              invalidateCache("/page-settings/schedule");
+            }}
+          />
+        </ModalBase>
       )}
 
       {publishOpen && (

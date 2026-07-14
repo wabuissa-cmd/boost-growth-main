@@ -2327,6 +2327,78 @@ async def save_billing_page_settings(payload: BillingPageSettingsIn, _=Depends(o
     return cleaned
 
 
+DEFAULT_SCHEDULE_PAGE = {
+    "page_title": "Weekly Schedule",
+    "sheet_tab_label": "Team schedule",
+    "blocks_tab_label": "My schedule",
+    "admin_subtitle": "Right-click any cell for actions · Click to edit · Green ✓ = session prepared",
+    "therapist_blocks_subtitle": "My schedule — click your sessions to log preparation",
+    "team_sheet_subtitle": "Team schedule — view all therapists",
+    "legend_hint": "Tap a session to log preparation · Long-press for menu · Times shown per hour slot",
+    "sheet_panel_title": "Team schedule",
+    "sheet_panel_desc": "All therapists in one table — swipe horizontally on smaller screens",
+    "blocks_panel_title": "My schedule",
+    "blocks_panel_desc": "Sessions grouped by therapist — tap any cell to log or edit",
+    "leave_banner_label": "LEAVE",
+    "absent_banner_label": "ABSENT",
+    "draft_badge_label": "Draft",
+    "published_badge_label": "Published",
+    "search_placeholder": "Search therapist…",
+    "sync_prep_label": "Sync prep",
+    "save_draft_label": "Save as Draft",
+    "publish_week_label": "Publish Week",
+    "show_sync_prep": True,
+    "show_parent_whatsapp": True,
+    "show_legend": True,
+}
+
+
+def _normalize_schedule_page(raw: Optional[dict] = None) -> dict:
+    base = {**DEFAULT_SCHEDULE_PAGE}
+    raw = raw or {}
+    for key in (
+        "page_title", "sheet_tab_label", "blocks_tab_label",
+        "admin_subtitle", "therapist_blocks_subtitle", "team_sheet_subtitle",
+        "legend_hint", "sheet_panel_title", "sheet_panel_desc",
+        "blocks_panel_title", "blocks_panel_desc",
+        "leave_banner_label", "absent_banner_label",
+        "draft_badge_label", "published_badge_label",
+        "search_placeholder", "sync_prep_label",
+        "save_draft_label", "publish_week_label",
+    ):
+        if isinstance(raw.get(key), str) and raw[key].strip():
+            base[key] = raw[key].strip()
+    for key in ("show_sync_prep", "show_parent_whatsapp", "show_legend"):
+        if key in raw:
+            base[key] = bool(raw[key])
+    return base
+
+
+async def _get_schedule_page_settings() -> dict:
+    doc = await db.settings.find_one({"key": "page_schedule"}, {"_id": 0}) or {}
+    return _normalize_schedule_page(doc.get("settings") if isinstance(doc.get("settings"), dict) else doc)
+
+
+class SchedulePageSettingsIn(BaseModel):
+    settings: dict
+
+
+@api.get("/page-settings/schedule")
+async def get_schedule_page_settings(user=Depends(get_current_user)):
+    return await _get_schedule_page_settings()
+
+
+@api.put("/admin/page-settings/schedule")
+async def save_schedule_page_settings(payload: SchedulePageSettingsIn, _=Depends(ops_or_admin)):
+    cleaned = _normalize_schedule_page(payload.settings or {})
+    await db.settings.update_one(
+        {"key": "page_schedule"},
+        {"$set": {"key": "page_schedule", "settings": cleaned, "updated_at": now_iso()}},
+        upsert=True,
+    )
+    return cleaned
+
+
 @api.post("/therapists")
 async def create_therapist(payload: TherapistIn, _=Depends(admin_only)):
     tid = str(uuid.uuid4())

@@ -11,6 +11,7 @@ import { getTherapistScheduleName } from "../scheduleConstants";
 import { invalidateCache } from "../dataCache";
 import ClientInfoPageControl from "../components/ClientInfoPageControl";
 import BillingPageControl from "../components/BillingPageControl";
+import SchedulePageControl from "../components/SchedulePageControl";
 
 const DEFAULT_EMAIL_FROM = "Boost Growth Staff Portal <hr@boostgrowthsa.com>";
 
@@ -1458,6 +1459,21 @@ export default function Admin() {
             <Link to="/billing" className="btn btn-outline text-sm">Open Client Invoices</Link>
           </div>
           <BillingPageControl />
+        </div>
+      </AdminSection>
+      <AdminSection
+        id="page-schedule"
+        title="Schedule page"
+        subtitle="Tabs · badges · legend · toolbar actions"
+        icon={<SquaresFour size={20} weight="duotone" />}
+        defaultOpen
+        badge="v1"
+      >
+        <div className="pt-4">
+          <div className="flex flex-wrap gap-2 mb-3">
+            <Link to="/schedule" className="btn btn-outline text-sm">Open Schedule</Link>
+          </div>
+          <SchedulePageControl />
         </div>
       </AdminSection>
       </>
