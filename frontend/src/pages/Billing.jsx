@@ -227,7 +227,7 @@ export default function Billing() {
 
   const pkgEndingSoon = useMemo(
     () => [...pkgRows]
-      .filter((r) => r.status === "critical" || r.status === "low")
+      .filter((r) => !r.wont_renew && (r.status === "critical" || r.status === "low"))
       .sort((a, b) => (PKG_SORT_ORDER[a.status] ?? 9) - (PKG_SORT_ORDER[b.status] ?? 9)),
     [pkgRows]
   );
@@ -443,7 +443,7 @@ export default function Billing() {
                     style={{ background: st.bg, color: st.color, borderColor: st.border }}
                     title="Open follow-up actions"
                   >
-                    <span className="font-semibold block">{row.client_name || "Client"}{row.wont_renew ? " · no renew" : ""}</span>
+                    <span className="font-semibold block">{row.client_name || "Client"}</span>
                     <span>{formatPkgBadge(row)}</span>
                   </button>
                 );

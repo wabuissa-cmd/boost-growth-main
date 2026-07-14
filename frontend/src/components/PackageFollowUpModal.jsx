@@ -76,22 +76,20 @@ export default function PackageFollowUpModal({ row, onClose, onDone, onEditInvoi
     {
       id: "wont_renew",
       label: "Won't renew next package",
-      ar: "لن يجدد الباكج القادم",
+      hint: "Removes from ending soon and marks client Inactive",
       run: () => run(
         { wont_renew: true, payment_notes: "Won't renew next package" },
-        "Marked: won't renew next package.",
+        "Marked: won't renew. Client moved to Inactive.",
       ),
     },
     {
       id: "paid",
       label: "Paid in full",
-      ar: "تم الدفع",
       run: () => run({ payment_status: "complete" }, "Marked as paid."),
     },
     {
       id: "half",
       label: "Half paid (50%)",
-      ar: "تم دفع نصف المبلغ",
       run: () => run(
         { payment_status: "partial", installment_percent: 50 },
         "Marked as half paid.",
@@ -100,7 +98,6 @@ export default function PackageFollowUpModal({ row, onClose, onDone, onEditInvoi
     {
       id: "unpaid",
       label: "Not paid",
-      ar: "لم يتم الدفع",
       run: () => run(
         { payment_status: "pending", amount_paid: 0 },
         "Marked as unpaid.",
@@ -144,12 +141,14 @@ export default function PackageFollowUpModal({ row, onClose, onDone, onEditInvoi
             style={{ borderColor: "var(--border-default)", background: "var(--bg-surface)", color: "var(--brand-dark)" }}
           >
             {a.label}
-            <span className="block text-[11px] font-normal mt-0.5" style={{ color: "var(--text-muted)" }} dir="rtl">{a.ar}</span>
+            {a.hint && (
+              <span className="block text-[11px] font-normal mt-0.5" style={{ color: "var(--text-muted)" }}>{a.hint}</span>
+            )}
           </button>
         ))}
 
         <div className="pt-2 border-t" style={{ borderColor: "var(--border-default)" }}>
-          <label className="label">Note / ملاحظة</label>
+          <label className="label">Note</label>
           <textarea
             className="input text-sm min-h-[72px]"
             value={note}
@@ -163,7 +162,7 @@ export default function PackageFollowUpModal({ row, onClose, onDone, onEditInvoi
         </div>
 
         <div className="pt-2 border-t" style={{ borderColor: "var(--border-default)" }}>
-          <label className="label">Edit package hours / تعديل ساعات الفاتورة</label>
+          <label className="label">Edit package hours</label>
           <div className="flex gap-2 items-center">
             <input
               className="input text-sm flex-1"

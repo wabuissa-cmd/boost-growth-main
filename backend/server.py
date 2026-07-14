@@ -6750,6 +6750,49 @@ async def update_client(cid: str, payload: ClientIn, user=Depends(get_current_us
 class ClientScheduleColorIn(BaseModel):
     color: Optional[str] = None
 
+async def _set_client_wont_renew(cid: str, flag: bool, *, actor_id: Optional[str] = None) -> None:
+    """Flag won't-renew; when True, move client to Inactive (manual override) so they leave ending-soon lists."""
+    update: dict = {"wont_renew": bool(flag)}
+    if flag:
+        update.update({
+            "status": "Inactive",
+            "status_manual_override": True,
+            "status_manual_value": "Inactive",
+            "status_manual_set_at": now_iso(),
+        })
+        if actor_id:
+            update["status_manual_set_by"] = actor_id
+        await db.clients.update_one({"id": cid}, {"$set": update})
+        return
+    await db.clients.update_one({"id": cid}, {"$set": {"wont_renew": False}})
+
+
+async def _migrate_wont_renew_to_inactive_once() -> dict:
+    """One-time: clients already flagged won't-renew become Inactive and leave package ending-soon."""
+    meta_key = "wont_renew_inactive_v1"
+    if await db.meta.find_one({"key": meta_key, "done": True}):
+        return {"skipped": True, "updated": 0}
+    res = await db.clients.update_many(
+        {
+            "wont_renew": True,
+            "deleted": {"$ne": True},
+            "status": {"$ne": "Inactive"},
+        },
+        {"$set": {
+            "status": "Inactive",
+            "status_manual_override": True,
+            "status_manual_value": "Inactive",
+            "status_manual_set_at": now_iso(),
+        }},
+    )
+    await db.meta.update_one(
+        {"key": meta_key},
+        {"$set": {"done": True, "updated_at": now_iso(), "updated": res.modified_count}},
+        upsert=True,
+    )
+    return {"skipped": False, "updated": res.modified_count}
+
+
 @api.put("/clients/{cid}/wont-renew")
 async def set_client_wont_renew(cid: str, body: dict, user=Depends(ops_or_admin)):
     """Mark whether the family will renew the next package (billing follow-up)."""
@@ -6757,7 +6800,8 @@ async def set_client_wont_renew(cid: str, body: dict, user=Depends(ops_or_admin)
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     flag = bool(body.get("wont_renew"))
-    await db.clients.update_one({"id": cid}, {"$set": {"wont_renew": flag}})
+    await _set_client_wont_renew(cid, flag, actor_id=user.get("id"))
+    # After Inactive, soft-deleted filter still finds them via _active_client_filter without status
     return await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
 
 
@@ -7703,10 +7747,7 @@ async def update_invoice_payment(iid: str, body: InvoicePaymentIn, user=Depends(
     updated = await db.invoices.find_one({"id": iid}, {"_id": 0})
     client_id = (updated or inv).get("client_id") or body.client_id
     if body.wont_renew is not None and client_id:
-        await db.clients.update_one(
-            {"id": client_id},
-            {"$set": {"wont_renew": bool(body.wont_renew)}},
-        )
+        await _set_client_wont_renew(client_id, bool(body.wont_renew))
     if updated and not updated.get("is_closed"):
         client_patch = {"payment_status": _effective_payment_status(updated)}
         await db.clients.update_one({"id": updated["client_id"]}, {"$set": client_patch})
@@ -19763,6 +19804,13 @@ async def _run_startup():
                 logger.info("Email From display name set to Boost Growth Staff Portal")
         except Exception as e:
             logger.warning(f"Email From display normalize skipped: {e}")
+
+        try:
+            wr = await _migrate_wont_renew_to_inactive_once()
+            if wr.get("updated"):
+                logger.info("Won't-renew clients marked Inactive: %s", wr["updated"])
+        except Exception as e:
+            logger.warning(f"Won't-renew inactive migrate skipped: {e}")
 
         try:
             rename = await _rename_clients_spelling_once()
