@@ -2116,6 +2116,158 @@ async def save_job_titles(payload: JobTitleCatalogIn, _=Depends(ops_or_admin)):
     return {"titles": cleaned}
 
 
+# ------------------- Page settings (self-serve control panels) -------------------
+
+DEFAULT_CLIENT_INFO_PAGE = {
+    "page_badge": "CLIENTS",
+    "page_title": "Client Portfolios",
+    "page_subtitle": "Profiles, packages, locations, and progress — select a child to view details",
+    "directory_heading": "Client Directory",
+    "active_list_heading": "Active clients",
+    "inactive_list_heading": "Inactive clients",
+    "status_tabs": [
+        {"id": "active", "label": "Active", "enabled": True},
+        {"id": "inactive", "label": "Inactive", "enabled": True},
+    ],
+    "detail_tabs": [
+        {"id": "overview", "label": "Overview", "enabled": True},
+        {"id": "billing", "label": "Billing & History", "enabled": True},
+        {"id": "summary", "label": "Case Summary", "enabled": True},
+        {"id": "records", "label": "Records", "enabled": True},
+    ],
+    "service_types": [
+        {"value": "HS", "label": "HS (Home Session)"},
+        {"value": "SS", "label": "SS (School Support)"},
+        {"value": "HS+SS", "label": "HS + SS"},
+        {"value": "AVC", "label": "AVC"},
+    ],
+    "location_services": ["HS", "SS", "OS"],
+    "supervisors": [
+        "Fahda Alghadeeb",
+        "Maha Althunayan",
+        "Jenan Almuhaisin",
+    ],
+    "default_package_hours": 24,
+    "default_new_client_color": "#A2C4C9",
+    "show_new_client_button": True,
+}
+
+
+def _normalize_client_info_page(raw: Optional[dict] = None) -> dict:
+    """Merge stored Client Info page settings onto defaults (safe for missing keys)."""
+    base = {**DEFAULT_CLIENT_INFO_PAGE}
+    raw = raw or {}
+    for key in (
+        "page_badge", "page_title", "page_subtitle", "directory_heading",
+        "active_list_heading", "inactive_list_heading", "default_new_client_color",
+    ):
+        if isinstance(raw.get(key), str) and raw[key].strip():
+            base[key] = raw[key].strip()
+    if isinstance(raw.get("default_package_hours"), (int, float)) and float(raw["default_package_hours"]) > 0:
+        base["default_package_hours"] = float(raw["default_package_hours"])
+    if "show_new_client_button" in raw:
+        base["show_new_client_button"] = bool(raw["show_new_client_button"])
+
+    def _tabs(key: str, allowed_ids: set):
+        items = raw.get(key)
+        if not isinstance(items, list) or not items:
+            return
+        cleaned = []
+        seen = set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            tid = (item.get("id") or "").strip()
+            if tid not in allowed_ids or tid in seen:
+                continue
+            seen.add(tid)
+            cleaned.append({
+                "id": tid,
+                "label": (item.get("label") or tid).strip() or tid,
+                "enabled": bool(item.get("enabled", True)),
+            })
+        # Keep any default tabs missing from payload (at end, disabled false? keep enabled from default)
+        for d in DEFAULT_CLIENT_INFO_PAGE[key]:
+            if d["id"] not in seen:
+                cleaned.append(dict(d))
+        if cleaned:
+            base[key] = cleaned
+
+    _tabs("status_tabs", {"active", "inactive"})
+    _tabs("detail_tabs", {"overview", "billing", "summary", "records"})
+
+    st = raw.get("service_types")
+    if isinstance(st, list) and st:
+        cleaned_st = []
+        seen_v = set()
+        for item in st:
+            if isinstance(item, dict):
+                val = (item.get("value") or "").strip()
+                lab = (item.get("label") or val).strip()
+            else:
+                val = str(item or "").strip()
+                lab = val
+            if not val or val.lower() in seen_v:
+                continue
+            seen_v.add(val.lower())
+            cleaned_st.append({"value": val, "label": lab or val})
+        if cleaned_st:
+            base["service_types"] = cleaned_st
+
+    loc = raw.get("location_services")
+    if isinstance(loc, list) and loc:
+        cleaned_loc = []
+        seen_l = set()
+        for x in loc:
+            s = str(x or "").strip()
+            if not s or s.lower() in seen_l:
+                continue
+            seen_l.add(s.lower())
+            cleaned_loc.append(s)
+        if cleaned_loc:
+            base["location_services"] = cleaned_loc
+
+    sup = raw.get("supervisors")
+    if isinstance(sup, list):
+        cleaned_sup = []
+        seen_s = set()
+        for x in raw.get("supervisors") or []:
+            s = str(x or "").strip()
+            if not s or s.lower() in seen_s:
+                continue
+            seen_s.add(s.lower())
+            cleaned_sup.append(s)
+        base["supervisors"] = cleaned_sup
+
+    return base
+
+
+async def _get_client_info_page_settings() -> dict:
+    doc = await db.settings.find_one({"key": "page_client_info"}, {"_id": 0}) or {}
+    return _normalize_client_info_page(doc.get("settings") if isinstance(doc.get("settings"), dict) else doc)
+
+
+class ClientInfoPageSettingsIn(BaseModel):
+    settings: dict
+
+
+@api.get("/page-settings/client-info")
+async def get_client_info_page_settings(user=Depends(get_current_user)):
+    """Readable by any logged-in user — drives Client Info labels and catalogs."""
+    return await _get_client_info_page_settings()
+
+
+@api.put("/admin/page-settings/client-info")
+async def save_client_info_page_settings(payload: ClientInfoPageSettingsIn, _=Depends(ops_or_admin)):
+    cleaned = _normalize_client_info_page(payload.settings or {})
+    await db.settings.update_one(
+        {"key": "page_client_info"},
+        {"$set": {"key": "page_client_info", "settings": cleaned, "updated_at": now_iso()}},
+        upsert=True,
+    )
+    return cleaned
+
+
 @api.post("/therapists")
 async def create_therapist(payload: TherapistIn, _=Depends(admin_only)):
     tid = str(uuid.uuid4())

@@ -1,11 +1,12 @@
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api";
-import { cachedGet, peekCache } from "../dataCache";
+import { cachedGet, peekCache, invalidateCache } from "../dataCache";
 import { useAuth, showAdminNav, hasOpsAccess, hasFullClientAccess, isJenan } from "../auth";
-import { Plus, MagnifyingGlass, Trash, PencilSimple, UsersThree, EnvelopeSimple } from "@phosphor-icons/react";
+import { Plus, MagnifyingGlass, Trash, PencilSimple, UsersThree, EnvelopeSimple, GearSix } from "@phosphor-icons/react";
 import ClientInfoLayout from "../components/ClientInfoLayout";
 import ClientRecordsPanel from "../components/ClientRecordsPanel";
+import ClientInfoPageControl from "../components/ClientInfoPageControl";
 import { clientDisplayName } from "../clientDisplayUtils";
 import ClientPickerSheet from "../components/ClientPickerSheet";
 import "../clientInfoLayout.css";
@@ -16,6 +17,7 @@ import {
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../components/Modal";
 import PortalPageHeader from "../components/PortalPageHeader";
+import { mergeClientInfoPageSettings, enabledTabs } from "../pageSettings";
 
 export default function Clients() {
   const navigate = useNavigate();
@@ -35,18 +37,23 @@ export default function Clients() {
   const [pageError, setPageError] = useState(null);
 
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
+  const [pageSettings, setPageSettings] = useState(() => mergeClientInfoPageSettings(null));
+  const [pageControlOpen, setPageControlOpen] = useState(false);
+  const canEditPageSettings = isAdmin || hasOps;
 
   const load = async ({ background = false } = {}) => {
     if (!background) setPageReady(false);
     setPageError(null);
     try {
-      const [c, t] = await Promise.all([
+      const [c, t, ps] = await Promise.all([
         cachedGet("/clients").catch(() => peekCache("/clients") || []),
         cachedGet("/therapists").catch(() => peekCache("/therapists") || []),
+        cachedGet("/page-settings/client-info").catch(() => null),
       ]);
       const clients = Array.isArray(c) ? c : [];
       setItems(clients);
       setTherapists(Array.isArray(t) ? t : []);
+      if (ps) setPageSettings(mergeClientInfoPageSettings(ps));
     } catch (err) {
       const stale = peekCache("/clients");
       if (Array.isArray(stale) && stale.length) {
@@ -157,6 +164,17 @@ export default function Clients() {
     load({ background: true });
   };
 
+  const statusTabs = useMemo(() => {
+    const tabs = enabledTabs(pageSettings.status_tabs);
+    return tabs.length ? tabs : enabledTabs(mergeClientInfoPageSettings(null).status_tabs);
+  }, [pageSettings]);
+
+  useEffect(() => {
+    if (!statusTabs.some((t) => t.id === statusTab) && statusTabs[0]) {
+      setStatusTab(statusTabs[0].id);
+    }
+  }, [statusTabs, statusTab]);
+
   if (!pageReady && !items.length && !pageError) {
     return (
       <div className="portal-page-shell page-enter clients-page" dir="ltr">
@@ -167,11 +185,30 @@ export default function Clients() {
 
   const clientsToolbar = (
     <div className="flex flex-wrap items-center gap-2">
-      {isAdmin && (
+      {canEditPageSettings && (
+        <button
+          type="button"
+          data-testid="client-info-page-settings-btn"
+          className="btn btn-outline text-sm"
+          onClick={() => setPageControlOpen(true)}
+          title="Client Info page settings"
+        >
+          <GearSix size={16} weight="duotone" /> Page settings
+        </button>
+      )}
+      {isAdmin && pageSettings.show_new_client_button !== false && (
         <button
           type="button"
           data-testid="add-client-btn"
-          onClick={() => setEdit({ name: "", file_no: "", package_hours: 24, color: "#A2C4C9", main_therapist_id: "", co_therapist_ids: [], locations: [] })}
+          onClick={() => setEdit({
+            name: "",
+            file_no: "",
+            package_hours: pageSettings.default_package_hours || 24,
+            color: pageSettings.default_new_client_color || "#A2C4C9",
+            main_therapist_id: "",
+            co_therapist_ids: [],
+            locations: [],
+          })}
           className="btn btn-primary text-sm"
         >
           <Plus size={16} /> New Child
@@ -201,14 +238,15 @@ export default function Clients() {
     <div className="portal-page-shell page-enter clients-page" dir="ltr">
       <PortalPageHeader
         prefix="clients"
-        badge="CLIENTS"
-        title="Client Portfolios"
-        subtitle="Profiles, packages, locations, and progress — select a child to view details"
+        badge={pageSettings.page_badge || "CLIENTS"}
+        title={pageSettings.page_title || "Client Portfolios"}
+        subtitle={pageSettings.page_subtitle}
         icon={UsersThree}
-        tabs={[
-          { id: "active", label: "Active", count: activeCount },
-          { id: "inactive", label: "Inactive", count: items.length - activeCount },
-        ]}
+        tabs={statusTabs.map((t) => ({
+          id: t.id,
+          label: t.label,
+          count: t.id === "active" ? activeCount : items.length - activeCount,
+        }))}
         activeTab={statusTab}
         onTabChange={setStatusTab}
         toolbar={clientsToolbar}
@@ -223,7 +261,11 @@ export default function Clients() {
         <div className="clients-page-panel-head">
           <UsersThree size={22} weight="duotone" className="shrink-0" />
           <div>
-            <h2>{statusTab === "active" ? "Active clients" : "Inactive clients"}</h2>
+            <h2>
+              {statusTab === "active"
+                ? (pageSettings.active_list_heading || "Active clients")
+                : (pageSettings.inactive_list_heading || "Inactive clients")}
+            </h2>
             <p>{filtered.length} {filtered.length === 1 ? "child" : "children"} in this view</p>
           </div>
         </div>
@@ -257,6 +299,7 @@ export default function Clients() {
         }}
         CaseSummaryPanel={CaseDetailsPanelModal}
         RecordsPanel={ClientRecordsPanel}
+        pageSettings={pageSettings}
       />
       </section>
 
@@ -268,6 +311,26 @@ export default function Clients() {
         onSelect={setSelectedClientId}
         findTherapist={findT}
       />
+
+      {pageControlOpen && (
+        <ModalBase
+          title="Client Info page settings"
+          subtitle="Self-serve control for this page"
+          onClose={() => setPageControlOpen(false)}
+          size="lg"
+          footer={
+            <ModalBtnSecondary type="button" onClick={() => setPageControlOpen(false)}>Close</ModalBtnSecondary>
+          }
+        >
+          <ClientInfoPageControl
+            compact
+            onSaved={(s) => {
+              setPageSettings(mergeClientInfoPageSettings(s));
+              invalidateCache("/page-settings/client-info");
+            }}
+          />
+        </ModalBase>
+      )}
 
       {edit && (
         <ModalBase
@@ -323,7 +386,7 @@ export default function Clients() {
               </FormField>
               <FormField label="Color">
                 <div className="flex items-center gap-2">
-                  <input type="color" value={edit.color || "#A2C4C9"} onChange={e => setEdit({ ...edit, color: e.target.value })} className="w-10 h-10 rounded-lg border" style={{ borderColor: "#DDD8D0" }} />
+                  <input type="color" value={edit.color || pageSettings.default_new_client_color || "#A2C4C9"} onChange={e => setEdit({ ...edit, color: e.target.value })} className="w-10 h-10 rounded-lg border" style={{ borderColor: "#DDD8D0" }} />
                   <span className="text-xs" style={{ color: "#9CA3AF" }}>{edit.color}</span>
                 </div>
               </FormField>
@@ -335,10 +398,12 @@ export default function Clients() {
               <FormField label="Service type">
                 <select data-testid="client-service-type-select" className="modal-input" value={edit.service_type || ""} onChange={e => setEdit({ ...edit, service_type: e.target.value || null })}>
                   <option value="">—</option>
-                  <option value="HS">HS (Home Session)</option>
-                  <option value="SS">SS (School Support)</option>
-                  <option value="HS+SS">HS + SS</option>
-                  <option value="AVC">AVC</option>
+                  {(pageSettings.service_types || []).map((s) => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
+                  {edit.service_type && !(pageSettings.service_types || []).some((s) => s.value === edit.service_type) && (
+                    <option value={edit.service_type}>{edit.service_type}</option>
+                  )}
                 </select>
               </FormField>
               <FormField label="Status">
@@ -361,7 +426,7 @@ export default function Clients() {
               </FormField>
               {(edit.billing_mode || "hours") === "hours" ? (
                 <FormField label="Package hours">
-                  <input type="number" className="modal-input" value={edit.package_hours || 24} onChange={e => setEdit({ ...edit, package_hours: parseFloat(e.target.value) || 24 })} />
+                  <input type="number" className="modal-input" value={edit.package_hours || pageSettings.default_package_hours || 24} onChange={e => setEdit({ ...edit, package_hours: parseFloat(e.target.value) || 24 })} />
                 </FormField>
               ) : (
                 <>
@@ -413,7 +478,19 @@ export default function Clients() {
               </div>
             </FormField>
             <FormField label="Supervisor">
-              <input className="modal-input" value={edit.supervisor || ""} onChange={e => setEdit({ ...edit, supervisor: e.target.value })} />
+              <select
+                className="modal-input"
+                value={edit.supervisor || ""}
+                onChange={e => setEdit({ ...edit, supervisor: e.target.value || null })}
+              >
+                <option value="">— None —</option>
+                {(pageSettings.supervisors || []).map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+                {edit.supervisor && !(pageSettings.supervisors || []).includes(edit.supervisor) && (
+                  <option value={edit.supervisor}>{edit.supervisor}</option>
+                )}
+              </select>
             </FormField>
           </FormSection>
 
@@ -422,13 +499,15 @@ export default function Clients() {
               {(edit.locations || []).map((l, i) => (
                 <div key={i} className="flex gap-2">
                   <select className="modal-input w-24 flex-shrink-0" value={l.service} onChange={e => { const ll = [...edit.locations]; ll[i] = { ...ll[i], service: e.target.value }; setEdit({ ...edit, locations: ll }); }}>
-                    <option value="HS">HS</option><option value="SS">SS</option><option value="OS">OS</option>
+                    {(pageSettings.location_services || ["HS", "SS", "OS"]).map((code) => (
+                      <option key={code} value={code}>{code}</option>
+                    ))}
                   </select>
                   <input className="modal-input flex-1" placeholder="Address or Google Maps link" value={l.address} onChange={e => { const ll = [...edit.locations]; ll[i] = { ...ll[i], address: e.target.value }; setEdit({ ...edit, locations: ll }); }} />
                   <button type="button" onClick={() => setEdit({ ...edit, locations: edit.locations.filter((_, j) => j !== i) })} className="btn btn-ghost p-2 text-red-700"><Trash size={14} /></button>
                 </div>
               ))}
-              <button type="button" onClick={() => setEdit({ ...edit, locations: [...(edit.locations || []), { service: "HS", address: "" }] })} className="btn btn-outline text-xs"><Plus size={14} /> Add location</button>
+              <button type="button" onClick={() => setEdit({ ...edit, locations: [...(edit.locations || []), { service: (pageSettings.location_services || ["HS"])[0], address: "" }] })} className="btn btn-outline text-xs"><Plus size={14} /> Add location</button>
             </div>
           </FormSection>
         </ModalBase>

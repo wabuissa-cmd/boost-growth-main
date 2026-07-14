@@ -13,11 +13,18 @@ import { formatPkgUsedRemaining } from "../packageStatusUtils";
 import { AttendanceHistoryModal } from "../pages/Attendance";
 import "../clientInfoLayout.css";
 
-const DETAIL_TABS = [
-  { id: "overview", label: "Overview", icon: House },
-  { id: "billing", label: "Billing & History", icon: Receipt },
-  { id: "summary", label: "Case Summary", icon: ClipboardText },
-  { id: "records", label: "Records", icon: Paperclip },
+const DETAIL_TAB_ICONS = {
+  overview: House,
+  billing: Receipt,
+  summary: ClipboardText,
+  records: Paperclip,
+};
+
+const DEFAULT_DETAIL_TABS = [
+  { id: "overview", label: "Overview", enabled: true },
+  { id: "billing", label: "Billing & History", enabled: true },
+  { id: "summary", label: "Case Summary", enabled: true },
+  { id: "records", label: "Records", enabled: true },
 ];
 
 function worstPkgRow(rows) {
@@ -93,18 +100,37 @@ export default function ClientInfoLayout({
   canEditRecords, canSyncDrive, onClientRefresh,
   onEdit, onRemove, onBilling, onPhoneSave,
   CaseSummaryPanel, RecordsPanel,
+  pageSettings,
 }) {
   const selected = useMemo(
     () => clients.find(c => c.id === selectedId) || null,
     [clients, selectedId]
   );
 
+  const detailTabs = useMemo(() => {
+    const raw = (pageSettings?.detail_tabs?.length ? pageSettings.detail_tabs : DEFAULT_DETAIL_TABS)
+      .filter((t) => t && t.enabled !== false);
+    return raw.map((t) => ({
+      ...t,
+      icon: DETAIL_TAB_ICONS[t.id] || House,
+    }));
+  }, [pageSettings]);
+
+  const directoryHeading = pageSettings?.directory_heading || "Client Directory";
+
   const detailRef = useRef(null);
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useState(detailTabs[0]?.id || "overview");
 
   useEffect(() => {
-    setActiveTab("overview");
-  }, [selected?.id]);
+    const first = detailTabs[0]?.id || "overview";
+    setActiveTab(first);
+  }, [selected?.id, detailTabs]);
+
+  useEffect(() => {
+    if (!detailTabs.some((t) => t.id === activeTab) && detailTabs[0]) {
+      setActiveTab(detailTabs[0].id);
+    }
+  }, [detailTabs, activeTab]);
 
   const handleSelect = useCallback((id) => {
     onSelect(id);
@@ -160,7 +186,7 @@ export default function ClientInfoLayout({
       <div className="ci-canvas">
         <div className="ci-pane-left">
           <div className="ci-pane-brand">
-            <h2><Leaf size={14} className="inline mr-1" style={{ verticalAlign: -2 }} /> Client Directory</h2>
+            <h2><Leaf size={14} className="inline mr-1" style={{ verticalAlign: -2 }} /> {directoryHeading}</h2>
           </div>
           <div className="ci-pane-list">
             {clients.map(c => {
@@ -275,7 +301,7 @@ export default function ClientInfoLayout({
               </div>
 
               <nav className="ci-detail-tabs" aria-label="Client sections">
-                {DETAIL_TABS.map(({ id, label, icon: Icon }) => (
+                {detailTabs.map(({ id, label, icon: Icon }) => (
                   <button
                     key={id}
                     type="button"

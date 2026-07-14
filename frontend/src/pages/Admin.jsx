@@ -4,11 +4,12 @@ import api from "../api";
 import { useAuth, canAccessManagerHub } from "../auth";
 import {
   Plus, Minus, PencilSimple, Trash, X, UserPlus, Key, EnvelopeSimple, CheckCircle, Warning,
-  Database, SignOut, CaretDown, CaretUp, Users, Wrench, LinkSimple, Heartbeat, ListChecks,
+  Database, SignOut, CaretDown, CaretUp, Users, Wrench, LinkSimple, Heartbeat, ListChecks, SquaresFour,
 } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
 import { getTherapistScheduleName } from "../scheduleConstants";
 import { invalidateCache } from "../dataCache";
+import ClientInfoPageControl from "../components/ClientInfoPageControl";
 
 const DEFAULT_EMAIL_FROM = "Boost Growth Staff Portal <hr@boostgrowthsa.com>";
 
@@ -129,6 +130,7 @@ export default function Admin() {
 
   const ADMIN_TABS = [
     { id: "users", label: "Users" },
+    { id: "pages", label: "Pages" },
     { id: "email", label: "Email" },
     { id: "system", label: "System & data" },
   ];
@@ -1405,6 +1407,24 @@ export default function Admin() {
               <button onClick={() => remove(t.id)} className="btn btn-ghost p-1.5 text-red-700" title="Delete user"><Trash size={15} /></button>
             </div>
           ))}
+        </div>
+      </AdminSection>
+      )}
+
+      {adminTab === "pages" && (
+      <AdminSection
+        id="page-client-info"
+        title="Client Info page"
+        subtitle="Labels · tabs · dropdown catalogs · defaults"
+        icon={<SquaresFour size={20} weight="duotone" />}
+        defaultOpen
+        badge="v1"
+      >
+        <div className="pt-4">
+          <div className="flex flex-wrap gap-2 mb-3">
+            <Link to="/clients" className="btn btn-outline text-sm">Open Client Info</Link>
+          </div>
+          <ClientInfoPageControl />
         </div>
       </AdminSection>
       )}
