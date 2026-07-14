@@ -110,7 +110,7 @@ export function buildAdminReminders({
       severity: "urgent",
       icon: Warning,
       title: `${pkgAlerts.critical} package${pkgAlerts.critical > 1 ? "s" : ""} critical or expired`,
-      detail: "Hours nearly exhausted — follow up with families",
+      detail: "Hours nearly exhausted — follow up with clients",
       to: "/clients",
     });
   }

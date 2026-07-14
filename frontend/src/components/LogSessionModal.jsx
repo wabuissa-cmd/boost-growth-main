@@ -126,6 +126,16 @@ export default function LogSessionModal({
       alert("Session notes are required before saving.\nملاحظات الجلسة مطلوبة قبل الحفظ.");
       return;
     }
+    const hoursToSave = computeHours(form.start_time, form.end_time);
+    if (hoursToSave > 6) {
+      const ok = window.confirm(
+        `This session is ${hoursToSave} hours. Are you sure?\n`
+        + `Sessions over 6 hours are unusual — please double-check start and end times.\n\n`
+        + `هذه الجلسة ${hoursToSave} ساعات. هل أنتِ متأكدة؟\n`
+        + `أكثر من ٦ ساعات غير معتاد — تأكدي من وقت البداية والنهاية.`,
+      );
+      if (!ok) return;
+    }
     const finishSaved = () => {
       invalidateCache("/sessions");
       invalidateCache("/schedule/preparations");

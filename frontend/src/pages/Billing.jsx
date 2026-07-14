@@ -8,6 +8,7 @@ import PageBanner from "../components/PageBanner";
 import BillingProgressStrip from "../components/BillingProgressStrip";
 import InvoiceEditModal from "../components/InvoiceEditModal";
 import InvoiceCalendarTab from "../components/InvoiceCalendarTab";
+import PackageFollowUpModal from "../components/PackageFollowUpModal";
 import "../clientInfoLayout.css";
 import { formatMoney, effectivePaymentStatus, paymentStatusLabel, paymentStatusStyle } from "../billingUtils";
 import { formatServiceTypeDisplay } from "../attendanceUtils";
@@ -110,6 +111,7 @@ export default function Billing() {
   const [selectedClientId, setSelectedClientId] = useState(deepClientId || "");
   const [selectedInvoiceId, setSelectedInvoiceId] = useState(null);
   const [editRow, setEditRow] = useState(null);
+  const [followUpRow, setFollowUpRow] = useState(null);
   const [sending, setSending] = useState(false);
   const [search, setSearch] = useState("");
   const loadSupport = useCallback(() => {
@@ -424,7 +426,7 @@ export default function Billing() {
             <h3 className="text-sm font-bold m-0 flex items-center gap-1.5" style={{ color: "var(--brand-dark)" }}>
               <Warning size={16} weight="duotone" /> Package ending soon
             </h3>
-            <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>{pkgEndingSoon.length} families</span>
+            <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>{pkgEndingSoon.length} clients</span>
           </div>
           {pkgEndingSoon.length === 0 ? (
             <p className="text-xs m-0" style={{ color: "var(--text-muted)" }}>No critical or low packages right now.</p>
@@ -436,11 +438,12 @@ export default function Billing() {
                   <button
                     key={`${row.client_id}-${row.service_type}`}
                     type="button"
-                    onClick={() => onClientChange(row.client_id)}
+                    onClick={() => setFollowUpRow(row)}
                     className="text-left px-2 py-1 rounded-lg border text-[10px]"
                     style={{ background: st.bg, color: st.color, borderColor: st.border }}
+                    title="Open follow-up actions"
                   >
-                    <span className="font-semibold block">{row.client_name || "Client"}</span>
+                    <span className="font-semibold block">{row.client_name || "Client"}{row.wont_renew ? " · no renew" : ""}</span>
                     <span>{formatPkgBadge(row)}</span>
                   </button>
                 );
@@ -704,6 +707,32 @@ export default function Billing() {
         </div>
         </>
         </section>
+      )}
+
+      {followUpRow && (
+        <PackageFollowUpModal
+          row={followUpRow}
+          onClose={() => setFollowUpRow(null)}
+          onDone={load}
+          onEditInvoice={(row) => {
+            // Prefer full invoice row from dashboard if available
+            const match = (data?.items || []).find((r) => r.invoice_id === row.invoice_id)
+              || {
+                invoice_id: row.invoice_id,
+                invoice_number: row.invoice_number,
+                client_id: row.client_id,
+                client_name: row.client_name,
+                service_type: row.service_type,
+                payment_status: row.payment_status,
+                package_size: row.package_size,
+              };
+            setEditRow(match);
+          }}
+          onOpenSheet={(row) => {
+            onClientChange(row.client_id);
+            openSheet(row);
+          }}
+        />
       )}
 
       {editRow && (

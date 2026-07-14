@@ -22,7 +22,7 @@ export default function BillingProgressStrip({ summary, items = [] }) {
       <div className="px-4 py-2.5" style={{ background: "#FAFAF7" }}>
         <div className="flex items-center justify-between gap-2 mb-1.5">
           <span className="ui-caption font-semibold" style={{ color: "#5C6853" }}>
-            Payment progress · {open - unpaid} of {open} families with partial or settled status
+            Payment progress · {open - unpaid} of {open} clients with partial or settled status
           </span>
           <span className="ui-caption font-bold" style={{ color: "#6B5218" }}>{barPct}%</span>
         </div>

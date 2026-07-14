@@ -602,6 +602,64 @@ def _launch_temp_password(name: str) -> str:
     return f"{first[0].upper()}{first[1:]}@{LAUNCH_PASSWORD_SUFFIX}" if first else f"User@{LAUNCH_PASSWORD_SUFFIX}"
 
 
+async def _force_jenan_password_change_once() -> bool:
+    """One-time: Jenan only — require password change on next login.
+    Does NOT change her password hash and does NOT touch any other therapist."""
+    meta_key = "jenan_force_password_change_v1"
+    if await db.meta.find_one({"key": meta_key, "done": True}):
+        return False
+    jenan = await db.therapists.find_one(
+        {
+            "$or": [
+                {"key": {"$regex": r"^msjenan$", "$options": "i"}},
+                {"email": {"$regex": r"^jsalmuhaisin@boostgrowthsa\.com$", "$options": "i"}},
+            ]
+        },
+        {"_id": 0, "id": 1, "email": 1, "name": 1},
+    )
+    if jenan and jenan.get("id"):
+        await db.therapists.update_one(
+            {"id": jenan["id"]},
+            {"$set": {"must_change_password": True}},
+        )
+        logger.info(
+            "Jenan password change required on next login (id=%s email=%s) — password hash unchanged",
+            jenan.get("id"),
+            jenan.get("email"),
+        )
+    await db.meta.update_one(
+        {"key": meta_key},
+        {"$set": {"done": True, "updated_at": now_iso(), "therapist_id": (jenan or {}).get("id")}},
+        upsert=True,
+    )
+    return bool(jenan)
+
+
+async def _rename_clients_spelling_once() -> dict:
+    """One-time spelling corrections for client display names (file_no keyed)."""
+    meta_key = "client_name_spelling_v1_abalkhail_alobaikan"
+    if await db.meta.find_one({"key": meta_key, "done": True}):
+        return {"skipped": True, "updated": []}
+    renames = {
+        "085": "Sultan Abalkhail",
+        "086": "Abdulmohsen Alobaikan",
+    }
+    updated = []
+    for file_no, new_name in renames.items():
+        res = await db.clients.update_many(
+            {"file_no": file_no, "deleted": {"$ne": True}},
+            {"$set": {"name": new_name}},
+        )
+        if res.modified_count:
+            updated.append({"file_no": file_no, "name": new_name, "count": res.modified_count})
+    await db.meta.update_one(
+        {"key": meta_key},
+        {"$set": {"done": True, "updated_at": now_iso(), "updated": updated}},
+        upsert=True,
+    )
+    return {"skipped": False, "updated": updated}
+
+
 async def _migrate_hr_password_once() -> bool:
     """One-time: set HR password to Boost@2026 without re-applying on future deploys."""
     meta_key = "hr_password_boost2026"
@@ -1308,6 +1366,7 @@ class ClientIn(BaseModel):
     cycle_start_date: Optional[str] = None   # ISO yyyy-mm-dd; first day of current billing cycle
     package_end_date: Optional[str] = None   # ISO yyyy-mm-dd; package expiry / end-of-cycle date (manual)
     payment_status: Optional[str] = "pending"  # "complete" or "pending"
+    wont_renew: Optional[bool] = None  # next package will not be renewed
     package_reset_at: Optional[str] = None    # ISO timestamp; sessions before this are excluded from current cycle (manual reset)
     notes: Optional[str] = None
     main_therapist_id: Optional[str] = None
@@ -1357,6 +1416,10 @@ class InvoicePaymentIn(BaseModel):
     installment_percent: Optional[float] = None
     next_payment_reminder_at: Optional[str] = None
     payment_notes: Optional[str] = None
+    package_size: Optional[float] = None  # edit package hours/weeks from billing follow-up
+    notes: Optional[str] = None
+    wont_renew: Optional[bool] = None  # applied to client when set from billing follow-up
+    client_id: Optional[str] = None
 
 
 class InvoiceCalendarManualIn(BaseModel):
@@ -1935,9 +1998,17 @@ async def list_therapists(user=Depends(get_current_user)):
 @api.post("/therapists")
 async def create_therapist(payload: TherapistIn, _=Depends(admin_only)):
     tid = str(uuid.uuid4())
-    doc = {"id": tid, "name": payload.name, "email": payload.email, "phone": payload.phone,
-           "color": payload.color or "#7A8A6A", "pin_hash": hash_password(payload.pin),
-           "created_at": now_iso()}
+    doc = {
+        "id": tid,
+        "name": payload.name,
+        "email": payload.email,
+        "phone": payload.phone,
+        "color": payload.color or "#7A8A6A",
+        "pin_hash": hash_password(payload.pin),
+        # New specialists must set their own password after admin issues credentials.
+        "must_change_password": True,
+        "created_at": now_iso(),
+    }
     await db.therapists.insert_one(doc)
     return {k: v for k, v in doc.items() if k not in ("_id", "pin_hash")}
 
@@ -2460,8 +2531,8 @@ MASTER_CLIENTS = [
     ("079", "Fahad Suliman",         "msFahda",    ["msFahda"],                40, "msFahda", "HS",    "Al-Sahafa"),
     ("053", "Ahmad Alshalfan",       "msHajer",    ["msFahda"],                24, "msFahda", "HS/SS", "Almalqa"),
     ("080", "Faisal Alzughaibi",     "msFatimah",  [],                         24, "msFahda", "HS",    "Alyasmeen"),
-    ("085", "Sultan Abdelkhal",      "msShatha",   [],                         24, "msMaha",  "HS/SS", "Al-Mursalat"),
-    ("086", "Abdelmohsen Labikan",   "msFahda",    [],                         24, "msFahda", "SS/HS", "TBD"),
+    ("085", "Sultan Abalkhail",      "msShatha",   [],                         24, "msMaha",  "HS/SS", "Al-Mursalat"),
+    ("086", "Abdulmohsen Alobaikan", "msFahda",    [],                         24, "msFahda", "SS/HS", "TBD"),
 ]
 
 # Bilingual display names (English in `name`, Arabic in `name_ar`) — optional per client.
@@ -5246,15 +5317,23 @@ def _urgent_email_subject(subject: str) -> str:
     return (subject or "").strip()
 
 
+DEFAULT_PORTAL_URL = "https://staff.boostgrowth.org"
+
+
 def _portal_base_url() -> str:
+    """Public staff portal URL for email links. Prefer staff.boostgrowth.org over Railway hosts."""
     for key in ("PORTAL_URL", "FRONTEND_URL", "PUBLIC_URL", "RAILWAY_PUBLIC_DOMAIN"):
         val = (os.environ.get(key) or "").strip().rstrip("/")
         if not val:
             continue
         if key == "RAILWAY_PUBLIC_DOMAIN" and not val.startswith("http"):
-            return f"https://{val}"
+            val = f"https://{val}"
+        # Railway preview/service domains are wrong for therapist/HR emails — use canonical staff URL.
+        low = val.lower()
+        if "railway.app" in low or "up.railway.app" in low:
+            continue
         return val
-    return ""
+    return DEFAULT_PORTAL_URL
 
 
 async def _jenan_recipient_email() -> str:
@@ -5335,7 +5414,7 @@ async def _notify_hr_manager_decision(
         hr_body += f"\n\nManager note:\n{admin_note}"
     portal = _portal_base_url()
     if portal:
-        link = "/manager" if ntype in ("leave_request", "request") else "/requests"
+        link = "/manager" if ntype in ("leave_request", "request") else "/staff-leave"
         hr_body += f"\n\nReview in portal: {portal}{link}"
     hr_body += "\n\nSincerely,\nBoost Growth Portal"
     await _email_hr_ops_urgent(hr_title, hr_body)
@@ -5484,9 +5563,9 @@ def _format_request_email_body(req: dict) -> str:
     ]
     portal = _portal_base_url()
     if portal:
-        lines += ["", f"Review in portal: {portal}/requests"]
+        lines += ["", f"Review in portal: {portal}/manager"]
         if has_attachment:
-            lines += [f"Attachment: {portal}/requests"]
+            lines += [f"Attachment: {portal}/manager"]
     lines += ["", "Sincerely,", "Boost Growth Portal"]
     return "\n".join(lines).strip() + "\n"
 
@@ -5505,7 +5584,7 @@ async def _notify_request_submitted(req: dict):
 
     body = _format_request_email_body(req)
     await _send_urgent_email(await _jenan_recipient_email(), subj, body)
-    await _notify_hr_ops("request_new", subj, msg, link="/requests")
+    await _notify_hr_ops("request_new", subj, msg, link="/manager")
     await _email_hr_ops_urgent(subj, body)
 
 
@@ -5710,6 +5789,10 @@ SCHEDULE_SHORT_LABEL_FILES = {
     "abdulaziz w": "040",
     "abdulmohsen": "086",
     "abdelmohsen": "086",
+    "abdulmohsen alobaikan": "086",
+    "abdelmohsen labikan": "086",
+    "sultan abalkhail": "085",
+    "sultan abdelkhal": "085",
     "khalid": "072",
     "khalid ibrahim": "072",
     "mohammed alaqeel": "027",
@@ -6540,6 +6623,17 @@ async def update_client(cid: str, payload: ClientIn, user=Depends(get_current_us
 
 class ClientScheduleColorIn(BaseModel):
     color: Optional[str] = None
+
+@api.put("/clients/{cid}/wont-renew")
+async def set_client_wont_renew(cid: str, body: dict, user=Depends(ops_or_admin)):
+    """Mark whether the family will renew the next package (billing follow-up)."""
+    client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    flag = bool(body.get("wont_renew"))
+    await db.clients.update_one({"id": cid}, {"$set": {"wont_renew": flag}})
+    return await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
+
 
 @api.put("/clients/{cid}/schedule-color")
 async def update_client_schedule_color(cid: str, body: ClientScheduleColorIn, _=Depends(ops_or_admin)):
@@ -7462,20 +7556,31 @@ async def update_invoice_payment(iid: str, body: InvoicePaymentIn, user=Depends(
         patch["next_payment_reminder_at"] = body.next_payment_reminder_at or None
     if body.payment_notes is not None:
         patch["payment_notes"] = body.payment_notes
-    if not patch:
+    if body.package_size is not None:
+        patch["package_size"] = body.package_size
+    if body.notes is not None:
+        patch["notes"] = body.notes
+    if not patch and body.wont_renew is None:
         return inv
     # Auto partial when paid < total
-    amount = float(patch.get("amount", inv.get("amount") or 0))
-    paid = float(patch.get("amount_paid", inv.get("amount_paid") or 0))
-    if patch.get("payment_status") != "complete" and amount > 0 and paid > 0:
-        if paid >= amount:
-            patch["payment_status"] = "complete"
-        elif patch.get("payment_status") != "pending":
-            patch["payment_status"] = "partial"
-        elif paid < amount:
-            patch["payment_status"] = "partial"
-    await db.invoices.update_one({"id": iid}, {"$set": patch})
+    if patch:
+        amount = float(patch.get("amount", inv.get("amount") or 0))
+        paid = float(patch.get("amount_paid", inv.get("amount_paid") or 0))
+        if patch.get("payment_status") != "complete" and amount > 0 and paid > 0:
+            if paid >= amount:
+                patch["payment_status"] = "complete"
+            elif patch.get("payment_status") != "pending":
+                patch["payment_status"] = "partial"
+            elif paid < amount:
+                patch["payment_status"] = "partial"
+        await db.invoices.update_one({"id": iid}, {"$set": patch})
     updated = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    client_id = (updated or inv).get("client_id") or body.client_id
+    if body.wont_renew is not None and client_id:
+        await db.clients.update_one(
+            {"id": client_id},
+            {"$set": {"wont_renew": bool(body.wont_renew)}},
+        )
     if updated and not updated.get("is_closed"):
         client_patch = {"payment_status": _effective_payment_status(updated)}
         await db.clients.update_one({"id": updated["client_id"]}, {"$set": client_patch})
@@ -8123,6 +8228,7 @@ def _compute_package_status_row(client: dict, service_code: str, invoices: list,
         "label": "No open invoice",
         "current_week": None,
         "total_weeks": None,
+        "wont_renew": bool(client.get("wont_renew")),
         **pay_fields,
     }
     if not inv:
@@ -15280,7 +15386,7 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
                     lines += ["", "HR note", (payload.admin_note or "").strip()]
                 portal = _portal_base_url()
                 if portal:
-                    lines += ["", "Next step", f"- Please check your page on the portal: {portal}/leaves"]
+                    lines += ["", "Next step", f"- Please check your page on the portal: {portal}/my-requests"]
                 else:
                     lines += ["", "Next step", "- Please check your page on the portal."]
                 lines += ["", "Sincerely,", "HR Department", "Boost Growth"]
@@ -18843,8 +18949,8 @@ CLIENT_SEED = [
     {"file_no":"068","name":"Abdulrahman Alshawi","main":"Ms. Razan","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#C9DAF8","locs":[{"service":"HS","address":"AR Rayan - Home no 32"}]},
     {"file_no":"070","name":"Abdulelah Almuhana","main":"Ms. Abeer","co":["Ms. Maha"],"pkg":32,"sup":"Ms. Maha","color":"#CFE2F3","locs":[{"service":"HS","address":"Al-Manziliyah"}]},
     {"file_no":"072","name":"Khalid Bin Shuael","main":"Ms. Shatha","co":["Ms. Fahda"],"pkg":24,"sup":"Ms. Fahda","color":"#EAD1DC","locs":[{"service":"HS","address":"AlMursalat"}]},
-    {"file_no":"085","name":"Sultan Abdelkhal","main":"Ms. Shatha","co":[],"pkg":24,"sup":"Ms. Maha","color":"#D0E0E3","locs":[{"service":"HS","address":"Al-Mursalat"},{"service":"SS","address":"Al-Mursalat"}]},
-    {"file_no":"086","name":"Abdelmohsen Labikan","main":"Ms. Fahda","co":[],"pkg":24,"sup":"Ms. Fahda","color":"#EAD1DC","locs":[{"service":"SS","address":"TBD"},{"service":"HS","address":"TBD"}]},
+    {"file_no":"085","name":"Sultan Abalkhail","main":"Ms. Shatha","co":[],"pkg":24,"sup":"Ms. Maha","color":"#D0E0E3","locs":[{"service":"HS","address":"Al-Mursalat"},{"service":"SS","address":"Al-Mursalat"}]},
+    {"file_no":"086","name":"Abdulmohsen Alobaikan","main":"Ms. Fahda","co":[],"pkg":24,"sup":"Ms. Fahda","color":"#EAD1DC","locs":[{"service":"SS","address":"TBD"},{"service":"HS","address":"TBD"}]},
 ]
 
 CLIENT_ATTENDANCE_SHEETS = {
@@ -19154,7 +19260,8 @@ async def _ensure_ops_therapist_records() -> int:
                 "color": "#C4864A" if key == "msWalaa" else "#7A8A6A",
                 "pin_hash": hash_password("0000"),
                 "password_hash": hash_password(UNIFIED_LAUNCH_PASSWORD),
-                "must_change_password": False,
+                # Only Jenan (and new specialists via create) should be forced to reset.
+                "must_change_password": key == "msJenan",
                 "created_at": now_iso(),
             })
             updated += 1
@@ -19170,7 +19277,8 @@ async def _ensure_ops_therapist_records() -> int:
             patch["role"] = spec["role"]
         if not existing.get("password_hash"):
             patch["password_hash"] = hash_password(UNIFIED_LAUNCH_PASSWORD)
-            patch["must_change_password"] = False
+            # Do not force password change for existing ops leads except Jenan when first getting a hash.
+            patch["must_change_password"] = key == "msJenan"
         if patch:
             await db.therapists.update_one({"id": existing["id"]}, {"$set": patch})
             updated += 1
@@ -19483,6 +19591,19 @@ async def _run_startup():
                 logger.info(f"Therapist nationality cleanup: removed {nat_clean['removed']}")
         except Exception as e:
             logger.warning(f"Therapist nationality cleanup skipped: {e}")
+
+        try:
+            if await _force_jenan_password_change_once():
+                logger.info("Jenan must_change_password set (password unchanged; other therapists untouched)")
+        except Exception as e:
+            logger.warning(f"Jenan password-change flag skipped: {e}")
+
+        try:
+            rename = await _rename_clients_spelling_once()
+            if rename.get("updated"):
+                logger.info("Client name spelling updates: %s", rename["updated"])
+        except Exception as e:
+            logger.warning(f"Client name spelling rename skipped: {e}")
 
         try:
             if await _migrate_hr_password_once():
