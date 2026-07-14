@@ -7,6 +7,7 @@ const inflight = new Map();
 const TTL_MS = {
   "/clients": 2 * 60 * 1000,
   "/page-settings/client-info": 5 * 60 * 1000,
+  "/page-settings/billing": 5 * 60 * 1000,
   "/therapists": 5 * 60 * 1000,
   "/sessions": 90 * 1000,
   "/billing/dashboard": 60 * 1000,

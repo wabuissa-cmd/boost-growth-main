@@ -67,3 +67,33 @@ export function mergeClientInfoPageSettings(raw) {
 export function enabledTabs(tabs) {
   return (tabs || []).filter((t) => t && t.enabled !== false);
 }
+
+export const DEFAULT_BILLING_PAGE = {
+  page_title: "Billing & Payments",
+  page_subtitle: "Payment alerts first · then browse clients & invoices",
+  intro_caption: "Open Invoice Sheet for full billing details. Reminder emails go to admin and Walaa 1–2 days before the next payment date.",
+  send_reminders_label: "Send reminders",
+  ending_soon_title: "Package ending soon",
+  ending_soon_empty: "No critical or low packages right now.",
+  payment_followup_title: "Needs payment follow-up",
+  payment_followup_empty: "All open invoices are on track.",
+  directory_heading: "Client Directory",
+  show_ending_soon: true,
+  show_payment_followup: true,
+  show_send_reminders: true,
+  overview_tab_label: "Client Invoices",
+  calendar_tab_label: "Invoice Calendar",
+};
+
+export function mergeBillingPageSettings(raw) {
+  const base = { ...DEFAULT_BILLING_PAGE };
+  if (!raw || typeof raw !== "object") return base;
+  for (const key of Object.keys(DEFAULT_BILLING_PAGE)) {
+    if (typeof DEFAULT_BILLING_PAGE[key] === "boolean") {
+      if (key in raw) base[key] = Boolean(raw[key]);
+    } else if (typeof raw[key] === "string" && raw[key].trim()) {
+      base[key] = raw[key].trim();
+    }
+  }
+  return base;
+}

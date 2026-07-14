@@ -10,6 +10,7 @@ import PageBanner from "../components/PageBanner";
 import { getTherapistScheduleName } from "../scheduleConstants";
 import { invalidateCache } from "../dataCache";
 import ClientInfoPageControl from "../components/ClientInfoPageControl";
+import BillingPageControl from "../components/BillingPageControl";
 
 const DEFAULT_EMAIL_FROM = "Boost Growth Staff Portal <hr@boostgrowthsa.com>";
 
@@ -385,7 +386,17 @@ export default function Admin() {
         email: edit.email, phone: edit.phone, job_title,
       });
     }
-    setEdit(null); load();
+    // Free-typed "Other" titles join the catalog for next time
+    if (job_title && !jobTitles.some((t) => t.toLowerCase() === job_title.toLowerCase())) {
+      try {
+        const { data } = await api.put("/admin/job-titles", { titles: [...jobTitles, job_title] });
+        setJobTitles(data.titles || [...jobTitles, job_title]);
+      } catch {
+        /* user still saved; catalog sync is best-effort */
+      }
+    }
+    setEdit(null);
+    load();
   };
   const remove = async (id) => {
     if (!window.confirm("Delete this therapist and all their schedule cells?")) return;
@@ -1226,7 +1237,7 @@ export default function Admin() {
             ))}
             <option value="__none__">No job title</option>
           </select>
-          <button data-testid="add-therapist-btn" onClick={() => setEdit({ name: "", color: "#7A8A6A", pin: "0000", job_title: "", show_on_schedule: true })} className="btn btn-primary text-sm">
+          <button data-testid="add-therapist-btn" onClick={() => setEdit({ name: "", color: "#7A8A6A", pin: "0000", job_title: "", job_title_other: false, show_on_schedule: true })} className="btn btn-primary text-sm">
             <UserPlus size={16} /> New user
           </button>
         </div>
@@ -1402,7 +1413,13 @@ export default function Admin() {
                 <div className="text-xs truncate" style={{ color: "#6B7A5E" }}>{t.job_title || "No job title"}</div>
                 <div className="text-xs truncate" style={{ color: "#8B9E7A" }}>{t.email || t.phone || "—"}</div>
               </div>
-              <button onClick={() => setEdit({ ...t, pin: "", job_title: t.job_title || "", show_on_schedule: t.show_on_schedule !== false })} className="btn btn-ghost p-1.5" title="Edit user"><PencilSimple size={15} /></button>
+              <button onClick={() => setEdit({
+                ...t,
+                pin: "",
+                job_title: t.job_title || "",
+                job_title_other: Boolean(t.job_title && !jobTitles.includes(t.job_title)),
+                show_on_schedule: t.show_on_schedule !== false,
+              })} className="btn btn-ghost p-1.5" title="Edit user"><PencilSimple size={15} /></button>
               <button data-testid={`reset-pwd-${t.id}`} onClick={() => resetPassword(t)} className="btn btn-ghost p-1.5" title="Reset password"><Key size={15} /></button>
               <button onClick={() => remove(t.id)} className="btn btn-ghost p-1.5 text-red-700" title="Delete user"><Trash size={15} /></button>
             </div>
@@ -1412,6 +1429,7 @@ export default function Admin() {
       )}
 
       {adminTab === "pages" && (
+      <>
       <AdminSection
         id="page-client-info"
         title="Client Info page"
@@ -1427,6 +1445,22 @@ export default function Admin() {
           <ClientInfoPageControl />
         </div>
       </AdminSection>
+      <AdminSection
+        id="page-billing"
+        title="Billing page"
+        subtitle="Titles · alert panels · reminder button"
+        icon={<SquaresFour size={20} weight="duotone" />}
+        defaultOpen
+        badge="v1"
+      >
+        <div className="pt-4">
+          <div className="flex flex-wrap gap-2 mb-3">
+            <Link to="/billing" className="btn btn-outline text-sm">Open Client Invoices</Link>
+          </div>
+          <BillingPageControl />
+        </div>
+      </AdminSection>
+      </>
       )}
 
       {adminTab === "email" && (
@@ -1878,17 +1912,35 @@ export default function Admin() {
             <select
               className="input mb-2"
               data-testid="therapist-job-title-select"
-              value={edit.job_title || ""}
-              onChange={e => setEdit({ ...edit, job_title: e.target.value })}
+              value={edit.job_title_other ? "__other__" : (edit.job_title || "")}
+              onChange={e => {
+                const v = e.target.value;
+                if (v === "__other__") {
+                  setEdit({ ...edit, job_title_other: true, job_title: jobTitles.includes(edit.job_title) ? "" : (edit.job_title || "") });
+                } else {
+                  setEdit({ ...edit, job_title_other: false, job_title: v });
+                }
+              }}
             >
               <option value="">— Select —</option>
               {jobTitles.map(title => (
                 <option key={title} value={title}>{title}</option>
               ))}
-              {edit.job_title && !jobTitles.includes(edit.job_title) && (
-                <option value={edit.job_title}>{edit.job_title}</option>
-              )}
+              <option value="__other__">Other (type your own)</option>
             </select>
+            {edit.job_title_other && (
+              <input
+                className="input mb-2"
+                data-testid="therapist-job-title-other"
+                placeholder="Type job title…"
+                value={edit.job_title || ""}
+                onChange={e => setEdit({ ...edit, job_title: e.target.value })}
+                autoFocus
+              />
+            )}
+            <p className="text-[11px] mb-2 m-0" style={{ color: "#8B9E7A" }}>
+              Choose from the list, or Other to type any title. Custom titles are saved to the catalog.
+            </p>
             {edit.id && (
               <label className="flex items-center gap-2 mb-2 text-sm" style={{ color: "#2C3625" }}>
                 <input

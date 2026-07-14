@@ -2268,6 +2268,65 @@ async def save_client_info_page_settings(payload: ClientInfoPageSettingsIn, _=De
     return cleaned
 
 
+DEFAULT_BILLING_PAGE = {
+    "page_title": "Billing & Payments",
+    "page_subtitle": "Payment alerts first · then browse clients & invoices",
+    "intro_caption": "Open Invoice Sheet for full billing details. Reminder emails go to admin and Walaa 1–2 days before the next payment date.",
+    "send_reminders_label": "Send reminders",
+    "ending_soon_title": "Package ending soon",
+    "ending_soon_empty": "No critical or low packages right now.",
+    "payment_followup_title": "Needs payment follow-up",
+    "payment_followup_empty": "All open invoices are on track.",
+    "directory_heading": "Client Directory",
+    "show_ending_soon": True,
+    "show_payment_followup": True,
+    "show_send_reminders": True,
+    "overview_tab_label": "Client Invoices",
+    "calendar_tab_label": "Invoice Calendar",
+}
+
+
+def _normalize_billing_page(raw: Optional[dict] = None) -> dict:
+    base = {**DEFAULT_BILLING_PAGE}
+    raw = raw or {}
+    for key in (
+        "page_title", "page_subtitle", "intro_caption", "send_reminders_label",
+        "ending_soon_title", "ending_soon_empty", "payment_followup_title",
+        "payment_followup_empty", "directory_heading", "overview_tab_label", "calendar_tab_label",
+    ):
+        if isinstance(raw.get(key), str) and raw[key].strip():
+            base[key] = raw[key].strip()
+    for key in ("show_ending_soon", "show_payment_followup", "show_send_reminders"):
+        if key in raw:
+            base[key] = bool(raw[key])
+    return base
+
+
+async def _get_billing_page_settings() -> dict:
+    doc = await db.settings.find_one({"key": "page_billing"}, {"_id": 0}) or {}
+    return _normalize_billing_page(doc.get("settings") if isinstance(doc.get("settings"), dict) else doc)
+
+
+class BillingPageSettingsIn(BaseModel):
+    settings: dict
+
+
+@api.get("/page-settings/billing")
+async def get_billing_page_settings(user=Depends(get_current_user)):
+    return await _get_billing_page_settings()
+
+
+@api.put("/admin/page-settings/billing")
+async def save_billing_page_settings(payload: BillingPageSettingsIn, _=Depends(ops_or_admin)):
+    cleaned = _normalize_billing_page(payload.settings or {})
+    await db.settings.update_one(
+        {"key": "page_billing"},
+        {"$set": {"key": "page_billing", "settings": cleaned, "updated_at": now_iso()}},
+        upsert=True,
+    )
+    return cleaned
+
+
 @api.post("/therapists")
 async def create_therapist(payload: TherapistIn, _=Depends(admin_only)):
     tid = str(uuid.uuid4())

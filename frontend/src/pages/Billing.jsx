@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "../api";
-import { cachedGet } from "../dataCache";
+import { cachedGet, invalidateCache } from "../dataCache";
 import { useAuth, showAdminNav, hasOpsAccess } from "../auth";
 import { HistoryModal } from "./Attendance";
 import PageBanner from "../components/PageBanner";
@@ -9,13 +9,16 @@ import BillingProgressStrip from "../components/BillingProgressStrip";
 import InvoiceEditModal from "../components/InvoiceEditModal";
 import InvoiceCalendarTab from "../components/InvoiceCalendarTab";
 import PackageFollowUpModal from "../components/PackageFollowUpModal";
+import BillingPageControl from "../components/BillingPageControl";
+import { ModalBase, ModalBtnSecondary } from "../components/Modal";
 import "../clientInfoLayout.css";
 import { formatMoney, effectivePaymentStatus, paymentStatusLabel, paymentStatusStyle } from "../billingUtils";
 import { formatServiceTypeDisplay } from "../attendanceUtils";
 import { formatPkgBadge, formatPkgUsedRemaining, pkgStatusStyle, PKG_SORT_ORDER } from "../packageStatusUtils";
+import { mergeBillingPageSettings } from "../pageSettings";
 import {
   Receipt, CheckCircle, EnvelopeSimple, ClipboardText, Warning,
-  MagnifyingGlass, CaretRight, Leaf, CalendarBlank,
+  MagnifyingGlass, CaretRight, Leaf, CalendarBlank, GearSix,
 } from "@phosphor-icons/react";
 
 function invoiceToRow(inv, client, today) {
@@ -114,11 +117,17 @@ export default function Billing() {
   const [followUpRow, setFollowUpRow] = useState(null);
   const [sending, setSending] = useState(false);
   const [search, setSearch] = useState("");
+  const [pageSettings, setPageSettings] = useState(() => mergeBillingPageSettings(null));
+  const [pageControlOpen, setPageControlOpen] = useState(false);
+  const canEditPageSettings = isAdmin || canEditInvoice;
   const loadSupport = useCallback(() => {
     cachedGet("/clients", { force: true }).then(c => setClients(Array.isArray(c) ? c : [])).catch(() => {});
     cachedGet("/therapists", { force: true }).then(t => setTherapists(Array.isArray(t) ? t : [])).catch(() => {});
     cachedGet("/sessions", { force: true }).then(s => setSessions(Array.isArray(s) ? s : [])).catch(() => {});
     cachedGet("/clients/package-status", { force: true }).then(r => setPkgRows(Array.isArray(r) ? r : [])).catch(() => setPkgRows([]));
+    cachedGet("/page-settings/billing").then((s) => {
+      if (s) setPageSettings(mergeBillingPageSettings(s));
+    }).catch(() => {});
     api.get("/invoices").then(r => setInvoices(Array.isArray(r.data) ? r.data : [])).catch(() => setInvoices([]));
   }, []);
 
@@ -300,7 +309,7 @@ export default function Billing() {
   const clientListPane = (
     <div className="ci-pane-left">
       <div className="ci-pane-brand">
-        <h2><Leaf size={14} className="inline mr-1" style={{ verticalAlign: -2 }} /> Clients</h2>
+        <h2><Leaf size={14} className="inline mr-1" style={{ verticalAlign: -2 }} /> {pageSettings.directory_heading || "Clients"}</h2>
         <div className="ci-pane-stats">
           <span><em>{filteredClients.length}</em> shown</span>
           <span><em>{sortedClients.length}</em> total</span>
@@ -379,12 +388,12 @@ export default function Billing() {
   return (
     <div className="portal-page-shell">
       <PageBanner
-        title="Billing & Payments"
-        subtitle="Payment alerts first · then browse clients & invoices"
+        title={pageSettings.page_title || "Billing & Payments"}
+        subtitle={pageSettings.page_subtitle}
         className=""
         tabs={[
-          { id: "overview", label: "Client Invoices", icon: <Receipt size={14} weight="duotone" /> },
-          { id: "calendar", label: "Invoice Calendar", icon: <CalendarBlank size={14} weight="duotone" /> },
+          { id: "overview", label: pageSettings.overview_tab_label || "Client Invoices", icon: <Receipt size={14} weight="duotone" /> },
+          { id: "calendar", label: pageSettings.calendar_tab_label || "Invoice Calendar", icon: <CalendarBlank size={14} weight="duotone" /> },
         ]}
         activeTab={activeTab}
         onTabChange={setTab}
@@ -393,6 +402,16 @@ export default function Billing() {
           { label: "Partial", n: summary.partial, color: "#6B5218" },
           { label: "Reminders", n: summary.reminders_soon, color: "#5C6853" },
         ]}
+        toolbar={canEditPageSettings ? (
+          <button
+            type="button"
+            className="btn btn-outline text-sm"
+            data-testid="billing-page-settings-btn"
+            onClick={() => setPageControlOpen(true)}
+          >
+            <GearSix size={16} weight="duotone" /> Page settings
+          </button>
+        ) : null}
       />
 
       {activeTab === "calendar" ? (
@@ -404,16 +423,18 @@ export default function Billing() {
         <>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4 p-3 rounded-xl border" style={{ background: "var(--bg-surface)", borderColor: "var(--border-default)" }}>
         <p className="ui-caption m-0 flex-1 min-w-[200px]">
-          Open <strong>Invoice Sheet</strong> for full billing details. Reminder emails go to admin and Walaa <strong>1–2 days before</strong> the next payment date.
+          {pageSettings.intro_caption}
         </p>
-        <button
-          type="button"
-          onClick={sendReminders}
-          disabled={sending}
-          className="btn btn-outline text-xs shrink-0 min-h-[40px]"
-        >
-          <EnvelopeSimple size={14} /> {sending ? "Sending…" : "Send reminders"}
-        </button>
+        {pageSettings.show_send_reminders !== false && (
+          <button
+            type="button"
+            onClick={sendReminders}
+            disabled={sending}
+            className="btn btn-outline text-xs shrink-0 min-h-[40px]"
+          >
+            <EnvelopeSimple size={14} /> {sending ? "Sending…" : (pageSettings.send_reminders_label || "Send reminders")}
+          </button>
+        )}
       </div>
 
       <div className="mb-4">
@@ -421,15 +442,16 @@ export default function Billing() {
       </div>
 
       <div className="mb-4 grid gap-3 md:grid-cols-2">
+        {pageSettings.show_ending_soon !== false && (
         <div className="card p-3 border" style={{ borderColor: "var(--border-default)" }}>
           <div className="flex items-center justify-between gap-2 mb-2">
             <h3 className="text-sm font-bold m-0 flex items-center gap-1.5" style={{ color: "var(--brand-dark)" }}>
-              <Warning size={16} weight="duotone" /> Package ending soon
+              <Warning size={16} weight="duotone" /> {pageSettings.ending_soon_title || "Package ending soon"}
             </h3>
             <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>{pkgEndingSoon.length} clients</span>
           </div>
           {pkgEndingSoon.length === 0 ? (
-            <p className="text-xs m-0" style={{ color: "var(--text-muted)" }}>No critical or low packages right now.</p>
+            <p className="text-xs m-0" style={{ color: "var(--text-muted)" }}>{pageSettings.ending_soon_empty}</p>
           ) : (
             <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
               {pkgEndingSoon.map((row) => {
@@ -451,16 +473,21 @@ export default function Billing() {
             </div>
           )}
         </div>
+        )}
 
+        {pageSettings.show_payment_followup !== false && (
         <div className="card p-3 border" style={{ borderColor: "var(--border-default)" }}>
           <div className="flex items-center justify-between gap-2 mb-2">
             <h3 className="text-sm font-bold m-0 flex items-center gap-1.5" style={{ color: "var(--brand-dark)" }}>
-              <Receipt size={16} weight="duotone" /> Needs payment follow-up
+              <Receipt size={16} weight="duotone" /> {pageSettings.payment_followup_title || "Needs payment follow-up"}
             </h3>
             <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>{attentionItems.length} open</span>
           </div>
           {attentionItems.length === 0 ? (
-            <p className="text-xs m-0" style={{ color: "var(--text-muted)" }}>All open invoices are on track ({pkgHealthy} packages healthy).</p>
+            <p className="text-xs m-0" style={{ color: "var(--text-muted)" }}>
+              {pageSettings.payment_followup_empty || "All open invoices are on track."}
+              {` (${pkgHealthy} packages healthy).`}
+            </p>
           ) : (
             <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
               {attentionItems.slice(0, 16).map((row) => {
@@ -481,6 +508,7 @@ export default function Billing() {
             </div>
           )}
         </div>
+        )}
       </div>
 
       <div className="mb-4">
@@ -707,6 +735,26 @@ export default function Billing() {
         </div>
         </>
         </section>
+      )}
+
+      {pageControlOpen && (
+        <ModalBase
+          title="Billing page settings"
+          subtitle="Self-serve control for Client Invoices"
+          onClose={() => setPageControlOpen(false)}
+          size="lg"
+          footer={
+            <ModalBtnSecondary type="button" onClick={() => setPageControlOpen(false)}>Close</ModalBtnSecondary>
+          }
+        >
+          <BillingPageControl
+            compact
+            onSaved={(s) => {
+              setPageSettings(mergeBillingPageSettings(s));
+              invalidateCache("/page-settings/billing");
+            }}
+          />
+        </ModalBase>
       )}
 
       {followUpRow && (
