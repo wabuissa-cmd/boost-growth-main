@@ -124,6 +124,14 @@ export default function Admin() {
   const [newJobTitle, setNewJobTitle] = useState("");
   const [manageJobTitles, setManageJobTitles] = useState(false);
   const [savingJobTitles, setSavingJobTitles] = useState(false);
+  const [adminTab, setAdminTab] = useState("users");
+  const [jobTitleFilter, setJobTitleFilter] = useState("");
+
+  const ADMIN_TABS = [
+    { id: "users", label: "Users" },
+    { id: "email", label: "Email" },
+    { id: "system", label: "System & data" },
+  ];
   const [healthData, setHealthData] = useState(null);
   const [loadingHealth, setLoadingHealth] = useState(false);
   const [recovering, setRecovering] = useState(false);
@@ -359,7 +367,14 @@ export default function Admin() {
   const save = async () => {
     const job_title = (edit.job_title || "").trim() || null;
     if (edit.id) {
-      const payload = { name: edit.name, color: edit.color, email: edit.email, phone: edit.phone, job_title };
+      const payload = {
+        name: edit.name,
+        color: edit.color,
+        email: edit.email,
+        phone: edit.phone,
+        job_title,
+        show_on_schedule: edit.show_on_schedule !== false,
+      };
       if (edit.pin) payload.pin = edit.pin;
       await api.put(`/therapists/${edit.id}`, payload);
     } else {
@@ -409,9 +424,17 @@ export default function Admin() {
     }
   };
 
-  const filteredTherapists = therapists.filter(t =>
-    !therapistSearch.trim() || getTherapistScheduleName(t).toLowerCase().includes(therapistSearch.toLowerCase()) || t.name?.toLowerCase().includes(therapistSearch.toLowerCase())
-  );
+  const filteredTherapists = therapists.filter(t => {
+    const q = therapistSearch.trim().toLowerCase();
+    const nameOk = !q
+      || getTherapistScheduleName(t).toLowerCase().includes(q)
+      || (t.name || "").toLowerCase().includes(q)
+      || (t.email || "").toLowerCase().includes(q);
+    if (!nameOk) return false;
+    if (!jobTitleFilter) return true;
+    if (jobTitleFilter === "__none__") return !(t.job_title || "").trim();
+    return (t.job_title || "") === jobTitleFilter;
+  });
 
   const resetPassword = async (t) => {
     if (!window.confirm(`Generate a new temporary password for ${getTherapistScheduleName(t)}?`)) return;
@@ -443,7 +466,6 @@ export default function Admin() {
 
   const forceTherapistPasswordChange = async () => {
     if (!window.confirm(
-      "إجبار جميع الأخصائيين (ذوي البريد) على تغيير كلمة المرور عند الدخول القادم؟\n\n" +
       "Force all therapists with email to change password on next login?\n\n" +
       "Does NOT reset passwords — they keep growth2026 (or their current password) until they choose a new one."
     )) return;
@@ -918,7 +940,7 @@ export default function Admin() {
     <div className="portal-page-shell">
       <PageBanner
         title="Admin Panel"
-        subtitle="Choose a section from the menu below"
+        subtitle="Self-serve control panel · Users, email, and system tools"
         badge={(
           <button data-testid="admin-logout-btn" onClick={logout} className="btn btn-outline text-sm">
             <SignOut size={16} /> Log Out
@@ -932,10 +954,30 @@ export default function Admin() {
       />
 
       <section className="portal-content-panel portal-page-body">
+      <div className="flex flex-wrap gap-2 mb-4" role="tablist" aria-label="Admin sections">
+        {ADMIN_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={adminTab === tab.id}
+            data-testid={`admin-tab-${tab.id}`}
+            onClick={() => setAdminTab(tab.id)}
+            className="btn text-sm min-h-[40px]"
+            style={adminTab === tab.id
+              ? { background: "#3D4F35", color: "#fff", borderColor: "#3D4F35" }
+              : { background: "#FAFAF7", color: "#2C3625", borderColor: "#E2DDD4" }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {adminTab === "system" && (
       <AdminSection
         id="health"
-        title="صحة البيانات والاستعادة"
-        subtitle="فحص · نسخ احتياطي · إصلاح تلقائي"
+        title="Data health & recovery"
+        subtitle="Check · backup · auto-repair"
         icon={<Heartbeat size={20} weight="duotone" />}
         defaultOpen
         badge={healthData?.ok ? "✓" : healthData ? "!" : null}
@@ -1149,30 +1191,46 @@ export default function Admin() {
           )}
         </div>
       </AdminSection>
+      )}
 
-      {/* Therapists */}
+      {adminTab === "users" && (
       <AdminSection
         id="therapists"
-        title="Manage Therapists"
-        subtitle={`${therapists.length} in database · view, edit, deactivate/delete`}
+        title="User Management"
+        subtitle={`${therapists.length} staff · edit profile, job title, credentials`}
         icon={<Users size={20} weight="duotone" />}
         defaultOpen
         badge={String(therapists.length)}
       >
-        <div className="flex flex-wrap justify-between gap-2 mb-3 pt-4">
+        <p className="text-xs pt-4 mb-3" style={{ color: "#5C6853" }}>
+          Edit each staff member here — name, email, phone, and job title. Add custom titles with + below so you can assign them from the dropdown without asking for a code change.
+        </p>
+        <div className="flex flex-wrap justify-between gap-2 mb-3">
           <input
             className="input text-sm max-w-xs flex-1 min-w-[160px]"
-            placeholder="Search therapists..."
+            placeholder="Search by name or email..."
             value={therapistSearch}
             onChange={e => setTherapistSearch(e.target.value)}
           />
-          <button data-testid="add-therapist-btn" onClick={() => setEdit({ name: "", color: "#7A8A6A", pin: "0000", job_title: "" })} className="btn btn-primary text-sm">
-            <UserPlus size={16} /> New Therapist
+          <select
+            className="input text-sm max-w-[200px]"
+            value={jobTitleFilter}
+            onChange={e => setJobTitleFilter(e.target.value)}
+            aria-label="Filter by job title"
+          >
+            <option value="">All job titles</option>
+            {jobTitles.map(title => (
+              <option key={title} value={title}>{title}</option>
+            ))}
+            <option value="__none__">No job title</option>
+          </select>
+          <button data-testid="add-therapist-btn" onClick={() => setEdit({ name: "", color: "#7A8A6A", pin: "0000", job_title: "", show_on_schedule: true })} className="btn btn-primary text-sm">
+            <UserPlus size={16} /> New user
           </button>
         </div>
         <ToolRow
-          title="Job titles / المسميات الوظيفية"
-          desc="List used when editing a specialist. Add or remove titles with + / −."
+          title="Job title catalog"
+          desc="Titles shown in the edit dropdown. Use + to add and − to remove."
         >
           <button type="button" className="btn btn-outline text-sm" onClick={() => setManageJobTitles(s => !s)}>
             {manageJobTitles ? "Close" : "Manage titles"}
@@ -1238,7 +1296,7 @@ export default function Admin() {
           </div>
         )}
         <ToolRow
-          title="إجبار تغيير كلمة المرور عند الدخول القادم"
+          title="Force password change on next login"
           desc="For therapists already on growth2026: flags every therapist with email to set a new password on next login. Does not change their current password."
         >
           <button
@@ -1248,7 +1306,7 @@ export default function Admin() {
             disabled={forcingPwChange}
             className="btn btn-outline text-sm"
           >
-            {forcingPwChange ? <span className="spinner" /> : <><Key size={14} className="inline mr-1" /> إجبار تغيير كلمة المرور عند الدخول القادم</>}
+            {forcingPwChange ? <span className="spinner" /> : <><Key size={14} className="inline mr-1" /> Force password change on next login</>}
           </button>
         </ToolRow>
         {forcePwChangeResult && (
@@ -1342,21 +1400,23 @@ export default function Admin() {
                 <div className="text-xs truncate" style={{ color: "#6B7A5E" }}>{t.job_title || "No job title"}</div>
                 <div className="text-xs truncate" style={{ color: "#8B9E7A" }}>{t.email || t.phone || "—"}</div>
               </div>
-              <button onClick={() => setEdit({ ...t, pin: "", job_title: t.job_title || "" })} className="btn btn-ghost p-1.5"><PencilSimple size={15} /></button>
+              <button onClick={() => setEdit({ ...t, pin: "", job_title: t.job_title || "", show_on_schedule: t.show_on_schedule !== false })} className="btn btn-ghost p-1.5" title="Edit user"><PencilSimple size={15} /></button>
               <button data-testid={`reset-pwd-${t.id}`} onClick={() => resetPassword(t)} className="btn btn-ghost p-1.5" title="Reset password"><Key size={15} /></button>
-              <button onClick={() => remove(t.id)} className="btn btn-ghost p-1.5 text-red-700" title="Delete therapist"><Trash size={15} /></button>
+              <button onClick={() => remove(t.id)} className="btn btn-ghost p-1.5 text-red-700" title="Delete user"><Trash size={15} /></button>
             </div>
           ))}
         </div>
       </AdminSection>
+      )}
 
-      {/* Email */}
+      {adminTab === "email" && (
       <AdminSection
         id="email"
         title="Email Notifications"
         subtitle="Mailgun · works on Railway"
         icon={<EnvelopeSimple size={20} weight="duotone" />}
         badge={emailBadge}
+        defaultOpen
       >
         <div className="pt-4">
           {(emailSettings.smtp_blocked_on_railway || emailSettings.delivery_warning) && (
@@ -1560,7 +1620,10 @@ export default function Admin() {
           )}
         </div>
       </AdminSection>
+      )}
 
+      {adminTab === "system" && (
+      <>
       {/* Data & Backup */}
       <AdminSection
         id="data"
@@ -1773,6 +1836,8 @@ export default function Admin() {
           <a href="https://app.brevo.com/senders/list" target="_blank" rel="noreferrer" className="btn btn-outline justify-start text-sm">📧 Brevo Senders</a>
         </div>
       </AdminSection>
+      </>
+      )}
       </section>
 
       {/* Modals */}
@@ -1780,7 +1845,7 @@ export default function Admin() {
         <div className="fixed inset-0 bg-black/40 modal-backdrop flex items-center justify-center p-4 z-50" onClick={() => setEdit(null)}>
           <div className="card p-6 w-full max-w-md modal-card" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
-              <div className="font-display text-2xl">{edit.id ? "Edit Therapist" : "New Therapist"}</div>
+              <div className="font-display text-2xl">{edit.id ? "Edit user" : "New user"}</div>
               <button onClick={() => setEdit(null)} className="btn btn-ghost p-2"><X size={18} /></button>
             </div>
             <label className="label">Name</label>
@@ -1789,7 +1854,7 @@ export default function Admin() {
             <input className="input mb-2" type="email" value={edit.email || ""} onChange={e => setEdit({ ...edit, email: e.target.value })} />
             <label className="label">Phone</label>
             <input className="input mb-2" value={edit.phone || ""} onChange={e => setEdit({ ...edit, phone: e.target.value })} />
-            <label className="label">Job title / المسمى الوظيفي</label>
+            <label className="label">Job title</label>
             <select
               className="input mb-2"
               data-testid="therapist-job-title-select"
@@ -1804,6 +1869,16 @@ export default function Admin() {
                 <option value={edit.job_title}>{edit.job_title}</option>
               )}
             </select>
+            {edit.id && (
+              <label className="flex items-center gap-2 mb-2 text-sm" style={{ color: "#2C3625" }}>
+                <input
+                  type="checkbox"
+                  checked={edit.show_on_schedule !== false}
+                  onChange={e => setEdit({ ...edit, show_on_schedule: e.target.checked })}
+                />
+                Show on weekly schedule
+              </label>
+            )}
             <label className="label">Color</label>
             <input type="color" value={edit.color} onChange={e => setEdit({ ...edit, color: e.target.value })} className="w-12 h-10 rounded-lg border mb-2" />
             <label className="label">PIN</label>
