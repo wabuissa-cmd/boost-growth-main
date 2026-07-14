@@ -573,6 +573,8 @@ THERAPIST_BOOTSTRAP_PASSWORDS = {
 
 LAUNCH_PASSWORD_SUFFIX = "Launch2026"
 UNIFIED_LAUNCH_PASSWORD = "growth2026"
+EMAIL_FROM_DISPLAY_NAME = "Boost Growth Staff Portal"
+DEFAULT_EMAIL_FROM = f"{EMAIL_FROM_DISPLAY_NAME} <hr@boostgrowthsa.com>"
 # Clients whose invoices stay partial (half paid) during bulk mark-paid rollout.
 PARTIAL_PAYMENT_CLIENT_FILE_NOS = frozenset({"079"})  # Fahad Suliman — half paid (not Fahad Alyahya #011)
 
@@ -600,6 +602,87 @@ def _launch_temp_password(name: str) -> str:
     """Predictable launch password: Firstname@Launch2026 (from Ms. Asma → Asma@Launch2026)."""
     first = re.sub(r"^Ms\.?\s*", "", (name or "").strip(), flags=re.I).split()[0] or "User"
     return f"{first[0].upper()}{first[1:]}@{LAUNCH_PASSWORD_SUFFIX}" if first else f"User@{LAUNCH_PASSWORD_SUFFIX}"
+
+
+async def _purge_pre_june_pending_hr_leaves_once() -> dict:
+    """One-time: remove Apr/May pending_hr leave rows imported before June portal go-live."""
+    meta_key = "purge_pre_june_pending_hr_leaves_v1"
+    if await db.meta.find_one({"key": meta_key, "done": True}):
+        return {"skipped": True, "deleted": 0}
+    # Exact IDs confirmed on production + defensive date filter for same therapists
+    target_ids = [
+        "917580a7-a784-473f-892b-0482f03595cb",  # Shatha Annual May 2026
+        "ee13f1ce-3e33-4b67-95e8-bd1931c2ac2f",  # Manal Annual Apr 2026
+    ]
+    deleted = 0
+    for lid in target_ids:
+        res = await db.leaves.delete_one({"id": lid, "status": "pending_hr"})
+        deleted += res.deleted_count
+    await db.meta.update_one(
+        {"key": meta_key},
+        {"$set": {"done": True, "updated_at": now_iso(), "deleted": deleted, "ids": target_ids}},
+        upsert=True,
+    )
+    return {"skipped": False, "deleted": deleted}
+
+
+async def _normalize_email_from_display_once() -> bool:
+    """One-time: upgrade stored From display name to Boost Growth Staff Portal."""
+    meta_key = "email_from_staff_portal_v1"
+    if await db.meta.find_one({"key": meta_key, "done": True}):
+        return False
+    doc = await db.settings.find_one({"key": "email"}, {"_id": 0}) or {}
+    raw = (doc.get("from_email") or os.environ.get("EMAIL_FROM") or "").strip()
+    name, email = EMAIL_FROM_DISPLAY_NAME, "hr@boostgrowthsa.com"
+    if raw and "<" in raw and ">" in raw:
+        email = raw.split("<")[-1].split(">")[0].strip() or email
+    elif raw and "@" in raw:
+        email = raw
+    new_from = f"{EMAIL_FROM_DISPLAY_NAME} <{email}>"
+    await db.settings.update_one(
+        {"key": "email"},
+        {"$set": {"from_email": new_from, "key": "email", "updated_at": now_iso()}},
+        upsert=True,
+    )
+    os.environ["EMAIL_FROM"] = new_from
+    await db.meta.update_one(
+        {"key": meta_key},
+        {"$set": {"done": True, "updated_at": now_iso(), "from_email": new_from}},
+        upsert=True,
+    )
+    return True
+
+
+DEFAULT_JOB_TITLES = [
+    "Clinical Therapist",
+    "Clinical Supervisor",
+    "Direct Manager",
+    "Operations Manager",
+    "Manager",
+    "Coordination",
+    "HR",
+    "Admin",
+]
+
+
+async def _get_job_title_catalog() -> list:
+    doc = await db.settings.find_one({"key": "job_title_catalog"}, {"_id": 0})
+    titles = list((doc or {}).get("titles") or [])
+    if not titles:
+        titles = list(DEFAULT_JOB_TITLES)
+    # Preserve order, unique
+    seen = set()
+    out = []
+    for t in titles:
+        s = (t or "").strip()
+        if not s:
+            continue
+        key = s.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(s)
+    return out
 
 
 async def _force_jenan_password_change_once() -> bool:
@@ -1288,6 +1371,7 @@ class TherapistIn(BaseModel):
     phone: Optional[str] = None
     color: Optional[str] = "#7A8A6A"
     pin: str
+    job_title: Optional[str] = None
 
 class TherapistUpdate(BaseModel):
     name: Optional[str] = None
@@ -1296,6 +1380,7 @@ class TherapistUpdate(BaseModel):
     color: Optional[str] = None
     pin: Optional[str] = None
     show_on_schedule: Optional[bool] = None
+    job_title: Optional[str] = None
 
 class ScheduleCellIn(BaseModel):
     therapist_id: str
@@ -1957,6 +2042,8 @@ async def me(request: Request, response: Response, user: dict = Depends(get_curr
                 user["key"] = therapist["key"]
             if therapist.get("name"):
                 user["name"] = therapist["name"]
+            if therapist.get("job_title"):
+                user["job_title"] = therapist["job_title"]
             user["must_change_password"] = bool(therapist.get("must_change_password"))
     elif user.get("role") == "therapist":
         user["must_change_password"] = bool(user.get("must_change_password"))
@@ -1995,6 +2082,40 @@ async def list_therapists(user=Depends(get_current_user)):
     rows = await db.therapists.find({}, {"_id": 0, "pin_hash": 0, "password_hash": 0}).sort("name", 1).to_list(500)
     return _dedupe_therapist_rows_for_display(rows)
 
+
+class JobTitleCatalogIn(BaseModel):
+    titles: List[str]
+
+
+@api.get("/admin/job-titles")
+async def get_job_titles(_=Depends(ops_or_admin)):
+    titles = await _get_job_title_catalog()
+    return {"titles": titles}
+
+
+@api.put("/admin/job-titles")
+async def save_job_titles(payload: JobTitleCatalogIn, _=Depends(ops_or_admin)):
+    cleaned = []
+    seen = set()
+    for t in payload.titles or []:
+        s = (t or "").strip()
+        if not s:
+            continue
+        key = s.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(s)
+    if not cleaned:
+        cleaned = list(DEFAULT_JOB_TITLES)
+    await db.settings.update_one(
+        {"key": "job_title_catalog"},
+        {"$set": {"key": "job_title_catalog", "titles": cleaned, "updated_at": now_iso()}},
+        upsert=True,
+    )
+    return {"titles": cleaned}
+
+
 @api.post("/therapists")
 async def create_therapist(payload: TherapistIn, _=Depends(admin_only)):
     tid = str(uuid.uuid4())
@@ -2005,6 +2126,7 @@ async def create_therapist(payload: TherapistIn, _=Depends(admin_only)):
         "phone": payload.phone,
         "color": payload.color or "#7A8A6A",
         "pin_hash": hash_password(payload.pin),
+        "job_title": (payload.job_title or "").strip() or None,
         # New specialists must set their own password after admin issues credentials.
         "must_change_password": True,
         "created_at": now_iso(),
@@ -2014,9 +2136,13 @@ async def create_therapist(payload: TherapistIn, _=Depends(admin_only)):
 
 @api.put("/therapists/{tid}")
 async def update_therapist(tid: str, payload: TherapistUpdate, _=Depends(admin_only)):
-    update = {k: v for k, v in payload.model_dump().items() if v is not None and k != "pin"}
-    if payload.pin:
-        update["pin_hash"] = hash_password(payload.pin)
+    data = payload.model_dump(exclude_unset=True)
+    update = {k: v for k, v in data.items() if k != "pin" and v is not None}
+    if "job_title" in data:
+        jt = (data.get("job_title") or "").strip()
+        update["job_title"] = jt or None
+    if data.get("pin"):
+        update["pin_hash"] = hash_password(data["pin"])
     if not update:
         raise HTTPException(status_code=400, detail="No fields")
     await db.therapists.update_one({"id": tid}, {"$set": update})
@@ -5646,7 +5772,7 @@ async def _notify_leave_submitted(
     portal = _portal_base_url()
     if portal:
         body += f"\nReview in portal: {portal}/manager\n"
-    body += "\n— Boost Growth Portal"
+    body += "\n— Boost Growth Staff Portal"
     await _send_urgent_email(await _jenan_recipient_email(), subject, body)
 
 
@@ -5678,7 +5804,7 @@ async def _resend_leave_notification(leave: dict, therapist: Optional[dict], *, 
     portal = _portal_base_url()
     if portal:
         body += f"\nReview in portal: {portal}/manager\n"
-    body += "\n— Boost Growth Portal"
+    body += "\n— Boost Growth Staff Portal"
     email_result = await _send_urgent_email(await _jenan_recipient_email(), title, body)
     return {
         "leave_id": leave.get("id"),
@@ -13916,13 +14042,17 @@ async def _reload_email_settings_from_db() -> None:
     doc = await db.settings.find_one({"key": "email"}, {"_id": 0})
     _apply_email_settings(doc or {})
 
+
 def _parse_from_address() -> tuple:
     raw = _email_from_address()
     if "<" in raw and ">" in raw:
-        name = raw.split("<")[0].strip().strip('"').strip() or "Boost Growth"
+        name = raw.split("<")[0].strip().strip('"').strip() or EMAIL_FROM_DISPLAY_NAME
+        # Legacy displays used bare "Boost Growth" — normalize to staff portal branding
+        if name.strip().lower() in ("boost growth", "boostgrowth", "boost growth portal"):
+            name = EMAIL_FROM_DISPLAY_NAME
         email = raw.split("<")[-1].split(">")[0].strip()
         return name, email
-    return "Boost Growth", raw.strip()
+    return EMAIL_FROM_DISPLAY_NAME, raw.strip()
 
 def _smtp_error_hint(err: str) -> str:
     e = (err or "").lower()
@@ -13939,7 +14069,17 @@ def _smtp_error_hint(err: str) -> str:
     return ""
 
 def _email_from_address() -> str:
-    return os.environ.get("EMAIL_FROM") or "Boost Growth <hr@boostgrowthsa.com>"
+    raw = (os.environ.get("EMAIL_FROM") or "").strip()
+    if not raw:
+        return DEFAULT_EMAIL_FROM
+    # Keep address but upgrade bare "Boost Growth" display name for HR/Jenan inboxes
+    if "<" in raw and ">" in raw:
+        name = raw.split("<")[0].strip().strip('"').strip()
+        email = raw.split("<")[-1].split(">")[0].strip()
+        if name.lower() in ("boost growth", "boostgrowth", "boost growth portal", ""):
+            return f"{EMAIL_FROM_DISPLAY_NAME} <{email}>"
+        return raw
+    return f"{EMAIL_FROM_DISPLAY_NAME} <{raw}>"
 
 
 def _is_railway_deployment() -> bool:
@@ -14127,7 +14267,7 @@ async def _email_settings_snapshot() -> dict:
         "brevo_configured": has_brevo,
         "mailgun_configured": has_mailgun,
         "mailgun_domain": doc.get("mailgun_domain") or os.environ.get("MAILGUN_DOMAIN") or "",
-        "from_email": doc.get("from_email") or os.environ.get("EMAIL_FROM") or "Boost Growth <admin@boostgrowthsa.com>",
+        "from_email": doc.get("from_email") or os.environ.get("EMAIL_FROM") or DEFAULT_EMAIL_FROM,
         "smtp_host": doc.get("smtp_host") or os.environ.get("SMTP_HOST") or "smtp.gmail.com",
         "smtp_port": doc.get("smtp_port") or int(os.environ.get("SMTP_PORT") or "587"),
         "smtp_user": doc.get("smtp_user") or os.environ.get("SMTP_USER") or "",
@@ -14170,7 +14310,16 @@ async def save_email_settings(payload: EmailSettingsIn, _=Depends(admin_only)):
     if payload.mailgun_domain and payload.mailgun_domain.strip():
         update["mailgun_domain"] = payload.mailgun_domain.strip().lower()
     if payload.from_email and payload.from_email.strip():
-        update["from_email"] = payload.from_email.strip()
+        raw_from = payload.from_email.strip()
+        # Normalize bare "Boost Growth" display name when saving Admin settings
+        if "<" in raw_from and ">" in raw_from:
+            name = raw_from.split("<")[0].strip().strip('"').strip()
+            email = raw_from.split("<")[-1].split(">")[0].strip()
+            if name.lower() in ("boost growth", "boostgrowth", "boost growth portal", ""):
+                raw_from = f"{EMAIL_FROM_DISPLAY_NAME} <{email}>"
+        elif "@" in raw_from and "<" not in raw_from:
+            raw_from = f"{EMAIL_FROM_DISPLAY_NAME} <{raw_from}>"
+        update["from_email"] = raw_from
     if payload.smtp_host and payload.smtp_host.strip():
         update["smtp_host"] = payload.smtp_host.strip()
     if payload.smtp_port:
@@ -15396,17 +15545,21 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
     return await db.leaves.find_one({"id": lid}, {"_id": 0})
 
 @api.delete("/leaves/{lid}")
-async def delete_leave(lid: str, user=Depends(get_current_user)):
+async def delete_leave(lid: str, user=Depends(get_current_user), force: bool = False):
     leave = await db.leaves.find_one({"id": lid})
     if not leave:
         return {"ok": True}
     if not _can_delete_staff_submission(user, leave.get("therapist_id")):
         raise HTTPException(status_code=403, detail="Forbidden")
     status = (leave.get("status") or "").strip().lower()
-    if status not in ("draft", "pending_submit"):
-        raise HTTPException(status_code=403, detail="Cannot delete a submitted leave request. Use reject/approve/forward instead.")
+    admin_force = force and (_is_portal_admin(user) or _is_walaa_ops(user) or _is_jenan(user))
+    if status not in ("draft", "pending_submit") and not admin_force:
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot delete a submitted leave request. Use reject/approve/forward instead.",
+        )
     await db.leaves.delete_one({"id": lid})
-    return {"ok": True, "deleted": True}
+    return {"ok": True, "deleted": True, "forced": admin_force}
 
 
 @api.post("/leaves/mark-absence")
@@ -19597,6 +19750,19 @@ async def _run_startup():
                 logger.info("Jenan must_change_password set (password unchanged; other therapists untouched)")
         except Exception as e:
             logger.warning(f"Jenan password-change flag skipped: {e}")
+
+        try:
+            purge = await _purge_pre_june_pending_hr_leaves_once()
+            if purge.get("deleted"):
+                logger.info("Purged pre-June pending_hr leaves: %s", purge)
+        except Exception as e:
+            logger.warning(f"Pre-June leave purge skipped: {e}")
+
+        try:
+            if await _normalize_email_from_display_once():
+                logger.info("Email From display name set to Boost Growth Staff Portal")
+        except Exception as e:
+            logger.warning(f"Email From display normalize skipped: {e}")
 
         try:
             rename = await _rename_clients_spelling_once()

@@ -285,6 +285,8 @@ export function directManagerLabel() {
 /** Sidebar / header role subtitle after login */
 export function profileRoleLabel(user) {
   if (!user) return "";
+  const custom = (user.job_title || "").trim();
+  if (custom) return custom;
   if (isHrOps(user)) return "HR";
   if (isWalaaOps(user)) return "Coordination";
   if (isJenan(user)) return directManagerLabel();

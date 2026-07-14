@@ -3,12 +3,14 @@ import { Link } from "react-router-dom";
 import api from "../api";
 import { useAuth, canAccessManagerHub } from "../auth";
 import {
-  Plus, PencilSimple, Trash, X, UserPlus, Key, EnvelopeSimple, CheckCircle, Warning,
+  Plus, Minus, PencilSimple, Trash, X, UserPlus, Key, EnvelopeSimple, CheckCircle, Warning,
   Database, SignOut, CaretDown, CaretUp, Users, Wrench, LinkSimple, Heartbeat, ListChecks,
 } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
 import { getTherapistScheduleName } from "../scheduleConstants";
 import { invalidateCache } from "../dataCache";
+
+const DEFAULT_EMAIL_FROM = "Boost Growth Staff Portal <hr@boostgrowthsa.com>";
 
 function AdminSection({ id, title, subtitle, icon, defaultOpen = false, badge, children }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -118,6 +120,10 @@ export default function Admin() {
   const [unifiedLaunchSetting, setUnifiedLaunchSetting] = useState(false);
   const [forcePwChangeResult, setForcePwChangeResult] = useState(null);
   const [forcingPwChange, setForcingPwChange] = useState(false);
+  const [jobTitles, setJobTitles] = useState([]);
+  const [newJobTitle, setNewJobTitle] = useState("");
+  const [manageJobTitles, setManageJobTitles] = useState(false);
+  const [savingJobTitles, setSavingJobTitles] = useState(false);
   const [healthData, setHealthData] = useState(null);
   const [loadingHealth, setLoadingHealth] = useState(false);
   const [recovering, setRecovering] = useState(false);
@@ -208,22 +214,24 @@ export default function Admin() {
   };
 
   const load = async () => {
-    const [t, e, q, j] = await Promise.all([
+    const [t, e, q, j, jt] = await Promise.all([
       api.get("/therapists"),
       api.get("/admin/email-settings").catch(() => ({ data: {} })),
       api.get("/admin/email-queue").catch(() => ({ data: [] })),
       api.get("/admin/jenan-email-status").catch(() => ({ data: null })),
+      api.get("/admin/job-titles").catch(() => ({ data: { titles: [] } })),
     ]);
     setTherapists(t.data);
     setEmailSettings(e.data);
     setEmailQueue(q.data);
     setJenanEmailStatus(j.data);
+    setJobTitles(jt.data?.titles || []);
     setEmailForm({
       resend_api_key: "",
       brevo_api_key: "",
       mailgun_api_key: "",
       mailgun_domain: e.data?.mailgun_domain || "",
-      from_email: e.data?.from_email || "Boost Growth <notifications@boostgrowth.org>",
+      from_email: e.data?.from_email || DEFAULT_EMAIL_FROM,
       email_provider: e.data?.provider || "mailgun",
       smtp_host: e.data?.smtp_host || "smtp.gmail.com",
       smtp_port: e.data?.smtp_port || 587,
@@ -232,6 +240,35 @@ export default function Admin() {
     });
   };
   useEffect(() => { load(); }, []);
+
+  const saveJobTitlesCatalog = async (titles) => {
+    setSavingJobTitles(true);
+    try {
+      const { data } = await api.put("/admin/job-titles", { titles });
+      setJobTitles(data.titles || titles);
+    } catch (e) {
+      alert("Save job titles failed: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setSavingJobTitles(false);
+    }
+  };
+
+  const addJobTitle = async () => {
+    const t = newJobTitle.trim();
+    if (!t) return;
+    if (jobTitles.some(x => x.toLowerCase() === t.toLowerCase())) {
+      setNewJobTitle("");
+      return;
+    }
+    const next = [...jobTitles, t];
+    setNewJobTitle("");
+    await saveJobTitlesCatalog(next);
+  };
+
+  const removeJobTitle = async (title) => {
+    if (!window.confirm(`Remove job title "${title}" from the list?`)) return;
+    await saveJobTitlesCatalog(jobTitles.filter(x => x !== title));
+  };
 
   const saveEmail = async () => {
     const payload = {};
@@ -320,12 +357,16 @@ export default function Admin() {
   };
 
   const save = async () => {
+    const job_title = (edit.job_title || "").trim() || null;
     if (edit.id) {
-      const payload = { name: edit.name, color: edit.color, email: edit.email, phone: edit.phone };
+      const payload = { name: edit.name, color: edit.color, email: edit.email, phone: edit.phone, job_title };
       if (edit.pin) payload.pin = edit.pin;
       await api.put(`/therapists/${edit.id}`, payload);
     } else {
-      await api.post("/therapists", { name: edit.name, color: edit.color, pin: edit.pin || "0000", email: edit.email, phone: edit.phone });
+      await api.post("/therapists", {
+        name: edit.name, color: edit.color, pin: edit.pin || "0000",
+        email: edit.email, phone: edit.phone, job_title,
+      });
     }
     setEdit(null); load();
   };
@@ -1125,10 +1166,47 @@ export default function Admin() {
             value={therapistSearch}
             onChange={e => setTherapistSearch(e.target.value)}
           />
-          <button data-testid="add-therapist-btn" onClick={() => setEdit({ name: "", color: "#7A8A6A", pin: "0000" })} className="btn btn-primary text-sm">
+          <button data-testid="add-therapist-btn" onClick={() => setEdit({ name: "", color: "#7A8A6A", pin: "0000", job_title: "" })} className="btn btn-primary text-sm">
             <UserPlus size={16} /> New Therapist
           </button>
         </div>
+        <ToolRow
+          title="Job titles / المسميات الوظيفية"
+          desc="List used when editing a specialist. Add or remove titles with + / −."
+        >
+          <button type="button" className="btn btn-outline text-sm" onClick={() => setManageJobTitles(s => !s)}>
+            {manageJobTitles ? "Close" : "Manage titles"}
+          </button>
+        </ToolRow>
+        {manageJobTitles && (
+          <div className="mb-3 p-3 rounded-xl border space-y-2" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
+            <div className="flex gap-2">
+              <input
+                className="input text-sm flex-1"
+                placeholder="New title (e.g. Operations Manager)"
+                value={newJobTitle}
+                onChange={e => setNewJobTitle(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addJobTitle(); } }}
+              />
+              <button type="button" className="btn btn-primary text-sm" disabled={savingJobTitles || !newJobTitle.trim()} onClick={addJobTitle}>
+                <Plus size={16} />
+              </button>
+            </div>
+            <ul className="space-y-1 max-h-48 overflow-y-auto">
+              {jobTitles.map(title => (
+                <li key={title} className="flex items-center justify-between gap-2 text-sm px-2 py-1.5 rounded-lg" style={{ background: "#fff" }}>
+                  <span style={{ color: "#2C3625" }}>{title}</span>
+                  <button type="button" className="btn btn-ghost p-1 text-red-700" title="Remove" disabled={savingJobTitles} onClick={() => removeJobTitle(title)}>
+                    <Minus size={14} />
+                  </button>
+                </li>
+              ))}
+              {jobTitles.length === 0 && (
+                <li className="text-xs" style={{ color: "#8B9E7A" }}>No titles yet — add one above.</li>
+              )}
+            </ul>
+          </div>
+        )}
         <div className="flex flex-wrap gap-2 mb-3">
           <button type="button" disabled={purging} onClick={() => purgeTherapistByName("naja")} className="btn btn-outline text-xs" style={{ color: "#8A3F27" }}>
             {purging ? <span className="spinner" /> : "Remove Naja from DB"}
@@ -1261,9 +1339,10 @@ export default function Admin() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-sm truncate" style={{ color: "#2C3625" }}>{getTherapistScheduleName(t)}</div>
+                <div className="text-xs truncate" style={{ color: "#6B7A5E" }}>{t.job_title || "No job title"}</div>
                 <div className="text-xs truncate" style={{ color: "#8B9E7A" }}>{t.email || t.phone || "—"}</div>
               </div>
-              <button onClick={() => setEdit({ ...t, pin: "" })} className="btn btn-ghost p-1.5"><PencilSimple size={15} /></button>
+              <button onClick={() => setEdit({ ...t, pin: "", job_title: t.job_title || "" })} className="btn btn-ghost p-1.5"><PencilSimple size={15} /></button>
               <button data-testid={`reset-pwd-${t.id}`} onClick={() => resetPassword(t)} className="btn btn-ghost p-1.5" title="Reset password"><Key size={15} /></button>
               <button onClick={() => remove(t.id)} className="btn btn-ghost p-1.5 text-red-700" title="Delete therapist"><Trash size={15} /></button>
             </div>
@@ -1353,7 +1432,7 @@ export default function Admin() {
                   </div>
                   <div className="sm:col-span-2">
                     <label className="label">From Email</label>
-                    <input className="input" placeholder="Boost Growth &lt;notifications@boostgrowth.org&gt;" value={emailForm.from_email} onChange={e => setEmailForm({ ...emailForm, from_email: e.target.value })} />
+                    <input className="input" placeholder="Boost Growth Staff Portal &lt;hr@boostgrowthsa.com&gt;" value={emailForm.from_email} onChange={e => setEmailForm({ ...emailForm, from_email: e.target.value })} />
                   </div>
                   <div className="sm:col-span-2">
                     <label className="label">Mailgun API Key</label>
@@ -1371,7 +1450,7 @@ export default function Admin() {
                   </div>
                   <div className="sm:col-span-2">
                     <label className="label">From Email</label>
-                    <input className="input" placeholder="Boost Growth &lt;walaa@boostgrowthsa.com&gt;" value={emailForm.from_email} onChange={e => setEmailForm({ ...emailForm, from_email: e.target.value })} />
+                    <input className="input" placeholder="Boost Growth Staff Portal &lt;walaa@boostgrowthsa.com&gt;" value={emailForm.from_email} onChange={e => setEmailForm({ ...emailForm, from_email: e.target.value })} />
                   </div>
                   <div>
                     <label className="label">SMTP User (Google email)</label>
@@ -1710,6 +1789,21 @@ export default function Admin() {
             <input className="input mb-2" type="email" value={edit.email || ""} onChange={e => setEdit({ ...edit, email: e.target.value })} />
             <label className="label">Phone</label>
             <input className="input mb-2" value={edit.phone || ""} onChange={e => setEdit({ ...edit, phone: e.target.value })} />
+            <label className="label">Job title / المسمى الوظيفي</label>
+            <select
+              className="input mb-2"
+              data-testid="therapist-job-title-select"
+              value={edit.job_title || ""}
+              onChange={e => setEdit({ ...edit, job_title: e.target.value })}
+            >
+              <option value="">— Select —</option>
+              {jobTitles.map(title => (
+                <option key={title} value={title}>{title}</option>
+              ))}
+              {edit.job_title && !jobTitles.includes(edit.job_title) && (
+                <option value={edit.job_title}>{edit.job_title}</option>
+              )}
+            </select>
             <label className="label">Color</label>
             <input type="color" value={edit.color} onChange={e => setEdit({ ...edit, color: e.target.value })} className="w-12 h-10 rounded-lg border mb-2" />
             <label className="label">PIN</label>
