@@ -15,6 +15,7 @@ import LocationLink from "../components/LocationLink";
 import {
   enrichClientForCardView, resolveClientBillingMode, formatServiceTypeDisplay,
   resolveCycleAnchor, computeSsWeekSummary, groupSessionsBySchoolWeeks,
+  sessionsOutsideSchoolWeeks,
   computeHsInvoiceTotals,
   filterSessionsForInvoice,
   filterInvoicesForServiceTab,
@@ -718,6 +719,10 @@ export function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, 
     () => (isSchool && cycleAnchor ? groupSessionsBySchoolWeeks(cycleSessions, cycleAnchor, cycleWeeks) : []),
     [isSchool, cycleSessions, cycleAnchor, cycleWeeks]
   );
+  const ssOutsideWeekSessions = useMemo(
+    () => (isSchool ? sessionsOutsideSchoolWeeks(cycleSessions, ssWeekGroups) : []),
+    [isSchool, cycleSessions, ssWeekGroups]
+  );
 
   const reloadInvoices = useCallback(async () => {
     const r = await api.get(`/clients/${client.id}/invoices`).catch(() => ({ data: [] }));
@@ -955,6 +960,40 @@ export function AttendanceHistoryModal({ client, sessions, therapists, isAdmin, 
                   </div>
                 );
               })}
+              {ssOutsideWeekSessions.length > 0 && (
+                <div className="border rounded-lg overflow-hidden bg-white" style={{ borderColor: "#E8C4A8" }}>
+                  <div className="px-2.5 py-1 flex items-center justify-between flex-wrap gap-1.5" style={{ background: "#FDF8F3" }}>
+                    <span className="font-bold text-xs" style={{ color: "#8A3F27" }}>Outside package weeks</span>
+                    <span className="text-[10px]" style={{ color: "var(--text-secondary)" }}>
+                      {ssOutsideWeekSessions.length} session{ssOutsideWeekSessions.length !== 1 ? "s" : ""} after the 4-week window
+                    </span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs min-w-[480px] border-collapse">
+                      <HistoryTableHead cols={historySheetCols.filter(c => c.id !== "_action" || !invoiceLocked)} bordered />
+                      <tbody>
+                        {ssOutsideWeekSessions.map(s => (
+                          <SessionTableRow
+                            key={s.id}
+                            s={s}
+                            findT={findT}
+                            isAdmin={isAdmin}
+                            user={user}
+                            client={client}
+                            currentUserId={currentUserId}
+                            onEdit={onEdit}
+                            onDeleted={() => { onRefresh && onRefresh(); reloadSessions(); }}
+                            billingKind="SS"
+                            locked={invoiceLocked}
+                            bordered
+                            sheetCols={historySheetCols}
+                          />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="p-2">
@@ -1137,6 +1176,10 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
       ? computeSsWeekSummary(cycleSessions, cycleAnchor, cycleWeeks, selectedInvoice?.week_overrides || {})
       : []),
     [isSchool, cycleSessions, cycleAnchor, cycleWeeks, selectedInvoice?.week_overrides]
+  );
+  const ssOutsideWeekSessions = useMemo(
+    () => (isSchool ? sessionsOutsideSchoolWeeks(cycleSessions, ssWeekGroups) : []),
+    [isSchool, cycleSessions, ssWeekGroups]
   );
   const ssTotals = useMemo(() => computeSsTotals(cycleSessions), [cycleSessions]);
   const pkg = hsTotals.pkg;
@@ -1869,6 +1912,39 @@ function HistoryModal({ client, sessions, therapists, isAdmin, readOnly = false,
                   )}
                 </div>
               );})}
+              {ssOutsideWeekSessions.length > 0 && (
+                <div className="border rounded-xl overflow-hidden" style={{ borderColor: "#E8C4A8" }}>
+                  <div className="px-3 py-1.5 flex items-center justify-between flex-wrap gap-2" style={{ background: "#FDF8F3" }}>
+                    <span className="font-bold text-sm" style={{ color: "#8A3F27" }}>Outside package weeks</span>
+                    <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                      {ssOutsideWeekSessions.length} session{ssOutsideWeekSessions.length !== 1 ? "s" : ""} after the 4-week window
+                    </span>
+                  </div>
+                  <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+                    <table className="w-full text-xs min-w-[520px]">
+                      <HistoryTableHead cols={sheetCols.filter(c => c.id !== "_action")} bordered />
+                      <tbody>
+                        {ssOutsideWeekSessions.map(s => (
+                          <SessionTableRow
+                            key={s.id}
+                            s={s}
+                            findT={findT}
+                            isAdmin={opsAdmin}
+                            user={user}
+                            client={client}
+                            currentUserId={currentUserId}
+                            onEdit={onEdit}
+                            onDeleted={onDeleted}
+                            billingKind="SS"
+                            locked={invoiceLocked}
+                            sheetCols={sheetCols}
+                          />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="p-2">

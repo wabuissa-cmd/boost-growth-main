@@ -230,17 +230,18 @@ export function groupSessionsBySchoolWeeks(sessions, anchorISO, totalWeeks = 4) 
   const windows = computeSchoolWeekWindows(anchorISO, totalWeeks);
   const sorted = sortSessionsByDateAsc(sessions);
   const assigned = new Set();
-  return windows.map((w, wi) => {
-    const nextStart = windows[wi + 1]?.startISO;
+  return windows.map((w) => {
     const inWeek = sorted.filter((s) => {
       if (!s?.id || assigned.has(s.id)) return false;
       const d = normalizeSessionDateKey(s.session_date);
       if (!d) return false;
+      // School days in this week, or calendar days between the week's Sun–Thu span only.
+      // Do NOT unbounded-absorb later months into the last week (that dumped Jun/Jul into W4).
       if (w.dates.includes(d)) {
         assigned.add(s.id);
         return true;
       }
-      if (w.startISO && d >= w.startISO && (!nextStart || d < nextStart)) {
+      if (w.startISO && w.endISO && d >= w.startISO && d <= w.endISO) {
         assigned.add(s.id);
         return true;
       }
@@ -248,6 +249,17 @@ export function groupSessionsBySchoolWeeks(sessions, anchorISO, totalWeeks = 4) 
     });
     return { ...w, sessions: inWeek };
   });
+}
+
+/** Sessions linked to an SS invoice but outside the 4 school-week windows. */
+export function sessionsOutsideSchoolWeeks(sessions, weekGroups) {
+  const assigned = new Set();
+  for (const g of weekGroups || []) {
+    for (const s of g.sessions || []) {
+      if (s?.id) assigned.add(s.id);
+    }
+  }
+  return sortSessionsByDateAsc((sessions || []).filter((s) => s?.id && !assigned.has(s.id)));
 }
 
 /** HS totals for ONE invoice only — Completed + Cancelled count toward used hours. */
