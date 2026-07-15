@@ -9248,6 +9248,8 @@ async def sync_invoices_from_excel(cid: str, file: UploadFile = File(...), user=
 
 class SyncFromDriveIn(BaseModel):
     drive_url: str
+    # When true, wipe portal sessions for each matched invoice tab then reimport from Excel.
+    replace_sessions: bool = False
 
 
 @api.post("/clients/{cid}/invoices/sync-from-drive")
@@ -9274,7 +9276,10 @@ async def sync_invoices_from_drive(cid: str, payload: SyncFromDriveIn, user=Depe
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not fetch sheet from Drive (make sure 'Anyone with the link' has view access): {e}")
     await db.clients.update_one({"id": cid}, {"$set": {"attendance_sheet_url": url}})
-    return await _ingest_workbook_for_client(cid, client, wb, user["id"], origin="drive-sync")
+    return await _ingest_workbook_for_client(
+        cid, client, wb, user["id"], origin="drive-sync",
+        replace_sessions=bool(payload.replace_sessions),
+    )
 
 
 def _merge_drive_client_meta(link_meta: dict, client: dict) -> dict:
@@ -9599,6 +9604,8 @@ class SyncActiveClientsIn(BaseModel):
     file_nos: Optional[List[str]] = None
     dry_run: bool = False
     ensure_missing_clients: bool = True
+    # Wipe each matched invoice's portal sessions before reimport (Excel = source of truth).
+    replace_sessions: bool = False
 
 
 _MASTER_BY_FILE_NO = {r[0]: r for r in MASTER_CLIENTS}
@@ -9787,6 +9794,7 @@ async def _bulk_sync_active_clients_from_drive(
     file_nos: Optional[List[str]] = None,
     dry_run: bool = False,
     ensure_missing_clients: bool = True,
+    replace_sessions: bool = False,
     user_id: str = "drive-sync",
 ) -> dict:
     """Bulk-sync attendance workbooks from the Active Clients Drive folder."""
@@ -9851,7 +9859,8 @@ async def _bulk_sync_active_clients_from_drive(
                 continue
             wb = fetch_workbook_from_url(sheet_url)
             ingest = await _ingest_workbook_for_client(
-                client["id"], client, wb, user_id, origin="drive-bulk-sync"
+                client["id"], client, wb, user_id, origin="drive-bulk-sync",
+                replace_sessions=replace_sessions,
             )
             row = {
                 "file_no": file_no,
@@ -10023,6 +10032,7 @@ async def sync_active_clients_from_drive(body: SyncActiveClientsIn, user=Depends
         file_nos=body.file_nos,
         dry_run=body.dry_run,
         ensure_missing_clients=body.ensure_missing_clients,
+        replace_sessions=body.replace_sessions,
         user_id=user["id"],
     )
 
@@ -10929,6 +10939,52 @@ def _correct_date_by_day_label(date_iso: str, day_label: str) -> str:
     return date_iso
 
 
+def _nearest_iso_for_day_label(day_label: str, anchors: list) -> Optional[str]:
+    """Pick Y-M-D near sheet peers whose weekday matches the Excel Day column."""
+    abbr = _day_label_to_abbr(day_label)
+    if not abbr:
+        return None
+    dts = []
+    for a in anchors or []:
+        try:
+            dts.append(datetime.fromisoformat(str(a)[:10]))
+        except Exception:
+            continue
+    if not dts:
+        return None
+    # Prefer walking forward from the latest parsed peer (sheet row order).
+    last = max(dts)
+    best = None
+    best_score = None
+    for delta in range(-10, 22):
+        cand = last + timedelta(days=delta)
+        iso = cand.strftime("%Y-%m-%d")
+        if _day_name_from_date(iso) != abbr:
+            continue
+        # Strongly prefer dates on/after the latest peer (next school day in package).
+        forward_penalty = 0 if delta >= 0 else 100 + abs(delta)
+        score = (forward_penalty, abs(delta))
+        if best_score is None or score < best_score:
+            best_score = score
+            best = iso
+    return best
+
+
+def _min_iso_day_distance(iso: str, anchors: list) -> int:
+    """Smallest absolute day gap from iso to any Y-M-D anchor (or 9999 if none)."""
+    try:
+        d = datetime.fromisoformat((iso or "")[:10])
+    except Exception:
+        return 9999
+    best = 9999
+    for a in anchors or []:
+        try:
+            best = min(best, abs((d - datetime.fromisoformat(str(a)[:10])).days))
+        except Exception:
+            continue
+    return best
+
+
 def _normalize_excel_session_date(
     raw_date,
     text_dates: list,
@@ -10937,22 +10993,46 @@ def _normalize_excel_session_date(
 ) -> Optional[str]:
     """Parse Excel session date — D/M/Y strings, datetime cells, Day column, peer rows."""
     date_iso = None
+    anchors = [
+        str(x)[:10]
+        for x in (list(text_dates or []) + list(peer_isos or []))
+        if x and str(x)[:4] in ("2024", "2025", "2026", "2027")
+    ]
     if isinstance(raw_date, datetime):
         date_iso = raw_date.strftime("%Y-%m-%d")
-        anchor = any(str(x).startswith(("2024-", "2025-", "2026-")) for x in (text_dates or []))
         swapped = _swap_month_day_iso(date_iso)
-        if anchor and swapped and swapped != date_iso:
+        if swapped and swapped != date_iso:
+            prefer_swap = False
             if day_label:
-                if _date_matches_day_label(swapped, day_label) and not _date_matches_day_label(date_iso, day_label):
-                    date_iso = swapped
-            elif peer_isos and len(peer_isos) >= 2:
-                corrected = _session_likely_swapped_month_day(date_iso, peer_isos)
-                if corrected:
-                    date_iso = corrected
+                orig_ok = _date_matches_day_label(date_iso, day_label)
+                swap_ok = _date_matches_day_label(swapped, day_label)
+                if swap_ok and not orig_ok:
+                    prefer_swap = True
+                elif orig_ok and not swap_ok:
+                    prefer_swap = False
+                elif anchors:
+                    # Both weekdays match (e.g. Wed 2026-01-07 vs Wed 2026-07-01) —
+                    # stay near the sheet's text-date cluster (D/M packages).
+                    prefer_swap = _min_iso_day_distance(swapped, anchors) < _min_iso_day_distance(
+                        date_iso, anchors
+                    )
+                elif swap_ok:
+                    prefer_swap = True
+            elif len(anchors) >= 2:
+                prefer_swap = _min_iso_day_distance(swapped, anchors) < _min_iso_day_distance(
+                    date_iso, anchors
+                )
+            if prefer_swap:
+                date_iso = swapped
     elif raw_date:
         date_iso = _normalize_date(str(raw_date))
     if date_iso and day_label:
         date_iso = _correct_date_by_day_label(date_iso, day_label)
+        if not _date_matches_day_label(date_iso, day_label):
+            # Prefer chronological peers already parsed on this tab (row order).
+            nearer = _nearest_iso_for_day_label(day_label, peer_isos or anchors)
+            if nearer:
+                date_iso = nearer
     return date_iso
 
 
@@ -11238,8 +11318,19 @@ def _parse_time_range(s: str) -> tuple:
     return start, end, round(diff, 2)
 
 
-async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, origin: str = "import") -> dict:
-    """Iterate invoice tabs in the workbook, create invoices + sessions idempotently."""
+async def _ingest_workbook_for_client(
+    cid: str,
+    client: dict,
+    wb,
+    user_id: str,
+    origin: str = "import",
+    replace_sessions: bool = False,
+) -> dict:
+    """Iterate invoice tabs in the workbook, create invoices + sessions idempotently.
+
+    When replace_sessions=True, portal sessions already linked to each matched invoice
+    are deleted first so Excel remains the source of truth (no ghost duplicates).
+    """
     therapists = await db.therapists.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(200)
     # name token (Manal / Hajer / etc.) -> id
     name_to_id = {}
@@ -11276,7 +11367,7 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
     ).to_list(500)}
     pkg_default = client.get("package_hours") or 24
     existing_sessions = await db.sessions.find(
-        {"client_id": cid}, {"_id": 0, "session_date": 1, "start_time": 1, "sync_key": 1}
+        {"client_id": cid}, {"_id": 0, "session_date": 1, "start_time": 1, "sync_key": 1, "invoice_id": 1}
     ).to_list(5000)
     existing_key = {
         (
@@ -11294,6 +11385,7 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
     existing_sync = {s["sync_key"] for s in existing_sessions if s.get("sync_key")}
 
     invoices_added, invoices_updated, sessions_added, sessions_skipped = [], [], 0, 0
+    sessions_replaced = 0
 
     for tab_idx, name in enumerate(matched_sheets):
         ws = wb[name]
@@ -11320,7 +11412,7 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
             if header_info["is_closed"]:
                 update["is_closed"] = True
                 if header_info.get("close_date"):
-                    update["close_date"] = header_info["close_date"]
+                    update["close_date"] = header_info.get("close_date")
             detected_st = _normalize_service_type(header_info.get("service_type"))
             if detected_st:
                 update["service_type"] = detected_st
@@ -11345,6 +11437,26 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
             await db.invoices.insert_one(inv_doc)
             invoices_added.append(inv_num)
             existing_inv[inv_num] = inv_doc
+
+        if replace_sessions and inv_doc.get("id"):
+            del_q = {
+                "client_id": cid,
+                "$or": [
+                    {"invoice_id": inv_doc["id"]},
+                    {"source_invoice": inv_num},
+                ],
+            }
+            removed = await db.sessions.delete_many(del_q)
+            n_removed = int(removed.deleted_count or 0)
+            sessions_replaced += n_removed
+            if n_removed:
+                inv_id = inv_doc["id"]
+                existing_key = {k for k in existing_key if k[2] != inv_id}
+                existing_day_inv = {k for k in existing_day_inv if k[1] != inv_id}
+                existing_sync = {
+                    sk for sk in existing_sync
+                    if not (isinstance(sk, str) and sk.split("|", 1)[0] in (inv_num, clean))
+                }
 
         parsed_rows = _parse_sheet_session_rows(ws, inv_num)
         if not parsed_rows:
@@ -11464,6 +11576,7 @@ async def _ingest_workbook_for_client(cid: str, client: dict, wb, user_id: str, 
         "invoices_updated": invoices_updated,
         "sessions_added": sessions_added,
         "sessions_skipped_existing": sessions_skipped,
+        "sessions_replaced": sessions_replaced,
         "invoices_reconciled": reconcile,
         "session_dates_reconciled": date_reconcile,
         "warning": (
