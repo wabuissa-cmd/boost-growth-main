@@ -9,6 +9,7 @@ const TTL_MS = {
   "/page-settings/client-info": 5 * 60 * 1000,
   "/page-settings/billing": 5 * 60 * 1000,
   "/page-settings/schedule": 5 * 60 * 1000,
+  "/page-settings/session-prep": 5 * 60 * 1000,
   "/therapists": 5 * 60 * 1000,
   "/sessions": 90 * 1000,
   "/billing/dashboard": 60 * 1000,

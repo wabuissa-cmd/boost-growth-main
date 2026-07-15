@@ -135,3 +135,50 @@ export function mergeSchedulePageSettings(raw) {
   }
   return base;
 }
+
+export const DEFAULT_SESSION_PREP_PAGE = {
+  page_eyebrow: "SESSION PREP",
+  page_title: "Session Preparation",
+  page_subtitle: "Log sessions, track package progress, and open invoice sheets",
+  roster_heading: "Client roster",
+  roster_desc: "Select a client to log a session, view history, or open their invoice sheet",
+  search_placeholder: "Search client...",
+  log_session_label: "Log Session",
+  add_client_label: "Add Client",
+  select_client_title: "Select Client",
+  select_client_subtitle: "Choose a client to log a session",
+  stat_total_label: "Total",
+  stat_urgent_label: "Urgent",
+  stat_warning_label: "Warning",
+  stat_safe_label: "Safe",
+  stat_clients_label: "Clients",
+  stat_on_track_label: "On track",
+  filter_tabs: [
+    { id: "all", label: "All clients", enabled: true },
+    { id: "urgent", label: "Urgent", enabled: true },
+    { id: "warning", label: "Warning", enabled: true },
+    { id: "ok", label: "On track", enabled: true },
+  ],
+  show_add_client_button: true,
+  show_admin_filter_tabs: true,
+};
+
+export function mergeSessionPrepPageSettings(raw) {
+  const base = {
+    ...DEFAULT_SESSION_PREP_PAGE,
+    filter_tabs: DEFAULT_SESSION_PREP_PAGE.filter_tabs.map((t) => ({ ...t })),
+  };
+  if (!raw || typeof raw !== "object") return base;
+  for (const key of Object.keys(DEFAULT_SESSION_PREP_PAGE)) {
+    if (key === "filter_tabs") continue;
+    if (typeof DEFAULT_SESSION_PREP_PAGE[key] === "boolean") {
+      if (key in raw) base[key] = Boolean(raw[key]);
+    } else if (typeof raw[key] === "string" && raw[key].trim()) {
+      base[key] = raw[key].trim();
+    }
+  }
+  if (Array.isArray(raw.filter_tabs) && raw.filter_tabs.length) {
+    base.filter_tabs = raw.filter_tabs;
+  }
+  return base;
+}

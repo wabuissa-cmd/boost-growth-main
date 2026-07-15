@@ -5,7 +5,7 @@ import { useAuth, showAdminNav, hasOpsAccess, hasFullClientAccess, isHrOps } fro
 import {
   MagnifyingGlass, Plus, X, Trash, PencilSimple, ClipboardText, ClockCounterClockwise,
   CheckCircle, Warning, XCircle, Clock, MapPin, Printer, FileXls,
-  Receipt, ArrowsCounterClockwise, CalendarBlank, CaretDown, Download
+  Receipt, ArrowsCounterClockwise, CalendarBlank, CaretDown, Download, GearSix,
 } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
@@ -31,14 +31,16 @@ import {
 } from "../attendanceUtils";
 import { PackageAlertBanner } from "../components/PackageStatusBadge";
 import PreparationPrepLayout from "../components/PreparationPrepLayout";
-import AttendancePageHeader, { ATTENDANCE_FILTER_TABS } from "../components/AttendancePageHeader";
+import AttendancePageHeader, { buildAttendanceFilterTabs } from "../components/AttendancePageHeader";
+import SessionPrepPageControl from "../components/SessionPrepPageControl";
 import LogSessionModal from "../components/LogSessionModal";
 import SsWeekStatusRow, { SsWeekLegend } from "../components/SsWeekStatusRow";
 import ExportColumnsModal, { buildInvoiceSheetColumns, EXPORT_COLUMN_DEFS, EXPORT_EXTRA_COLUMN_DEFS } from "../components/ExportColumnsModal";
 import InvoiceEditModal from "../components/InvoiceEditModal";
 import { effectivePaymentStatus, paymentStatusLabel, formatMoney } from "../billingUtils";
 import { getTherapistScheduleName } from "../scheduleConstants";
-import { cachedGet, peekCache } from "../dataCache";
+import { cachedGet, peekCache, invalidateCache } from "../dataCache";
+import { mergeSessionPrepPageSettings } from "../pageSettings";
 
 const EXPORT_COLS_KEY = "bg_export_columns";
 const INVOICE_SEAL_KEY = "bg_invoice_pdf_seal";
@@ -226,6 +228,9 @@ export default function Attendance() {
   const [attendanceError, setAttendanceError] = useState(null);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [pageSettings, setPageSettings] = useState(() => mergeSessionPrepPageSettings(null));
+  const [pageControlOpen, setPageControlOpen] = useState(false);
+  const canEditPageSettings = isAdmin || hasOpsAccess(user);
   const [logFor, setLogFor] = useState(null); // client OR null OR "__pick__"
   const [editingSess, setEditingSess] = useState(null);
   const [historyFor, setHistoryFor] = useState(null);
@@ -275,6 +280,12 @@ export default function Attendance() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    cachedGet("/page-settings/session-prep")
+      .then((s) => { if (s) setPageSettings(mergeSessionPrepPageSettings(s)); })
+      .catch(() => {});
+  }, []);
+
   const enriched = useMemo(
     () => clients
       .filter(c => (c.status || "Active") !== "Inactive")
@@ -303,38 +314,57 @@ export default function Attendance() {
 
   const findT = id => therapists.find(t => t.id === id);
 
-  const showPrepStats = isAdmin;
+  const showPrepStats = isAdmin && pageSettings.show_admin_filter_tabs !== false;
 
   const prepToolbar = (
     <div className="flex flex-wrap items-center gap-2">
+      {canEditPageSettings && (
+        <button
+          type="button"
+          data-testid="session-prep-page-settings-btn"
+          className="btn btn-outline text-sm min-h-[40px]"
+          onClick={() => setPageControlOpen(true)}
+          title="Session Preparation page settings"
+        >
+          <GearSix size={16} weight="duotone" /> Page settings
+        </button>
+      )}
       <div className="search-pill-wrap flex-1 min-w-[140px] max-w-xs">
         <MagnifyingGlass size={16} className="search-pill-icon" />
         <input
           data-testid="att-search"
           className="input search-pill py-2 text-sm w-full"
-          placeholder="Search client..."
+          placeholder={pageSettings.search_placeholder || "Search client..."}
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
       </div>
       <button data-testid="log-session-picker" type="button" onClick={() => setLogFor("__pick__")} className="btn btn-primary text-sm min-h-[40px]">
-        <Plus size={16} /> Log Session
+        <Plus size={16} /> {pageSettings.log_session_label || "Log Session"}
       </button>
-      {isAdmin && (
+      {isAdmin && pageSettings.show_add_client_button !== false && (
         <button type="button" onClick={() => navigate("/clients")} className="btn btn-outline text-sm min-h-[40px]">
-          <Plus size={16} /> Add Client
+          <Plus size={16} /> {pageSettings.add_client_label || "Add Client"}
         </button>
       )}
     </div>
   );
 
+  const baseFilterTabs = useMemo(() => buildAttendanceFilterTabs(pageSettings), [pageSettings]);
   const attendanceFilterTabs = showPrepStats
-    ? ATTENDANCE_FILTER_TABS.map((t) => ({
+    ? baseFilterTabs.map((t) => ({
         ...t,
         count: counts[t.id] ?? null,
         testId: `att-filter-${t.id}`,
       }))
     : [];
+
+  useEffect(() => {
+    if (!showPrepStats) return;
+    if (!baseFilterTabs.some((t) => t.id === filter) && baseFilterTabs[0]) {
+      setFilter(baseFilterTabs[0].id);
+    }
+  }, [showPrepStats, pageSettings.filter_tabs, filter, baseFilterTabs]);
 
   if (attendanceLoading && clients.length === 0 && !attendanceError) {
     return (
@@ -347,15 +377,16 @@ export default function Attendance() {
   return (
     <div className="portal-page-shell attendance-page" dir="ltr">
       <AttendancePageHeader
-        subtitle="Log sessions, track package progress, and open invoice sheets"
+        pageSettings={pageSettings}
+        subtitle={pageSettings.page_subtitle || "Log sessions, track package progress, and open invoice sheets"}
         stats={showPrepStats ? [
-          { label: "Total", n: counts.all, color: "#2C3625" },
-          { label: "Urgent", n: counts.urgent, color: "#8A3F27" },
-          { label: "Warning", n: counts.warning, color: "#6B5218" },
-          { label: "Safe", n: counts.ok, color: "var(--brand-dark)" },
+          { label: pageSettings.stat_total_label || "Total", n: counts.all, color: "#2C3625" },
+          { label: pageSettings.stat_urgent_label || "Urgent", n: counts.urgent, color: "#8A3F27" },
+          { label: pageSettings.stat_warning_label || "Warning", n: counts.warning, color: "#6B5218" },
+          { label: pageSettings.stat_safe_label || "Safe", n: counts.ok, color: "var(--brand-dark)" },
         ] : [
-          { label: "Clients", n: counts.all, color: "#2C3625" },
-          { label: "On track", n: counts.ok, color: "var(--brand-dark)" },
+          { label: pageSettings.stat_clients_label || "Clients", n: counts.all, color: "#2C3625" },
+          { label: pageSettings.stat_on_track_label || "On track", n: counts.ok, color: "var(--brand-dark)" },
         ]}
         tabs={attendanceFilterTabs}
         activeTab={showPrepStats ? filter : undefined}
@@ -371,8 +402,8 @@ export default function Attendance() {
         <div className="attendance-page-panel-head">
           <ClipboardText size={22} weight="duotone" />
           <div>
-            <h2>Client roster</h2>
-            <p>Select a client to log a session, view history, or open their invoice sheet</p>
+            <h2>{pageSettings.roster_heading || "Client roster"}</h2>
+            <p>{pageSettings.roster_desc || "Select a client to log a session, view history, or open their invoice sheet"}</p>
           </div>
         </div>
 
@@ -395,11 +426,31 @@ export default function Attendance() {
       </div>
       </section>
 
+      {pageControlOpen && (
+        <ModalBase
+          title="Session Preparation page settings"
+          subtitle="Self-serve control for this page"
+          onClose={() => setPageControlOpen(false)}
+          size="lg"
+          footer={
+            <ModalBtnSecondary type="button" onClick={() => setPageControlOpen(false)}>Close</ModalBtnSecondary>
+          }
+        >
+          <SessionPrepPageControl
+            compact
+            onSaved={(s) => {
+              setPageSettings(mergeSessionPrepPageSettings(s));
+              invalidateCache("/page-settings/session-prep");
+            }}
+          />
+        </ModalBase>
+      )}
+
       {/* Picker modal */}
       {logFor === "__pick__" && (
         <ModalBase
-          title="Select Client"
-          subtitle="Choose a client to log a session"
+          title={pageSettings.select_client_title || "Select Client"}
+          subtitle={pageSettings.select_client_subtitle || "Choose a client to log a session"}
           onClose={() => setLogFor(null)}
           size="sm"
         >

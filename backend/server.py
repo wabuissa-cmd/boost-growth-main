@@ -2399,6 +2399,99 @@ async def save_schedule_page_settings(payload: SchedulePageSettingsIn, _=Depends
     return cleaned
 
 
+DEFAULT_SESSION_PREP_PAGE = {
+    "page_eyebrow": "SESSION PREP",
+    "page_title": "Session Preparation",
+    "page_subtitle": "Log sessions, track package progress, and open invoice sheets",
+    "roster_heading": "Client roster",
+    "roster_desc": "Select a client to log a session, view history, or open their invoice sheet",
+    "search_placeholder": "Search client...",
+    "log_session_label": "Log Session",
+    "add_client_label": "Add Client",
+    "select_client_title": "Select Client",
+    "select_client_subtitle": "Choose a client to log a session",
+    "stat_total_label": "Total",
+    "stat_urgent_label": "Urgent",
+    "stat_warning_label": "Warning",
+    "stat_safe_label": "Safe",
+    "stat_clients_label": "Clients",
+    "stat_on_track_label": "On track",
+    "filter_tabs": [
+        {"id": "all", "label": "All clients", "enabled": True},
+        {"id": "urgent", "label": "Urgent", "enabled": True},
+        {"id": "warning", "label": "Warning", "enabled": True},
+        {"id": "ok", "label": "On track", "enabled": True},
+    ],
+    "show_add_client_button": True,
+    "show_admin_filter_tabs": True,
+}
+
+
+def _normalize_session_prep_page(raw: Optional[dict] = None) -> dict:
+    base = {**DEFAULT_SESSION_PREP_PAGE}
+    raw = raw or {}
+    for key in (
+        "page_eyebrow", "page_title", "page_subtitle", "roster_heading", "roster_desc",
+        "search_placeholder", "log_session_label", "add_client_label",
+        "select_client_title", "select_client_subtitle",
+        "stat_total_label", "stat_urgent_label", "stat_warning_label", "stat_safe_label",
+        "stat_clients_label", "stat_on_track_label",
+    ):
+        if isinstance(raw.get(key), str) and raw[key].strip():
+            base[key] = raw[key].strip()
+    for key in ("show_add_client_button", "show_admin_filter_tabs"):
+        if key in raw:
+            base[key] = bool(raw[key])
+    items = raw.get("filter_tabs")
+    if isinstance(items, list) and items:
+        allowed = {"all", "urgent", "warning", "ok"}
+        cleaned = []
+        seen = set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            tid = (item.get("id") or "").strip()
+            if tid not in allowed or tid in seen:
+                continue
+            seen.add(tid)
+            cleaned.append({
+                "id": tid,
+                "label": (item.get("label") or tid).strip() or tid,
+                "enabled": bool(item.get("enabled", True)),
+            })
+        for d in DEFAULT_SESSION_PREP_PAGE["filter_tabs"]:
+            if d["id"] not in seen:
+                cleaned.append(dict(d))
+        if cleaned:
+            base["filter_tabs"] = cleaned
+    return base
+
+
+async def _get_session_prep_page_settings() -> dict:
+    doc = await db.settings.find_one({"key": "page_session_prep"}, {"_id": 0}) or {}
+    return _normalize_session_prep_page(doc.get("settings") if isinstance(doc.get("settings"), dict) else doc)
+
+
+class SessionPrepPageSettingsIn(BaseModel):
+    settings: dict
+
+
+@api.get("/page-settings/session-prep")
+async def get_session_prep_page_settings(user=Depends(get_current_user)):
+    return await _get_session_prep_page_settings()
+
+
+@api.put("/admin/page-settings/session-prep")
+async def save_session_prep_page_settings(payload: SessionPrepPageSettingsIn, _=Depends(ops_or_admin)):
+    cleaned = _normalize_session_prep_page(payload.settings or {})
+    await db.settings.update_one(
+        {"key": "page_session_prep"},
+        {"$set": {"key": "page_session_prep", "settings": cleaned, "updated_at": now_iso()}},
+        upsert=True,
+    )
+    return cleaned
+
+
 @api.post("/therapists")
 async def create_therapist(payload: TherapistIn, _=Depends(admin_only)):
     tid = str(uuid.uuid4())

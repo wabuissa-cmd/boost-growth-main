@@ -12,6 +12,7 @@ import { invalidateCache } from "../dataCache";
 import ClientInfoPageControl from "../components/ClientInfoPageControl";
 import BillingPageControl from "../components/BillingPageControl";
 import SchedulePageControl from "../components/SchedulePageControl";
+import SessionPrepPageControl from "../components/SessionPrepPageControl";
 
 const DEFAULT_EMAIL_FROM = "Boost Growth Staff Portal <hr@boostgrowthsa.com>";
 
@@ -1474,6 +1475,21 @@ export default function Admin() {
             <Link to="/schedule" className="btn btn-outline text-sm">Open Schedule</Link>
           </div>
           <SchedulePageControl />
+        </div>
+      </AdminSection>
+      <AdminSection
+        id="page-session-prep"
+        title="Session Preparation page"
+        subtitle="Filters · roster · Log Session button"
+        icon={<SquaresFour size={20} weight="duotone" />}
+        defaultOpen
+        badge="v1"
+      >
+        <div className="pt-4">
+          <div className="flex flex-wrap gap-2 mb-3">
+            <Link to="/attendance" className="btn btn-outline text-sm">Open Session Preparation</Link>
+          </div>
+          <SessionPrepPageControl />
         </div>
       </AdminSection>
       </>
