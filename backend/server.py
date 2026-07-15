@@ -2492,6 +2492,96 @@ async def save_session_prep_page_settings(payload: SessionPrepPageSettingsIn, _=
     return cleaned
 
 
+DEFAULT_STAFF_LEAVE_PAGE = {
+    "page_title": "Staff & Leave",
+    "page_subtitle": "Vacation · leave · materials & HR requests",
+    "tabs": [
+        {"id": "vacation", "label": "Vacation", "enabled": True},
+        {"id": "leave", "label": "Leave", "enabled": True},
+        {"id": "other", "label": "Other requests", "enabled": True},
+    ],
+    "active_requests_label": "Active Requests",
+    "history_label": "History",
+    "search_placeholder": "Search therapist / notes / type…",
+    "mark_absence_label": "Mark Absence",
+    "new_request_label": "New Request",
+    "request_leave_label": "Request Leave",
+    "other_heading": "Staff Requests",
+    "other_desc": "Materials · requirements · government · general",
+    "overview_label": "Request overview",
+    "stat_total_label": "Total",
+    "stat_pending_label": "Pending",
+    "stat_in_progress_label": "In progress",
+    "stat_done_label": "Done",
+    "show_mark_absence": True,
+    "show_new_request_button": True,
+}
+
+
+def _normalize_staff_leave_page(raw: Optional[dict] = None) -> dict:
+    base = {**DEFAULT_STAFF_LEAVE_PAGE}
+    raw = raw or {}
+    for key in (
+        "page_title", "page_subtitle", "active_requests_label", "history_label",
+        "search_placeholder", "mark_absence_label", "new_request_label", "request_leave_label",
+        "other_heading", "other_desc", "overview_label",
+        "stat_total_label", "stat_pending_label", "stat_in_progress_label", "stat_done_label",
+    ):
+        if isinstance(raw.get(key), str) and raw[key].strip():
+            base[key] = raw[key].strip()
+    for key in ("show_mark_absence", "show_new_request_button"):
+        if key in raw:
+            base[key] = bool(raw[key])
+    items = raw.get("tabs")
+    if isinstance(items, list) and items:
+        allowed = {"vacation", "leave", "other"}
+        cleaned = []
+        seen = set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            tid = (item.get("id") or "").strip()
+            if tid not in allowed or tid in seen:
+                continue
+            seen.add(tid)
+            cleaned.append({
+                "id": tid,
+                "label": (item.get("label") or tid).strip() or tid,
+                "enabled": bool(item.get("enabled", True)),
+            })
+        for d in DEFAULT_STAFF_LEAVE_PAGE["tabs"]:
+            if d["id"] not in seen:
+                cleaned.append(dict(d))
+        if cleaned:
+            base["tabs"] = cleaned
+    return base
+
+
+async def _get_staff_leave_page_settings() -> dict:
+    doc = await db.settings.find_one({"key": "page_staff_leave"}, {"_id": 0}) or {}
+    return _normalize_staff_leave_page(doc.get("settings") if isinstance(doc.get("settings"), dict) else doc)
+
+
+class StaffLeavePageSettingsIn(BaseModel):
+    settings: dict
+
+
+@api.get("/page-settings/staff-leave")
+async def get_staff_leave_page_settings(user=Depends(get_current_user)):
+    return await _get_staff_leave_page_settings()
+
+
+@api.put("/admin/page-settings/staff-leave")
+async def save_staff_leave_page_settings(payload: StaffLeavePageSettingsIn, _=Depends(ops_or_admin)):
+    cleaned = _normalize_staff_leave_page(payload.settings or {})
+    await db.settings.update_one(
+        {"key": "page_staff_leave"},
+        {"$set": {"key": "page_staff_leave", "settings": cleaned, "updated_at": now_iso()}},
+        upsert=True,
+    )
+    return cleaned
+
+
 @api.post("/therapists")
 async def create_therapist(payload: TherapistIn, _=Depends(admin_only)):
     tid = str(uuid.uuid4())

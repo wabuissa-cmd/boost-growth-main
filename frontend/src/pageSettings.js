@@ -182,3 +182,46 @@ export function mergeSessionPrepPageSettings(raw) {
   }
   return base;
 }
+
+export const DEFAULT_STAFF_LEAVE_PAGE = {
+  page_title: "Staff & Leave",
+  page_subtitle: "Vacation · leave · materials & HR requests",
+  tabs: [
+    { id: "vacation", label: "Vacation", enabled: true },
+    { id: "leave", label: "Leave", enabled: true },
+    { id: "other", label: "Other requests", enabled: true },
+  ],
+  active_requests_label: "Active Requests",
+  history_label: "History",
+  search_placeholder: "Search therapist / notes / type…",
+  mark_absence_label: "Mark Absence",
+  new_request_label: "New Request",
+  request_leave_label: "Request Leave",
+  other_heading: "Staff Requests",
+  other_desc: "Materials · requirements · government · general",
+  overview_label: "Request overview",
+  stat_total_label: "Total",
+  stat_pending_label: "Pending",
+  stat_in_progress_label: "In progress",
+  stat_done_label: "Done",
+  show_mark_absence: true,
+  show_new_request_button: true,
+};
+
+export function mergeStaffLeavePageSettings(raw) {
+  const base = {
+    ...DEFAULT_STAFF_LEAVE_PAGE,
+    tabs: DEFAULT_STAFF_LEAVE_PAGE.tabs.map((t) => ({ ...t })),
+  };
+  if (!raw || typeof raw !== "object") return base;
+  for (const key of Object.keys(DEFAULT_STAFF_LEAVE_PAGE)) {
+    if (key === "tabs") continue;
+    if (typeof DEFAULT_STAFF_LEAVE_PAGE[key] === "boolean") {
+      if (key in raw) base[key] = Boolean(raw[key]);
+    } else if (typeof raw[key] === "string" && raw[key].trim()) {
+      base[key] = raw[key].trim();
+    }
+  }
+  if (Array.isArray(raw.tabs) && raw.tabs.length) base.tabs = raw.tabs;
+  return base;
+}

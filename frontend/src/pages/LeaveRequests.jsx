@@ -854,7 +854,7 @@ function LeaveRowAttachButton({ leave, onRefresh }) {
   );
 }
 
-export default function LeaveRequests({ personal = false, embedded = false, grievanceTypes = null }) {
+export default function LeaveRequests({ personal = false, embedded = false, grievanceTypes = null, pageSettings = null }) {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const therapistFilter = personal ? user?.id : (searchParams.get("therapist") || null);
@@ -1020,14 +1020,16 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
             <select className="select text-[11px] max-w-[80px] min-h-0 h-7 py-0" value={year} onChange={e => setYear(parseInt(e.target.value, 10))}>
               {[currentYear, currentYear - 1, currentYear - 2].map(y => <option key={y} value={y}>{y}</option>)}
             </select>
-            {leaveManager && !grievanceTypes && (
+            {leaveManager && !grievanceTypes && pageSettings?.show_mark_absence !== false && (
               <button type="button" onClick={() => setShowMarkAbsence(true)} className="btn btn-secondary text-[11px] px-2.5 py-1 min-h-0">
-                <UserMinus size={13} /> Mark Absence
+                <UserMinus size={13} /> {pageSettings?.mark_absence_label || "Mark Absence"}
               </button>
             )}
-            {!grievanceTypes && (
+            {!grievanceTypes && pageSettings?.show_new_request_button !== false && (
             <button data-testid="add-leave-btn" onClick={() => setEdit(emptyLeave(leaveManager || portalAdmin ? "" : user?.id))} className="btn btn-primary text-[11px] px-2.5 py-1 min-h-0">
-              <Plus size={13} /> {reviewerView && (leaveManager || portalAdmin) ? "New Request" : "Request Leave"}
+              <Plus size={13} /> {reviewerView && (leaveManager || portalAdmin)
+                ? (pageSettings?.new_request_label || "New Request")
+                : (pageSettings?.request_leave_label || "Request Leave")}
             </button>
             )}
           </>
@@ -1094,11 +1096,33 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
         </div>
       )}
 
+      {embedded && reviewerView && !therapistProfileView && (
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          {leaveManager && pageSettings?.show_mark_absence !== false && (
+            <button type="button" onClick={() => setShowMarkAbsence(true)} className="btn btn-secondary text-xs">
+              <UserMinus size={13} /> {pageSettings?.mark_absence_label || "Mark Absence"}
+            </button>
+          )}
+          {pageSettings?.show_new_request_button !== false && (
+            <button
+              type="button"
+              data-testid="add-leave-btn-embedded"
+              onClick={() => setEdit(emptyLeave(leaveManager || portalAdmin ? "" : user?.id))}
+              className="btn btn-primary text-xs"
+            >
+              <Plus size={13} /> {leaveManager || portalAdmin
+                ? (pageSettings?.new_request_label || "New Request")
+                : (pageSettings?.request_leave_label || "Request Leave")}
+            </button>
+          )}
+        </div>
+      )}
+
       {reviewerView && !therapistProfileView && (
         <div className="flex gap-2 mb-5 items-center flex-wrap">
           {[
-            { id: "active", label: "Active Requests" },
-            { id: "history", label: "History" },
+            { id: "active", label: pageSettings?.active_requests_label || "Active Requests" },
+            { id: "history", label: pageSettings?.history_label || "History" },
           ].map(t => (
             <button key={t.id} type="button" onClick={() => setTab(t.id)}
               className={`px-4 py-2 rounded-xl text-sm font-bold border-2 transition ${tab === t.id ? "bg-[#7A8A6A] text-white border-[#7A8A6A]" : "bg-white border-[#E2DDD4]"}`}>
@@ -1125,7 +1149,7 @@ export default function LeaveRequests({ personal = false, embedded = false, grie
                 <MagnifyingGlass size={16} className="absolute left-2 top-2.5" style={{ color: "#8B9E7A" }} />
                 <input
                   className="input pl-8 text-sm"
-                  placeholder="Search therapist / notes / type…"
+                  placeholder={pageSettings?.search_placeholder || "Search therapist / notes / type…"}
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                 />

@@ -282,7 +282,7 @@ function emptyLeaveForm() {
   };
 }
 
-export default function Requests({ personal = false, embedded = false, managerView = false, hubEmbedded = false }) {
+export default function Requests({ personal = false, embedded = false, managerView = false, hubEmbedded = false, pageSettings = null }) {
   const { user } = useAuth();
   const canManageReq = !personal && canEditStaffRequests(user);
   const leaveHr = !personal && canManageLeaves(user);
@@ -291,7 +291,12 @@ export default function Requests({ personal = false, embedded = false, managerVi
   const isManager = !personal && isJenan(user) && !isPortalAdminUser;
   const adminManagerPreview = managerView && showSystemAdmin(user) && !isJenan(user);
   const inManagerReviewMode = managerView && (isManager || adminManagerPreview);
-  const staffLabel = managerView ? "Therapists' Requests" : "Staff Requests";
+  const staffLabel = managerView
+    ? "Therapists' Requests"
+    : (pageSettings?.other_heading || "Staff Requests");
+  const otherDesc = managerView
+    ? "Leave · salary certificate · supplies · general — one queue"
+    : (pageSettings?.other_desc || "Materials · requirements · government · general");
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState(managerView ? "pending" : "all");
   const [edit, setEdit] = useState(null);
@@ -572,30 +577,30 @@ export default function Requests({ personal = false, embedded = false, managerVi
               <ListChecks size={22} weight="duotone" className="shrink-0" />
               <div className="min-w-0">
                 <h2>{staffLabel}</h2>
-                <p>{managerView ? "Leave · salary certificate · supplies · general — one queue" : "Materials · requirements · government · general"}</p>
+                <p>{managerView ? "Leave · salary certificate · supplies · general — one queue" : otherDesc}</p>
               </div>
             </div>
           )}
 
           {embedded && (
           <div className={hubEmbedded ? "mgr-hub-stat-overview" : "req-leave-balance mx-3 mt-3"}>
-            <div className={hubEmbedded ? "mgr-hub-section-label" : "requests-page-section-label"}>Request overview</div>
+            <div className={hubEmbedded ? "mgr-hub-section-label" : "requests-page-section-label"}>{pageSettings?.overview_label || "Request overview"}</div>
             <div className={hubEmbedded ? "mgr-hub-stat-grid" : "req-leave-stat-grid"}>
               <div className={hubEmbedded ? "mgr-hub-stat-box" : "req-leave-stat-box"}>
                 <div className={hubEmbedded ? "mgr-hub-stat-val" : "req-leave-stat-val"}>{queueItems.length}</div>
-                <div className={hubEmbedded ? "mgr-hub-stat-lbl" : "req-leave-stat-lbl"}>Total</div>
+                <div className={hubEmbedded ? "mgr-hub-stat-lbl" : "req-leave-stat-lbl"}>{pageSettings?.stat_total_label || "Total"}</div>
               </div>
               <div className={hubEmbedded ? "mgr-hub-stat-box" : "req-leave-stat-box"}>
                 <div className={hubEmbedded ? "mgr-hub-stat-val" : "req-leave-stat-val"}>{pendingCount}</div>
-                <div className={hubEmbedded ? "mgr-hub-stat-lbl" : "req-leave-stat-lbl"}>Pending</div>
+                <div className={hubEmbedded ? "mgr-hub-stat-lbl" : "req-leave-stat-lbl"}>{pageSettings?.stat_pending_label || "Pending"}</div>
               </div>
               <div className={hubEmbedded ? "mgr-hub-stat-box" : "req-leave-stat-box"}>
                 <div className={hubEmbedded ? "mgr-hub-stat-val" : "req-leave-stat-val"}>{inProgressCount}</div>
-                <div className={hubEmbedded ? "mgr-hub-stat-lbl" : "req-leave-stat-lbl"}>In progress</div>
+                <div className={hubEmbedded ? "mgr-hub-stat-lbl" : "req-leave-stat-lbl"}>{pageSettings?.stat_in_progress_label || "In progress"}</div>
               </div>
               <div className={hubEmbedded ? "mgr-hub-stat-box" : "req-leave-stat-box"}>
                 <div className={hubEmbedded ? "mgr-hub-stat-val" : "req-leave-stat-val"}>{doneCount}</div>
-                <div className={hubEmbedded ? "mgr-hub-stat-lbl" : "req-leave-stat-lbl"}>Done</div>
+                <div className={hubEmbedded ? "mgr-hub-stat-lbl" : "req-leave-stat-lbl"}>{pageSettings?.stat_done_label || "Done"}</div>
               </div>
             </div>
           </div>
@@ -609,7 +614,7 @@ export default function Requests({ personal = false, embedded = false, managerVi
               <>
                 <h2 className="font-bold text-sm m-0" style={{ color: "#2C3625" }}>{staffLabel}</h2>
                 <p className="text-xs mt-1 mb-2" style={{ color: "var(--brand-sage)" }}>
-                  {managerView ? "Leave · salary certificate · supplies · general — one queue" : "Materials · requirements · government · general"}
+                  {otherDesc}
                 </p>
               </>
             )}
