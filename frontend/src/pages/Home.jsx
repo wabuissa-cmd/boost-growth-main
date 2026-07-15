@@ -4,7 +4,7 @@ import api, { startOfWeek, toISODate, addDays } from "../api";
 import { cachedGet } from "../dataCache";
 import { useAuth, showAdminNav, hasOpsAccess, canViewBilling, isHrOps, isJenan, canParentCancellationOps, isWalaaOps, showMyReportsNav } from "../auth";
 import {
-  CalendarBlank, ClipboardText, UsersThree, ListChecks, Plant, ArrowRight,
+  CalendarBlank, UsersThree, ListChecks, Plant, ArrowRight,
   CheckCircle, Clock, XCircle, CalendarCheck, Heart,
   Leaf, FileText, WhatsappLogo,
 } from "@phosphor-icons/react";
@@ -277,7 +277,6 @@ export default function Home() {
   const beigeCard = { color: "#F7F3EB", iconColor: "var(--brand-dark)" };
   const adminFeatures = [
     { to: "/schedule", icon: CalendarBlank, title: "Weekly Schedule", desc: "Plan sessions, manage closures, and publish the team calendar.", ...beigeCard },
-    { to: "/attendance", icon: ClipboardText, title: "Session Preparation", desc: "Daily prep sheets, progress tracking, and session logging.", ...beigeCard },
     { to: "/clients", icon: UsersThree, title: "Client Portfolios", desc: "Profiles, locations, packages, and progress reports.", ...beigeCard },
   ];
 
@@ -341,8 +340,8 @@ export default function Home() {
           </p>
           <p className="portal-hero-date">{dateStr}</p>
           <div className="portal-hero-actions">
-            <Link to="/attendance" className="portal-hero-btn primary">
-              <ClipboardText size={18} weight="duotone" /> {compact ? "Log a session" : "Open Preparation"}
+            <Link to="/clients" className="portal-hero-btn primary">
+              <UsersThree size={18} weight="duotone" /> {compact ? "Client Info" : "Open Client Info"}
             </Link>
             <Link to="/schedule" className="portal-hero-btn outline">
               <CalendarBlank size={18} weight="duotone" /> View Schedule
@@ -358,7 +357,7 @@ export default function Home() {
 
   const quickLinks = [
     { to: "/schedule", label: "Schedule", icon: CalendarBlank },
-    { to: "/attendance", label: "Attendance", icon: ClipboardText },
+    { to: "/clients", label: "Client Info", icon: UsersThree },
     { to: "/my-requests", label: jenan ? "My Requests" : "Request", icon: ListChecks },
     ...(showMyReportsNav(user) ? [{ to: "/my-reports", label: "My Report", icon: FileText }] : []),
   ];
@@ -420,7 +419,7 @@ export default function Home() {
               {!walaaOps && (
                 <DashboardStatCard to="/staff-leave?tab=other" variant="gold" value={stats.requests} label="Pending requests" icon={<ListChecks size={22} weight="duotone" style={{ color: "#965132", background: "#F0E0D4", borderRadius: 14, padding: 8 }} />} testId="home-tile-requests" />
               )}
-              <DashboardStatCard to="/attendance" value={stats.therapists} label="Team therapists" icon={<Heart size={22} weight="duotone" style={{ color: "var(--brand)", background: "rgba(237,225,201,0.5)", borderRadius: 14, padding: 8 }} />} testId="home-tile-attendance" />
+              <DashboardStatCard to="/schedule" value={stats.therapists} label="Team therapists" icon={<Heart size={22} weight="duotone" style={{ color: "var(--brand)", background: "rgba(237,225,201,0.5)", borderRadius: 14, padding: 8 }} />} testId="home-tile-therapists" />
             </div>
           </CreativeSection>
         </>
@@ -558,8 +557,8 @@ export default function Home() {
                 </Link>
               ))}
             </div>
-            <Link to="/attendance" className="btn btn-primary w-full mt-3 min-h-[44px] justify-center gap-2 rounded-[14px]">
-              <ClipboardText size={18} weight="duotone"/> Log a session
+            <Link to="/clients" className="btn btn-primary w-full mt-3 min-h-[44px] justify-center gap-2 rounded-[14px]">
+              <UsersThree size={18} weight="duotone"/> Open Client Info
             </Link>
           </section>
           <section className="card portal-content-panel home-page-panel relative overflow-hidden" data-testid="daily-quote">

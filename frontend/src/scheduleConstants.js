@@ -80,7 +80,7 @@ export function getTherapistScheduleName(t) {
   if (!t) return "";
   const keyLower = (t.key || "").toLowerCase();
   if (PORTAL_GREETING_OVERRIDES[keyLower]) return PORTAL_GREETING_OVERRIDES[keyLower];
-  const raw = (t.name || "").replace(/^Ms\.?\s*/i, "").trim();
+  const raw = String(t.name || "").replace(/^Ms\.?\s*/i, "").trim();
   let first = raw.split(/\s+/)[0] || raw;
   const firstLower = first.toLowerCase();
   if (THERAPIST_FIRST_NAME_OVERRIDES[firstLower]) {
@@ -179,7 +179,7 @@ export function sortTherapistsForSchedule(list) {
     const ia = orderMap.has(ka) ? orderMap.get(ka) : 999;
     const ib = orderMap.has(kb) ? orderMap.get(kb) : 999;
     if (ia !== ib) return ia - ib;
-    return (a.name || "").localeCompare(b.name || "");
+    return String(a.name || "").localeCompare(String(b.name || ""));
   });
 }
 

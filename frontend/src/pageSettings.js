@@ -225,3 +225,72 @@ export function mergeStaffLeavePageSettings(raw) {
   if (Array.isArray(raw.tabs) && raw.tabs.length) base.tabs = raw.tabs;
   return base;
 }
+
+export const DEFAULT_PURCHASES_PAGE = {
+  page_title: "Employees' Purchases",
+  page_subtitle: "Payment requests from therapists & supervisors · review & reimburse",
+  tabs: [
+    { id: "purchases", label: "Purchases", enabled: true },
+    { id: "reports", label: "Reports", enabled: true },
+  ],
+  log_purchase_label: "Log Purchase",
+  sync_sheet_label: "Sync from Sheet",
+  search_placeholder: "Search…",
+  list_heading: "Purchases",
+  pending_strip_label: "pending — click to review",
+  empty_list_message: "No purchases found",
+  show_log_purchase: true,
+  show_sync_sheet: true,
+};
+
+export function mergePurchasesPageSettings(raw) {
+  const base = {
+    ...DEFAULT_PURCHASES_PAGE,
+    tabs: DEFAULT_PURCHASES_PAGE.tabs.map((t) => ({ ...t })),
+  };
+  if (!raw || typeof raw !== "object") return base;
+  for (const key of Object.keys(DEFAULT_PURCHASES_PAGE)) {
+    if (key === "tabs") continue;
+    if (typeof DEFAULT_PURCHASES_PAGE[key] === "boolean") {
+      if (key in raw) base[key] = Boolean(raw[key]);
+    } else if (typeof raw[key] === "string" && raw[key].trim()) {
+      base[key] = raw[key].trim();
+    }
+  }
+  if (Array.isArray(raw.tabs) && raw.tabs.length) base.tabs = raw.tabs;
+  return base;
+}
+
+export const DEFAULT_WAITING_PAGE = {
+  intake_title: "Intake Waiting",
+  intake_subtitle: "Pre- and post-intake queues for home-based services",
+  school_title: "School Waiting",
+  school_subtitle: "School support placement queue — synced from the SS waiting sheet",
+  mode_intake_label: "Intake Waiting",
+  mode_school_label: "School Waiting",
+  pre_tab_label: "Pre-Intake",
+  post_tab_label: "Post-Intake",
+  intake_queue_label: "Pre-Intake Queue",
+  post_queue_label: "Post-Intake Queue",
+  school_queue_label: "School Waiting Queue",
+  school_list_label: "School placement waiting list",
+  sync_label: "Sync from Sheet",
+  add_pre_label: "Pre-Intake",
+  add_post_label: "Post-Intake",
+  add_school_label: "Add Case",
+  show_sync_button: true,
+  show_add_buttons: true,
+};
+
+export function mergeWaitingPageSettings(raw) {
+  const base = { ...DEFAULT_WAITING_PAGE };
+  if (!raw || typeof raw !== "object") return base;
+  for (const key of Object.keys(DEFAULT_WAITING_PAGE)) {
+    if (typeof DEFAULT_WAITING_PAGE[key] === "boolean") {
+      if (key in raw) base[key] = Boolean(raw[key]);
+    } else if (typeof raw[key] === "string" && raw[key].trim()) {
+      base[key] = raw[key].trim();
+    }
+  }
+  return base;
+}

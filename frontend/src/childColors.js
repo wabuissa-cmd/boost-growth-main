@@ -16,7 +16,7 @@ function hashString(s) {
 }
 
 function normalizeNameKey(name) {
-  return (name || "").trim().replace(/\s+/g, " ").toLowerCase();
+  return String(name || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 export function getChildColor(name, shift = 1) {

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import api, { formatErr } from "../api";
 import {
-  ShoppingBag, Bell, CheckCircle, Hourglass, Clock, FloppyDisk, PaperPlaneTilt, ArrowsClockwise, Plus, Trash, XCircle, ChartBar,
+  ShoppingBag, Bell, CheckCircle, Hourglass, Clock, FloppyDisk, PaperPlaneTilt, ArrowsClockwise, Plus, Trash, XCircle, ChartBar, GearSix,
 } from "@phosphor-icons/react";
 import PageBanner from "../components/PageBanner";
+import PurchasesPageControl from "../components/PurchasesPageControl";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
@@ -12,6 +13,8 @@ import { getTherapistScheduleName } from "../scheduleConstants";
 import { yearMonthTabs, formatMonthValue, purchaseMonthKey, resolvePurchaseYear } from "../monthTabs";
 import { computePurchaseTotal, formatPurchaseTotal } from "../purchaseUtils";
 import { canAccessPurchases, canManagePurchaseStatus, canSupervisorReviewPurchases, canManagerFinalizePurchases, isJenan, isWalaaOps, showAdminNav, showSystemAdmin, useAuth } from "../auth";
+import { cachedGet, invalidateCache } from "../dataCache";
+import { mergePurchasesPageSettings, enabledTabs } from "../pageSettings";
 import "../clientInfoLayout.css";
 
 const PURCHASES_SHEET_URL = "https://docs.google.com/spreadsheets/d/10ZGq3ABQ1t-w32jrGZIu6Gxa2wevIJU2GLe9YWGdkIQ/edit";
@@ -89,6 +92,28 @@ export default function Purchases({ embedded = false }) {
   const [sending, setSending] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [pageTab, setPageTab] = useState("purchases");
+  const [pageSettings, setPageSettings] = useState(() => mergePurchasesPageSettings(null));
+  const [pageControlOpen, setPageControlOpen] = useState(false);
+  const canEditPageSettings = showSystemAdmin(user) || showAdminNav(user) || isWalaaOps(user);
+
+  useEffect(() => {
+    cachedGet("/page-settings/purchases")
+      .then((s) => { if (s) setPageSettings(mergePurchasesPageSettings(s)); })
+      .catch(() => {});
+  }, []);
+
+  const bannerTabs = useMemo(() => {
+    const tabs = enabledTabs(pageSettings.tabs);
+    const icons = { purchases: <ShoppingBag size={14} weight="duotone" />, reports: <ChartBar size={14} weight="duotone" /> };
+    return (tabs.length ? tabs : mergePurchasesPageSettings(null).tabs.filter((t) => t.enabled !== false))
+      .map((t) => ({ id: t.id, label: t.label, icon: icons[t.id] }));
+  }, [pageSettings.tabs]);
+
+  useEffect(() => {
+    if (!bannerTabs.some((t) => t.id === pageTab) && bannerTabs[0]) {
+      setPageTab(bannerTabs[0].id);
+    }
+  }, [bannerTabs, pageTab]);
 
   const openAddPurchase = () => {
     const base = emptyPurchaseForm();
@@ -418,26 +443,28 @@ export default function Purchases({ embedded = false }) {
     <div className="page-enter portal-page-shell">
       {!embedded && (
       <PageBanner
-        title="Employees' Purchases"
-        subtitle="Payment requests from therapists & supervisors · review & reimburse"
+        title={pageSettings.page_title || "Employees' Purchases"}
+        subtitle={pageSettings.page_subtitle}
         className=""
-        tabs={[
-          { id: "purchases", label: "Purchases", icon: <ShoppingBag size={14} weight="duotone" /> },
-          { id: "reports", label: "Reports", icon: <ChartBar size={14} weight="duotone" /> },
-        ]}
+        tabs={bannerTabs}
         activeTab={pageTab}
         onTabChange={setPageTab}
         toolbar={(
           <div className="flex flex-wrap gap-2">
-            {canAccessPurchases(user) && (
-              <button type="button" className="btn btn-primary text-xs min-h-[36px]" onClick={openAddPurchase}>
-                <Plus size={14}/> Log Purchase
+            {canEditPageSettings && (
+              <button type="button" className="btn btn-outline text-xs min-h-[36px]" onClick={() => setPageControlOpen(true)} title="Purchases page settings">
+                <GearSix size={14} weight="duotone" /> Page settings
               </button>
             )}
-            {canSyncSheet && (
+            {canAccessPurchases(user) && pageSettings.show_log_purchase !== false && (
+              <button type="button" className="btn btn-primary text-xs min-h-[36px]" onClick={openAddPurchase}>
+                <Plus size={14}/> {pageSettings.log_purchase_label || "Log Purchase"}
+              </button>
+            )}
+            {canSyncSheet && pageSettings.show_sync_sheet !== false && (
               <button type="button" className="btn btn-secondary text-xs min-h-[36px]" onClick={syncFromSheet} disabled={syncing}>
                 <ArrowsClockwise size={14} className={syncing ? "animate-spin" : ""} />
-                {syncing ? "Syncing…" : "Sync from Sheet"}
+                {syncing ? "Syncing…" : (pageSettings.sync_sheet_label || "Sync from Sheet")}
               </button>
             )}
           </div>
@@ -452,7 +479,7 @@ export default function Purchases({ embedded = false }) {
             {canManageStatus && pendingQueue.length > 0 && (
               <div className="purchases-pending-strip">
                 <div className="text-[11px] font-bold mb-1.5 flex items-center gap-1.5" style={{ color: "#8A3F27" }}>
-                  <Hourglass size={14} weight="duotone" /> {pendingQueue.length} pending — click to review
+                  <Hourglass size={14} weight="duotone" /> {pendingQueue.length} {pageSettings.pending_strip_label || "pending — click to review"}
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {pendingQueue.map((p) => (
@@ -496,7 +523,7 @@ export default function Purchases({ embedded = false }) {
               <section className="purchases-main-panel">
                 <div className="purchases-panel-head">
                   <div>
-                    <div className="text-xs font-bold" style={{ color: "#2C3625" }}>Purchases · {purchaseYear}</div>
+                    <div className="text-xs font-bold" style={{ color: "#2C3625" }}>{pageSettings.list_heading || "Purchases"} · {purchaseYear}</div>
                     <div className="text-[10px]" style={{ color: "#8B9E7A" }}>
                       {displayedItems.length} shown · {totals.sum.toLocaleString()} SR
                     </div>
@@ -526,7 +553,7 @@ export default function Purchases({ embedded = false }) {
                     </thead>
                     <tbody>
                       {displayedItems.length === 0 && (
-                        <tr><td colSpan={canPickPurchaser ? 7 : 6} className="text-center py-8" style={{ color: "#8B9E7A" }}>No purchases found</td></tr>
+                        <tr><td colSpan={canPickPurchaser ? 7 : 6} className="text-center py-8" style={{ color: "#8B9E7A" }}>{pageSettings.empty_list_message || "No purchases found"}</td></tr>
                       )}
                       {displayedItems.map((p, i) => {
                         const st = STATUS_META[p.status] || STATUS_META.pending;
@@ -610,7 +637,7 @@ export default function Purchases({ embedded = false }) {
                   <div className="flex flex-col gap-1.5">
                     <input
                       className="input text-xs py-1.5"
-                      placeholder="Search…"
+                      placeholder={pageSettings.search_placeholder || "Search…"}
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                     />
@@ -924,6 +951,25 @@ export default function Purchases({ embedded = false }) {
               <textarea className="modal-input" rows={2} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
             </FormField>
           </FormSection>
+        </ModalBase>
+      )}
+
+      {pageControlOpen && (
+        <ModalBase
+          title="Purchases page settings"
+          subtitle="Labels and tabs for this page"
+          onClose={() => setPageControlOpen(false)}
+          size="lg"
+          footer={
+            <ModalBtnSecondary type="button" onClick={() => setPageControlOpen(false)}>Close</ModalBtnSecondary>
+          }
+        >
+          <PurchasesPageControl
+            onSaved={(s) => {
+              setPageSettings(mergePurchasesPageSettings(s));
+              invalidateCache("/page-settings/purchases");
+            }}
+          />
         </ModalBase>
       )}
     </div>

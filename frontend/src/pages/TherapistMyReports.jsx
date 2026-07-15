@@ -196,7 +196,7 @@ export default function TherapistMyReports() {
                     </span>
                   </td>
                   <td>
-                    <Link to="/attendance" className="text-xs font-bold" style={{ color: "#606E52" }}>Prepare →</Link>
+                    <Link to="/clients" className="text-xs font-bold" style={{ color: "#606E52" }}>Client Info →</Link>
                   </td>
                 </tr>
               ))}

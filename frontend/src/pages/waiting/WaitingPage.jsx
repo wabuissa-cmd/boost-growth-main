@@ -1,13 +1,16 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "../../api";
-import { useAuth, canEditIntake } from "../../auth";
-import { Plus, Trash, PencilSimple, Star, Phone, MapPin, ArrowsClockwise, Buildings, ClipboardText, CaretDown, CalendarBlank, Funnel, X, Hourglass } from "@phosphor-icons/react";
+import { useAuth, canEditIntake, showAdminNav, showSystemAdmin, isWalaaOps } from "../../auth";
+import { Plus, Trash, PencilSimple, Star, Phone, MapPin, ArrowsClockwise, Buildings, ClipboardText, CaretDown, CalendarBlank, Funnel, X, Hourglass, GearSix } from "@phosphor-icons/react";
 import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "../../components/Modal";
 import PageBanner from "../../components/PageBanner";
+import WaitingPageControl from "../../components/WaitingPageControl";
+import { cachedGet, invalidateCache } from "../../dataCache";
+import { mergeWaitingPageSettings } from "../../pageSettings";
 import "../../clientInfoLayout.css";
 import "../../dashboardLayout.css";
 
@@ -142,6 +145,7 @@ export default function WaitingPage({ mode, onModeChange }) {
   const isSchool = mode === "school";
   const { user } = useAuth();
   const canManage = canEditIntake(user);
+  const canEditPageSettings = showSystemAdmin(user) || showAdminNav(user) || isWalaaOps(user);
   const [loadError, setLoadError] = useState(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState([]);
@@ -160,6 +164,14 @@ export default function WaitingPage({ mode, onModeChange }) {
   const [editingDate, setEditingDate] = useState(false);
   const [dateDraft, setDateDraft] = useState("");
   const [savingDate, setSavingDate] = useState(false);
+  const [pageSettings, setPageSettings] = useState(() => mergeWaitingPageSettings(null));
+  const [pageControlOpen, setPageControlOpen] = useState(false);
+
+  useEffect(() => {
+    cachedGet("/page-settings/waiting")
+      .then((s) => { if (s) setPageSettings(mergeWaitingPageSettings(s)); })
+      .catch(() => {});
+  }, []);
 
   const load = async () => {
     try {
@@ -347,13 +359,25 @@ export default function WaitingPage({ mode, onModeChange }) {
     return counts;
   }, [filtered]);
 
-  const title = isSchool ? "School Waiting" : "Intake Waiting";
+  const title = isSchool
+    ? (pageSettings.school_title || "School Waiting")
+    : (pageSettings.intake_title || "Intake Waiting");
   const subtitle = isSchool
-    ? "School support placement queue — synced from the SS waiting sheet"
-    : "Pre- and post-intake queues for home-based services";
+    ? (pageSettings.school_subtitle || "School support placement queue — synced from the SS waiting sheet")
+    : (pageSettings.intake_subtitle || "Pre- and post-intake queues for home-based services");
 
   const adminBadge = canManage ? (
     <>
+      {canEditPageSettings && (
+        <button
+          type="button"
+          onClick={() => setPageControlOpen(true)}
+          className="editorial-pill text-[11px] px-2.5 py-1 min-h-0"
+          title="Waiting page settings"
+        >
+          <GearSix size={12} weight="duotone" className="inline mr-0.5" style={{ verticalAlign: -1 }} /> Settings
+        </button>
+      )}
       <button
         type="button"
         onClick={() => setActionsOpen(o => !o)}
@@ -365,21 +389,23 @@ export default function WaitingPage({ mode, onModeChange }) {
         <>
           <div className="waiting-actions-backdrop" onClick={() => setActionsOpen(false)} aria-hidden />
           <div className="waiting-actions-menu">
+            {pageSettings.show_sync_button !== false && (
             <button type="button" onClick={() => { syncFromGoogle(); setActionsOpen(false); }} disabled={syncing}
               className="w-full text-left px-3 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] flex items-center gap-1.5">
-              {syncing ? <span className="spinner" /> : <ArrowsClockwise size={13} />} Sync Sheet
+              {syncing ? <span className="spinner" /> : <ArrowsClockwise size={13} />} {pageSettings.sync_label || "Sync Sheet"}
             </button>
+            )}
             <a href={isSchool ? SCHOOL_WAITING_SHEET_URL : WAITING_LIST_SHEET_URL} target="_blank" rel="noreferrer"
               className="block w-full text-left px-3 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] border-t no-underline"
               style={{ color: "#374151", borderColor: "#EDE9E3" }}>
               Open Google Sheet
             </a>
-            {isSchool ? (
+            {pageSettings.show_add_buttons !== false && (isSchool ? (
               <button data-testid="add-school-waiting" type="button"
                 onClick={() => { setEdit(emptyItem("school", "school")); setActionsOpen(false); }}
                 className="w-full text-left px-3 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] border-t flex items-center gap-1.5"
                 style={{ borderColor: "#EDE9E3" }}>
-                <Plus size={13} /> Add Case
+                <Plus size={13} /> {pageSettings.add_school_label || "Add Case"}
               </button>
             ) : (
               <>
@@ -387,16 +413,16 @@ export default function WaitingPage({ mode, onModeChange }) {
                   onClick={() => { setEdit(emptyItem("pre", "intake")); setActionsOpen(false); }}
                   className="w-full text-left px-3 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] border-t flex items-center gap-1.5"
                   style={{ borderColor: "#EDE9E3" }}>
-                  <Plus size={13} /> Pre-Intake
+                  <Plus size={13} /> {pageSettings.add_pre_label || "Pre-Intake"}
                 </button>
                 <button data-testid="add-post-intake" type="button"
                   onClick={() => { setEdit(emptyItem("post", "intake")); setActionsOpen(false); }}
                   className="w-full text-left px-3 py-2.5 text-xs font-medium hover:bg-[#FAFAF7] border-t flex items-center gap-1.5"
                   style={{ borderColor: "#EDE9E3" }}>
-                  <Plus size={13} /> Post-Intake
+                  <Plus size={13} /> {pageSettings.add_post_label || "Post-Intake"}
                 </button>
               </>
-            )}
+            ))}
           </div>
         </>
       )}
@@ -411,7 +437,7 @@ export default function WaitingPage({ mode, onModeChange }) {
         className={`editorial-pill${!isSchool ? " is-active" : ""}`}
         data-testid="waiting-tab-intake"
       >
-        <ClipboardText size={14} weight="duotone" /> Intake Waiting
+        <ClipboardText size={14} weight="duotone" /> {pageSettings.mode_intake_label || "Intake Waiting"}
       </button>
       <button
         type="button"
@@ -419,7 +445,7 @@ export default function WaitingPage({ mode, onModeChange }) {
         className={`editorial-pill${isSchool ? " is-active" : ""}`}
         data-testid="waiting-tab-school"
       >
-        <Buildings size={14} weight="duotone" /> School Waiting
+        <Buildings size={14} weight="duotone" /> {pageSettings.mode_school_label || "School Waiting"}
       </button>
     </div>
   ) : null;
@@ -441,8 +467,8 @@ export default function WaitingPage({ mode, onModeChange }) {
   ) : null;
 
   const bannerTabs = !isSchool ? [
-    { id: "pre", label: "Pre-Intake", count: totalPre, testId: "tab-pre" },
-    { id: "post", label: "Post-Intake", count: totalPost, testId: "tab-post" },
+    { id: "pre", label: pageSettings.pre_tab_label || "Pre-Intake", count: totalPre, testId: "tab-pre" },
+    { id: "post", label: pageSettings.post_tab_label || "Post-Intake", count: totalPost, testId: "tab-post" },
     {
       id: "priority",
       label: "Priority",
@@ -463,10 +489,16 @@ export default function WaitingPage({ mode, onModeChange }) {
   const bannerActiveTab = priorityOnly ? "priority" : tab;
 
   const queueLabel = isSchool
-    ? "School placement waiting list"
+    ? (pageSettings.school_list_label || "School placement waiting list")
     : tab === "pre"
       ? "Before formal intake"
       : "After intake, awaiting placement";
+
+  const queueHeading = isSchool
+    ? (pageSettings.school_queue_label || "School Waiting Queue")
+    : tab === "pre"
+      ? (pageSettings.intake_queue_label || "Pre-Intake Queue")
+      : (pageSettings.post_queue_label || "Post-Intake Queue");
 
   return (
     <div className="portal-page-shell page-enter waiting-page-shell">
@@ -676,7 +708,7 @@ export default function WaitingPage({ mode, onModeChange }) {
           <div className="req-panel-head">
             <h2 className="font-bold text-sm m-0 flex items-center gap-1.5" style={{ color: "var(--brand-dark)" }}>
               {isSchool ? <Buildings size={16} weight="duotone" /> : <ClipboardText size={16} weight="duotone" />}
-              {isSchool ? "School Waiting Queue" : tab === "pre" ? "Pre-Intake Queue" : "Post-Intake Queue"}
+              {queueHeading}
             </h2>
             <p className="text-xs mt-1 mb-0" style={{ color: "var(--text-muted)" }}>
               {displayed.length} case{displayed.length !== 1 ? "s" : ""} · {queueLabel}
@@ -976,6 +1008,25 @@ export default function WaitingPage({ mode, onModeChange }) {
               />
             </FormField>
           </FormSection>
+        </ModalBase>
+      )}
+
+      {pageControlOpen && (
+        <ModalBase
+          title="Waiting page settings"
+          subtitle="Titles and labels for Intake and School queues"
+          onClose={() => setPageControlOpen(false)}
+          size="lg"
+          footer={
+            <ModalBtnSecondary type="button" onClick={() => setPageControlOpen(false)}>Close</ModalBtnSecondary>
+          }
+        >
+          <WaitingPageControl
+            onSaved={(s) => {
+              setPageSettings(mergeWaitingPageSettings(s));
+              invalidateCache("/page-settings/waiting");
+            }}
+          />
         </ModalBase>
       )}
     </div>

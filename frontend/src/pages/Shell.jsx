@@ -28,11 +28,6 @@ const ROUTE_PREFETCH = {
     prefetch("/clients");
     prefetch("/therapists");
   },
-  "/attendance": () => {
-    prefetch("/clients");
-    prefetch("/clients/package-status");
-    prefetch("/therapists");
-  },
   "/billing": () => {
     prefetch("/billing/dashboard");
   },
@@ -131,7 +126,6 @@ export default function Shell() {
   // ── Sidebar: Clinical · Client · Employee
   const clinicalItems = [
     { to: "/schedule", label: "Schedule", testid: "nav-schedule", icon: <CalendarBlank size={18} weight="duotone"/> },
-    { to: "/attendance", label: "Session Preparation", testid: "nav-attendance", icon: <ClipboardText size={18} weight="duotone"/> },
     ...(canViewSupervisionCaseload(user)
       ? [{ to: "/supervision", label: "Supervision", testid: "nav-supervision", icon: <Eye size={18} weight="duotone"/> }]
       : []),
@@ -242,7 +236,7 @@ export default function Shell() {
       return;
     }
     if (n.type === "unprepared_session") {
-      navigate("/attendance");
+      navigate("/schedule");
     }
   };
 

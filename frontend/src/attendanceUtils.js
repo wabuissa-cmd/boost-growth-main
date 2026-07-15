@@ -321,7 +321,12 @@ export function dedupePrepHistoryRows(rows) {
     };
     if (!prev || score(p) > score(prev)) best.set(key, p);
   }
-  return [...best.values()].sort((a, b) => sessionDateSortKey(a).localeCompare(sessionDateSortKey(b)));
+  return [...best.values()].sort((a, b) => {
+    const ka = sessionDateSortKey(a);
+    const kb = sessionDateSortKey(b);
+    if (ka !== kb) return ka < kb ? -1 : 1;
+    return String(a.id || "").localeCompare(String(b.id || ""));
+  });
 }
 
 /** Score session row richness when collapsing same-day duplicates. */
@@ -826,7 +831,7 @@ export function groupSessionsByMonth(sessions) {
     if (!buckets.has(monthKey)) buckets.set(monthKey, []);
     buckets.get(monthKey).push(s);
   }
-  return Array.from(buckets.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  return Array.from(buckets.entries()).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
 }
 
 export function formatMonthLabel(monthKey) {

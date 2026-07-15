@@ -8,7 +8,6 @@ import "./App.css";
 
 const Home = lazy(() => import("./pages/Home"));
 const Schedule = lazy(() => import("./pages/Schedule"));
-const Attendance = lazy(() => import("./pages/Attendance"));
 const Clients = lazy(() => import("./pages/Clients"));
 const Requests = lazy(() => import("./pages/Requests"));
 const TherapistRequests = lazy(() => import("./pages/TherapistRequests"));
@@ -197,7 +196,7 @@ function AppRoutes() {
         <Route path="/" element={<Navigate to="/home" replace/>}/>
         <Route path="/home" element={<Home/>}/>
         <Route path="/schedule" element={<Schedule/>}/>
-        <Route path="/attendance" element={<Attendance/>}/>
+        <Route path="/attendance" element={<Navigate to="/clients" replace/>}/>
         <Route path="/billing" element={<BillingAccess><Billing/></BillingAccess>}/>
         <Route path="/clients" element={<Clients/>}/>
         <Route path="/supervision" element={<SupervisionAccess><SupervisionCaseload/></SupervisionAccess>}/>

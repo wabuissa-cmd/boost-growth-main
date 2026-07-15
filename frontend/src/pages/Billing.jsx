@@ -161,7 +161,7 @@ export default function Billing() {
   }, [deepNewInvoice, deepClientId, clients]);
 
   const sortedClients = useMemo(
-    () => [...clients].sort((a, b) => (a.name || "").localeCompare(b.name || "")),
+    () => [...clients].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""))),
     [clients]
   );
 

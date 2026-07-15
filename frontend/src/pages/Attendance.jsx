@@ -298,11 +298,11 @@ export default function Attendance() {
     if (filter !== "all") list = list.filter(c => c.status === filter);
     if (search) {
       const q = search.toLowerCase();
-      list = list.filter(c => c.name.toLowerCase().includes(q) || (c.file_no || "").includes(q));
+      list = list.filter(c => String(c.name || "").toLowerCase().includes(q) || String(c.file_no || "").includes(q));
     }
     return [...list].sort((a, b) => isAdmin
       ? ({ urgent: 0, warning: 1, ok: 2 }[a.status] - { urgent: 0, warning: 1, ok: 2 }[b.status])
-      : (a.name || "").localeCompare(b.name || ""));
+      : String(a.name || "").localeCompare(String(b.name || "")));
   }, [enriched, filter, search]);
 
   const counts = {

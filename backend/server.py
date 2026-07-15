@@ -2582,6 +2582,150 @@ async def save_staff_leave_page_settings(payload: StaffLeavePageSettingsIn, _=De
     return cleaned
 
 
+DEFAULT_PURCHASES_PAGE = {
+    "page_title": "Employees' Purchases",
+    "page_subtitle": "Payment requests from therapists & supervisors · review & reimburse",
+    "tabs": [
+        {"id": "purchases", "label": "Purchases", "enabled": True},
+        {"id": "reports", "label": "Reports", "enabled": True},
+    ],
+    "log_purchase_label": "Log Purchase",
+    "sync_sheet_label": "Sync from Sheet",
+    "search_placeholder": "Search…",
+    "list_heading": "Purchases",
+    "pending_strip_label": "pending — click to review",
+    "empty_list_message": "No purchases found",
+    "show_log_purchase": True,
+    "show_sync_sheet": True,
+}
+
+
+def _normalize_purchases_page(raw: Optional[dict] = None) -> dict:
+    base = {**DEFAULT_PURCHASES_PAGE}
+    raw = raw or {}
+    for key in (
+        "page_title", "page_subtitle", "log_purchase_label", "sync_sheet_label",
+        "search_placeholder", "list_heading", "pending_strip_label", "empty_list_message",
+    ):
+        if isinstance(raw.get(key), str) and raw[key].strip():
+            base[key] = raw[key].strip()
+    for key in ("show_log_purchase", "show_sync_sheet"):
+        if key in raw:
+            base[key] = bool(raw[key])
+    items = raw.get("tabs")
+    if isinstance(items, list) and items:
+        allowed = {"purchases", "reports"}
+        cleaned = []
+        seen = set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            tid = (item.get("id") or "").strip()
+            if tid not in allowed or tid in seen:
+                continue
+            seen.add(tid)
+            cleaned.append({
+                "id": tid,
+                "label": (item.get("label") or tid).strip() or tid,
+                "enabled": bool(item.get("enabled", True)),
+            })
+        for d in DEFAULT_PURCHASES_PAGE["tabs"]:
+            if d["id"] not in seen:
+                cleaned.append(dict(d))
+        if cleaned:
+            base["tabs"] = cleaned
+    return base
+
+
+async def _get_purchases_page_settings() -> dict:
+    doc = await db.settings.find_one({"key": "page_purchases"}, {"_id": 0}) or {}
+    return _normalize_purchases_page(doc.get("settings") if isinstance(doc.get("settings"), dict) else doc)
+
+
+class PurchasesPageSettingsIn(BaseModel):
+    settings: dict
+
+
+@api.get("/page-settings/purchases")
+async def get_purchases_page_settings(user=Depends(get_current_user)):
+    return await _get_purchases_page_settings()
+
+
+@api.put("/admin/page-settings/purchases")
+async def save_purchases_page_settings(payload: PurchasesPageSettingsIn, _=Depends(ops_or_admin)):
+    cleaned = _normalize_purchases_page(payload.settings or {})
+    await db.settings.update_one(
+        {"key": "page_purchases"},
+        {"$set": {"key": "page_purchases", "settings": cleaned, "updated_at": now_iso()}},
+        upsert=True,
+    )
+    return cleaned
+
+
+DEFAULT_WAITING_PAGE = {
+    "intake_title": "Intake Waiting",
+    "intake_subtitle": "Pre- and post-intake queues for home-based services",
+    "school_title": "School Waiting",
+    "school_subtitle": "School support placement queue — synced from the SS waiting sheet",
+    "mode_intake_label": "Intake Waiting",
+    "mode_school_label": "School Waiting",
+    "pre_tab_label": "Pre-Intake",
+    "post_tab_label": "Post-Intake",
+    "intake_queue_label": "Pre-Intake Queue",
+    "post_queue_label": "Post-Intake Queue",
+    "school_queue_label": "School Waiting Queue",
+    "school_list_label": "School placement waiting list",
+    "sync_label": "Sync from Sheet",
+    "add_pre_label": "Pre-Intake",
+    "add_post_label": "Post-Intake",
+    "add_school_label": "Add Case",
+    "show_sync_button": True,
+    "show_add_buttons": True,
+}
+
+
+def _normalize_waiting_page(raw: Optional[dict] = None) -> dict:
+    base = {**DEFAULT_WAITING_PAGE}
+    raw = raw or {}
+    for key in (
+        "intake_title", "intake_subtitle", "school_title", "school_subtitle",
+        "mode_intake_label", "mode_school_label", "pre_tab_label", "post_tab_label",
+        "intake_queue_label", "post_queue_label", "school_queue_label", "school_list_label",
+        "sync_label", "add_pre_label", "add_post_label", "add_school_label",
+    ):
+        if isinstance(raw.get(key), str) and raw[key].strip():
+            base[key] = raw[key].strip()
+    for key in ("show_sync_button", "show_add_buttons"):
+        if key in raw:
+            base[key] = bool(raw[key])
+    return base
+
+
+async def _get_waiting_page_settings() -> dict:
+    doc = await db.settings.find_one({"key": "page_waiting"}, {"_id": 0}) or {}
+    return _normalize_waiting_page(doc.get("settings") if isinstance(doc.get("settings"), dict) else doc)
+
+
+class WaitingPageSettingsIn(BaseModel):
+    settings: dict
+
+
+@api.get("/page-settings/waiting")
+async def get_waiting_page_settings(user=Depends(get_current_user)):
+    return await _get_waiting_page_settings()
+
+
+@api.put("/admin/page-settings/waiting")
+async def save_waiting_page_settings(payload: WaitingPageSettingsIn, _=Depends(ops_or_admin)):
+    cleaned = _normalize_waiting_page(payload.settings or {})
+    await db.settings.update_one(
+        {"key": "page_waiting"},
+        {"$set": {"key": "page_waiting", "settings": cleaned, "updated_at": now_iso()}},
+        upsert=True,
+    )
+    return cleaned
+
+
 @api.post("/therapists")
 async def create_therapist(payload: TherapistIn, _=Depends(admin_only)):
     tid = str(uuid.uuid4())

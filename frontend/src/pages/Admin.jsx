@@ -12,8 +12,9 @@ import { invalidateCache } from "../dataCache";
 import ClientInfoPageControl from "../components/ClientInfoPageControl";
 import BillingPageControl from "../components/BillingPageControl";
 import SchedulePageControl from "../components/SchedulePageControl";
-import SessionPrepPageControl from "../components/SessionPrepPageControl";
 import StaffLeavePageControl from "../components/StaffLeavePageControl";
+import PurchasesPageControl from "../components/PurchasesPageControl";
+import WaitingPageControl from "../components/WaitingPageControl";
 
 const DEFAULT_EMAIL_FROM = "Boost Growth Staff Portal <hr@boostgrowthsa.com>";
 
@@ -1479,21 +1480,6 @@ export default function Admin() {
         </div>
       </AdminSection>
       <AdminSection
-        id="page-session-prep"
-        title="Session Preparation page"
-        subtitle="Filters · roster · Log Session button"
-        icon={<SquaresFour size={20} weight="duotone" />}
-        defaultOpen
-        badge="v1"
-      >
-        <div className="pt-4">
-          <div className="flex flex-wrap gap-2 mb-3">
-            <Link to="/attendance" className="btn btn-outline text-sm">Open Session Preparation</Link>
-          </div>
-          <SessionPrepPageControl />
-        </div>
-      </AdminSection>
-      <AdminSection
         id="page-staff-leave"
         title="Staff & Leave page"
         subtitle="Tabs · leave queue · other requests labels"
@@ -1506,6 +1492,36 @@ export default function Admin() {
             <Link to="/staff-leave" className="btn btn-outline text-sm">Open Staff & Leave</Link>
           </div>
           <StaffLeavePageControl />
+        </div>
+      </AdminSection>
+      <AdminSection
+        id="page-purchases"
+        title="Purchases page"
+        subtitle="Titles · tabs · Log Purchase · Sync"
+        icon={<SquaresFour size={20} weight="duotone" />}
+        defaultOpen
+        badge="v1"
+      >
+        <div className="pt-4">
+          <div className="flex flex-wrap gap-2 mb-3">
+            <Link to="/purchases" className="btn btn-outline text-sm">Open Purchases</Link>
+          </div>
+          <PurchasesPageControl />
+        </div>
+      </AdminSection>
+      <AdminSection
+        id="page-waiting"
+        title="Waiting page"
+        subtitle="Intake & school titles · tabs · queue labels"
+        icon={<SquaresFour size={20} weight="duotone" />}
+        defaultOpen
+        badge="v1"
+      >
+        <div className="pt-4">
+          <div className="flex flex-wrap gap-2 mb-3">
+            <Link to="/waiting" className="btn btn-outline text-sm">Open Waiting</Link>
+          </div>
+          <WaitingPageControl />
         </div>
       </AdminSection>
       </>
