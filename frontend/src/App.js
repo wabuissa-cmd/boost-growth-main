@@ -6,33 +6,64 @@ import Shell from "./pages/Shell";
 import AuthenticatedFileViewer from "./components/AuthenticatedFileViewer";
 import "./App.css";
 
-const Home = lazy(() => import("./pages/Home"));
-const Schedule = lazy(() => import("./pages/Schedule"));
-const Clients = lazy(() => import("./pages/Clients"));
-const Requests = lazy(() => import("./pages/Requests"));
-const TherapistRequests = lazy(() => import("./pages/TherapistRequests"));
-const Directory = lazy(() => import("./pages/Directory"));
-const Intake = lazy(() => import("./pages/Intake"));
+const CHUNK_RELOAD_KEY = "bg_chunk_reload";
+
+function isChunkLoadError(err) {
+  const msg = err?.message || String(err || "");
+  return /Loading chunk [\d]+ failed|ChunkLoadError|Failed to fetch dynamically imported module|Importing a module script failed/i.test(msg);
+}
+
+/** Lazy-load a page; on stale deploy chunk miss, reload once to fetch the new assets. */
+function lazyPage(factory) {
+  return lazy(() =>
+    factory()
+      .then((mod) => {
+        try { sessionStorage.removeItem(CHUNK_RELOAD_KEY); } catch { /* ignore */ }
+        return mod;
+      })
+      .catch((err) => {
+        if (isChunkLoadError(err)) {
+          try {
+            if (!sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
+              sessionStorage.setItem(CHUNK_RELOAD_KEY, "1");
+              window.location.reload();
+              return new Promise(() => {});
+            }
+            sessionStorage.removeItem(CHUNK_RELOAD_KEY);
+          } catch { /* ignore */ }
+        }
+        throw err;
+      })
+  );
+}
+
+const Home = lazyPage(() => import("./pages/Home"));
+const Schedule = lazyPage(() => import("./pages/Schedule"));
+const Clients = lazyPage(() => import("./pages/Clients"));
+const Requests = lazyPage(() => import("./pages/Requests"));
+const TherapistRequests = lazyPage(() => import("./pages/TherapistRequests"));
+const Directory = lazyPage(() => import("./pages/Directory"));
+const Intake = lazyPage(() => import("./pages/Intake"));
 import IntakeWaiting from "./pages/IntakeWaiting";
 import SchoolWaiting from "./pages/SchoolWaiting";
-const Waiting = lazy(() => import("./pages/Waiting"));
-const Resources = lazy(() => import("./pages/Resources"));
-const Admin = lazy(() => import("./pages/Admin"));
-const Reports = lazy(() => import("./pages/Reports"));
-const EmailStatus = lazy(() => import("./pages/EmailStatus"));
-const ImportPage = lazy(() => import("./pages/Import"));
-const LeaveBalance = lazy(() => import("./pages/LeaveBalance"));
-const LeaveRequests = lazy(() => import("./pages/LeaveRequests"));
-const StaffLeave = lazy(() => import("./pages/StaffLeave"));
-const Billing = lazy(() => import("./pages/Billing"));
-const TherapistMyReports = lazy(() => import("./pages/TherapistMyReports"));
+const Waiting = lazyPage(() => import("./pages/Waiting"));
+const Resources = lazyPage(() => import("./pages/Resources"));
+const Admin = lazyPage(() => import("./pages/Admin"));
+const Reports = lazyPage(() => import("./pages/Reports"));
+const EmailStatus = lazyPage(() => import("./pages/EmailStatus"));
+const ImportPage = lazyPage(() => import("./pages/Import"));
+const LeaveBalance = lazyPage(() => import("./pages/LeaveBalance"));
+const LeaveRequests = lazyPage(() => import("./pages/LeaveRequests"));
+const StaffLeave = lazyPage(() => import("./pages/StaffLeave"));
+const Billing = lazyPage(() => import("./pages/Billing"));
+const TherapistMyReports = lazyPage(() => import("./pages/TherapistMyReports"));
 import ManagerHub from "./pages/ManagerHub";
-const PerformanceMeetings = lazy(() => import("./pages/PerformanceMeetings"));
-const Purchases = lazy(() => import("./pages/Purchases"));
-const SupervisionCaseload = lazy(() => import("./pages/SupervisionCaseload"));
-const DesignPreview = lazy(() => import("./pages/DesignPreview"));
-const CenterTest = lazy(() => import("./pages/CenterTest"));
-const MyLearning = lazy(() => import("./pages/MyLearning"));
+const PerformanceMeetings = lazyPage(() => import("./pages/PerformanceMeetings"));
+const Purchases = lazyPage(() => import("./pages/Purchases"));
+const SupervisionCaseload = lazyPage(() => import("./pages/SupervisionCaseload"));
+const DesignPreview = lazyPage(() => import("./pages/DesignPreview"));
+const CenterTest = lazyPage(() => import("./pages/CenterTest"));
+const MyLearning = lazyPage(() => import("./pages/MyLearning"));
 import AdminCenterTests from "./pages/AdminCenterTests";
 
 function Loading() {
@@ -235,29 +266,74 @@ function AppRoutes() {
 }
 
 class ErrorBoundary extends Component {
-  state = { err: null };
+  state = { err: null, reloading: false };
   static getDerivedStateFromError(err) { return { err }; }
   componentDidCatch(err) {
     console.error("Portal render error:", err);
+    if (isChunkLoadError(err)) {
+      try {
+        if (!sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
+          sessionStorage.setItem(CHUNK_RELOAD_KEY, "1");
+          this.setState({ reloading: true });
+          window.location.reload();
+        }
+      } catch { /* ignore */ }
+    }
   }
   render() {
     if (this.state.err) {
       const msg = this.state.err?.message || String(this.state.err);
+      const chunkMiss = isChunkLoadError(this.state.err);
+      let alreadyTriedReload = false;
+      try { alreadyTriedReload = sessionStorage.getItem(CHUNK_RELOAD_KEY) === "1"; } catch { /* ignore */ }
+      if (this.state.reloading || (chunkMiss && !alreadyTriedReload)) {
+        return (
+          <div className="min-h-screen flex items-center justify-center bg-organic p-6">
+            <div className="card p-8 max-w-md text-center">
+              <div className="font-display text-xl mb-2" style={{ color: "#2C3625" }}>Updating…</div>
+              <p className="text-sm mb-4" style={{ color: "#5C6853" }}>
+                A new version of the portal was deployed. Reloading to load the latest files.
+              </p>
+              <div className="spinner mx-auto" />
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="min-h-screen flex items-center justify-center bg-organic p-6">
           <div className="card p-8 max-w-md text-center">
-            <div className="font-display text-xl mb-2" style={{ color: "#2C3625" }}>Something went wrong</div>
+            <div className="font-display text-xl mb-2" style={{ color: "#2C3625" }}>
+              {chunkMiss ? "Update required" : "Something went wrong"}
+            </div>
             <p className="text-sm mb-2" style={{ color: "#5C6853" }}>
-              The app could not load this page. Try clearing site data and signing in again.
+              {chunkMiss
+                ? "The app was updated. Reload this page to continue."
+                : "The app could not load this page. Try clearing site data and signing in again."}
             </p>
-            <p className="text-xs mb-4 break-words" style={{ color: "#8A3F27" }}>{msg}</p>
-            <div className="flex flex-wrap gap-2 justify-center">
-              <button type="button" className="btn btn-secondary" onClick={() => { this.setState({ err: null }); window.location.href = "/home"; }}>
-                Go Home
+            {!chunkMiss && (
+              <p className="text-xs mb-4 break-words" style={{ color: "#8A3F27" }}>{msg}</p>
+            )}
+            <div className="flex flex-wrap gap-2 justify-center mt-4">
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  try { sessionStorage.removeItem(CHUNK_RELOAD_KEY); } catch { /* ignore */ }
+                  window.location.reload();
+                }}
+              >
+                Reload page
               </button>
-              <button type="button" className="btn btn-primary" onClick={() => { localStorage.removeItem("bg_token"); window.location.href = "/login"; }}>
-                Back to Login
-              </button>
+              {!chunkMiss && (
+                <>
+                  <button type="button" className="btn btn-secondary" onClick={() => { this.setState({ err: null }); window.location.href = "/home"; }}>
+                    Go Home
+                  </button>
+                  <button type="button" className="btn btn-outline" onClick={() => { localStorage.removeItem("bg_token"); window.location.href = "/login"; }}>
+                    Back to Login
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
