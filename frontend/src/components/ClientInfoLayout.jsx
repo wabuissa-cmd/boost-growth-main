@@ -99,6 +99,7 @@ export default function ClientInfoLayout({
   user, therapists, sessions, onRefreshSessions,
   canEditRecords, canSyncDrive, onClientRefresh,
   onEdit, onRemove, onBilling, onPhoneSave,
+  onSessionEdit,
   CaseSummaryPanel, RecordsPanel,
   pageSettings,
 }) {
@@ -338,9 +339,10 @@ export default function ClientInfoLayout({
                       client={selected}
                       sessions={sessions}
                       therapists={therapists}
-                      isAdmin={isAdmin}
+                      isAdmin={isAdmin || hasOps}
                       user={user}
                       currentUserId={user?.therapist_id || user?.id}
+                      onEdit={onSessionEdit}
                       onRefresh={onRefreshSessions}
                     />
                   </div>

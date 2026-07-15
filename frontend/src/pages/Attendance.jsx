@@ -194,8 +194,26 @@ function SessionTableRow({ s, findT, isAdmin, user, client, currentUserId, onEdi
       {show("note") && <td className={`${cell} italic`} style={{ color: "var(--text-secondary)" }}>{s.note || ""}</td>}
       {!locked && show("_action") && (
         <td className={`${cell} text-right whitespace-nowrap no-print`}>
-          {canEdit && <button onClick={() => onEdit(s)} className="btn btn-ghost p-1.5"><PencilSimple size={14}/></button>}
-          {canEdit && <button onClick={async () => { if (window.confirm("Delete?")) { await api.delete(`/sessions/${s.id}`); onDeleted(); } }} className="btn btn-ghost p-1.5 text-red-700"><Trash size={14}/></button>}
+          {canEdit && typeof onEdit === "function" && (
+            <button type="button" onClick={() => onEdit(s)} className="btn btn-ghost p-1.5" title="Edit session">
+              <PencilSimple size={14}/>
+            </button>
+          )}
+          {canEdit && (
+            <button
+              type="button"
+              onClick={async () => {
+                if (window.confirm("Delete?")) {
+                  await api.delete(`/sessions/${s.id}`);
+                  onDeleted();
+                }
+              }}
+              className="btn btn-ghost p-1.5 text-red-700"
+              title="Delete session"
+            >
+              <Trash size={14}/>
+            </button>
+          )}
         </td>
       )}
     </tr>

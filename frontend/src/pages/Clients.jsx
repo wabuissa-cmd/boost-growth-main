@@ -7,6 +7,7 @@ import { Plus, MagnifyingGlass, Trash, PencilSimple, UsersThree, EnvelopeSimple,
 import ClientInfoLayout from "../components/ClientInfoLayout";
 import ClientRecordsPanel from "../components/ClientRecordsPanel";
 import ClientInfoPageControl from "../components/ClientInfoPageControl";
+import LogSessionModal from "../components/LogSessionModal";
 import { clientDisplayName } from "../clientDisplayUtils";
 import ClientPickerSheet from "../components/ClientPickerSheet";
 import "../clientInfoLayout.css";
@@ -39,6 +40,7 @@ export default function Clients() {
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
   const [pageSettings, setPageSettings] = useState(() => mergeClientInfoPageSettings(null));
   const [pageControlOpen, setPageControlOpen] = useState(false);
+  const [editingSession, setEditingSession] = useState(null);
   const canEditPageSettings = isAdmin || hasOps;
 
   const load = async ({ background = false } = {}) => {
@@ -293,6 +295,7 @@ export default function Clients() {
         onEdit={(c) => setEdit({ ...c, co_therapist_ids: c.co_therapist_ids || [], locations: c.locations || [] })}
         onRemove={remove}
         onBilling={() => selectedClient && navigate(`/billing?client=${selectedClient.id}`)}
+        onSessionEdit={(s) => setEditingSession(s)}
         onPhoneSave={async (client, phone) => {
           await api.put(`/clients/${client.id}`, { ...client, parent_phone: phone || null });
           await load();
@@ -302,6 +305,20 @@ export default function Clients() {
         pageSettings={pageSettings}
       />
       </section>
+
+      {editingSession && (
+        <LogSessionModal
+          session={editingSession}
+          client={items.find((c) => c.id === editingSession.client_id) || selectedClient}
+          therapists={therapists}
+          currentUser={user}
+          onClose={() => setEditingSession(null)}
+          onSaved={() => {
+            setEditingSession(null);
+            refreshClientSessions();
+          }}
+        />
+      )}
 
       <ClientPickerSheet
         open={clientPickerOpen}
