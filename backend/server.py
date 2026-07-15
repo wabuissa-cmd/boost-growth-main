@@ -9040,8 +9040,8 @@ def _compute_package_status_row(client: dict, service_code: str, invoices: list,
             **pay_fields,
         }
 
-    # SS — always 4 school weeks per invoice
-    total_weeks = 4
+    # SS — school weeks per invoice (default 4; admin may extend via ss_week_count)
+    total_weeks = max(4, int(inv.get("ss_week_count") or 4))
     anchor = inv.get("start_date") or client.get("cycle_start_date") or now_iso()[:10]
     week_overrides = inv.get("week_overrides") or {}
     weeks_done = _weeks_done_for_invoice(inv_sessions, anchor, total_weeks, week_overrides)
@@ -9219,13 +9219,12 @@ async def update_invoice(iid: str, payload: InvoiceIn, _=Depends(ops_or_admin)):
 
 @api.delete("/invoices/{iid}")
 async def delete_invoice(iid: str, _=Depends(ops_or_admin)):
-    inv = await db.invoices.find_one({"id": iid}, {"_id": 0, "id": 1, "invoice_number": 1})
+    inv = await db.invoices.find_one({"id": iid}, {"_id": 0, "id": 1, "invoice_number": 1, "client_id": 1})
     if inv:
-        inv_num = (inv.get("invoice_number") or "").strip()
-        q = {"invoice_id": iid}
-        if inv_num:
-            q = {"$or": [{"invoice_id": iid}, {"source_invoice": inv_num}]}
-        await db.sessions.delete_many(q)
+        # Only delete sessions for THIS invoice id.
+        # Never match source_invoice globally by number — that can wipe another child's
+        # same-numbered invoice sessions (e.g. deleting a temp INV0522).
+        await db.sessions.delete_many({"invoice_id": iid})
     await db.invoices.delete_one({"id": iid})
     return {"ok": True}
 
