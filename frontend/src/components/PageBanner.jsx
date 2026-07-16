@@ -92,7 +92,7 @@ export default function PageBanner({
 
       <div className="editorial-banner__head">
         <div className="editorial-banner__copy">
-          <p className="editorial-banner__eyebrow">{eyebrow || "Boost Growth · Staff Portal"}</p>
+          <p className="editorial-banner__eyebrow">{eyebrow || "Staff Boost Growth"}</p>
           <h1 className="editorial-banner__title">{title}</h1>
           {subtitle && <p className="editorial-banner__subtitle">{subtitle}</p>}
         </div>

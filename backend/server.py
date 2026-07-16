@@ -573,7 +573,7 @@ THERAPIST_BOOTSTRAP_PASSWORDS = {
 
 LAUNCH_PASSWORD_SUFFIX = "Launch2026"
 UNIFIED_LAUNCH_PASSWORD = "growth2026"
-EMAIL_FROM_DISPLAY_NAME = "Boost Growth Staff Portal"
+EMAIL_FROM_DISPLAY_NAME = "Staff Boost Growth"
 DEFAULT_EMAIL_FROM = f"{EMAIL_FROM_DISPLAY_NAME} <hr@boostgrowthsa.com>"
 # Clients whose invoices stay partial (half paid) during bulk mark-paid rollout.
 PARTIAL_PAYMENT_CLIENT_FILE_NOS = frozenset({"079"})  # Fahad Suliman — half paid (not Fahad Alyahya #011)
@@ -627,8 +627,8 @@ async def _purge_pre_june_pending_hr_leaves_once() -> dict:
 
 
 async def _normalize_email_from_display_once() -> bool:
-    """One-time: upgrade stored From display name to Boost Growth Staff Portal."""
-    meta_key = "email_from_staff_portal_v1"
+    """One-time: upgrade stored From display name to Staff Boost Growth."""
+    meta_key = "email_from_staff_boost_growth_v1"
     if await db.meta.find_one({"key": meta_key, "done": True}):
         return False
     doc = await db.settings.find_one({"key": "email"}, {"_id": 0}) or {}
@@ -6272,17 +6272,21 @@ DEFAULT_PORTAL_URL = "https://staff.boostgrowth.org"
 
 
 def _portal_base_url() -> str:
-    """Public staff portal URL for email links. Prefer staff.boostgrowth.org over Railway hosts."""
-    for key in ("PORTAL_URL", "FRONTEND_URL", "PUBLIC_URL", "RAILWAY_PUBLIC_DOMAIN"):
+    """Always use the staff portal domain in emails (never Railway preview hosts)."""
+    for key in ("PORTAL_URL", "FRONTEND_URL", "PUBLIC_URL"):
         val = (os.environ.get(key) or "").strip().rstrip("/")
         if not val:
             continue
-        if key == "RAILWAY_PUBLIC_DOMAIN" and not val.startswith("http"):
+        if not val.startswith("http"):
             val = f"https://{val}"
-        # Railway preview/service domains are wrong for therapist/HR emails — use canonical staff URL.
         low = val.lower()
         if "railway.app" in low or "up.railway.app" in low:
             continue
+        if "staff.boostgrowth.org" in low:
+            return "https://staff.boostgrowth.org"
+        # Any other custom domain still preferred over Railway, but staff URL is canonical.
+        if "boostgrowth" in low:
+            return "https://staff.boostgrowth.org"
         return val
     return DEFAULT_PORTAL_URL
 
@@ -15098,8 +15102,14 @@ def _parse_from_address() -> tuple:
     raw = _email_from_address()
     if "<" in raw and ">" in raw:
         name = raw.split("<")[0].strip().strip('"').strip() or EMAIL_FROM_DISPLAY_NAME
-        # Legacy displays used bare "Boost Growth" — normalize to staff portal branding
-        if name.strip().lower() in ("boost growth", "boostgrowth", "boost growth portal"):
+        # Legacy displays — normalize to Staff Boost Growth branding
+        if name.strip().lower() in (
+            "boost growth",
+            "boostgrowth",
+            "boost growth portal",
+            "boost growth staff portal",
+            "staff boost growth portal",
+        ):
             name = EMAIL_FROM_DISPLAY_NAME
         email = raw.split("<")[-1].split(">")[0].strip()
         return name, email
@@ -15123,11 +15133,18 @@ def _email_from_address() -> str:
     raw = (os.environ.get("EMAIL_FROM") or "").strip()
     if not raw:
         return DEFAULT_EMAIL_FROM
-    # Keep address but upgrade bare "Boost Growth" display name for HR/Jenan inboxes
+    # Keep address but upgrade bare / legacy display names for HR/Jenan inboxes
     if "<" in raw and ">" in raw:
         name = raw.split("<")[0].strip().strip('"').strip()
         email = raw.split("<")[-1].split(">")[0].strip()
-        if name.lower() in ("boost growth", "boostgrowth", "boost growth portal", ""):
+        if name.lower() in (
+            "boost growth",
+            "boostgrowth",
+            "boost growth portal",
+            "boost growth staff portal",
+            "staff boost growth portal",
+            "",
+        ):
             return f"{EMAIL_FROM_DISPLAY_NAME} <{email}>"
         return raw
     return f"{EMAIL_FROM_DISPLAY_NAME} <{raw}>"
@@ -15362,11 +15379,18 @@ async def save_email_settings(payload: EmailSettingsIn, _=Depends(admin_only)):
         update["mailgun_domain"] = payload.mailgun_domain.strip().lower()
     if payload.from_email and payload.from_email.strip():
         raw_from = payload.from_email.strip()
-        # Normalize bare "Boost Growth" display name when saving Admin settings
+        # Normalize bare / legacy display names when saving Admin settings
         if "<" in raw_from and ">" in raw_from:
             name = raw_from.split("<")[0].strip().strip('"').strip()
             email = raw_from.split("<")[-1].split(">")[0].strip()
-            if name.lower() in ("boost growth", "boostgrowth", "boost growth portal", ""):
+            if name.lower() in (
+                "boost growth",
+                "boostgrowth",
+                "boost growth portal",
+                "boost growth staff portal",
+                "staff boost growth portal",
+                "",
+            ):
                 raw_from = f"{EMAIL_FROM_DISPLAY_NAME} <{email}>"
         elif "@" in raw_from and "<" not in raw_from:
             raw_from = f"{EMAIL_FROM_DISPLAY_NAME} <{raw_from}>"
@@ -20864,7 +20888,7 @@ async def _run_startup():
 
         try:
             if await _normalize_email_from_display_once():
-                logger.info("Email From display name set to Boost Growth Staff Portal")
+                logger.info("Email From display name set to Staff Boost Growth")
         except Exception as e:
             logger.warning(f"Email From display normalize skipped: {e}")
 

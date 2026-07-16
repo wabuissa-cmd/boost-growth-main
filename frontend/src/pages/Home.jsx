@@ -306,7 +306,7 @@ export default function Home() {
       <div className="portal-hero-inner">
         <div className="portal-hero-content">
           <div className="portal-hero-eyebrow">
-            <Leaf size={14} weight="fill" /> Boost Growth · Staff Portal
+            <Leaf size={14} weight="fill" /> Staff Boost Growth
           </div>
           <h1 className="portal-hero-title">
             {greetingParts ? (

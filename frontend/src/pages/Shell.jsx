@@ -244,13 +244,13 @@ export default function Shell() {
     <div className={`min-h-screen min-h-[100dvh] bg-organic ${useSidebar ? "app-shell-sidebar" : "flex flex-col"}`}>
       {useSidebar && (
         <aside className={`app-sidebar hidden lg:flex flex-col shrink-0${sidebarCollapsed ? " app-sidebar--collapsed" : ""}`}>
-          <NavLink to="/home" className="sidebar-brand" title={sidebarCollapsed ? "Boost Growth" : undefined}>
+          <NavLink to="/home" className="sidebar-brand" title={sidebarCollapsed ? "Staff Boost Growth" : undefined}>
             <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center p-1.5 shrink-0 border border-white/20">
               <img src="/bg-logo.png" alt="BG" className="w-full h-full object-contain"/>
             </div>
             {!sidebarCollapsed && (
             <div>
-              <div className="text-[13px] font-bold leading-tight text-white">Boost Growth</div>
+              <div className="text-[13px] font-bold leading-tight text-white">Staff Boost Growth</div>
               <div className="text-[9px] font-bold tracking-[0.18em] text-white/65">STAFF PORTAL</div>
             </div>
             )}
@@ -493,7 +493,7 @@ export default function Shell() {
                 <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center p-1.5 border border-white/20">
                   <img src="/bg-logo.png" alt="" className="w-full h-full object-contain"/>
                 </div>
-                <div className="font-bold text-sm text-white">Boost Growth</div>
+                <div className="font-bold text-sm text-white">Staff Boost Growth</div>
               </div>
               <button onClick={() => setMobileNav(false)} className="sidebar-link p-2 min-w-[44px] min-h-[44px] justify-center"><X size={20}/></button>
             </div>

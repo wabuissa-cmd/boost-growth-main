@@ -13,10 +13,10 @@ function LoginHero({ className = "" }) {
         className="w-[72px] h-[72px] rounded-2xl mx-auto mb-4 flex items-center justify-center p-2.5 shadow-lg"
         style={{ background: "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.2)" }}
       >
-        <img src="/bg-logo.png" alt="Boost Growth" className="w-full h-full object-contain" />
+        <img src="/bg-logo.png" alt="Staff Boost Growth" className="w-full h-full object-contain" />
       </div>
       <div className="text-[10px] tracking-[0.3em] opacity-85 font-bold">STAFF PORTAL</div>
-      <div className="font-display text-2xl font-semibold mt-1">Boost Growth</div>
+      <div className="font-display text-2xl font-semibold mt-1">Staff Boost Growth</div>
       <div className="text-xs opacity-90 mt-0.5">Applied Behavior Analysis Services</div>
       <h1 className="font-display text-xl font-bold leading-snug mt-5 px-2">
         Each growth begins<br />with <span className="text-[#F0D88A]">seeds.</span>
@@ -157,7 +157,7 @@ export default function Login() {
         <img src="/bg-logo.png" alt="" className="login-watermark absolute opacity-10 pointer-events-none" />
         <div className="max-w-lg mx-auto lg:mx-0 lg:ml-[max(1.5rem,calc((100%-32rem)/2))] relative w-full">
           <div className="text-xs tracking-[0.3em] opacity-80 font-bold">STAFF PORTAL</div>
-          <div className="text-2xl font-display font-semibold">Boost Growth</div>
+          <div className="text-2xl font-display font-semibold">Staff Boost Growth</div>
           <div className="text-sm opacity-90">Applied Behavior Analysis Services</div>
           <div className="mt-10">
             <h1 className="font-display text-4xl lg:text-5xl xl:text-6xl font-bold leading-[1.1]">

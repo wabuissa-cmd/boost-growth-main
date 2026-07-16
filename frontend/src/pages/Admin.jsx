@@ -16,7 +16,7 @@ import StaffLeavePageControl from "../components/StaffLeavePageControl";
 import PurchasesPageControl from "../components/PurchasesPageControl";
 import WaitingPageControl from "../components/WaitingPageControl";
 
-const DEFAULT_EMAIL_FROM = "Boost Growth Staff Portal <hr@boostgrowthsa.com>";
+const DEFAULT_EMAIL_FROM = "Staff Boost Growth <hr@boostgrowthsa.com>";
 
 function AdminSection({ id, title, subtitle, icon, defaultOpen = false, badge, children }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -1610,7 +1610,7 @@ export default function Admin() {
                   </div>
                   <div className="sm:col-span-2">
                     <label className="label">From Email</label>
-                    <input className="input" placeholder="Boost Growth Staff Portal &lt;hr@boostgrowthsa.com&gt;" value={emailForm.from_email} onChange={e => setEmailForm({ ...emailForm, from_email: e.target.value })} />
+                    <input className="input" placeholder="Staff Boost Growth &lt;hr@boostgrowthsa.com&gt;" value={emailForm.from_email} onChange={e => setEmailForm({ ...emailForm, from_email: e.target.value })} />
                   </div>
                   <div className="sm:col-span-2">
                     <label className="label">Mailgun API Key</label>
@@ -1628,7 +1628,7 @@ export default function Admin() {
                   </div>
                   <div className="sm:col-span-2">
                     <label className="label">From Email</label>
-                    <input className="input" placeholder="Boost Growth Staff Portal &lt;walaa@boostgrowthsa.com&gt;" value={emailForm.from_email} onChange={e => setEmailForm({ ...emailForm, from_email: e.target.value })} />
+                    <input className="input" placeholder="Staff Boost Growth &lt;walaa@boostgrowthsa.com&gt;" value={emailForm.from_email} onChange={e => setEmailForm({ ...emailForm, from_email: e.target.value })} />
                   </div>
                   <div>
                     <label className="label">SMTP User (Google email)</label>
