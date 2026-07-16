@@ -4499,6 +4499,8 @@ def _session_time_matches_cell(start_time: Optional[str], cell: Optional[dict], 
     if not start_time:
         if session_status in _NO_ATTENDANCE_SESSION_STATUSES:
             return False
+        if session_status == "Completed":
+            return False
         return True
     cell_start = _cell_session_start_time(cell)
     if not cell_start:
@@ -5376,6 +5378,74 @@ async def _cleanup_prep_for_deleted_session(sess: dict) -> None:
             "session_date": sd,
         })
     await db.prep_history.delete_many({"client_id": cid, "session_date": sd})
+
+
+def _is_phantom_excel_completed_row(pr: dict, status_norm: str) -> bool:
+    """Skip Excel template rows that falsely mark a day Completed with no time/hours."""
+    if status_norm != "Completed":
+        return False
+    if (pr.get("start_time") or "").strip():
+        return False
+    try:
+        hrs = float(pr.get("hours") or 0)
+    except Exception:
+        hrs = 0.0
+    return hrs <= 0
+
+
+async def _relink_prep_history_session_ids(client_id: str) -> dict:
+    """After session replace/import, point prep_history at the new session rows (same day/therapist)."""
+    prep_rows = await db.prep_history.find({"client_id": client_id}, {"_id": 0}).to_list(5000)
+    sessions = await db.sessions.find({"client_id": client_id}, {"_id": 0}).to_list(5000)
+    live_ids = {s["id"] for s in sessions}
+    relinked = 0
+
+    def _pick_session(sd: str, therapist_id: str, time_slot: str = "") -> Optional[dict]:
+        candidates = [
+            s for s in sessions
+            if (s.get("session_date") or "")[:10] == sd
+            and therapist_id in (s.get("therapist_ids") or [])
+            and (s.get("status") or "") in _SESSION_BADGE_STATUSES
+        ]
+        if not candidates:
+            return None
+        slot_norm = _slot_label_to_time24(time_slot) or (time_slot or "").strip()[:5]
+        if slot_norm:
+            for s in candidates:
+                st = _slot_label_to_time24(s.get("start_time")) or (s.get("start_time") or "").strip()[:5]
+                if st and st == slot_norm:
+                    return s
+        completed = [s for s in candidates if s.get("status") == "Completed" and (s.get("start_time") or "").strip()]
+        if completed:
+            return completed[0]
+        return candidates[0]
+
+    for row in prep_rows:
+        sid = row.get("session_id")
+        if sid and sid in live_ids:
+            continue
+        sd = (row.get("session_date") or "")[:10]
+        tid = row.get("therapist_id")
+        if not sd or not tid:
+            continue
+        match = _pick_session(sd, tid, (row.get("time_slot") or "").strip())
+        if not match:
+            continue
+        await db.prep_history.update_one(
+            {"id": row["id"]},
+            {"$set": {"session_id": match["id"], "updated_at": now_iso()}},
+        )
+        await db.schedule_preparations.update_many(
+            {
+                "client_id": client_id,
+                "therapist_id": tid,
+                "session_date": sd,
+                "session_id": sid,
+            },
+            {"$set": {"session_id": match["id"], "updated_at": now_iso()}},
+        )
+        relinked += 1
+    return {"relinked": relinked}
 
 
 async def _refresh_schedule_preparation_cell_ids(start: str, end: str) -> None:
@@ -11468,6 +11538,9 @@ async def _ingest_workbook_for_client(
             if not date_iso:
                 continue
             status_norm = pr["status"]
+            if _is_phantom_excel_completed_row(pr, status_norm):
+                sessions_skipped += 1
+                continue
             svc_hint = _session_blob_service_hint({
                 "status": status_norm, "note": pr.get("note") or "", "location": "",
             })
@@ -11567,6 +11640,12 @@ async def _ingest_workbook_for_client(
             synced_nums.add(norm)
     reconcile = await _reconcile_invoices_after_sync(cid, synced_nums)
     date_reconcile = await _reconcile_session_dates_from_workbook(cid, client, wb)
+    prep_relinked = {"relinked": 0}
+    if sessions_replaced:
+        try:
+            prep_relinked = await _relink_prep_history_session_ids(cid)
+        except Exception:
+            logger.exception("relink prep_history after session replace for client %s", cid)
 
     return {
         "matched_sheets": matched_sheets,
@@ -11577,6 +11656,7 @@ async def _ingest_workbook_for_client(
         "sessions_added": sessions_added,
         "sessions_skipped_existing": sessions_skipped,
         "sessions_replaced": sessions_replaced,
+        "prep_history_relinked": prep_relinked,
         "invoices_reconciled": reconcile,
         "session_dates_reconciled": date_reconcile,
         "warning": (
@@ -17048,6 +17128,41 @@ class FixSwappedSessionDatesIn(BaseModel):
     dry_run: bool = True
     client_id: Optional[str] = None
     file_no: Optional[str] = None
+
+
+class RelinkPrepHistoryIn(BaseModel):
+    client_id: Optional[str] = None
+    file_no: Optional[str] = None
+
+
+@api.post("/admin/relink-prep-history")
+async def admin_relink_prep_history(body: RelinkPrepHistoryIn, _=Depends(ops_or_admin)):
+    """Re-attach prep_history rows to current sessions after Excel replace/import."""
+    clients: List[dict] = []
+    if body.client_id:
+        c = await db.clients.find_one(_active_client_filter({"id": body.client_id.strip()}), {"_id": 0, "id": 1})
+        if c:
+            clients = [c]
+    elif body.file_no:
+        c = await _find_client_by_file_no(str(body.file_no).strip())
+        if c:
+            clients = [c]
+    else:
+        clients = await db.clients.find(_active_client_filter(), {"_id": 0, "id": 1}).to_list(500)
+    total = 0
+    per_client = []
+    for c in clients:
+        result = await _relink_prep_history_session_ids(c["id"])
+        n = int(result.get("relinked") or 0)
+        total += n
+        if n:
+            per_client.append({"client_id": c["id"], "relinked": n})
+    return {
+        "ok": True,
+        "relinked": total,
+        "clients": per_client,
+        "message": f"Re-linked {total} prep_history row(s) to current sessions.",
+    }
 
 
 class ReconcileSessionDatesFromDriveIn(BaseModel):

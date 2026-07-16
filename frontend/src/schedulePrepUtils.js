@@ -39,6 +39,8 @@ function sessionStartMatchesCell(session, cell) {
   if (!session?.start_time) {
     // No-show/cancelled without a logged time must not bind to every slot that day.
     if (session?.status && NO_ATTENDANCE_SESSION_STATUSES.has(session.status)) return false;
+    // Completed without a slot time (e.g. Excel template rows) must not light every cell green.
+    if (session?.status && LOGGED_PREP_STATUSES.has(session.status)) return false;
     return true;
   }
   if (!cellStart) return true;
@@ -351,6 +353,7 @@ export function findExistingSessionForScheduleCell(
   if (!cid) return null;
   for (const s of sessions || []) {
     if (!ANY_LOGGED_SESSION_STATUSES.has(s.status)) continue;
+    if (LOGGED_PREP_STATUSES.has(s.status) && !(s.start_time || "").trim()) continue;
     if (s.client_id !== cid) continue;
     if ((s.session_date || "").slice(0, 10) !== sessionDate) continue;
     if (!sessionIncludesTherapist(s.therapist_ids, therapistId, idAliases)) continue;
