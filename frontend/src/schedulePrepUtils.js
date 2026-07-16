@@ -2,6 +2,18 @@ import { addDays, toISODate } from "./api";
 import { findClientForScheduleCell, isScheduleClientLogCell, normScheduleName, scheduleCellChildName } from "./scheduleUtils";
 import { scheduleCellSessionTimes, slotToTime24 } from "./scheduleTimeUtils";
 
+/** Excel attendance imports — billing only; must not drive schedule prep badges. */
+const EXCEL_SESSION_SOURCES = new Set(["drive-sync", "drive-bulk-sync", "excel-sync", "import"]);
+
+export function isPortalLoggedSession(session) {
+  if (!session) return false;
+  if (session.created_by_role === "therapist") return true;
+  const src = (session.source || "").trim().toLowerCase();
+  if (src === "session" || src === "prep" || src === "no_show" || src === "prep-restore") return true;
+  if (EXCEL_SESSION_SOURCES.has(src) || session.sync_key) return false;
+  return true;
+}
+
 /** Only completed sessions count as prepared (green checkmark). */
 const LOGGED_PREP_STATUSES = new Set(["Completed"]);
 /** Sessions that bind a logged status to a schedule cell (incl. no attendance). */
@@ -140,11 +152,12 @@ export function prepRecordKeys(rec, idAliases = null) {
   return keys;
 }
 
-/** @deprecated Use buildSessionPrepLookup only — prep table rows no longer drive badges. */
+/** Map preparation markers → schedule cell keys (incl. prep_history when session was replaced). */
 export function buildPrepLookup(preparations, idAliases = null) {
   const set = new Set();
   for (const rec of preparations || []) {
-    if (!rec?.session_id) continue;
+    if (!rec?.client_id || !(rec.session_date || "").slice(0, 10)) continue;
+    if (rec.marker_type === "no_show") continue;
     for (const k of prepRecordKeys(rec, idAliases)) set.add(k);
   }
   return set;
@@ -226,6 +239,7 @@ export function buildSessionPrepLookup(
     const date = (s.session_date || "").slice(0, 10);
     if (!date || date < weekStartISO || date > weekEndISO) continue;
     if (!CELL_BOUND_SESSION_STATUSES.has(s.status)) continue;
+    if (!isPortalLoggedSession(s)) continue;
     if (!s.client_id) continue;
     if (!cells.length) continue;
     for (const cell of cells) {
@@ -379,6 +393,7 @@ function findSessionForCellByStatus(
 
   for (const s of sessions) {
     if (!statusSet.has(s.status)) continue;
+    if (LOGGED_PREP_STATUSES.has(s.status) && !isPortalLoggedSession(s)) continue;
     if (sessionMatchesScheduleCellStrict(s, cell, therapistId, sessionDate, client, clients, idAliases)) {
       return s;
     }

@@ -4986,6 +4986,26 @@ _LOGGED_PREP_SESSION_STATUSES = {"Completed"}
 _NO_ATTENDANCE_SESSION_STATUSES = {"No Show", "Cancelled"}
 _NO_SHOW_SESSION_STATUSES = _NO_ATTENDANCE_SESSION_STATUSES
 _SESSION_BADGE_STATUSES = _LOGGED_PREP_SESSION_STATUSES | _NO_ATTENDANCE_SESSION_STATUSES
+_EXCEL_SESSION_SOURCES = frozenset({"drive-sync", "drive-bulk-sync", "excel-sync", "import"})
+
+
+def _is_excel_imported_session(sess: dict) -> bool:
+    """True when the row came from an attendance workbook import (billing, not schedule prep)."""
+    if (sess or {}).get("sync_key"):
+        return True
+    return (sess.get("source") or "").strip().lower() in _EXCEL_SESSION_SOURCES
+
+
+def _is_portal_logged_session(sess: dict) -> bool:
+    """Therapist-logged on the portal — must never be removed by Excel sync."""
+    if (sess.get("created_by_role") or "") == "therapist":
+        return True
+    src = (sess.get("source") or "").strip().lower()
+    if src in ("session", "prep", "no_show", "prep-restore"):
+        return True
+    if _is_excel_imported_session(sess):
+        return False
+    return bool(sess.get("created_by"))
 
 
 def _require_same_day_session(user: dict, session_date: str) -> None:
@@ -5026,6 +5046,8 @@ async def _computed_schedule_preparation_markers(
         sid = sess.get("id")
         if not cid or not sd or not sid:
             continue
+        if _is_excel_imported_session(sess) and not _is_portal_logged_session(sess):
+            continue
         client = await db.clients.find_one(
             _active_client_filter({"id": cid}), {"_id": 0, "name": 1},
         )
@@ -5061,6 +5083,46 @@ async def _computed_schedule_preparation_markers(
                 "marker_type": "prep",
                 "session_id": sid,
             })
+    return markers
+
+
+async def _computed_schedule_preparation_markers_from_prep_history(
+    start: str, end: str, therapist_id: Optional[str] = None,
+) -> list:
+    """Fallback prep badges from prep_history when Excel sync replaced portal sessions."""
+    filter_ids: Optional[set] = None
+    if therapist_id:
+        filter_ids = set(await _expand_therapist_ids(therapist_id))
+    rows = await db.prep_history.find(_session_date_range_query(start, end), {"_id": 0}).to_list(5000)
+    markers: list = []
+    seen: set = set()
+    for row in rows:
+        if not _prep_history_row_is_meaningful(row):
+            continue
+        tid = row.get("therapist_id")
+        cid = row.get("client_id")
+        sd = (row.get("session_date") or "")[:10]
+        if not tid or not cid or not sd:
+            continue
+        if filter_ids and tid not in filter_ids:
+            continue
+        cell_id = row.get("schedule_cell_id")
+        slot = (row.get("time_slot") or "").strip()
+        key = (tid, cell_id or "", cid, sd, slot)
+        if key in seen:
+            continue
+        seen.add(key)
+        markers.append({
+            "therapist_id": tid,
+            "client_id": cid,
+            "session_date": sd,
+            "time_slot": slot,
+            "schedule_cell_id": cell_id,
+            "client_name": row.get("client_name"),
+            "source": "prep_history",
+            "marker_type": "prep",
+            "session_id": row.get("session_id"),
+        })
     return markers
 
 
@@ -5377,7 +5439,89 @@ async def _cleanup_prep_for_deleted_session(sess: dict) -> None:
             "client_id": cid,
             "session_date": sd,
         })
-    await db.prep_history.delete_many({"client_id": cid, "session_date": sd})
+    # Keep prep_history — therapist notes must survive session/Excel sync changes.
+
+
+async def _restore_portal_sessions_from_prep_history(
+    *,
+    client_id: Optional[str] = None,
+    week_start: Optional[str] = None,
+) -> dict:
+    """Recreate portal Completed sessions from prep_history when Excel sync removed them."""
+    q: dict = {}
+    if client_id:
+        q["client_id"] = client_id
+    if week_start:
+        try:
+            base = datetime.fromisoformat(str(week_start)[:10])
+        except ValueError:
+            base = None
+        if base:
+            start = base.strftime("%Y-%m-%d")
+            end = (base + timedelta(days=6)).strftime("%Y-%m-%d")
+            q.update(_session_date_range_query(start, end))
+    prep_rows = await db.prep_history.find(q, {"_id": 0}).to_list(10000)
+    created = 0
+    relinked = 0
+    for row in prep_rows:
+        if not _prep_history_row_is_meaningful(row):
+            continue
+        cid = row.get("client_id")
+        sd = (row.get("session_date") or "")[:10]
+        tid = row.get("therapist_id")
+        if not cid or not sd or not tid:
+            continue
+        sid = row.get("session_id")
+        if sid:
+            live = await db.sessions.find_one({"id": sid, "client_id": cid}, {"_id": 0, "id": 1})
+            if live:
+                continue
+        portal_day = await db.sessions.find_one(
+            {"client_id": cid, **_session_date_query(sd)},
+            {"_id": 0},
+        )
+        if portal_day and _is_portal_logged_session(portal_day):
+            await db.prep_history.update_one(
+                {"id": row["id"]},
+                {"$set": {"session_id": portal_day["id"], "updated_at": now_iso()}},
+            )
+            relinked += 1
+            continue
+        client = await db.clients.find_one(_active_client_filter({"id": cid}), {"_id": 0})
+        invs = await db.invoices.find({"client_id": cid}, {"_id": 0}).to_list(200)
+        start_t = _slot_label_to_time24(row.get("time_slot") or "")
+        doc = {
+            "id": str(uuid.uuid4()),
+            "client_id": cid,
+            "session_date": sd,
+            "day_name": _day_name_from_date(sd),
+            "start_time": start_t or None,
+            "end_time": None,
+            "hours": 2.0,
+            "status": "Completed",
+            "therapist_ids": [tid],
+            "note": row.get("notes") or None,
+            "service_type": _normalize_service_type((client or {}).get("service_type")) or "HS",
+            "week_number": None,
+            "source": "prep-restore",
+            "created_by": row.get("prepared_by") or "prep-restore",
+            "created_by_role": "therapist",
+            "created_at": row.get("prepared_at") or now_iso(),
+        }
+        doc = _attach_open_invoice_to_session(doc, client or {}, invs)
+        await db.sessions.insert_one(doc)
+        await db.prep_history.update_one(
+            {"id": row["id"]},
+            {"$set": {"session_id": doc["id"], "updated_at": now_iso()}},
+        )
+        try:
+            await _ensure_session_schedule_prep_markers(
+                doc, row.get("prepared_by") or "prep-restore", notes=row.get("notes"),
+            )
+        except Exception:
+            logger.exception("prep restore markers for %s %s", cid, sd)
+        created += 1
+    return {"created": created, "relinked": relinked}
 
 
 def _is_phantom_excel_completed_row(pr: dict, status_norm: str) -> bool:
@@ -5638,10 +5782,11 @@ async def list_schedule_preparations(
     no_show_markers: list = []
     if tid or sync:
         computed = await _computed_schedule_preparation_markers(start, end, tid)
+        computed += await _computed_schedule_preparation_markers_from_prep_history(start, end, tid)
         no_show_markers = await _computed_schedule_no_show_markers(start, end, tid)
     suppressions = await _list_prep_suppressions(start, end, tid)
-    # Only session-backed rows from DB (internal notes metadata); badges come from sessions.
-    db_session_backed = [it for it in db_items if it.get("session_id")]
+    # Session-backed rows plus prep_history fallback (survives Excel replace).
+    db_session_backed = [it for it in db_items if it.get("session_id") or it.get("marker_type") == "prep"]
     merged = _merge_schedule_preparation_markers(computed, no_show_markers, db_session_backed)
     items = _filter_suppressed_markers(merged, suppressions, alias_map)
     if not include_future:
@@ -7341,10 +7486,57 @@ async def _heal_manager_only_rejects_to_hr_once() -> dict:
     return {"requests": fixed_req, "leaves": fixed_leave}
 
 
+async def _therapist_scheduled_for_client(therapist_id: str, client: dict, child_name: str = "") -> bool:
+    """True when this therapist has a schedule cell for the client (note or child_name)."""
+    if not therapist_id or not client:
+        return False
+    if client.get("main_therapist_id") == therapist_id:
+        return True
+    if therapist_id in (client.get("co_therapist_ids") or []):
+        return True
+    cid = client.get("id")
+    label = (child_name or "").strip()
+    cname = (client.get("name") or "").strip()
+    first = cname.split()[0] if cname else ""
+    for pat in [label, first, cname]:
+        if not pat or len(pat) < 2:
+            continue
+        esc = re.escape(pat)
+        hit = await db.schedule_cells.find_one(
+            {
+                "therapist_id": therapist_id,
+                "$or": [
+                    {"child_name": {"$regex": f"^{esc}($|\\s)", "$options": "i"}},
+                    {"note": {"$regex": esc, "$options": "i"}},
+                ],
+            },
+            {"_id": 0, "id": 1},
+        )
+        if hit:
+            return True
+    cells = await db.schedule_cells.find({"therapist_id": therapist_id}, {"_id": 0}).to_list(800)
+    for cell in cells:
+        if cid and await _cell_matches_session_client(cell, cid):
+            return True
+    return False
+
+
 @api.get("/clients/resolve-schedule-name")
-async def resolve_client_by_schedule_name(child_name: str, user=Depends(get_current_user)):
+async def resolve_client_by_schedule_name(
+    child_name: str,
+    schedule_cell_id: Optional[str] = None,
+    user=Depends(get_current_user),
+):
     """Resolve a schedule cell child_name to a client the current user may log sessions for."""
-    client = await _find_client_by_schedule_child_name(child_name)
+    label = (child_name or "").strip()
+    client = await _find_client_by_schedule_child_name(label)
+    if schedule_cell_id:
+        cell = await db.schedule_cells.find_one({"id": schedule_cell_id}, {"_id": 0})
+        if cell:
+            cell_label = _schedule_cell_child_label(cell)
+            alt = await _find_client_by_schedule_child_name(cell_label or label)
+            if alt:
+                client = alt
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     if _has_full_client_access(user):
@@ -7352,14 +7544,8 @@ async def resolve_client_by_schedule_name(child_name: str, user=Depends(get_curr
     tid = await _resolve_user_therapist_id(user)
     if not tid:
         raise HTTPException(status_code=403, detail="Access denied")
-    if client.get("main_therapist_id") == tid or tid in (client.get("co_therapist_ids") or []):
-        return await db.clients.find_one(_active_client_filter({"id": client["id"]}), {"_id": 0})
-    scheduled = await db.schedule_cells.find_one(
-        {"therapist_id": tid, "child_name": {"$regex": f"^{re.escape((child_name or '').strip())}($|\\s)"}},
-        {"_id": 0, "id": 1},
-    )
-    if scheduled:
-        await _ensure_co_therapist_from_schedule(tid, child_name)
+    if await _therapist_scheduled_for_client(tid, client, label):
+        await _ensure_co_therapist_from_schedule(tid, label)
         return await db.clients.find_one(_active_client_filter({"id": client["id"]}), {"_id": 0})
     raise HTTPException(status_code=403, detail="Access denied")
 
@@ -11509,11 +11695,19 @@ async def _ingest_workbook_for_client(
             existing_inv[inv_num] = inv_doc
 
         if replace_sessions and inv_doc.get("id"):
+            # Only remove Excel-imported rows — never delete therapist portal logs.
             del_q = {
                 "client_id": cid,
-                "$or": [
-                    {"invoice_id": inv_doc["id"]},
-                    {"source_invoice": inv_num},
+                "$and": [
+                    {"$or": [
+                        {"invoice_id": inv_doc["id"]},
+                        {"source_invoice": inv_num},
+                    ]},
+                    {"created_by_role": {"$ne": "therapist"}},
+                    {"$or": [
+                        {"source": {"$in": list(_EXCEL_SESSION_SOURCES)}},
+                        {"sync_key": {"$exists": True, "$nin": [None, ""]}},
+                    ]},
                 ],
             }
             removed = await db.sessions.delete_many(del_q)
@@ -11532,10 +11726,24 @@ async def _ingest_workbook_for_client(
         if not parsed_rows:
             continue
 
+        portal_days = {
+            (_session_date_iso(s.get("session_date")) or "")
+            for s in existing_sessions
+            if s.get("client_id") == cid
+            and _is_portal_logged_session(s)
+            and (
+                s.get("invoice_id") == inv_doc.get("id")
+                or (s.get("source_invoice") or "").strip() in (inv_num, clean)
+            )
+        }
+
         earliest = None
         for pr in parsed_rows:
             date_iso = pr.get("date_iso")
             if not date_iso:
+                continue
+            if date_iso in portal_days:
+                sessions_skipped += 1
                 continue
             status_norm = pr["status"]
             if _is_phantom_excel_completed_row(pr, status_norm):
@@ -17133,6 +17341,8 @@ class FixSwappedSessionDatesIn(BaseModel):
 class RelinkPrepHistoryIn(BaseModel):
     client_id: Optional[str] = None
     file_no: Optional[str] = None
+    week_start: Optional[str] = None
+    restore_missing_sessions: bool = False
 
 
 @api.post("/admin/relink-prep-history")
@@ -17150,18 +17360,34 @@ async def admin_relink_prep_history(body: RelinkPrepHistoryIn, _=Depends(ops_or_
     else:
         clients = await db.clients.find(_active_client_filter(), {"_id": 0, "id": 1}).to_list(500)
     total = 0
+    restored = {"created": 0, "relinked": 0}
     per_client = []
     for c in clients:
+        r = {"created": 0, "relinked": 0}
+        if body.restore_missing_sessions:
+            r = await _restore_portal_sessions_from_prep_history(
+                client_id=c["id"], week_start=body.week_start,
+            )
+            restored["created"] += int(r.get("created") or 0)
+            restored["relinked"] += int(r.get("relinked") or 0)
         result = await _relink_prep_history_session_ids(c["id"])
         n = int(result.get("relinked") or 0)
         total += n
-        if n:
-            per_client.append({"client_id": c["id"], "relinked": n})
+        if n or (body.restore_missing_sessions and (r.get("created") or r.get("relinked"))):
+            per_client.append({
+                "client_id": c["id"],
+                "relinked": n,
+                **({"restored": r} if body.restore_missing_sessions else {}),
+            })
+    msg = f"Re-linked {total} prep_history row(s) to current sessions."
+    if body.restore_missing_sessions:
+        msg += f" Restored {restored['created']} portal session(s) from prep notes."
     return {
         "ok": True,
         "relinked": total,
+        "restored": restored,
         "clients": per_client,
-        "message": f"Re-linked {total} prep_history row(s) to current sessions.",
+        "message": msg,
     }
 
 

@@ -31,7 +31,7 @@ import ParentCancellationModal from "../components/ParentCancellationModal";
 import LogSessionModal from "../components/LogSessionModal";
 import { scheduleCellSessionTimes } from "../scheduleTimeUtils";
 import SchedulePrepBadge from "../components/SchedulePrepBadge";
-import { buildSessionPrepLookup, buildSuppressionLookup, getCellStatusBadge, mergePrepLookups, buildAllTherapistIdAliases, optimisticPrepKeysFromScheduleLog, findPrepRecordForCell, findExistingSessionForScheduleCell } from "../schedulePrepUtils";
+import { buildSessionPrepLookup, buildPrepLookup, buildSuppressionLookup, getCellStatusBadge, mergePrepLookups, buildAllTherapistIdAliases, optimisticPrepKeysFromScheduleLog, findPrepRecordForCell, findExistingSessionForScheduleCell } from "../schedulePrepUtils";
 import { buildParentMessages } from "../scheduleParentMessages";
 import { sortTherapistsForSchedule, sortTherapistsForScheduleWeek, getTherapistScheduleName, SCHEDULE_CLOSURE_STYLE, closureLabelForTherapist } from "../scheduleConstants";
 import { cachedGet, invalidateCache } from "../dataCache";
@@ -445,8 +445,11 @@ export default function Schedule() {
       setPreparations(rows);
       const supLookup = buildSuppressionLookup(sups);
       setSuppressionLookup(supLookup);
-      setPrepLookup(buildSessionPrepLookup(
-        sessionsForLookup, weekStartISO, weekEndISO, therapistIdAliases, supLookup, cells, clients,
+      setPrepLookup(mergePrepLookups(
+        buildSessionPrepLookup(
+          sessionsForLookup, weekStartISO, weekEndISO, therapistIdAliases, supLookup, cells, clients,
+        ),
+        buildPrepLookup(rows, therapistIdAliases),
       ));
       return rows.length;
     } catch {
@@ -1158,7 +1161,7 @@ export default function Schedule() {
     if (!client) {
       try {
         const { data } = await api.get("/clients/resolve-schedule-name", {
-          params: { child_name: childName },
+          params: { child_name: childName, schedule_cell_id: cell?.id || undefined },
         });
         client = data;
       } catch {
