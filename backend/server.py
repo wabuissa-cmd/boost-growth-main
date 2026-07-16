@@ -575,6 +575,7 @@ LAUNCH_PASSWORD_SUFFIX = "Launch2026"
 UNIFIED_LAUNCH_PASSWORD = "growth2026"
 EMAIL_FROM_DISPLAY_NAME = "Staff Boost Growth"
 DEFAULT_EMAIL_FROM = f"{EMAIL_FROM_DISPLAY_NAME} <hr@boostgrowthsa.com>"
+EMAIL_SIGN_OFF = "Staff Boost Growth"
 # Clients whose invoices stay partial (half paid) during bulk mark-paid rollout.
 PARTIAL_PAYMENT_CLIENT_FILE_NOS = frozenset({"079"})  # Fahad Suliman — half paid (not Fahad Alyahya #011)
 
@@ -3423,7 +3424,7 @@ async def publish_schedule_week(body: dict, admin=Depends(ops_or_admin)):
             r = await _send_email_stub(
                 t["email"],
                 f"[Boost Growth] New Schedule Published — Week of {week_start}",
-                f"Dear {t.get('name', '')},\n\nThe schedule for the week of {week_start} has been published.\nPlease review your sessions for the coming week.\n\n— Boost Growth Portal",
+                f"Dear {t.get('name', '')},\n\nThe schedule for the week of {week_start} has been published.\nPlease review your sessions for the coming week.\n\n— Staff Boost Growth",
             )
             if r.get("status") == "sent":
                 sent += 1
@@ -3514,7 +3515,7 @@ async def _broadcast_important_center_update(doc: dict):
         email_body += "\nPlease open the portal Home page and confirm you have read this update.\n"
     if portal:
         email_body += f"\nOpen portal: {portal}/\n"
-    email_body += "\n— Boost Growth Portal"
+    email_body += "\n— Staff Boost Growth"
     msg = body[:240] if body else title
     for t in await _therapist_recipient_rows():
         tid = t.get("id")
@@ -6258,7 +6259,7 @@ async def _notify_purchase_submitted(purchaser_name: str, item: str, category: s
     portal = _portal_base_url()
     if portal:
         body += f"\nReview in portal: {portal}/purchases\n"
-    body += "\n— Boost Growth Portal"
+    body += "\n— Staff Boost Growth"
     await _send_urgent_email(await _jenan_recipient_email(), title, body)
 
 
@@ -6371,7 +6372,7 @@ async def _notify_hr_manager_decision(
     if portal:
         link = "/manager" if ntype in ("leave_request", "request") else "/staff-leave"
         hr_body += f"\n\nReview in portal: {portal}{link}"
-    hr_body += "\n\nSincerely,\nBoost Growth Portal"
+    hr_body += "\n\nSincerely,\nStaff Boost Growth"
     await _email_hr_ops_urgent(hr_title, hr_body)
 
 
@@ -6456,7 +6457,7 @@ def _staff_request_decision_email_body(
         lines += ["", "Next step", f"- View your requests on the portal: {portal}/my-requests"]
     else:
         lines += ["", "Next step", "- View your requests on the portal under My Requests."]
-    lines += ["", "Sincerely,", "HR Department", "Boost Growth"]
+    lines += ["", "Sincerely,", "HR Department", "Staff Boost Growth"]
     return "\n".join(lines).strip() + "\n"
 
 
@@ -6521,7 +6522,7 @@ def _format_request_email_body(req: dict) -> str:
         lines += ["", f"Review in portal: {portal}/manager"]
         if has_attachment:
             lines += [f"Attachment: {portal}/manager"]
-    lines += ["", "Sincerely,", "Boost Growth Portal"]
+    lines += ["", "Sincerely,", "Staff Boost Growth"]
     return "\n".join(lines).strip() + "\n"
 
 
@@ -6601,7 +6602,7 @@ async def _notify_leave_submitted(
     portal = _portal_base_url()
     if portal:
         body += f"\nReview in portal: {portal}/manager\n"
-    body += "\n— Boost Growth Staff Portal"
+    body += "\n— Staff Boost Growth"
     await _send_urgent_email(await _jenan_recipient_email(), subject, body)
 
 
@@ -6633,7 +6634,7 @@ async def _resend_leave_notification(leave: dict, therapist: Optional[dict], *, 
     portal = _portal_base_url()
     if portal:
         body += f"\nReview in portal: {portal}/manager\n"
-    body += "\n— Boost Growth Staff Portal"
+    body += "\n— Staff Boost Growth"
     email_result = await _send_urgent_email(await _jenan_recipient_email(), title, body)
     return {
         "leave_id": leave.get("id"),
@@ -7006,7 +7007,7 @@ async def notify_schedule(cid: str, body: ScheduleNotifyIn, user=Depends(schedul
                     f"{msg}\n\n"
                     f"Session: {cell.get('service_code') or '—'} | {cell.get('child_name') or '—'}\n"
                     f"Day: {cell.get('day')} | Time: {cell.get('time_slot') or '—'}\n\n"
-                    f"— Boost Growth Portal"
+                    f"— Staff Boost Growth"
                 )
                 await _send_email_stub(therapist["email"], subj, email_body)
     return {"ok": True, "sent": sent}
@@ -8004,7 +8005,7 @@ async def update_progress_report_steps(rid: str, payload: ProgressStepsIn, user=
                     await _send_email_stub(
                         therapist["email"],
                         f"[Boost Growth] Progress report updated — {client.get('name', '')}",
-                        f"Hello {therapist.get('name', '')},\n\nProgress report steps updated: {', '.join(steps_changed)}.\n\n— Boost Growth Portal",
+                        f"Hello {therapist.get('name', '')},\n\nProgress report steps updated: {', '.join(steps_changed)}.\n\n— Staff Boost Growth",
                     )
     doc = await db.progress_reports.find_one({"id": rid}, {"_id": 0})
     return doc or {}
@@ -8471,7 +8472,7 @@ async def _process_payment_reminders(force: bool = False) -> dict:
             body += f"Amount remaining: {remaining} SAR\n"
         if inv.get("payment_notes"):
             body += f"Notes: {inv.get('payment_notes')}\n"
-        body += "\n— Boost Growth Staff Portal"
+        body += "\n— Staff Boost Growth"
         matched += 1
         for email in recipients:
             r = await _send_email_stub(email, subj, body)
@@ -9785,7 +9786,7 @@ async def remind_case_summary_update(
     )
     if custom:
         body_text += f"Message from {sender}:\n{custom}\n\n"
-    body_text += f"Requested by: {sender}\n\n— Boost Growth Staff Portal"
+    body_text += f"Requested by: {sender}\n\n— Staff Boost Growth"
     result = await _send_email_stub(to, subj, body_text)
     return {"ok": True, "to": to, "email_status": result.get("status"), "error": result.get("error")}
 
@@ -12970,7 +12971,7 @@ async def _send_staff_request_manager_email(
         lines += ["", "Manager note", (manager_note or "").strip()]
     if portal:
         lines += ["", "Next step", f"- Track your request: {portal}/my-requests"]
-    lines += ["", "Sincerely,", "Boost Growth Portal"]
+    lines += ["", "Sincerely,", "Staff Boost Growth"]
 
     subject = f"Request update — sent to HR — {rtype} — {title}"
     body = "\n".join(lines).strip() + "\n"
@@ -14162,7 +14163,7 @@ async def _process_evaluation_due_alerts(force: bool = False) -> dict:
                 eval_date=entry["date"],
                 eval_type=entry["eval_type"],
             )
-            body = f"{msg}\n\nOpen calendar: {_portal_base_url()}/manager?tab=calendar\n\n— Boost Growth Portal"
+            body = f"{msg}\n\nOpen calendar: {_portal_base_url()}/manager?tab=calendar\n\n— Staff Boost Growth"
             await _send_urgent_email(await _jenan_recipient_email(), title, body)
             sent += 1
     return {"sent": sent, "target_date": target_iso, "forced": force}
@@ -14292,7 +14293,7 @@ async def hr_contract_reminder(tid: str, user=Depends(hr_manager_access)):
     portal = _portal_base_url()
     if portal:
         body += f"\nOpen profile: {portal}/manager?tab=profiles\n"
-    body += "\n— Boost Growth Portal"
+    body += "\n— Staff Boost Growth"
     await _send_urgent_email(await _jenan_recipient_email(), title, body)
     return {"ok": True, "message": "Jenan notified"}
 
@@ -15278,7 +15279,7 @@ async def email_test_send(payload: dict, _=Depends(admin_only)):
         raise HTTPException(status_code=400, detail="No email provider configured. Save Mailgun settings in Admin.")
     result = await _send_email_stub(to,
         "Boost Growth — Test Email",
-        "This is a test email from your Boost Growth Portal.\n\nIf you received this, email notifications are working correctly.\n\n— Boost Growth Portal")
+        "This is a test email from Staff Boost Growth.\n\nIf you received this, email notifications are working correctly.\n\n— Staff Boost Growth")
     if result.get("status") == "failed" and result.get("error"):
         hint = _smtp_error_hint(result["error"])
         if hint:
@@ -15538,9 +15539,9 @@ async def admin_email_test_jenan(_=Depends(admin_only)):
     result = await _send_email_stub(
         to,
         "Boost Growth — Test Email to Jenan",
-        "This is a test email from Boost Growth Portal.\n\n"
+        "This is a test email from Staff Boost Growth.\n\n"
         "If Jenan received this, leave and purchase notifications are working.\n\n"
-        "— Boost Growth Portal",
+        "— Staff Boost Growth",
     )
     if result.get("status") == "failed" and result.get("error"):
         hint = _smtp_error_hint(result["error"])
@@ -16613,7 +16614,7 @@ async def update_leave_status(lid: str, payload: LeaveStatusUpdate, user=Depends
                     lines += ["", "Next step", f"- Please check your page on the portal: {portal}/my-requests"]
                 else:
                     lines += ["", "Next step", "- Please check your page on the portal."]
-                lines += ["", "Sincerely,", "HR Department", "Boost Growth"]
+                lines += ["", "Sincerely,", "HR Department", "Staff Boost Growth"]
                 body = "\n".join(lines).strip() + "\n"
                 for to in therapist_emails:
                     await _send_email_stub(to, f"Leave request update — {leave_type}", body)
@@ -17133,7 +17134,7 @@ async def admin_resend_purchase_notifications(
         portal = _portal_base_url()
         if portal:
             body_text += f"\nReview in portal: {portal}/purchases\n"
-        body_text += "\n— Boost Growth Portal"
+        body_text += "\n— Staff Boost Growth"
         email_result = await _send_urgent_email(await _jenan_recipient_email(), title, body_text)
         sent.append({
             "purchase_id": p.get("id"),
@@ -17727,7 +17728,7 @@ async def schedule_cancel_notify(payload: CancelNotifyIn, user=Depends(schedule_
                         f"Dear {therapist.get('name', '')},\n\n"
                         f"{actor} marked the session with {client_name} scheduled on {day_label or week_start} "
                         f"at {cell.get('time_slot') or '—'} as a therapist cancellation.\n\n"
-                        f"{payload.message}\n\n— Boost Growth Portal"
+                        f"{payload.message}\n\n— Staff Boost Growth"
                     )
                 else:
                     subj = f"[Boost Growth] {title}"
@@ -17741,7 +17742,7 @@ async def schedule_cancel_notify(payload: CancelNotifyIn, user=Depends(schedule_
                         f"Cell: {cell.get('service_code')} | {client_name}",
                         f"Day: {day_label or cell.get('day')} | Time: {cell.get('time_slot')}",
                         "",
-                        "— Boost Growth Portal",
+                        "— Staff Boost Growth",
                     ]
                     body = "\n".join(body_lines)
                 await _send_email_stub(recipient, subj, body)
