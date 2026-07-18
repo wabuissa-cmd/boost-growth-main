@@ -20,16 +20,41 @@ import "../clientInfoLayout.css";
 const PURCHASES_SHEET_URL = "https://docs.google.com/spreadsheets/d/10ZGq3ABQ1t-w32jrGZIu6Gxa2wevIJU2GLe9YWGdkIQ/edit";
 
 const STATUS_META = {
-  pending: { label: "Pending supervisor", cls: "bg-[#FAF0D1] text-[#6B5218]", icon: <Hourglass size={14} weight="duotone"/> },
-  supervisor_approved: { label: "Supervisor approved", cls: "bg-[#EAF0F3] text-[#375568]", icon: <Clock size={14} weight="duotone"/> },
-  supervisor_rejected: { label: "Supervisor rejected", cls: "bg-[#F8EBE7] text-[#8A3F27]", icon: <XCircle size={14} weight="duotone"/> },
-  pending_manager: { label: "With manager Jenan", cls: "bg-[#FAF0D1] text-[#6B5218]", icon: <Hourglass size={14} weight="duotone"/> },
-  manager_approved: { label: "Manager approved", cls: "bg-[#EAF0F3] text-[#375568]", icon: <CheckCircle size={14} weight="duotone"/> },
-  manager_rejected: { label: "Manager rejected", cls: "bg-[#F8EBE7] text-[#8A3F27]", icon: <XCircle size={14} weight="duotone"/> },
+  pending: { label: "Pending", cls: "bg-[#FAF0D1] text-[#6B5218]", icon: <Hourglass size={14} weight="duotone"/> },
+  supervisor_approved: { label: "Supervisor OK", cls: "bg-[#EAF0F3] text-[#375568]", icon: <Clock size={14} weight="duotone"/> },
+  supervisor_rejected: { label: "Rejected", cls: "bg-[#F8EBE7] text-[#8A3F27]", icon: <XCircle size={14} weight="duotone"/> },
+  pending_manager: { label: "With Jenan", cls: "bg-[#FAF0D1] text-[#6B5218]", icon: <Hourglass size={14} weight="duotone"/> },
+  manager_approved: { label: "Approved", cls: "bg-[#EAF0F3] text-[#375568]", icon: <CheckCircle size={14} weight="duotone"/> },
+  manager_rejected: { label: "Rejected", cls: "bg-[#F8EBE7] text-[#8A3F27]", icon: <XCircle size={14} weight="duotone"/> },
   approved: { label: "Approved", cls: "bg-[#EAF0F3] text-[#375568]", icon: <Clock size={14} weight="duotone"/> },
   rejected: { label: "Rejected", cls: "bg-[#F8EBE7] text-[#8A3F27]", icon: <XCircle size={14} weight="duotone"/> },
   reimbursed: { label: "Reimbursed", cls: "bg-[#E5EBE1] text-[#3D4F35]", icon: <CheckCircle size={14} weight="duotone"/> },
 };
+
+const STATUS_FILTER_CHIPS = [
+  { id: "", label: "All" },
+  { id: "pending", label: "Pending" },
+  { id: "approved", label: "Approved" },
+  { id: "rejected", label: "Rejected" },
+  { id: "reimbursed", label: "Reimbursed" },
+];
+
+const REJECTED_STATUSES = new Set(["supervisor_rejected", "manager_rejected", "rejected"]);
+
+function isAwaitingAction(status) {
+  const s = status || "pending";
+  return s === "pending" || s === "pending_manager" || s === "supervisor_approved";
+}
+
+function statusMatchesFilter(status, filter) {
+  const s = status || "pending";
+  if (!filter) return true;
+  if (filter === "pending") return isAwaitingAction(s);
+  if (filter === "approved") return s === "manager_approved" || s === "approved";
+  if (filter === "rejected") return REJECTED_STATUSES.has(s);
+  if (filter === "reimbursed") return s === "reimbursed";
+  return s === filter;
+}
 
 function fmtDate(iso) {
   if (!iso) return "—";
@@ -72,6 +97,7 @@ export default function Purchases({ embedded = false }) {
   const canDelete = showSystemAdmin(user);
   const canSyncSheet = isJenan(user) || isWalaaOps(user) || showAdminNav(user);
   const canPickPurchaser = showSystemAdmin(user) || showAdminNav(user);
+  const showPurchaserCol = canManageStatus; // Jenan / leads / admin always see who submitted
   const ownTherapistId = user?.therapist_id || user?.id || "";
   const [items, setItems] = useState([]);
   const [allItems, setAllItems] = useState([]);
@@ -87,6 +113,7 @@ export default function Purchases({ embedded = false }) {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
   const [filterTherapist, setFilterTherapist] = useState("");
+  const [statusBusyId, setStatusBusyId] = useState("");
   const [settings, setSettings] = useState({ day_of_month: 25, enabled: true, therapist_ids: [] });
   const [savingSettings, setSavingSettings] = useState(false);
   const [sending, setSending] = useState(false);
@@ -154,6 +181,7 @@ export default function Purchases({ embedded = false }) {
     const q = (search || "").trim().toLowerCase();
     return (items || []).filter((p) => {
       if (!p) return false;
+      if (!statusMatchesFilter(p.status, filterStatus)) return false;
       if (filterCategory && (p.category || "") !== filterCategory) return false;
       if (filterTherapist && String(p.therapist_id || "") !== String(filterTherapist)) return false;
       if (!q) return true;
@@ -171,21 +199,38 @@ export default function Purchases({ embedded = false }) {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [items, search, filterCategory, filterTherapist, therapistOptions]);
+  }, [items, search, filterStatus, filterCategory, filterTherapist, therapistOptions]);
+
+  const statusCounts = useMemo(() => {
+    const counts = { "": 0, pending: 0, approved: 0, rejected: 0, reimbursed: 0 };
+    (items || []).forEach((p) => {
+      counts[""] += 1;
+      if (isAwaitingAction(p.status)) counts.pending += 1;
+      if (statusMatchesFilter(p.status, "approved")) counts.approved += 1;
+      if (statusMatchesFilter(p.status, "rejected")) counts.rejected += 1;
+      if (statusMatchesFilter(p.status, "reimbursed")) counts.reimbursed += 1;
+    });
+    return counts;
+  }, [items]);
 
   const load = async () => {
     const params = {};
-    if (filterStatus) params.status = filterStatus;
     if (filterMonth) params.month = filterMonth;
     try {
-      const [listRes, allRes, pendingRes] = await Promise.all([
+      const [listRes, allRes] = await Promise.all([
         api.get("/purchases", { params }),
         api.get("/purchases"),
-        canManageStatus ? api.get("/purchases", { params: { status: "pending" } }) : Promise.resolve({ data: [] }),
       ]);
-      setItems(Array.isArray(listRes.data) ? listRes.data : []);
-      setAllItems(Array.isArray(allRes.data) ? allRes.data : []);
-      setPendingQueue(Array.isArray(pendingRes.data) ? pendingRes.data : []);
+      const list = Array.isArray(listRes.data) ? listRes.data : [];
+      const all = Array.isArray(allRes.data) ? allRes.data : [];
+      setItems(list);
+      setAllItems(all);
+      if (canManageStatus) {
+        const queueSource = filterMonth ? list : all;
+        setPendingQueue(queueSource.filter((p) => isAwaitingAction(p.status)));
+      } else {
+        setPendingQueue([]);
+      }
     } catch (e) {
       setItems([]);
       setAllItems([]);
@@ -196,7 +241,7 @@ export default function Purchases({ embedded = false }) {
 
   useEffect(() => {
     load();
-  }, [filterStatus, filterMonth]);
+  }, [filterMonth]);
 
   useEffect(() => {
     Promise.all([
@@ -211,11 +256,9 @@ export default function Purchases({ embedded = false }) {
   }, []);
 
   const totals = useMemo(() => {
-    const sum = items.reduce((acc, p) => acc + (computePurchaseTotal(p) || 0), 0);
-    const byStatus = { pending: 0, approved: 0, reimbursed: 0 };
-    items.forEach(p => { if (byStatus[p.status] != null) byStatus[p.status]++; });
-    return { sum, byStatus, count: items.length };
-  }, [items]);
+    const sum = displayedItems.reduce((acc, p) => acc + (computePurchaseTotal(p) || 0), 0);
+    return { sum, count: displayedItems.length };
+  }, [displayedItems]);
 
   const toggleTherapist = (id) => {
     setSettings(s => {
@@ -282,6 +325,7 @@ export default function Purchases({ embedded = false }) {
   const [reviewNote, setReviewNote] = useState("");
 
   const updateStatus = async (id, status, opts = {}) => {
+    setStatusBusyId(id);
     try {
       await api.put(`/purchases/${id}`, {
         status,
@@ -290,10 +334,56 @@ export default function Purchases({ embedded = false }) {
         reimbursement_date: status === "reimbursed" ? new Date().toISOString().slice(0, 10) : undefined,
       });
       setReviewNote("");
-      load();
+      await load();
     } catch (e) {
       alert(formatErr(e.response?.data?.detail) || e.message);
+    } finally {
+      setStatusBusyId("");
     }
+  };
+
+  const renderStatusActions = (p, compact = false) => {
+    if (!p || !canManageStatus) return null;
+    const busy = statusBusyId === p.id;
+    const btn = compact ? "purchases-act-btn purchases-act-btn--sm" : "purchases-act-btn";
+    const canReimburse = ["manager_approved", "pending_manager", "supervisor_approved", "approved", "pending"].includes(p.status || "");
+
+    // Admin has both roles — one clear set of actions
+    if (canManagerFinalize && canSupervisorReview) {
+      return (
+        <div className="purchases-act-row" onClick={(e) => e.stopPropagation()}>
+          <button type="button" className={`${btn} purchases-act-btn--ok`} disabled={busy} onClick={() => updateStatus(p.id, "manager_approved")}>Approve</button>
+          <button type="button" className={`${btn} purchases-act-btn--no`} disabled={busy} onClick={() => updateStatus(p.id, "manager_rejected")}>Reject</button>
+          {isAwaitingAction(p.status) && p.status !== "pending_manager" && (
+            <button type="button" className={`${btn} purchases-act-btn--fwd`} disabled={busy} onClick={() => updateStatus(p.id, "supervisor_approved", { forward: true })}>To Jenan</button>
+          )}
+          {canReimburse && (
+            <button type="button" className={`${btn} purchases-act-btn--pay`} disabled={busy} onClick={() => updateStatus(p.id, "reimbursed")}>Reimburse</button>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div className="purchases-act-row" onClick={(e) => e.stopPropagation()}>
+        {canSupervisorReview && isAwaitingAction(p.status) && p.status !== "pending_manager" && (
+          <>
+            <button type="button" className={`${btn} purchases-act-btn--ok`} disabled={busy} onClick={() => updateStatus(p.id, "supervisor_approved")}>Approve</button>
+            <button type="button" className={`${btn} purchases-act-btn--no`} disabled={busy} onClick={() => updateStatus(p.id, "supervisor_rejected")}>Reject</button>
+            <button type="button" className={`${btn} purchases-act-btn--fwd`} disabled={busy} onClick={() => updateStatus(p.id, "supervisor_approved", { forward: true })}>To Jenan</button>
+          </>
+        )}
+        {canManagerFinalize && (
+          <>
+            <button type="button" className={`${btn} purchases-act-btn--ok`} disabled={busy} onClick={() => updateStatus(p.id, "manager_approved")}>Approve</button>
+            <button type="button" className={`${btn} purchases-act-btn--no`} disabled={busy} onClick={() => updateStatus(p.id, "manager_rejected")}>Reject</button>
+            {canReimburse && (
+              <button type="button" className={`${btn} purchases-act-btn--pay`} disabled={busy} onClick={() => updateStatus(p.id, "reimbursed")}>Reimburse</button>
+            )}
+          </>
+        )}
+      </div>
+    );
   };
 
   const deletePurchase = async (id) => {
@@ -389,9 +479,9 @@ export default function Purchases({ embedded = false }) {
       ? allItems.filter((p) => purchaseMonthKey(p) === filterMonth)
       : allItems;
     return base.filter((p) => {
+      if (!statusMatchesFilter(p.status, filterStatus)) return false;
       if (filterCategory && (p.category || "") !== filterCategory) return false;
       if (filterTherapist && String(p.therapist_id || "") !== String(filterTherapist)) return false;
-      if (filterStatus && p.status !== filterStatus) return false;
       return true;
     });
   }, [allItems, filterMonth, filterCategory, filterTherapist, filterStatus]);
@@ -479,45 +569,44 @@ export default function Purchases({ embedded = false }) {
             {canManageStatus && pendingQueue.length > 0 && (
               <div className="purchases-pending-strip">
                 <div className="text-[11px] font-bold mb-1.5 flex items-center gap-1.5" style={{ color: "#8A3F27" }}>
-                  <Hourglass size={14} weight="duotone" /> {pendingQueue.length} {pageSettings.pending_strip_label || "pending — click to review"}
+                  <Hourglass size={14} weight="duotone" /> {pendingQueue.length} awaiting review — click a row below or here
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {pendingQueue.map((p) => (
+                  {pendingQueue.slice(0, 12).map((p) => (
                     <button
                       key={p.id}
                       type="button"
                       onClick={() => setSelectedId(p.id)}
                       className={`text-left px-2.5 py-1.5 rounded-lg border text-[11px] ${selectedId === p.id ? "border-[#7A8A6A] bg-[#E5EBE1]" : "border-[#EDE9E3] bg-white"}`}
                     >
-                      <span className="font-semibold">{p.item}</span>
+                      <span className="font-semibold block">{resolvePurchaserName(p)}</span>
+                      <span className="font-medium">{p.item}</span>
                       <span className="mx-1" style={{ color: "#8B9E7A" }}>·</span>
                       <span style={{ color: "#6B5218" }}>{fmtMoney(p)}</span>
                     </button>
                   ))}
+                  {pendingQueue.length > 12 && (
+                    <span className="text-[10px] self-center" style={{ color: "#8B9E7A" }}>+{pendingQueue.length - 12} more</span>
+                  )}
                 </div>
-                {selected && pendingQueue.some((p) => p.id === selected.id) && (
-                  <div className="mt-2 pt-2 border-t flex flex-col gap-2" style={{ borderColor: "#EDE9E3" }}>
-                    {canSupervisorReview && ["pending", "supervisor_approved"].includes(selected.status) && (
-                      <>
-                        <textarea className="modal-input text-xs" rows={2} placeholder="Note (optional)" value={reviewNote} onChange={e => setReviewNote(e.target.value)} />
-                        <div className="flex flex-wrap gap-2">
-                          <button type="button" className="btn btn-secondary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "supervisor_approved")}>Approve</button>
-                          <button type="button" className="btn btn-outline text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "supervisor_rejected")}>Reject</button>
-                          <button type="button" className="btn btn-primary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "supervisor_approved", { forward: true })}>Forward to Jenan</button>
-                        </div>
-                      </>
-                    )}
-                    {canManagerFinalize && ["pending_manager", "supervisor_approved", "manager_approved"].includes(selected.status) && (
-                      <div className="flex flex-wrap gap-2">
-                        <button type="button" className="btn btn-secondary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "manager_approved")}>Final approve</button>
-                        <button type="button" className="btn btn-outline text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "manager_rejected")}>Reject</button>
-                        <button type="button" className="btn btn-primary text-[10px] py-1 px-2" onClick={() => updateStatus(selected.id, "reimbursed")}>Mark reimbursed</button>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             )}
+
+            <div className="purchases-status-chips" role="tablist" aria-label="Filter by status">
+              {STATUS_FILTER_CHIPS.map((chip) => (
+                <button
+                  key={chip.id || "all"}
+                  type="button"
+                  role="tab"
+                  aria-selected={filterStatus === chip.id}
+                  className={`purchases-status-chip${filterStatus === chip.id ? " is-active" : ""}`}
+                  onClick={() => setFilterStatus(chip.id)}
+                >
+                  <span>{chip.label}</span>
+                  <strong>{statusCounts[chip.id] ?? 0}</strong>
+                </button>
+              ))}
+            </div>
 
             <div className="purchases-split">
               <section className="purchases-main-panel">
@@ -539,25 +628,30 @@ export default function Purchases({ embedded = false }) {
                   )}
                 </div>
                 <div className="purchases-main-scroll">
-                  <table className="intake-table">
+                  <table className="intake-table purchases-table">
                     <thead>
                       <tr>
                         <th>#</th>
+                        {showPurchaserCol && <th>Specialist</th>}
                         <th>Purchase</th>
-                        {canPickPurchaser && <th>Purchaser</th>}
                         <th>Date</th>
                         <th>Total</th>
                         <th>Status</th>
-                        <th>Actions</th>
+                        {canManageStatus && <th>Update</th>}
                       </tr>
                     </thead>
                     <tbody>
                       {displayedItems.length === 0 && (
-                        <tr><td colSpan={canPickPurchaser ? 7 : 6} className="text-center py-8" style={{ color: "#8B9E7A" }}>{pageSettings.empty_list_message || "No purchases found"}</td></tr>
+                        <tr>
+                          <td colSpan={(showPurchaserCol ? 6 : 5) + (canManageStatus ? 1 : 0)} className="text-center py-8" style={{ color: "#8B9E7A" }}>
+                            {pageSettings.empty_list_message || "No purchases found"}
+                          </td>
+                        </tr>
                       )}
                       {displayedItems.map((p, i) => {
                         const st = STATUS_META[p.status] || STATUS_META.pending;
                         const active = selectedId === p.id;
+                        const specialist = resolvePurchaserName(p);
                         return (
                           <tr
                             key={p.id}
@@ -566,27 +660,34 @@ export default function Purchases({ embedded = false }) {
                             style={{ cursor: "pointer" }}
                           >
                             <td>{p.row_no || i + 1}</td>
+                            {showPurchaserCol && (
+                              <td>
+                                <div className="purchases-specialist-name">{specialist}</div>
+                              </td>
+                            )}
                             <td>
                               {p.category && (
                                 <div className="text-[10px] font-semibold mb-0.5" style={{ color: "#606E52" }}>{p.category}</div>
                               )}
                               <div className="font-semibold text-sm" style={{ color: "#2C3625" }}>{p.item}</div>
+                              {!showPurchaserCol && (
+                                <div className="text-[10px]" style={{ color: "#8B9E7A" }}>{specialist}</div>
+                              )}
                               <div className="text-[10px]" style={{ color: "#8B9E7A" }}>
                                 {formatMonthValue(p.purchase_month)} · Qty {p.qty || "—"}
                               </div>
                             </td>
-                            {canPickPurchaser && <td className="text-xs">{resolvePurchaserName(p)}</td>}
                             <td className="text-xs whitespace-nowrap">{fmtDate(p.purchase_date)}</td>
                             <td className="text-xs font-bold whitespace-nowrap" style={{ color: "#6B5218" }}>{fmtMoney(p)}</td>
-                            <td><span className={`pill text-[10px] ${st.cls}`}>{st.label}</span></td>
-                            <td onClick={(e) => e.stopPropagation()}>
-                              {canSupervisorReview && ["pending", "supervisor_approved"].includes(p.status) && (
-                                <button type="button" className="text-[10px] underline mr-1" onClick={() => updateStatus(p.id, "supervisor_approved")}>Approve</button>
-                              )}
-                              {canManagerFinalize && ["pending_manager", "manager_approved"].includes(p.status) && (
-                                <button type="button" className="text-[10px] underline" onClick={() => updateStatus(p.id, "reimbursed")}>Reimburse</button>
-                              )}
+                            <td>
+                              <span className={`pill purchases-status-pill text-[10px] ${st.cls}`}>
+                                <span className="purchases-status-pill-icon">{st.icon}</span>
+                                {st.label}
+                              </span>
                             </td>
+                            {canManageStatus && (
+                              <td>{renderStatusActions(p, true)}</td>
+                            )}
                           </tr>
                         );
                       })}
@@ -637,23 +738,17 @@ export default function Purchases({ embedded = false }) {
                   <div className="flex flex-col gap-1.5">
                     <input
                       className="input text-xs py-1.5"
-                      placeholder={pageSettings.search_placeholder || "Search…"}
+                      placeholder={pageSettings.search_placeholder || "Search name, item…"}
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                     />
-                    <select className="input text-xs py-1.5" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-                      <option value="">All statuses</option>
-                      <option value="pending">Pending</option>
-                      <option value="approved">Approved</option>
-                      <option value="reimbursed">Reimbursed</option>
-                    </select>
                     <select className="input text-xs py-1.5" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
                       <option value="">All categories</option>
                       {categories.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                     {canManageStatus && (
                       <select className="input text-xs py-1.5" value={filterTherapist} onChange={e => setFilterTherapist(e.target.value)}>
-                        <option value="">All staff</option>
+                        <option value="">All specialists</option>
                         {therapistOptions.map((t) => (
                           <option key={t.id} value={t.id}>{t.label}</option>
                         ))}
@@ -672,10 +767,14 @@ export default function Purchases({ embedded = false }) {
                 <div className="purchases-sidebar-section">
                   <div className="text-[10px] font-bold tracking-wider mb-1.5" style={{ color: "#8B9E7A" }}>SELECTED</div>
                   {!selected ? (
-                    <div className="text-[10px]" style={{ color: "#8B9E7A" }}>Click a purchase to view full amount & line items</div>
+                    <div className="text-[10px]" style={{ color: "#8B9E7A" }}>Click a purchase to review details & update status</div>
                   ) : (
                     <div className="space-y-2">
-                      <div className="font-bold text-xs" style={{ color: "#2C3625" }}>{selected.item}</div>
+                      <div>
+                        <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>SPECIALIST</div>
+                        <div className="font-bold text-sm" style={{ color: "#2C3625" }}>{resolvePurchaserName(selected)}</div>
+                      </div>
+                      <div className="font-bold text-xs" style={{ color: "#5C6853" }}>{selected.item}</div>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="p-2.5 rounded-xl border col-span-2" style={{ borderColor: "#E2DDD4", background: "#FAFAF7" }}>
                           <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>TOTAL</div>
@@ -707,6 +806,24 @@ export default function Purchases({ embedded = false }) {
                       )}
                       {selected.description && selected.description !== "-" && (
                         <p className="text-[10px] m-0" style={{ color: "#8B9E7A" }}>{selected.description}</p>
+                      )}
+                      {canManageStatus && (
+                        <div className="pt-2 border-t space-y-2" style={{ borderColor: "#EDE9E3" }}>
+                          <div className="text-[10px] font-bold tracking-wider" style={{ color: "#8B9E7A" }}>UPDATE STATUS</div>
+                          <textarea
+                            className="modal-input text-xs"
+                            rows={2}
+                            placeholder="Note (optional)"
+                            value={reviewNote}
+                            onChange={(e) => setReviewNote(e.target.value)}
+                          />
+                          {renderStatusActions(selected, false)}
+                          {canDelete && (
+                            <button type="button" className="btn btn-outline text-[10px] py-1 w-full" onClick={() => deletePurchase(selected.id)}>
+                              <Trash size={12} /> Delete
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}

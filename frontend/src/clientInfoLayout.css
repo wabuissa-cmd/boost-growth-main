@@ -1467,6 +1467,136 @@
   background: #FFFBF8;
 }
 
+.purchases-status-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.purchases-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid #E2DDD4;
+  background: #FAFAF7;
+  color: #5C6853;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.purchases-status-chip strong {
+  font-size: 0.65rem;
+  font-weight: 700;
+  min-width: 1.1rem;
+  text-align: center;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: rgba(92, 104, 83, 0.1);
+}
+
+.purchases-status-chip:hover {
+  border-color: #B4C2A9;
+  background: #F3F5F0;
+}
+
+.purchases-status-chip.is-active {
+  border-color: #7A8A6A;
+  background: #E5EBE1;
+  color: #2C3625;
+}
+
+.purchases-status-chip.is-active strong {
+  background: rgba(61, 79, 53, 0.15);
+  color: #3D4F35;
+}
+
+.purchases-specialist-name {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #2C3625;
+  line-height: 1.25;
+  max-width: 9.5rem;
+}
+
+.purchases-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
+.purchases-status-pill-icon {
+  display: inline-flex;
+  line-height: 0;
+}
+
+.purchases-act-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+}
+
+.purchases-act-btn {
+  border: 1px solid #E2DDD4;
+  background: #fff;
+  color: #3D4F35;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.3rem 0.55rem;
+  border-radius: 8px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.purchases-act-btn:hover:not(:disabled) {
+  filter: brightness(0.97);
+}
+
+.purchases-act-btn:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.purchases-act-btn--sm {
+  padding: 0.22rem 0.4rem;
+  font-size: 0.6rem;
+  border-radius: 6px;
+}
+
+.purchases-act-btn--ok {
+  background: #E5EBE1;
+  border-color: #B4C2A9;
+  color: #3D4F35;
+}
+
+.purchases-act-btn--no {
+  background: #F8EBE7;
+  border-color: #ECA6A6;
+  color: #8A3F27;
+}
+
+.purchases-act-btn--fwd {
+  background: #EAF0F3;
+  border-color: #A4BCCB;
+  color: #375568;
+}
+
+.purchases-act-btn--pay {
+  background: #FAF0D1;
+  border-color: #E6C983;
+  color: #6B5218;
+}
+
+.purchases-table td {
+  vertical-align: middle;
+}
+
 @media (max-width: 900px) {
   .purchases-workspace {
     max-height: none;

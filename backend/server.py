@@ -13360,13 +13360,26 @@ async def update_purchase(pid: str, payload: PurchaseUpdate, user=Depends(get_cu
     trail = list(existing.get("approval_trail") or [])
     if new_status is not None:
         new_status = _normalize_purchase_status(new_status)
+        # Portal admin (both roles) may set any normalized status.
         if is_manager and not is_supervisor:
-            if new_status in ("manager_approved", "approved", "reimbursed"):
-                new_status = "manager_approved" if new_status != "reimbursed" else "reimbursed"
+            # Jenan: can decide on pending, forwarded, or already-reviewed rows.
+            if new_status in ("manager_approved", "approved"):
+                new_status = "manager_approved"
+            elif new_status == "reimbursed":
+                new_status = "reimbursed"
             elif new_status in ("manager_rejected", "rejected"):
                 new_status = "manager_rejected"
-            elif prev_status not in ("pending_manager", "manager_approved", "supervisor_approved", "approved"):
-                raise HTTPException(status_code=403, detail="Manager can only act on forwarded purchases")
+            elif new_status in ("pending", "pending_manager"):
+                pass
+            elif prev_status not in (
+                "pending",
+                "pending_manager",
+                "manager_approved",
+                "supervisor_approved",
+                "approved",
+                "manager_rejected",
+            ):
+                raise HTTPException(status_code=403, detail="Manager can only act on reviewable purchases")
         elif is_supervisor and not is_manager:
             if new_status in ("supervisor_approved", "approved"):
                 new_status = "supervisor_approved"
@@ -13374,6 +13387,8 @@ async def update_purchase(pid: str, payload: PurchaseUpdate, user=Depends(get_cu
                 new_status = "supervisor_rejected"
             elif new_status == "pending":
                 new_status = "pending"
+            elif new_status == "pending_manager":
+                new_status = "pending_manager"
             else:
                 raise HTTPException(status_code=400, detail="Supervisor: use approved, rejected, or pending")
         elif not (is_supervisor or is_manager):
