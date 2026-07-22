@@ -3277,7 +3277,8 @@ MASTER_CLIENTS = [
 CLIENT_NAME_AR: dict = {}
 
 # Mistaken / retired file numbers — purged on startup, never re-seeded.
-REMOVED_CLIENT_FILE_NOS = frozenset({"076", "081", "082", "083", "084"})
+# 081 Naief Alwuhaibi reactivated (active on schedule + Drive attendance again).
+REMOVED_CLIENT_FILE_NOS = frozenset({"076", "082", "083", "084"})
 
 async def _resolve_therapist_id(key_to_id: dict, key: str) -> Optional[str]:
     return key_to_id.get(key)
@@ -6782,6 +6783,7 @@ SCHEDULE_CHILD_NAME_ALIASES = {
     "ameerah": "ameirah",
     "mohmmed": "mohammed",
     "alaqeel": "alaqel",
+    "naif": "naief",
 }
 
 # Schedule grid abbreviations (e.g. "Abdulaziz A" on Shatha's row)
@@ -6799,6 +6801,12 @@ SCHEDULE_SHORT_LABEL_FILES = {
     "mohammed alaqeel": "027",
     "mohammed alaqel": "027",
     "mohmmed alaqel": "027",
+    "naif": "081",
+    "naief": "081",
+    "naif alwuhaibi": "081",
+    "naief alwuhaibi": "081",
+    "naif alwhibi": "081",
+    "naief alwhibi": "081",
 }
 
 

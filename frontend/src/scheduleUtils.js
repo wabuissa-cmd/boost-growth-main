@@ -318,6 +318,7 @@ const SCHEDULE_CHILD_NAME_ALIASES = {
   ameerah: "ameirah",
   mohmmed: "mohammed",
   alaqeel: "alaqel",
+  naif: "naief",
 };
 
 function applyScheduleChildNameAliases(name) {
@@ -347,6 +348,12 @@ const SCHEDULE_SHORT_LABEL_FILES = {
   "mohammed alaqeel": "027",
   "mohammed alaqel": "027",
   "mohmmed alaqel": "027",
+  "naif": "081",
+  "naief": "081",
+  "naif alwuhaibi": "081",
+  "naief alwuhaibi": "081",
+  "naif alwhibi": "081",
+  "naief alwhibi": "081",
 };
 
 function lookupClientByLabel(label, clients = []) {
