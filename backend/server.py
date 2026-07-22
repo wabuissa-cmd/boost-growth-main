@@ -1539,6 +1539,7 @@ class SessionIn(BaseModel):
     note: Optional[str] = None
     location: Optional[str] = None  # which location used (HS / SS)
     service_type: Optional[str] = None  # HS / SS — links session to open invoice
+    schedule_cell_id: Optional[str] = None  # grid cell when logging from Schedule
 
 
 def _session_hours_from_times(start_time: Optional[str], end_time: Optional[str]) -> Optional[float]:
@@ -4571,6 +4572,11 @@ async def _cell_matches_session_client(cell: dict, client_id: str) -> bool:
     if not client:
         return False
     cname = (client.get("name") or "").strip()
+    if label and cname:
+        c_compact = re.sub(r"\s+", "", cname.lower())
+        l_compact = re.sub(r"\s+", "", label.lower())
+        if c_compact and l_compact and (c_compact == l_compact or c_compact in l_compact or l_compact in c_compact):
+            return True
     cfirst = cname.split()[0].lower() if cname else ""
     if not cfirst or len(cfirst) < 3:
         return False
@@ -4714,6 +4720,7 @@ async def _ensure_session_schedule_prep_markers(
     for tid in [t for t in (sess.get("therapist_ids") or []) if t]:
         cell = await _resolve_schedule_cell_for_prep(
             tid, client_id, session_date, client_name=client_name,
+            stale_cell_id=sess.get("schedule_cell_id"),
         )
         try:
             if cell:
@@ -5834,6 +5841,30 @@ async def relink_schedule_prep(week_start: str = Query(...), user=Depends(get_cu
     }
 
 
+@api.post("/admin/sync-schedule-caseload")
+async def admin_sync_schedule_caseload(
+    week_start: str = Query(...),
+    relink_prep: bool = Query(True),
+    user=Depends(ops_or_admin),
+):
+    """Grant specialists caseload access from schedule grid + optionally relink prep badges."""
+    ws = _normalize_week_start(week_start)
+    caseload = await _sync_co_therapists_from_schedule_week(ws)
+    result = {"ok": True, "caseload": caseload}
+    if relink_prep:
+        try:
+            base = datetime.fromisoformat(str(ws)[:10])
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid week_start")
+        start = base.strftime("%Y-%m-%d")
+        end = (base + timedelta(days=4)).strftime("%Y-%m-%d")
+        before = await _prep_week_diagnostics(start, end)
+        recovery = await _sync_schedule_preparations_for_week(start, end)
+        after = await _prep_week_diagnostics(start, end)
+        result["prep"] = {"before": before, "after": after, "recovery": recovery}
+    return result
+
+
 @api.post("/admin/fix-fahda-saleh-prep-badge")
 async def admin_fix_fahda_saleh_prep_badge(
     week_start: str = Query("2026-06-28"),
@@ -6013,7 +6044,12 @@ async def mark_schedule_preparation(payload: SchedulePreparationIn, user=Depends
         uid = await _resolve_user_therapist_id(user) or user.get("id")
         if payload.therapist_id != uid:
             raise HTTPException(status_code=403, detail="Forbidden")
-        if not await _therapist_assigned_to_client(uid, payload.client_id):
+        if not await _therapist_can_access_client(
+            uid,
+            payload.client_id,
+            schedule_cell_id=payload.schedule_cell_id,
+            child_name=payload.cell_child_name or "",
+        ):
             raise HTTPException(status_code=403, detail="Forbidden")
     anchor_cell = await _validate_prep_client_matches_cell(
         schedule_cell_id=payload.schedule_cell_id,
@@ -6047,7 +6083,12 @@ async def update_schedule_preparation_note(payload: SchedulePreparationNoteIn, u
         uid = await _resolve_user_therapist_id(user) or user.get("id")
         if payload.therapist_id != uid:
             raise HTTPException(status_code=403, detail="Forbidden")
-        if not await _therapist_assigned_to_client(uid, payload.client_id):
+        if not await _therapist_can_access_client(
+            uid,
+            payload.client_id,
+            schedule_cell_id=payload.schedule_cell_id,
+            child_name=payload.cell_child_name or "",
+        ):
             raise HTTPException(status_code=403, detail="Forbidden")
     session_date = (payload.session_date or "")[:10]
     slot = (payload.time_slot or "").strip()
@@ -6095,7 +6136,7 @@ async def list_client_prep_history(
         raise HTTPException(status_code=404, detail="Client not found")
     if user.get("role") == "therapist" and not _has_full_client_access(user):
         uid = await _resolve_user_therapist_id(user) or user["id"]
-        if not await _therapist_assigned_to_client(uid, cid):
+        if not await _therapist_can_access_client(uid, cid):
             raise HTTPException(status_code=403, detail="Forbidden")
     # Heavy backfill/dedupe is admin-only (repair=true) — never block normal page loads.
     if repair:
@@ -6155,7 +6196,11 @@ async def link_prep_history_invoice(hid: str, payload: PrepHistoryInvoiceLinkIn,
         raise HTTPException(status_code=404, detail="Not found")
     if user.get("role") == "therapist" and not _has_full_client_access(user):
         uid = await _resolve_user_therapist_id(user) or user["id"]
-        if not await _therapist_assigned_to_client(uid, rec["client_id"]):
+        if not await _therapist_can_access_client(
+            uid,
+            rec["client_id"],
+            schedule_cell_id=rec.get("schedule_cell_id"),
+        ):
             raise HTTPException(status_code=403, detail="Forbidden")
     patch: dict = {}
     if payload.invoice_id is not None:
@@ -6868,16 +6913,107 @@ async def _ensure_co_therapist_from_schedule(therapist_id: str, child_name: Opti
     await db.clients.update_one({"id": client["id"]}, {"$set": {"co_therapist_ids": co_ids}})
 
 
+async def _ensure_co_therapist_from_schedule_cell(cell: dict) -> None:
+    """Grant caseload access from a schedule grid cell (note or child_name)."""
+    if not cell:
+        return
+    label = _schedule_cell_child_label(cell)
+    tid = cell.get("therapist_id")
+    if label and tid:
+        await _ensure_co_therapist_from_schedule(tid, label)
+
+
+async def _scheduled_client_ids_for_therapist(therapist_id: str, weeks_back: int = 3) -> set:
+    """Client ids appearing on this therapist's schedule grid (recent weeks)."""
+    if not therapist_id:
+        return set()
+    today = datetime.fromisoformat(_business_today_iso()).date()
+    week_starts: set = set()
+    for delta in range(max(7, weeks_back * 7)):
+        d = today - timedelta(days=delta)
+        week_starts.add(_normalize_week_start(d.strftime("%Y-%m-%d")))
+    cells = await db.schedule_cells.find(
+        {
+            "therapist_id": therapist_id,
+            "week_start": {"$in": list(week_starts)},
+            "state": {"$nin": ["cancel_therapist", "available"]},
+            "service_code": {"$nin": ["LEAVE", "BREAK", "AVC", "AVAILABLE", ""]},
+        },
+        {"_id": 0},
+    ).to_list(4000)
+    out: set = set()
+    for cell in cells:
+        label = _schedule_cell_child_label(cell)
+        if not label:
+            continue
+        matched = await _find_client_by_schedule_child_name(label)
+        if matched and matched.get("id"):
+            out.add(matched["id"])
+    return out
+
+
+async def _sync_co_therapists_from_schedule_week(week_start: str) -> dict:
+    """Backfill co-therapist access from all client sessions on a schedule week."""
+    ws = _normalize_week_start(week_start)
+    cells = await db.schedule_cells.find(
+        {
+            "week_start": ws,
+            "state": {"$nin": ["cancel_therapist", "available"]},
+            "service_code": {"$nin": ["LEAVE", "BREAK", "AVC", "AVAILABLE", ""]},
+        },
+        {"_id": 0},
+    ).to_list(5000)
+    processed = 0
+    for cell in cells:
+        label = _schedule_cell_child_label(cell)
+        if not label or not cell.get("therapist_id"):
+            continue
+        await _ensure_co_therapist_from_schedule_cell(cell)
+        processed += 1
+    return {"week_start": ws, "cells": len(cells), "processed": processed}
+
+
+async def _therapist_can_access_client(
+    therapist_id: str,
+    client_id: str,
+    *,
+    schedule_cell_id: Optional[str] = None,
+    child_name: str = "",
+) -> bool:
+    """Main/co caseload OR scheduled on the grid for this client."""
+    if await _therapist_assigned_to_client(therapist_id, client_id):
+        return True
+    cell = None
+    if schedule_cell_id:
+        cell = await db.schedule_cells.find_one({"id": schedule_cell_id}, {"_id": 0})
+        if cell and cell.get("therapist_id") == therapist_id:
+            if await _cell_matches_session_client(cell, client_id):
+                await _ensure_co_therapist_from_schedule_cell(cell)
+                return True
+    client = await db.clients.find_one(
+        _active_client_filter({"id": client_id}),
+        {"_id": 0, "id": 1, "name": 1, "main_therapist_id": 1, "co_therapist_ids": 1},
+    )
+    if not client:
+        return False
+    label = child_name or (_schedule_cell_child_label(cell) if cell else "") or (client.get("name") or "")
+    if await _therapist_scheduled_for_client(therapist_id, client, label):
+        await _ensure_co_therapist_from_schedule(therapist_id, label)
+        return True
+    return False
+
+
 @api.post("/schedule")
 async def create_schedule_cell(payload: ScheduleCellIn, _=Depends(schedule_edit_or_admin)):
     cid = str(uuid.uuid4())
     doc = _strip_session_cell_color({"id": cid, **payload.model_dump(), "created_at": now_iso()})
     await db.schedule_cells.insert_one(doc)
     doc.pop("_id", None)
-    if doc.get("child_name"):
-        await _ensure_co_therapist_from_schedule(doc.get("therapist_id"), doc.get("child_name"))
+    await _ensure_co_therapist_from_schedule_cell(doc)
+    label = _schedule_cell_child_label(doc)
+    if label:
         try:
-            c = await _find_client_by_schedule_child_name(doc.get("child_name"))
+            c = await _find_client_by_schedule_child_name(label)
             if c and c.get("id"):
                 await _apply_client_auto_status(c["id"])
         except Exception:
@@ -6903,10 +7039,11 @@ async def update_schedule_cell(cid: str, payload: ScheduleCellIn, user=Depends(s
     update["state"] = _normalize_schedule_cell_state(update.get("state"))
     await db.schedule_cells.update_one({"id": cid}, {"$set": update})
     cell = await db.schedule_cells.find_one({"id": cid}, {"_id": 0})
-    if cell and cell.get("child_name"):
-        await _ensure_co_therapist_from_schedule(cell.get("therapist_id"), cell.get("child_name"))
+    await _ensure_co_therapist_from_schedule_cell(cell)
+    label = _schedule_cell_child_label(cell or {})
+    if label:
         try:
-            c = await _find_client_by_schedule_child_name(cell.get("child_name"))
+            c = await _find_client_by_schedule_child_name(label)
             if c and c.get("id"):
                 await _apply_client_auto_status(c["id"])
         except Exception:
@@ -7030,12 +7167,25 @@ async def schedule_notification_receipts(cid: str, _=Depends(schedule_edit_or_ad
 # ------------------- Clients & Sessions -------------------
 @api.get("/clients")
 async def list_clients(user=Depends(get_current_user)):
-    if _has_full_client_access(user):
-        return await db.clients.find(_active_client_filter(), {"_id": 0}).sort("file_no", 1).to_list(500)
-    # therapist: see only assigned (main or co)
     items = await db.clients.find(_active_client_filter(), {"_id": 0}).sort("file_no", 1).to_list(500)
-    uid = user["id"]
-    return [c for c in items if c.get("main_therapist_id") == uid or uid in (c.get("co_therapist_ids") or [])]
+    if _has_full_client_access(user):
+        return items
+    tid = await _resolve_user_therapist_id(user) or user.get("id")
+    seen: set = set()
+    out: list = []
+    for c in items:
+        if c.get("main_therapist_id") == tid or tid in (c.get("co_therapist_ids") or []):
+            out.append(c)
+            seen.add(c["id"])
+    scheduled_ids = await _scheduled_client_ids_for_therapist(tid)
+    for cid in scheduled_ids:
+        if cid in seen:
+            continue
+        c = next((x for x in items if x.get("id") == cid), None)
+        if c:
+            out.append(c)
+            seen.add(cid)
+    return out
 
 
 @api.get("/clients/supervision-caseload")
@@ -7534,21 +7684,34 @@ async def resolve_client_by_schedule_name(
 ):
     """Resolve a schedule cell child_name to a client the current user may log sessions for."""
     label = (child_name or "").strip()
-    client = await _find_client_by_schedule_child_name(label)
+    cell = None
     if schedule_cell_id:
         cell = await db.schedule_cells.find_one({"id": schedule_cell_id}, {"_id": 0})
         if cell:
             cell_label = _schedule_cell_child_label(cell)
+            if cell_label:
+                label = cell_label
             alt = await _find_client_by_schedule_child_name(cell_label or label)
             if alt:
                 client = alt
+            else:
+                client = await _find_client_by_schedule_child_name(label)
+        else:
+            client = await _find_client_by_schedule_child_name(label)
+    else:
+        client = await _find_client_by_schedule_child_name(label)
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     if _has_full_client_access(user):
+        if cell:
+            await _ensure_co_therapist_from_schedule_cell(cell)
         return await db.clients.find_one(_active_client_filter({"id": client["id"]}), {"_id": 0})
     tid = await _resolve_user_therapist_id(user)
     if not tid:
         raise HTTPException(status_code=403, detail="Access denied")
+    if cell and cell.get("therapist_id") == tid:
+        await _ensure_co_therapist_from_schedule_cell(cell)
+        return await db.clients.find_one(_active_client_filter({"id": client["id"]}), {"_id": 0})
     if await _therapist_scheduled_for_client(tid, client, label):
         await _ensure_co_therapist_from_schedule(tid, label)
         return await db.clients.find_one(_active_client_filter({"id": client["id"]}), {"_id": 0})
@@ -12196,6 +12359,14 @@ async def create_session(payload: SessionIn, user=Depends(get_current_user)):
     payload = _apply_session_time_edits(payload)
     _require_same_day_session(user, payload.session_date)
     _require_session_log_fields(user, payload)
+    if user.get("role") == "therapist" and not _has_full_client_access(user):
+        uid = await _resolve_user_therapist_id(user) or user.get("id")
+        if not await _therapist_can_access_client(
+            uid,
+            payload.client_id,
+            schedule_cell_id=payload.schedule_cell_id,
+        ):
+            raise HTTPException(status_code=403, detail="You are not scheduled for this client")
     sid = str(uuid.uuid4())
     resolved_uid = await _resolve_user_therapist_id(user) if user.get("role") == "therapist" else None
     therapist_ids = _merge_session_therapist_ids(payload.therapist_ids, user, resolved_uid)
@@ -12204,6 +12375,8 @@ async def create_session(payload: SessionIn, user=Depends(get_current_user)):
     doc = {"id": sid, **payload.model_dump(), "therapist_ids": therapist_ids,
            "created_by": user["id"], "created_by_role": user["role"],
            "created_at": now_iso()}
+    if payload.schedule_cell_id:
+        doc["schedule_cell_id"] = payload.schedule_cell_id
     doc["session_date"] = _session_date_iso(payload.session_date) or (payload.session_date or "")[:10]
     doc = _attach_open_invoice_to_session(doc, client or {}, invs)
     dup = await _find_duplicate_session_for_day(
@@ -19867,6 +20040,10 @@ async def _relink_prep_markers_after_schedule_import(week_start: str) -> None:
         return
     start = base.strftime("%Y-%m-%d")
     end = (base + timedelta(days=4)).strftime("%Y-%m-%d")
+    try:
+        await _sync_co_therapists_from_schedule_week(week_start)
+    except Exception:
+        logger.exception("Co-therapist sync failed after schedule import for %s", week_start)
     await _sync_schedule_preparations_for_week(start, end)
 
 

@@ -1164,6 +1164,7 @@ export default function Schedule() {
           params: { child_name: childName, schedule_cell_id: cell?.id || undefined },
         });
         client = data;
+        invalidateCache("/clients");
       } catch {
         alert(`Could not match "${childName}" to a client record. Please ask admin to verify the client name on this cell.`);
         return;

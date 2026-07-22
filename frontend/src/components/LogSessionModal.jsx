@@ -107,6 +107,7 @@ export default function LogSessionModal({
     const payload = buildSessionPayload(
       { ...form, status: normalizeSessionStatus(form.status) },
       client?.id,
+      scheduleContext,
     );
     if (scheduleContext?.therapist_id) {
       payload.therapist_ids = mergeSessionTherapistIds(

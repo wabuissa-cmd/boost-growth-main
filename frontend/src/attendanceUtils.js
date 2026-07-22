@@ -169,8 +169,8 @@ export function mergeSessionTherapistIds(currentIds, defaultIds) {
 }
 
 /** Payload fields accepted by POST/PUT /sessions */
-export function buildSessionPayload(form, clientId) {
-  return {
+export function buildSessionPayload(form, clientId, scheduleContext = null) {
+  const payload = {
     client_id: clientId || form.client_id,
     session_date: (form.session_date || "").slice(0, 10),
     start_time: form.start_time || null,
@@ -182,6 +182,9 @@ export function buildSessionPayload(form, clientId) {
     location: form.location || null,
     service_type: form.service_type || null,
   };
+  const cellId = scheduleContext?.schedule_cell_id || form.schedule_cell_id;
+  if (cellId) payload.schedule_cell_id = cellId;
+  return payload;
 }
 
 function computeHoursFromTimes(st, et) {
