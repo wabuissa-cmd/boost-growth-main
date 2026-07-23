@@ -13372,7 +13372,8 @@ async def purchase_categories(_=Depends(get_current_user)):
 
 
 @api.get("/purchases/reminder-settings")
-async def get_purchase_reminder_settings(_=Depends(ops_or_admin)):
+async def get_purchase_reminder_settings(_=Depends(get_current_user)):
+    """Readable by all staff; only ops can update via PUT."""
     return await _get_purchase_reminder_settings()
 
 

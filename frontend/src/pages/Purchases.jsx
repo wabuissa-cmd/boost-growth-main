@@ -11,7 +11,7 @@ import {
 } from "../components/Modal";
 import { getTherapistScheduleName } from "../scheduleConstants";
 import { yearMonthTabs, formatMonthValue, purchaseMonthKey, resolvePurchaseYear } from "../monthTabs";
-import { computePurchaseTotal, formatPurchaseTotal } from "../purchaseUtils";
+import { computePurchaseTotal, formatPurchaseTotal, DEFAULT_PURCHASE_CATEGORIES } from "../purchaseUtils";
 import { canAccessPurchases, canManagePurchaseStatus, canSupervisorReviewPurchases, canManagerFinalizePurchases, isJenan, isWalaaOps, showAdminNav, showSystemAdmin, useAuth } from "../auth";
 import { cachedGet, invalidateCache } from "../dataCache";
 import { mergePurchasesPageSettings, enabledTabs } from "../pageSettings";
@@ -104,7 +104,7 @@ export default function Purchases({ embedded = false }) {
   const [pendingQueue, setPendingQueue] = useState([]);
   const [selectedId, setSelectedId] = useState("");
   const [therapists, setTherapists] = useState([]);
-  const [categories, setCategories] = useState([]);
+  const [categories, setCategories] = useState(DEFAULT_PURCHASE_CATEGORIES);
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState(emptyPurchaseForm);
   const [submitting, setSubmitting] = useState(false);
@@ -244,15 +244,17 @@ export default function Purchases({ embedded = false }) {
   }, [filterMonth]);
 
   useEffect(() => {
-    Promise.all([
-      api.get("/therapists"),
-      api.get("/purchases/categories"),
-      api.get("/purchases/reminder-settings"),
-    ]).then(([t, c, s]) => {
-      setTherapists(t.data || []);
-      setCategories(c.data || []);
-      setSettings(s.data || { day_of_month: 25, enabled: true, therapist_ids: [] });
-    }).catch(() => {});
+    api.get("/therapists").then((t) => setTherapists(t.data || [])).catch(() => {});
+    api.get("/purchases/categories")
+      .then((c) => {
+        const list = Array.isArray(c.data) ? c.data.filter(Boolean) : [];
+        setCategories(list.length ? list : DEFAULT_PURCHASE_CATEGORIES);
+      })
+      .catch(() => setCategories(DEFAULT_PURCHASE_CATEGORIES));
+    // Reminder settings are ops-only — never block category load for specialists.
+    api.get("/purchases/reminder-settings")
+      .then((s) => setSettings(s.data || { day_of_month: 25, enabled: true, therapist_ids: [] }))
+      .catch(() => {});
   }, []);
 
   const totals = useMemo(() => {

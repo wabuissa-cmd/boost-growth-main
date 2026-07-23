@@ -5,7 +5,7 @@ import {
   ModalBase, FormSection, FormField,
   ModalBtnPrimary, ModalBtnSecondary,
 } from "./Modal";
-import { computePurchaseTotal, formatPurchaseTotal, parsePurchaseNumber, sumLineItems } from "../purchaseUtils";
+import { computePurchaseTotal, formatPurchaseTotal, parsePurchaseNumber, sumLineItems, DEFAULT_PURCHASE_CATEGORIES } from "../purchaseUtils";
 
 const STATUS_META = {
   pending: { label: "Pending", cls: "bg-[#FAF0D1] text-[#6B5218] border-[#E6C983]", icon: <Hourglass size={12} weight="duotone"/> },
@@ -82,7 +82,7 @@ function PurchaseTotalGrid({ purchase }) {
 
 export default function PurchasesPanel({ compact = true, onSubmitted }) {
   const [items, setItems] = useState([]);
-  const [categories, setCategories] = useState([]);
+  const [categories, setCategories] = useState(DEFAULT_PURCHASE_CATEGORIES);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
@@ -91,11 +91,12 @@ export default function PurchasesPanel({ compact = true, onSubmitted }) {
 
   const load = async () => {
     const [p, c] = await Promise.all([
-      api.get("/purchases"),
-      api.get("/purchases/categories").catch(() => ({ data: [] })),
+      api.get("/purchases").catch(() => ({ data: [] })),
+      api.get("/purchases/categories").catch(() => ({ data: DEFAULT_PURCHASE_CATEGORIES })),
     ]);
     setItems(Array.isArray(p.data) ? p.data : []);
-    setCategories(Array.isArray(c.data) ? c.data : []);
+    const list = Array.isArray(c.data) ? c.data.filter(Boolean) : [];
+    setCategories(list.length ? list : DEFAULT_PURCHASE_CATEGORIES);
   };
 
   useEffect(() => { load(); }, []);

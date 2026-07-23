@@ -1,3 +1,17 @@
+/** Fallback when /purchases/categories fails or is slow — keep in sync with backend PURCHASE_CATEGORIES. */
+export const DEFAULT_PURCHASE_CATEGORIES = [
+  "Events & Celebrations",
+  "Training & Workshops",
+  "Catering & Hospitality",
+  "Supplies & Materials",
+  "Services",
+  "Transportations",
+  "Software & Subscriptions",
+  "Marketing & Media",
+  "Decoration",
+  "Miscellaneous",
+];
+
 export function parsePurchaseNumber(v) {
   if (v == null) return null;
   const raw = String(v).trim();
